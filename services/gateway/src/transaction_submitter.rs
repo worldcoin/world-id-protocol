@@ -40,7 +40,7 @@ use self::probe::Probe;
 use crate::{
     batch_policy::BacklogUrgencyStats,
     batch_type::BatchType,
-    config::WalletConfig,
+    config::{WalletConfig, defaults},
     error::{GatewayError, GatewayResult},
     metrics,
     request_tracker::{BacklogScope, RequestTracker, now_unix_secs},
@@ -58,7 +58,7 @@ const RESOLVER_CONCURRENCY: usize = 4;
 ///
 /// The resolver must not conclude [`Probe::Absent`] while a broadcast may still
 /// be in progress, so `WALLET_ABSENT_GRACE_SECS` is validated to exceed this.
-pub(crate) const BROADCAST_TIMEOUT: Duration = Duration::from_secs(20);
+const BROADCAST_TIMEOUT: Duration = Duration::from_secs(defaults::BROADCAST_TIMEOUT_SECS);
 
 /// Whether a batch may be broadcast after its requests were guarded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +67,13 @@ enum BroadcastGuard {
     Proceed,
     /// Another owner resolved the requests, so the transaction must be discarded.
     Abandon,
+}
+
+impl BroadcastGuard {
+    /// Whether the batch must be abandoned rather than broadcast.
+    const fn is_abandon(self) -> bool {
+        matches!(self, Self::Abandon)
+    }
 }
 
 /// Result of one submission attempt.
@@ -209,12 +216,16 @@ impl TransactionSubmitter {
     /// by the node, because that outcome is ambiguous and is resolved by the
     /// background resolver instead.
     ///
+    /// Capacity problems (no free wallet, a lease lost while signing) and a
+    /// batch resolved elsewhere before broadcast are outcomes, not errors; see
+    /// [`SubmitOutcome`].
+    ///
     /// # Errors
     ///
-    /// Returns an error when no wallet became available, when signing failed,
-    /// or when the transaction could not be committed before broadcast. In the
-    /// last two cases nothing was broadcast, so the wallet is immediately
-    /// reusable.
+    /// Returns an error when signing failed, or when the commit failed and the
+    /// record does not hold this transaction. Nothing was broadcast in either
+    /// case. After a failed signature the lease is released at once; after a
+    /// failed commit it expires with the signing lease.
     pub(crate) async fn submit(
         &self,
         transaction: TransactionRequest,
@@ -678,8 +689,8 @@ impl TransactionSubmitter {
             )
             .await
         {
-            Ok(StatusWriteOutcome::Applied | StatusWriteOutcome::Guarded) => {}
-            Ok(StatusWriteOutcome::Missing) => {}
+            // Refused or missing: already adopted, or resolved by another owner.
+            Ok(_) => {}
             Err(error) => {
                 tracing::warn!(%error, "failed to adopt requests for an outstanding transaction");
             }
@@ -1074,12 +1085,5 @@ impl TransactionSubmitter {
     /// Lifetime of a committed wallet record.
     fn state_ttl(&self) -> Duration {
         Duration::from_secs(self.config.state_ttl_secs)
-    }
-}
-
-impl BroadcastGuard {
-    /// Whether the batch must be abandoned rather than broadcast.
-    const fn is_abandon(self) -> bool {
-        matches!(self, Self::Abandon)
     }
 }

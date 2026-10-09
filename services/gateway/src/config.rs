@@ -4,10 +4,7 @@ use alloy::primitives::Address;
 use clap::Parser;
 use world_id_services_common::ProviderArgs;
 
-use crate::{
-    error::{GatewayError, GatewayResult},
-    transaction_submitter::BROADCAST_TIMEOUT,
-};
+use crate::error::{GatewayError, GatewayResult};
 
 pub mod defaults {
     pub const MAX_CREATE_BATCH_SIZE: usize = 100;
@@ -22,15 +19,16 @@ pub mod defaults {
     pub const WALLET_RELEASE_CONFIRMATIONS: u64 = 1;
     pub const WALLET_RESOLUTION_TIMEOUT_SECS: u64 = 900;
     pub const WALLET_RESOLVER_INTERVAL_SECS: u64 = 2;
-    /// Comfortably above the submitter's 20s broadcast deadline.
+    /// Upper bound on one broadcast call, retries included.
+    pub const BROADCAST_TIMEOUT_SECS: u64 = 20;
+    /// Comfortably above `BROADCAST_TIMEOUT_SECS`.
     pub const WALLET_ABSENT_GRACE_SECS: u64 = 60;
     /// Bounded wait for a free wallet. Kept well below
     /// `STALE_QUEUED_THRESHOLD_SECS` so a batch waiting on capacity cannot be
     /// mistaken for an abandoned request.
     pub const WALLET_ACQUIRE_TIMEOUT_SECS: u64 = 20;
-    /// Slack added to the resolution timeout when deriving the in-flight lock
-    /// lifetime, so a lock never lapses while its request is still being
-    /// submitted.
+    /// Slack added to a request's longest non-terminal lifetime when deriving
+    /// the in-flight lock lifetime.
     pub const WALLET_INFLIGHT_TTL_MARGIN_SECS: u64 = 60;
 }
 
@@ -136,11 +134,17 @@ pub struct WalletConfig {
 }
 
 impl WalletConfig {
-    /// Lifetime of an in-flight lock, derived so it outlives the submission it
-    /// protects rather than being a fixed value that can lapse early.
+    /// Lifetime of an in-flight lock, derived from the longest a request can
+    /// stay non-terminal: queued until the sweeper's queued threshold, then
+    /// batching until its submitted threshold, then in flight until the
+    /// resolution timeout. Terminal writes release the lock earlier; the TTL
+    /// only bounds a lock nobody released.
     #[must_use]
-    pub const fn inflight_ttl_secs(&self) -> u64 {
-        self.resolution_timeout_secs + defaults::WALLET_INFLIGHT_TTL_MARGIN_SECS
+    pub const fn inflight_ttl_secs(&self, sweeper: &OrphanSweeperConfig) -> u64 {
+        sweeper.stale_queued_threshold_secs
+            + sweeper.stale_submitted_threshold_secs
+            + self.resolution_timeout_secs
+            + defaults::WALLET_INFLIGHT_TTL_MARGIN_SECS
     }
 }
 
@@ -183,7 +187,8 @@ pub struct WalletArgs {
     pub resolver_interval_secs: u64,
 
     /// How long after commit a transaction unknown to the chain may still be
-    /// mid-broadcast, in seconds. Must exceed the 20s broadcast deadline.
+    /// mid-broadcast, in seconds. Must exceed the broadcast deadline
+    /// (`defaults::BROADCAST_TIMEOUT_SECS`).
     #[arg(long, env = "WALLET_ABSENT_GRACE_SECS", default_value_t = defaults::WALLET_ABSENT_GRACE_SECS)]
     pub absent_grace_secs: u64,
 
@@ -311,11 +316,12 @@ pub struct GatewayConfig {
     #[command(flatten)]
     pub batch_policy: BatchPolicyConfig,
 
-    /// Staleness threshold for Queued/Batching requests (seconds).
+    /// How long a request may stay `Queued` before the sweeper fails it (seconds).
     #[arg(long, env = "STALE_QUEUED_THRESHOLD_SECS", default_value_t = defaults::STALE_QUEUED_THRESHOLD_SECS)]
     pub stale_queued_threshold_secs: u64,
 
-    /// Staleness threshold for Submitted requests with no receipt (seconds).
+    /// How long a request may stay `Batching`, or `Submitted` with no wallet
+    /// record owning it and no receipt, before the sweeper fails it (seconds).
     #[arg(long, env = "STALE_SUBMITTED_THRESHOLD_SECS", default_value_t = defaults::STALE_SUBMITTED_THRESHOLD_SECS)]
     pub stale_submitted_threshold_secs: u64,
 }
@@ -440,10 +446,10 @@ impl GatewayConfig {
             ));
         }
 
-        if wallet.absent_grace_secs <= BROADCAST_TIMEOUT.as_secs() {
+        if wallet.absent_grace_secs <= defaults::BROADCAST_TIMEOUT_SECS {
             return Err(GatewayError::Config(format!(
                 "WALLET_ABSENT_GRACE_SECS must exceed the {}s broadcast deadline",
-                BROADCAST_TIMEOUT.as_secs()
+                defaults::BROADCAST_TIMEOUT_SECS
             )));
         }
 

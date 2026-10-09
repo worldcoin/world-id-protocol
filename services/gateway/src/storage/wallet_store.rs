@@ -41,9 +41,9 @@ const KEY_PREFIX: &str = "gateway:wallet:";
 
 /// Outcome of a compare-and-set write against a wallet record.
 ///
-/// The counterpart of [`crate::storage::request_store::StatusWriteOutcome`], with
-/// the opposite sentinel convention: here `0` means the record is missing and any
-/// other non-`1` value is a guard conflict.
+/// The counterpart of [`crate::storage::request_store::StatusWriteOutcome`], and
+/// its Lua scripts use the same convention: `1` applied, `0` refused by the
+/// guard, `-1` missing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum CasOutcome {
     /// The write was applied.
@@ -57,12 +57,12 @@ pub(crate) enum CasOutcome {
 impl CasOutcome {
     /// Maps the integer convention used by the Lua scripts.
     ///
-    /// `1` is applied, `0` is missing, and any other value is a conflict.
+    /// `1` is applied, `0` is a conflict, and any other value is missing.
     const fn from_lua(value: i64) -> Self {
         match value {
             1 => Self::Applied,
-            0 => Self::Missing,
-            _ => Self::Conflict,
+            0 => Self::Conflict,
+            _ => Self::Missing,
         }
     }
 }
@@ -257,12 +257,12 @@ impl WalletStore {
             r#"
             local current = redis.call('GET', KEYS[1])
             if not current then
-                return 0
+                return -1
             end
 
             local decoded = cjson.decode(current)
             if decoded.lease_id ~= ARGV[1] or decoded.state ~= ARGV[2] then
-                return -1
+                return 0
             end
 
             redis.call('SET', KEYS[1], ARGV[3], 'EX', ARGV[4])
@@ -294,12 +294,12 @@ impl WalletStore {
             r#"
             local current = redis.call('GET', KEYS[1])
             if not current then
-                return 0
+                return -1
             end
 
             local decoded = cjson.decode(current)
             if decoded.lease_id ~= ARGV[1] then
-                return -1
+                return 0
             end
 
             redis.call('DEL', KEYS[1])
@@ -332,12 +332,12 @@ impl WalletStore {
             r#"
             local current = redis.call('GET', KEYS[1])
             if not current then
-                return 0
+                return -1
             end
 
             local decoded = cjson.decode(current)
             if decoded.lease_id ~= ARGV[1] then
-                return -1
+                return 0
             end
 
             redis.call('EXPIRE', KEYS[1], ARGV[2])
@@ -399,6 +399,7 @@ impl WalletStore {
                 value.and_then(|value| {
                     serde_json::from_str(&value)
                         .map_err(|error| {
+                            crate::metrics::increment_wallet_error("resolve", "invalid_record");
                             tracing::error!(%error, "failed to deserialize wallet record");
                         })
                         .ok()
@@ -829,7 +830,7 @@ mod tests {
     #[test]
     fn cas_outcome_maps_the_lua_convention() {
         assert_eq!(CasOutcome::from_lua(1), CasOutcome::Applied);
-        assert_eq!(CasOutcome::from_lua(0), CasOutcome::Missing);
-        assert_eq!(CasOutcome::from_lua(-1), CasOutcome::Conflict);
+        assert_eq!(CasOutcome::from_lua(0), CasOutcome::Conflict);
+        assert_eq!(CasOutcome::from_lua(-1), CasOutcome::Missing);
     }
 }

@@ -17,10 +17,9 @@ pub struct RequestRecord {
     pub inflight_keys: Vec<String>,
     /// Wallet that signed the transaction resolving this request, when known.
     ///
-    /// NOTE: additive. Records written before this field existed deserialize as
-    /// `None`, which is how the legacy-submission path tells them apart. The
-    /// transaction hash is deliberately not duplicated here; it already appears
-    /// in [`GatewayRequestState::Submitted`].
+    /// `None` means no wallet record owns the request; the sweeper then
+    /// decides a `Submitted` request from its receipt. The transaction hash is
+    /// not duplicated here; it is in [`GatewayRequestState::Submitted`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[schema(value_type = Option<String>)]
     pub wallet: Option<Address>,

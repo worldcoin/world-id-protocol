@@ -395,9 +395,12 @@ async fn a_replaced_transaction_fails_its_batch_and_releases_the_wallet() {
 
     resolve(&harness, &submitter).await;
 
-    assert_failed_with(
-        &harness.status(&ids[0]).await,
-        GatewayErrorCode::ConfirmationError,
+    let status = harness.status(&ids[0]).await;
+    assert_failed_with(&status, GatewayErrorCode::ConfirmationError);
+    // `Absent` fails with the same code; only the reason tells them apart.
+    assert!(
+        matches!(&status, GatewayRequestState::Failed { error, .. } if error.contains("replaced")),
+        "expected a replacement, got {status:?}"
     );
     assert_eq!(harness.wallet_state().await, None);
 }

@@ -58,11 +58,9 @@ pub enum GatewayError {
     },
     #[error("config error: {0}")]
     Config(String),
-    /// A transaction could not be prepared, committed or broadcast.
-    ///
-    /// Raised before broadcast, or when the wallet lease was lost before the
-    /// write-ahead record could be committed (in which case the signed
-    /// transaction is deliberately discarded rather than broadcast).
+    /// A batch transaction could not be signed or committed, so nothing was
+    /// broadcast. Broadcast failures are not errors: the committed record is
+    /// resolved from the chain instead.
     #[error("transaction submission failed: {0}")]
     Submission(String),
 }

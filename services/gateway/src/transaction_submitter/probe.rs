@@ -43,7 +43,9 @@ enum ReceiptCheck {
 /// Probes the chain for one outstanding transaction.
 ///
 /// The receipt lookup is treated as the source of truth. An RPC failure is
-/// never evidence of anything, so it always yields [`Probe::Wait`].
+/// never evidence of anything, so it always yields [`Probe::Wait`]. Failures
+/// are counted in `wallet.error{phase="resolve",class="rpc"}` and logged only
+/// at debug, because an RPC outage repeats them every pass for every wallet.
 ///
 /// [`Probe::Absent`] is concluded only from a node whose head block is at
 /// least `absent_after` (unix seconds): a stuck or lagging node also knows
@@ -61,7 +63,7 @@ pub(super) async fn probe(
         Ok(receipt) => receipt,
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
-            tracing::warn!(%error, %tx_hash, "failed to fetch transaction receipt");
+            tracing::debug!(%error, %tx_hash, "failed to fetch transaction receipt");
             return Probe::Wait;
         }
     };
@@ -82,7 +84,7 @@ pub(super) async fn probe(
         Ok(None) => {}
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
-            tracing::warn!(%error, %tx_hash, "failed to look up transaction by hash");
+            tracing::debug!(%error, %tx_hash, "failed to look up transaction by hash");
             return Probe::Wait;
         }
     }
@@ -91,7 +93,7 @@ pub(super) async fn probe(
         Ok(count) => count,
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
-            tracing::warn!(%error, "failed to read latest transaction count");
+            tracing::debug!(%error, "failed to read latest transaction count");
             return Probe::Wait;
         }
     };
@@ -113,7 +115,7 @@ pub(super) async fn probe(
             Ok(None) => Probe::Replaced,
             Err(error) => {
                 metrics::increment_wallet_error("resolve", "rpc");
-                tracing::warn!(%error, %tx_hash, "failed to re-read receipt; not concluding replacement");
+                tracing::debug!(%error, %tx_hash, "failed to re-read receipt; not concluding replacement");
                 Probe::Wait
             }
         };
@@ -123,7 +125,7 @@ pub(super) async fn probe(
         Ok(count) => count,
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
-            tracing::warn!(%error, "failed to read pending transaction count");
+            tracing::debug!(%error, "failed to read pending transaction count");
             return Probe::Wait;
         }
     };
@@ -177,7 +179,7 @@ async fn classify_receipt(
         Ok(Some(_) | None) => return ReceiptCheck::Reorged,
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
-            tracing::warn!(
+            tracing::debug!(
                 %error,
                 tx_hash = %submission.tx_hash,
                 "failed to check whether the inclusion block is still canonical"
@@ -190,7 +192,7 @@ async fn classify_receipt(
         Ok(head) => head,
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
-            tracing::warn!(%error, "failed to read the chain head");
+            tracing::debug!(%error, "failed to read the chain head");
             return ReceiptCheck::Decided(Probe::Wait);
         }
     };

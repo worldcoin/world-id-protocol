@@ -120,7 +120,7 @@ pub(crate) async fn build_app(
         rate_limit,
         // In-flight locks must outlive the submission they protect, otherwise
         // duplicate detection lapses while a request is still being submitted.
-        Duration::from_secs(wallet_config.inflight_ttl_secs()),
+        Duration::from_secs(wallet_config.inflight_ttl_secs(&orphan_sweeper_config)),
     )
     .await;
 
