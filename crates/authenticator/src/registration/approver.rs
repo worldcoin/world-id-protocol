@@ -139,8 +139,10 @@ impl IncomingRegistration {
     /// after the request was taken. This cannot extend the bridge session expiry.
     #[must_use]
     pub fn with_response_deadline(mut self, deadline: Duration) -> Self {
-        self.respond_by =
-            (Instant::now() + deadline).min(self.channel.expires_at - RESPONSE_MARGIN);
+        let latest = self.channel.expires_at - RESPONSE_MARGIN;
+        self.respond_by = Instant::now()
+            .checked_add(deadline)
+            .map_or(latest, |due| due.min(latest));
         self
     }
 
@@ -236,7 +238,7 @@ impl IncomingRegistration {
                 responded: false,
             })?;
         if digest != attempt.uri.digest {
-            tracing::warn!(%request_id, "registration request does not match the pairing link");
+            tracing::warn!(request = %log_tag(&request_id), "registration request does not match the pairing link");
             return Err(ApproverError::DigestMismatch);
         }
 
@@ -258,7 +260,7 @@ impl IncomingRegistration {
                     .into_error(Some("invalid registration_sig".to_string()))))
                 .await
                 .is_ok();
-            tracing::warn!(%request_id, responded, "invalid registration signature");
+            tracing::warn!(request = %log_tag(&request_id), responded, "invalid registration signature");
             return Err(ApproverError::InvalidRequest {
                 reason: "invalid registration signature".to_string(),
                 responded,
@@ -273,7 +275,7 @@ impl IncomingRegistration {
         source: Option<AuthenticatorError>,
     ) -> ApproverError {
         tracing::warn!(
-            request_id = %self.channel.request_id,
+            request = %log_tag(&self.channel.request_id),
             ?reason,
             error = source.as_ref().map(tracing::field::display),
             "refusing authenticator registration"
@@ -374,7 +376,7 @@ impl CheckedRegistration {
                 (Ok(result.clone()), Ok(result))
             }
             Err((reason, detail)) => {
-                tracing::warn!(%request_id, ?reason, ?detail, "authenticator registration did not succeed");
+                tracing::warn!(request = %log_tag(&request_id), ?reason, ?detail, "authenticator registration did not succeed");
                 (Err(reason), Err(reason.into_error(detail)))
             }
         };
@@ -442,7 +444,7 @@ impl CheckedRegistration {
                 Ok(GatewayRequestState::Queued | GatewayRequestState::Batching) => {}
                 Err(error) => {
                     failed_polls += 1;
-                    tracing::debug!(request_id = %self.incoming.channel.request_id, %error, failed_polls, "failed to poll gateway request");
+                    tracing::debug!(request = %log_tag(&self.incoming.channel.request_id), %error, failed_polls, "failed to poll gateway request");
                 }
             }
             let delay = delays.next().unwrap_or(Duration::from_secs(8));
@@ -454,7 +456,7 @@ impl CheckedRegistration {
             }
         }
         tracing::warn!(
-            request_id = %self.incoming.channel.request_id,
+            request = %log_tag(&self.incoming.channel.request_id),
             gateway_request_id = %insertion.request_id,
             submitted,
             failed_polls,
@@ -500,7 +502,7 @@ impl CheckedRegistration {
                 break;
             }
         }
-        tracing::warn!(request_id = %self.incoming.channel.request_id, "finalized registration not visible before response deadline");
+        tracing::warn!(request = %log_tag(&self.incoming.channel.request_id), "finalized registration not visible before response deadline");
         Err((RegistrationErrorReason::OutcomeUnknown, None))
     }
 }
@@ -630,10 +632,17 @@ impl ResponseChannel {
         .ok_or(ApproverError::SessionExpired)
         .and_then(|delivery| delivery.map_err(ApproverError::from));
         if let Err(error) = &delivery {
-            tracing::warn!(request_id = %self.request_id, %error, "failed to deliver registration response");
+            tracing::warn!(request = %log_tag(&self.request_id), %error, "failed to deliver registration response");
         }
         delivery
     }
+}
+
+/// A short tag that correlates log lines of one session. The request id itself is never logged:
+/// it is the only key to the session's bridge routes.
+fn log_tag(request_id: &RequestId) -> String {
+    use sha2::Digest as _;
+    hex::encode(&sha2::Sha256::digest(request_id.as_bytes())[..4])
 }
 
 /// Runs `future` until `deadline`, returning `None` if the deadline passes first.
