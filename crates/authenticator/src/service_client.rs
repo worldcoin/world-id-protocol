@@ -201,16 +201,20 @@ const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// response. Set on each request because browser clients have no client-wide timeout.
 pub(crate) const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Builds the HTTP client for gateway and indexer requests.
+/// Builds the HTTP client for gateway, indexer and bridge requests.
 ///
 /// Native clients also bound connection setup with [`CONNECT_TIMEOUT`]. Every request sets
 /// [`REQUEST_TIMEOUT`] on both native and browser clients.
+///
+/// # Panics
+///
+/// Panics if the TLS backend cannot be initialized, as [`reqwest::Client::new`] does.
 pub(crate) fn default_http_client() -> reqwest::Client {
     #[cfg(not(target_arch = "wasm32"))]
     let client = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
         .build()
-        .unwrap_or_default();
+        .expect("the TLS backend initializes");
     #[cfg(target_arch = "wasm32")]
     let client = reqwest::Client::new();
     client

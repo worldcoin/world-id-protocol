@@ -44,7 +44,7 @@ anyhow = { workspace = true }
 ark-babyjubjub = { workspace = true }
 ark-serialize = { workspace = true }
 groth16-material = { workspace = true }
-reqwest = { workspace = true, features = ["json"] }
+reqwest = { workspace = true, features = ["json", "stream"] }
 eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 world-id-primitives = { workspace = true }
@@ -60,11 +60,15 @@ serde_json = { workspace = true }
 
 # WIP-109 authenticator registration
 aes-gcm = { workspace = true }
+httpdate = { workspace = true }
 argon2 = { workspace = true }
 ciborium = { workspace = true }
 hkdf = { workspace = true }
 quantum-box = { workspace = true }
+futures-util = { workspace = true }
 sha2 = { workspace = true }
+tracing = { workspace = true }
+web-time = { workspace = true }
 zeroize = { workspace = true }
 
 # OHTTP

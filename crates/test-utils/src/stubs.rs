@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use alloy::{
     primitives::{Address, U256},
@@ -6,6 +6,7 @@ use alloy::{
 };
 use ark_serialize::CanonicalSerialize;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
+use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context as _, Result};
 use secrecy::SecretString;
 use semver::VersionReq;
@@ -19,8 +20,10 @@ use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
 use world_id_oprf_node::config::{WorldIdNodeContracts, WorldOprfNodeConfig};
 use world_id_primitives::{
-    TREE_DEPTH,
-    api_types::{IndexerAuthenticatorPubkeysResponse, IndexerQueryRequest},
+    AuthenticatorPublicKeySet, TREE_DEPTH,
+    api_types::{
+        IndexerAuthenticatorPubkeysResponse, IndexerAuthenticatorsResponse, IndexerQueryRequest,
+    },
     merkle::AccountInclusionProof,
 };
 
@@ -188,6 +191,137 @@ impl MutableIndexerStub {
     }
 
     /// Aborts the server task.
+    pub fn abort(self) {
+        self.handle.abort();
+    }
+}
+
+/// The authenticators of one account served by an [`AccountIndexerStub`], by `pubkey_id`.
+#[derive(Clone, Debug, Default)]
+pub struct StubAccount {
+    /// The public keys; `None` for removed slots.
+    pub pubkeys: Vec<Option<EdDSAPublicKey>>,
+    /// The addresses, the zero address for Proving Authenticators; `None` for removed slots.
+    pub addresses: Vec<Option<Address>>,
+    /// The number of recoveries of the account.
+    pub recovery_counter: u64,
+}
+
+impl StubAccount {
+    fn encoded_pubkeys(&self) -> Vec<Option<U256>> {
+        self.pubkeys
+            .iter()
+            .map(|pubkey| {
+                pubkey.as_ref().map(|pubkey| {
+                    let mut compressed = Vec::new();
+                    pubkey
+                        .pk
+                        .serialize_compressed(&mut compressed)
+                        .expect("failed to serialize compressed authenticator pubkey");
+                    U256::from_le_slice(&compressed)
+                })
+            })
+            .collect()
+    }
+
+    fn offchain_signer_commitment(&self) -> U256 {
+        let mut key_set = AuthenticatorPublicKeySet::default();
+        for pubkey in &self.pubkeys {
+            key_set.push(pubkey.clone());
+        }
+        key_set.leaf_hash().into()
+    }
+}
+
+type Accounts = Arc<RwLock<HashMap<u64, StubAccount>>>;
+
+/// An indexer stub serving `/authenticators` and `/authenticator-pubkeys` from account state the
+/// test sets explicitly, e.g. after each on-chain operation finalizes.
+pub struct AccountIndexerStub {
+    /// The base URL of the stub.
+    pub url: String,
+    accounts: Accounts,
+    handle: JoinHandle<()>,
+}
+
+impl AccountIndexerStub {
+    /// Starts the stub on a random local port, serving no accounts.
+    ///
+    /// # Errors
+    /// Returns an error if the listener cannot be bound.
+    pub async fn spawn() -> Result<Self> {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .wrap_err("failed to bind indexer stub listener")?;
+        let addr = listener
+            .local_addr()
+            .wrap_err("failed to read listener address")?;
+        let accounts = Accounts::default();
+        let app =
+            Router::new()
+                .route(
+                    "/authenticators",
+                    post(
+                        |State(accounts): State<Accounts>,
+                         Json(body): Json<IndexerQueryRequest>| async move {
+                            let accounts = accounts
+                                .read()
+                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                            let account = accounts
+                                .get(&body.leaf_index)
+                                .ok_or(StatusCode::NOT_FOUND)?;
+                            Ok::<_, StatusCode>(Json(IndexerAuthenticatorsResponse {
+                                authenticator_pubkeys: account.encoded_pubkeys(),
+                                authenticator_addresses: account.addresses.clone(),
+                                offchain_signer_commitment: account.offchain_signer_commitment(),
+                                recovery_counter: account.recovery_counter,
+                            }))
+                        },
+                    ),
+                )
+                .route(
+                    "/authenticator-pubkeys",
+                    post(
+                        |State(accounts): State<Accounts>,
+                         Json(body): Json<IndexerQueryRequest>| async move {
+                            let accounts = accounts
+                                .read()
+                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                            let account = accounts
+                                .get(&body.leaf_index)
+                                .ok_or(StatusCode::NOT_FOUND)?;
+                            Ok::<_, StatusCode>(Json(IndexerAuthenticatorPubkeysResponse {
+                                authenticator_pubkeys: account.encoded_pubkeys(),
+                                offchain_signer_commitment: account.offchain_signer_commitment(),
+                            }))
+                        },
+                    ),
+                )
+                .with_state(Arc::clone(&accounts));
+        let handle = tokio::spawn(async move {
+            axum::serve(listener, app)
+                .await
+                .expect("indexer stub server crashed");
+        });
+        Ok(Self {
+            url: format!("http://{addr}"),
+            accounts,
+            handle,
+        })
+    }
+
+    /// Sets the state served for `leaf_index`.
+    ///
+    /// # Panics
+    /// Panics if the lock is poisoned.
+    pub fn set_account(&self, leaf_index: u64, account: StubAccount) {
+        self.accounts
+            .write()
+            .expect("indexer stub lock poisoned")
+            .insert(leaf_index, account);
+    }
+
+    /// Stops the server.
     pub fn abort(self) {
         self.handle.abort();
     }
