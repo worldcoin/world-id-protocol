@@ -145,8 +145,11 @@ impl WalletRecord {
 }
 
 /// Redis storage for wallet leases.
+///
+/// Public only so the orphan sweeper's entry point can take it; every
+/// operation beyond [`WalletStore::connect`] stays crate-private.
 #[derive(Clone)]
-pub(crate) struct WalletStore {
+pub struct WalletStore {
     manager: ConnectionManager,
 }
 
@@ -157,7 +160,7 @@ impl WalletStore {
     ///
     /// Returns an error when the URL is invalid or the initial connection
     /// cannot be established.
-    pub(crate) async fn connect(redis_url: &str) -> GatewayResult<Self> {
+    pub async fn connect(redis_url: &str) -> GatewayResult<Self> {
         let client = Client::open(redis_url)?;
         let manager = ConnectionManager::new(client).await?;
         Ok(Self { manager })
@@ -208,31 +211,14 @@ impl WalletStore {
         submission: Submission,
         state_ttl: Duration,
     ) -> GatewayResult<CasOutcome> {
-        let value = serde_json::to_string(&WalletRecord::in_flight(lease_id, submission))?;
-        let mut manager = self.manager.clone();
-        let outcome: i64 = redis::Script::new(
-            r#"
-            local current = redis.call('GET', KEYS[1])
-            if not current then
-                return 0
-            end
-
-            local decoded = cjson.decode(current)
-            if decoded.state ~= 'signing' or decoded.lease_id ~= ARGV[1] then
-                return -1
-            end
-
-            redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
-            return 1
-            "#,
+        self.replace(
+            wallet,
+            lease_id,
+            WalletState::Signing,
+            &WalletRecord::in_flight(lease_id, submission),
+            state_ttl,
         )
-        .key(Self::key(wallet))
-        .arg(lease_id.to_string())
-        .arg(value)
-        .arg(state_ttl.as_secs())
-        .invoke_async(&mut manager)
-        .await?;
-        Ok(CasOutcome::from_lua(outcome))
+        .await
     }
 
     /// Replaces a record, guarded by `lease_id` and `expected_state`.

@@ -4,7 +4,10 @@ use alloy::primitives::Address;
 use clap::Parser;
 use world_id_services_common::ProviderArgs;
 
-use crate::error::{GatewayError, GatewayResult};
+use crate::{
+    error::{GatewayError, GatewayResult},
+    transaction_submitter::BROADCAST_TIMEOUT,
+};
 
 pub mod defaults {
     pub const MAX_CREATE_BATCH_SIZE: usize = 100;
@@ -18,8 +21,9 @@ pub mod defaults {
     pub const WALLET_STATE_TTL_SECS: u64 = 86_400;
     pub const WALLET_RELEASE_CONFIRMATIONS: u64 = 1;
     pub const WALLET_RESOLUTION_TIMEOUT_SECS: u64 = 900;
-    pub const WALLET_TRACKER_INTERVAL_SECS: u64 = 2;
-    pub const WALLET_FIRST_PROBE_DELAY_SECS: u64 = 2;
+    pub const WALLET_RESOLVER_INTERVAL_SECS: u64 = 2;
+    /// Comfortably above the submitter's 20s broadcast deadline.
+    pub const WALLET_ABSENT_GRACE_SECS: u64 = 60;
     /// Bounded wait for a free wallet. Kept well below
     /// `STALE_QUEUED_THRESHOLD_SECS` so a batch waiting on capacity cannot be
     /// mistaken for an abandoned request.
@@ -98,7 +102,7 @@ impl Default for OrphanSweeperConfig {
 /// Configuration for durable wallet leasing and transaction resolution.
 ///
 /// Every field is a bound on an operation that can fail: signing, waiting for a
-/// free wallet, deciding a transaction's fate, and retrying a broadcast.
+/// free wallet, and deciding a transaction's fate.
 #[derive(Clone, Debug)]
 pub struct WalletConfig {
     /// How long a wallet lease is held while its batch is signed. Bounds only
@@ -115,10 +119,11 @@ pub struct WalletConfig {
     /// How long a transaction may stay undecided before its wallet is parked.
     pub resolution_timeout_secs: u64,
     /// Resolver tick interval.
-    pub tracker_interval_secs: u64,
-    /// Delay before the resolver first probes a freshly committed record, so it
-    /// does not race the submitter's own broadcast.
-    pub first_probe_delay_secs: u64,
+    pub resolver_interval_secs: u64,
+    /// How long after commit the submitter may still be broadcasting. Until
+    /// then the resolver neither adopts the batch's requests nor concludes the
+    /// transaction never landed.
+    pub absent_grace_secs: u64,
     /// Bounded wait for a free wallet before a batch is returned to the queue.
     pub acquire_timeout_secs: u64,
     /// Wallets excluded from new work but still resolved.
@@ -146,8 +151,8 @@ impl Default for WalletConfig {
             state_ttl_secs: defaults::WALLET_STATE_TTL_SECS,
             release_confirmations: defaults::WALLET_RELEASE_CONFIRMATIONS,
             resolution_timeout_secs: defaults::WALLET_RESOLUTION_TIMEOUT_SECS,
-            tracker_interval_secs: defaults::WALLET_TRACKER_INTERVAL_SECS,
-            first_probe_delay_secs: defaults::WALLET_FIRST_PROBE_DELAY_SECS,
+            resolver_interval_secs: defaults::WALLET_RESOLVER_INTERVAL_SECS,
+            absent_grace_secs: defaults::WALLET_ABSENT_GRACE_SECS,
             acquire_timeout_secs: defaults::WALLET_ACQUIRE_TIMEOUT_SECS,
             draining_addresses: Vec::new(),
         }
@@ -174,12 +179,13 @@ pub struct WalletArgs {
     pub resolution_timeout_secs: u64,
 
     /// Resolver tick interval, in seconds.
-    #[arg(long, env = "WALLET_TRACKER_INTERVAL_SECS", default_value_t = defaults::WALLET_TRACKER_INTERVAL_SECS)]
-    pub tracker_interval_secs: u64,
+    #[arg(long, env = "WALLET_RESOLVER_INTERVAL_SECS", default_value_t = defaults::WALLET_RESOLVER_INTERVAL_SECS)]
+    pub resolver_interval_secs: u64,
 
-    /// Delay before the resolver first probes a freshly committed transaction, in seconds.
-    #[arg(long, env = "WALLET_FIRST_PROBE_DELAY_SECS", default_value_t = defaults::WALLET_FIRST_PROBE_DELAY_SECS)]
-    pub first_probe_delay_secs: u64,
+    /// How long after commit a transaction unknown to the chain may still be
+    /// mid-broadcast, in seconds. Must exceed the 20s broadcast deadline.
+    #[arg(long, env = "WALLET_ABSENT_GRACE_SECS", default_value_t = defaults::WALLET_ABSENT_GRACE_SECS)]
+    pub absent_grace_secs: u64,
 
     /// Bounded wait for a free wallet before returning a batch to the queue, in seconds.
     #[arg(long, env = "WALLET_ACQUIRE_TIMEOUT_SECS", default_value_t = defaults::WALLET_ACQUIRE_TIMEOUT_SECS)]
@@ -200,8 +206,8 @@ impl Default for WalletArgs {
             state_ttl_secs: defaults::WALLET_STATE_TTL_SECS,
             release_confirmations: defaults::WALLET_RELEASE_CONFIRMATIONS,
             resolution_timeout_secs: defaults::WALLET_RESOLUTION_TIMEOUT_SECS,
-            tracker_interval_secs: defaults::WALLET_TRACKER_INTERVAL_SECS,
-            first_probe_delay_secs: defaults::WALLET_FIRST_PROBE_DELAY_SECS,
+            resolver_interval_secs: defaults::WALLET_RESOLVER_INTERVAL_SECS,
+            absent_grace_secs: defaults::WALLET_ABSENT_GRACE_SECS,
             acquire_timeout_secs: defaults::WALLET_ACQUIRE_TIMEOUT_SECS,
             draining_addresses: None,
         }
@@ -428,17 +434,17 @@ impl GatewayConfig {
             ));
         }
 
-        if wallet.tracker_interval_secs == 0 {
+        if wallet.resolver_interval_secs == 0 {
             return Err(GatewayError::Config(
-                "WALLET_TRACKER_INTERVAL_SECS must be greater than 0".to_string(),
+                "WALLET_RESOLVER_INTERVAL_SECS must be greater than 0".to_string(),
             ));
         }
 
-        if wallet.first_probe_delay_secs < wallet.tracker_interval_secs {
-            return Err(GatewayError::Config(
-                "WALLET_FIRST_PROBE_DELAY_SECS must be at least WALLET_TRACKER_INTERVAL_SECS"
-                    .to_string(),
-            ));
+        if wallet.absent_grace_secs <= BROADCAST_TIMEOUT.as_secs() {
+            return Err(GatewayError::Config(format!(
+                "WALLET_ABSENT_GRACE_SECS must exceed the {}s broadcast deadline",
+                BROADCAST_TIMEOUT.as_secs()
+            )));
         }
 
         if wallet.acquire_timeout_secs == 0 {
@@ -510,8 +516,8 @@ impl GatewayConfig {
             state_ttl_secs: self.wallet.state_ttl_secs,
             release_confirmations: self.wallet.release_confirmations,
             resolution_timeout_secs: self.wallet.resolution_timeout_secs,
-            tracker_interval_secs: self.wallet.tracker_interval_secs,
-            first_probe_delay_secs: self.wallet.first_probe_delay_secs,
+            resolver_interval_secs: self.wallet.resolver_interval_secs,
+            absent_grace_secs: self.wallet.absent_grace_secs,
             acquire_timeout_secs: self.wallet.acquire_timeout_secs,
             draining_addresses,
         })

@@ -6,7 +6,7 @@ use alloy::primitives::Address;
 use redis::{AsyncCommands, aio::ConnectionManager};
 use testcontainers_modules::{redis::Redis, testcontainers::ContainerAsync};
 use world_id_gateway::{
-    OrphanSweeperConfig, RequestRecord, RequestTracker, now_unix_secs,
+    OrphanSweeperConfig, RequestRecord, RequestTracker, WalletStore, now_unix_secs,
     request_tracker::BacklogScope, sweep_once,
 };
 use world_id_primitives::api_types::{GatewayRequestKind, GatewayRequestState};
@@ -74,6 +74,14 @@ async fn inject_dangling_set_member(redis: &mut ConnectionManager, id: &str) {
 /// do not have to care about it.
 async fn tracker(redis_url: &str) -> RequestTracker {
     RequestTracker::new(redis_url.to_string(), None, Duration::from_secs(300)).await
+}
+
+/// Runs one sweep pass against the test Redis.
+async fn sweep(url: &str, tracker: &RequestTracker, config: &OrphanSweeperConfig) {
+    let wallets = WalletStore::connect(url)
+        .await
+        .expect("failed to connect wallet store");
+    sweep_once(tracker, &wallets, config).await;
 }
 
 /// Read request record from Redis.
@@ -351,7 +359,7 @@ async fn sweep_stale_queued_request() {
     .await;
 
     let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &config).await;
+    sweep(&url, &tracker, &config).await;
 
     let record = read_record(&mut redis, "stale-queued").await.unwrap();
     match &record.status {
@@ -380,7 +388,7 @@ async fn sweep_fresh_queued_untouched() {
     .await;
 
     let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &config).await;
+    sweep(&url, &tracker, &config).await;
 
     let record = read_record(&mut redis, "fresh-queued").await.unwrap();
     assert!(matches!(record.status, GatewayRequestState::Queued));
@@ -409,7 +417,7 @@ async fn sweep_stale_batching_request() {
         stale_submitted_threshold_secs: 120,
         ..Default::default()
     };
-    sweep_once(&tracker, &config).await;
+    sweep(&url, &tracker, &config).await;
 
     let record = read_record(&mut redis, "stale-batching").await.unwrap();
     assert!(matches!(record.status, GatewayRequestState::Failed { .. }));
@@ -427,7 +435,7 @@ async fn sweep_dangling_set_member() {
     assert!(is_in_pending_set(&mut redis, "dangling-id").await);
 
     let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &config).await;
+    sweep(&url, &tracker, &config).await;
 
     assert!(
         !is_in_pending_set(&mut redis, "dangling-id").await,
@@ -454,7 +462,7 @@ async fn sweep_already_terminal_in_set() {
     .await;
 
     let config = OrphanSweeperConfig::default();
-    sweep_once(&tracker, &config).await;
+    sweep(&url, &tracker, &config).await;
 
     assert!(
         !is_in_pending_set(&mut redis, "already-finalized").await,
@@ -467,13 +475,35 @@ async fn sweep_already_terminal_in_set() {
     );
 }
 
-/// Verifies that a submission owned by a wallet record is left alone by the
-/// sweeper, however old it is: the transaction resolver owns it and has the
-/// signed bytes needed to decide its fate.
-#[tokio::test]
-async fn sweep_leaves_wallet_owned_submission_untouched() {
+/// Writes the wallet record a resolver would hold for an in-flight batch.
+async fn inject_wallet_record(
+    redis: &mut ConnectionManager,
+    wallet: Address,
+    request_ids: &[&str],
+) {
+    let record = serde_json::json!({
+        "v": 1,
+        "state": "in_flight",
+        "lease_id": "00000000-0000-0000-0000-000000000001",
+        "submission": {
+            "nonce": 0,
+            "tx_hash": format!("0x{}", "11".repeat(32)),
+            "request_ids": request_ids,
+            "batch_type": "create",
+            "submitted_at": now_unix_secs() - 3_600,
+        },
+    });
+    let _: () = redis
+        .set(format!("gateway:wallet:{wallet}"), record.to_string())
+        .await
+        .unwrap();
+}
+
+/// Injects a stale submission signed by `wallet` and runs one sweep.
+async fn sweep_stale_owned_submission(wallet_lists_request: bool) -> GatewayRequestState {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
     let tracker = tracker(&url).await;
+    let wallet = Address::repeat_byte(0x11);
 
     inject_request_with_wallet(
         &mut redis,
@@ -483,22 +513,48 @@ async fn sweep_leaves_wallet_owned_submission_untouched() {
             tx_hash: "0x11".to_string(),
         },
         now_unix_secs() - 3_600,
-        Some(Address::repeat_byte(0x11)),
+        Some(wallet),
     )
     .await;
+    let listed: &[&str] = if wallet_lists_request {
+        &["owned-submitted"]
+    } else {
+        &["some-other-request"]
+    };
+    inject_wallet_record(&mut redis, wallet, listed).await;
 
     let config = OrphanSweeperConfig {
         stale_submitted_threshold_secs: 60,
         ..Default::default()
     };
-    sweep_once(&tracker, &config).await;
+    sweep(&url, &tracker, &config).await;
 
-    let record = read_record(&mut redis, "owned-submitted").await.unwrap();
+    read_record(&mut redis, "owned-submitted")
+        .await
+        .unwrap()
+        .status
+}
+
+/// A submission its wallet record still lists belongs to the resolver, however
+/// old it is.
+#[tokio::test]
+async fn sweep_leaves_wallet_owned_submission_untouched() {
+    let status = sweep_stale_owned_submission(true).await;
     assert!(
-        matches!(record.status, GatewayRequestState::Submitted { .. }),
+        matches!(status, GatewayRequestState::Submitted { .. }),
         "a wallet-owned submission belongs to the resolver, not the sweeper"
     );
-    assert!(is_in_pending_set(&mut redis, "owned-submitted").await);
+}
+
+/// A submission whose wallet record no longer lists it has no owner left, so
+/// the sweeper fails it rather than leaving it pending until its TTL.
+#[tokio::test]
+async fn sweep_fails_submission_its_wallet_record_no_longer_lists() {
+    let status = sweep_stale_owned_submission(false).await;
+    assert!(
+        matches!(status, GatewayRequestState::Failed { .. }),
+        "expected a failed request, got {status:?}"
+    );
 }
 
 /// Verifies that a submission with no wallet, written by a gateway build that
@@ -524,7 +580,7 @@ async fn sweep_fails_legacy_submission_without_wallet() {
         stale_submitted_threshold_secs: 120,
         ..Default::default()
     };
-    sweep_once(&tracker, &config).await;
+    sweep(&url, &tracker, &config).await;
 
     let record = read_record(&mut redis, "legacy-submitted").await.unwrap();
     assert!(
@@ -551,7 +607,7 @@ async fn sweep_leaves_fresh_legacy_submission_untouched() {
     )
     .await;
 
-    sweep_once(&tracker, &OrphanSweeperConfig::default()).await;
+    sweep(&url, &tracker, &OrphanSweeperConfig::default()).await;
 
     let record = read_record(&mut redis, "fresh-legacy-submitted")
         .await

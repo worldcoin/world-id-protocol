@@ -10,6 +10,8 @@
 //! Receipt polling for requests a wallet record owns lives here; the orphan
 //! sweeper keeps only the requests no wallet record owns.
 
+mod probe;
+
 use std::{
     sync::{
         Arc,
@@ -22,7 +24,7 @@ use alloy::{
     consensus::Transaction as _,
     primitives::{Address, TxHash},
     providers::{DynProvider, Provider},
-    rpc::types::{TransactionReceipt, TransactionRequest},
+    rpc::types::TransactionRequest,
 };
 use futures::StreamExt as _;
 use tokio::sync::Notify;
@@ -30,6 +32,7 @@ use uuid::Uuid;
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestState};
 use world_id_services_common::ProviderWallet;
 
+use self::probe::Probe;
 use crate::{
     batch_policy::BacklogUrgencyStats,
     batch_type::BatchType,
@@ -47,27 +50,11 @@ use crate::{
 /// cannot stall resolution of the rest of the pool.
 const RESOLVER_CONCURRENCY: usize = 4;
 
-/// What the resolver learned about one outstanding transaction.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Probe {
-    /// No definitive answer yet.
-    Wait,
-    /// The transaction is on chain, with a canonical receipt.
-    Included {
-        /// Whether the transaction succeeded rather than reverted.
-        success: bool,
-        /// Blocks mined on top of the inclusion block.
-        confirmations: u64,
-    },
-    /// The nonce was consumed by a different transaction, so ours will not land.
-    Replaced,
-    /// The transaction is in no mempool and its nonce is untouched.
-    Absent,
-    /// The transaction had a receipt, but its inclusion block is no longer
-    /// canonical. Internal to [`TransactionSubmitter::probe`], which continues
-    /// with the nonce probe rather than deciding here.
-    Reorged,
-}
+/// Upper bound on one broadcast call, retries included.
+///
+/// The resolver must not conclude [`Probe::Absent`] while a broadcast may still
+/// be in progress, so `WALLET_ABSENT_GRACE_SECS` is validated to exceed this.
+pub(crate) const BROADCAST_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Whether a batch may be broadcast after its requests were guarded.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -83,23 +70,18 @@ enum BroadcastGuard {
 pub(crate) enum SubmitOutcome {
     /// The transaction was committed and a broadcast was attempted.
     Submitted,
-    /// No wallet became available in time. Nothing was changed, so the caller
-    /// should retry the batch rather than fail its requests.
+    /// No wallet could be held through signing: none became free in time, or
+    /// the signing lease lapsed before the commit. Nothing was broadcast, so
+    /// the caller should retry the batch rather than fail its requests.
     NoWalletAvailable,
-    /// Another owner resolved the batch's requests before broadcast, so the
-    /// signature was discarded. The requests already have their final status.
+    /// Another owner resolved some of the batch's requests before broadcast,
+    /// so the signature was discarded. The remaining requests were failed.
     Abandoned,
-}
-
-/// A configured wallet and the provider stack that signs and sends for it.
-#[derive(Clone)]
-struct WalletEntry {
-    wallet: ProviderWallet,
 }
 
 /// Signs, commits, broadcasts and resolves one transaction per wallet at a time.
 pub(crate) struct TransactionSubmitter {
-    wallets: Vec<WalletEntry>,
+    wallets: Vec<ProviderWallet>,
     /// Indices into `wallets` that may be handed out for new work.
     ///
     /// A draining wallet is deliberately still in `wallets` so the resolver
@@ -191,11 +173,6 @@ impl TransactionSubmitter {
             );
         }
 
-        let wallets = wallets
-            .into_iter()
-            .map(|wallet| WalletEntry { wallet })
-            .collect();
-
         Ok(Arc::new(Self {
             wallets,
             acquirable,
@@ -240,14 +217,14 @@ impl TransactionSubmitter {
         request_ids: Vec<String>,
         batch_type: BatchType,
     ) -> GatewayResult<SubmitOutcome> {
-        let Some((entry, lease_id)) = self.acquire().await? else {
+        let Some((entry, lease_id)) = self.acquire().await else {
             // Capacity, not failure: the batch is untouched and stays queued.
             return Ok(SubmitOutcome::NoWalletAvailable);
         };
-        let wallet = entry.wallet.address;
+        let wallet = entry.address;
 
         let sign_started = tokio::time::Instant::now();
-        let signed = match entry.wallet.sign_transaction(transaction).await {
+        let signed = match entry.sign_transaction(transaction).await {
             Ok(signed) => signed,
             Err(error) => {
                 self.release_lease(wallet, lease_id).await;
@@ -276,20 +253,21 @@ impl TransactionSubmitter {
         {
             Ok(CasOutcome::Applied) => {}
             Ok(outcome) => {
-                tracing::error!(
+                // Signing outlived the lease. Nothing was broadcast, so this is
+                // a capacity problem rather than a reason to fail the requests.
+                metrics::record_wallet_outcome("lease_lost");
+                tracing::warn!(
                     %wallet, ?outcome, %batch_type,
                     "wallet lease lost before the transaction could be committed; discarding signature"
                 );
-                return Err(GatewayError::Submission(
-                    "wallet lease lost before broadcast".to_string(),
-                ));
+                return Ok(SubmitOutcome::NoWalletAvailable);
             }
             Err(error) => {
-                // A connection can fail after the script applied. Treat a record
-                // that is ours as committed, or the requests would be failed
-                // while the resolver could still find the record and broadcast
-                // the transaction.
-                if !self.wallet_record_is_ours(wallet, lease_id).await {
+                // A connection can fail after the script applied. Only a record
+                // that holds this very transaction counts as committed: a record
+                // still `Signing` is skipped by the resolver and would expire
+                // while the transaction might be in flight.
+                if !self.is_committed(wallet, lease_id, tx_hash).await {
                     tracing::error!(
                         %error, %wallet, %batch_type,
                         "failed to commit signed transaction"
@@ -298,7 +276,7 @@ impl TransactionSubmitter {
                 }
                 tracing::warn!(
                     %error, %wallet, %batch_type,
-                    "commit reported an error but the record is present; continuing"
+                    "commit reported an error but the transaction is recorded; continuing"
                 );
             }
         }
@@ -309,17 +287,26 @@ impl TransactionSubmitter {
             .is_abandon()
         {
             // Nothing was broadcast, so the nonce is untouched and the wallet is
-            // safe to reuse immediately.
+            // safe to reuse immediately. The requests nobody else resolved still
+            // need an answer, or they would sit in `Batching` until the sweeper.
             metrics::record_wallet_outcome("abandoned");
             tracing::warn!(
                 %wallet, %batch_type,
                 "requests were resolved by another owner before broadcast; discarding signature"
             );
+            self.fail_batching(
+                &request_ids,
+                GatewayRequestState::failed(
+                    "batch was abandoned before broadcast because another request in it was resolved",
+                    Some(GatewayErrorCode::InternalServerError),
+                ),
+            )
+            .await;
             self.release_lease(wallet, lease_id).await;
             return Ok(SubmitOutcome::Abandoned);
         }
 
-        tracing::info!(
+        tracing::debug!(
             tx_hash = %formatted_tx_hash,
             %wallet,
             %batch_type,
@@ -329,11 +316,18 @@ impl TransactionSubmitter {
         );
 
         let send_started = tokio::time::Instant::now();
-        match entry.wallet.provider.send_tx_envelope(signed).await {
+        let sent = tokio::time::timeout(BROADCAST_TIMEOUT, entry.provider.send_tx_envelope(signed))
+            .await
+            .unwrap_or_else(|_| {
+                Err(alloy::transports::TransportErrorKind::custom_str(
+                    "broadcast timed out",
+                ))
+            });
+        match sent {
             Ok(_) => {
                 let send_latency_ms = send_started.elapsed().as_secs_f64() * 1000.0;
                 metrics::record_batch_send_latency(batch_type.as_str(), send_latency_ms);
-                tracing::info!(
+                tracing::debug!(
                     tx_hash = %formatted_tx_hash,
                     %wallet,
                     %batch_type,
@@ -360,13 +354,34 @@ impl TransactionSubmitter {
         Ok(SubmitOutcome::Submitted)
     }
 
-    /// Marks a batch as owned by a batcher.
+    /// Claims a batch's requests for a batcher, returning the ids it claimed.
     ///
-    /// Guarded on `Queued`, so it cannot pull back a request another owner has
-    /// already advanced.
-    pub(crate) async fn mark_batching(&self, ids: &[String]) {
-        self.set_each_if(ids, StatusGuard::Queued, &GatewayRequestState::Batching)
-            .await;
+    /// Guarded on `Queued`, so a request another owner already resolved (the
+    /// sweeper, typically) is left out and never put on chain. A request whose
+    /// write failed is kept: the write may have landed, and `guard_broadcast`
+    /// re-checks every request before anything is sent.
+    pub(crate) async fn mark_batching(&self, ids: &[String]) -> Vec<String> {
+        let mut claimed = Vec::with_capacity(ids.len());
+        for id in ids {
+            match self
+                .tracker
+                .set_status_if(
+                    id,
+                    &[StatusGuard::Queued],
+                    GatewayRequestState::Batching,
+                    None,
+                )
+                .await
+            {
+                Ok(StatusWriteOutcome::Applied) => claimed.push(id.clone()),
+                Ok(StatusWriteOutcome::Guarded | StatusWriteOutcome::Missing) => {}
+                Err(error) => {
+                    tracing::error!(%error, request_id = %id, "failed to claim a request for batching");
+                    claimed.push(id.clone());
+                }
+            }
+        }
+        claimed
     }
 
     /// Fails a batch that could not be submitted before any broadcast.
@@ -375,20 +390,34 @@ impl TransactionSubmitter {
     /// or another owner already resolved keeps its status, while the rest of
     /// the batch still gets an answer.
     pub(crate) async fn fail_batching(&self, ids: &[String], status: GatewayRequestState) {
-        self.set_each_if(ids, StatusGuard::Batching, &status).await;
+        self.set_each_if(ids, &[StatusGuard::Batching], &status, None)
+            .await;
     }
 
-    /// Applies `status` to each request still in `guard`, one request at a time.
-    async fn set_each_if(&self, ids: &[String], guard: StatusGuard, status: &GatewayRequestState) {
+    /// Applies `status` to each request still in one of `allowed`, one request
+    /// at a time, returning whether every write reached Redis.
+    ///
+    /// A refused or missing request is not an error: it is already resolved,
+    /// or gone, and either way needs no write from this caller.
+    async fn set_each_if(
+        &self,
+        ids: &[String],
+        allowed: &[StatusGuard],
+        status: &GatewayRequestState,
+        wallet: Option<Address>,
+    ) -> bool {
+        let mut all_written = true;
         for id in ids {
             let result = self
                 .tracker
-                .set_status_if(id, &[guard], status.clone(), None)
+                .set_status_if(id, allowed, status.clone(), wallet)
                 .await;
             if let Err(error) = result {
-                tracing::error!(%error, request_id = %id, ?guard, "guarded status write failed");
+                tracing::error!(%error, request_id = %id, ?allowed, "guarded status write failed");
+                all_written = false;
             }
         }
+        all_written
     }
 
     /// Queued-backlog urgency for one batch stream, from the shared request store.
@@ -409,7 +438,7 @@ impl TransactionSubmitter {
     /// error, because a supervisor that treats an unexpected task exit as fatal
     /// would turn a Redis or RPC blip into a fleet-wide restart.
     pub(crate) async fn run_resolver(self: Arc<Self>) {
-        let interval = Duration::from_secs(self.config.tracker_interval_secs);
+        let interval = Duration::from_secs(self.config.resolver_interval_secs);
         // Bounded so a Redis or RPC call that accepts a connection and never
         // answers cannot wedge the pass: supervision only restarts a task that
         // exits, and a hanging loop never exits.
@@ -420,7 +449,7 @@ impl TransactionSubmitter {
                 .await
                 .is_err()
             {
-                metrics::increment_wallet_tracker_error();
+                metrics::increment_wallet_resolver_error("timeout");
                 tracing::error!(
                     timeout_secs = pass_timeout.as_secs(),
                     "resolution pass did not finish in time; abandoning it"
@@ -432,16 +461,12 @@ impl TransactionSubmitter {
 
     /// One resolution pass over every configured wallet.
     pub(crate) async fn resolve_all(&self) {
-        let addresses: Vec<Address> = self
-            .wallets
-            .iter()
-            .map(|entry| entry.wallet.address)
-            .collect();
+        let addresses: Vec<Address> = self.wallets.iter().map(|entry| entry.address).collect();
 
         let records = match self.wallet_store.get_many(&addresses).await {
             Ok(records) => records,
             Err(error) => {
-                metrics::increment_wallet_tracker_error();
+                metrics::increment_wallet_resolver_error("redis");
                 tracing::error!(%error, "failed to load wallet records");
                 return;
             }
@@ -483,15 +508,12 @@ impl TransactionSubmitter {
             .await;
     }
 
-    /// Resolves one wallet record.
-    ///
-    /// A `Signing` record is skipped: its lease carries a short TTL and nothing
-    /// has been broadcast, so the TTL expiring is the correct reclamation path.
+    /// Resolves one committed wallet record (`InFlight` or `Parked`).
     async fn resolve_wallet(&self, index: usize, record: &WalletRecord, provider: &DynProvider) {
         let Some(entry) = self.wallets.get(index) else {
             return;
         };
-        let wallet = entry.wallet.address;
+        let wallet = entry.address;
         let lease_id = record.lease_id;
 
         let Some(submission) = record.submission() else {
@@ -513,23 +535,28 @@ impl TransactionSubmitter {
 
         let age = now_unix_secs().saturating_sub(submission.submitted_at);
         let parked = record.state == WalletState::Parked;
+        // Within the grace a submitter may still be inside its commit, guard and
+        // broadcast sequence. Adopting its requests there would flip them out
+        // from under the guard that authorises the broadcast, and concluding
+        // `Absent` would fail a transaction that is still on its way. Inclusion
+        // and replacement are evidence either way, so probing starts at once.
+        let submitter_done = age >= self.config.absent_grace_secs;
 
-        // Nothing may be touched while a submitter could still be inside its own
-        // sign/commit/guard sequence. Adopting its requests there would flip them
-        // out from under the guard that authorises its broadcast, and it would
-        // abandon a batch it was about to send.
-        if !parked && age < self.config.first_probe_delay_secs {
-            return;
-        }
-
-        // Adopt the requests. By now no submitter is mid-sequence, so a batch
-        // still in `Batching` was left behind by a process that died between
-        // committing the record and writing the statuses.
-        if !parked {
+        // A batch still in `Batching` after the grace was left behind by a
+        // process that died between committing the record and writing the
+        // statuses.
+        if !parked && submitter_done {
             self.adopt_requests(wallet, submission).await;
         }
 
-        match self.probe(entry, submission, provider).await {
+        match probe::probe(
+            provider,
+            entry.address,
+            submission,
+            self.config.release_confirmations,
+        )
+        .await
+        {
             Probe::Wait => {}
             Probe::Included {
                 success,
@@ -543,23 +570,16 @@ impl TransactionSubmitter {
                 return;
             }
             Probe::Replaced => {
-                tracing::error!(
-                    wallet = %wallet,
-                    tx_hash = %format!("0x{:x}", submission.tx_hash),
-                    nonce = submission.nonce,
-                    "wallet transaction was replaced; its requests cannot be confirmed"
-                );
                 self.fail_replaced(entry, record, submission).await;
                 return;
             }
-            Probe::Absent => {
+            Probe::Absent if submitter_done => {
                 self.fail_absent(entry, record, submission).await;
                 // Resolved: the transaction never landed, so its wallet is free.
                 return;
             }
-            // Resolved inside the nonce probe; a reorged receipt never reaches
-            // this arm with a decision outstanding.
-            Probe::Reorged => {}
+            // Possibly still being broadcast; decide on a later pass.
+            Probe::Absent => {}
         }
 
         if !parked && age >= self.config.resolution_timeout_secs {
@@ -593,234 +613,65 @@ impl TransactionSubmitter {
         }
     }
 
-    /// Probes the chain for one outstanding transaction.
-    ///
-    /// The receipt lookup is treated as the source of truth. An RPC failure is
-    /// never evidence of anything, so it always yields [`Probe::Wait`].
-    async fn probe(
-        &self,
-        entry: &WalletEntry,
-        submission: &Submission,
-        provider: &DynProvider,
-    ) -> Probe {
-        let tx_hash = submission.tx_hash;
-
-        let receipt = match provider.get_transaction_receipt(tx_hash).await {
-            Ok(receipt) => receipt,
-            Err(error) => {
-                metrics::increment_wallet_tracker_error();
-                tracing::warn!(%error, %tx_hash, "failed to fetch transaction receipt");
-                return Probe::Wait;
-            }
-        };
-
-        if let Some(receipt) = receipt {
-            match self.classify_receipt(provider, submission, &receipt).await {
-                // Fall through: a reorg can also have consumed the nonce with a
-                // different transaction, which only the probe below can tell.
-                Probe::Reorged => {}
-                decided => return decided,
-            }
-        }
-
-        // No receipt. Distinguish "never landed" from "landed then reorged out"
-        // by asking where the transaction and its nonce are.
-        match provider.get_transaction_by_hash(tx_hash).await {
-            Ok(Some(_)) => return Probe::Wait,
-            Ok(None) => {}
-            Err(error) => {
-                metrics::increment_wallet_tracker_error();
-                tracing::warn!(%error, %tx_hash, "failed to look up transaction by hash");
-                return Probe::Wait;
-            }
-        }
-
-        let latest = match provider
-            .get_transaction_count(entry.wallet.address)
-            .latest()
-            .await
-        {
-            Ok(count) => count,
-            Err(error) => {
-                metrics::increment_wallet_tracker_error();
-                tracing::warn!(%error, "failed to read latest transaction count");
-                return Probe::Wait;
-            }
-        };
-
-        if latest > submission.nonce {
-            // The nonce is mined. If it were ours we would have a receipt, but a
-            // load-balanced RPC fleet can answer these two calls from different
-            // nodes, so re-read the receipt before drawing a conclusion.
-            return match provider.get_transaction_receipt(tx_hash).await {
-                Ok(Some(receipt)) => {
-                    match self.classify_receipt(provider, submission, &receipt).await {
-                        // Reorged out again: let the next pass start over rather
-                        // than concluding a replacement from a stale snapshot.
-                        Probe::Reorged => Probe::Wait,
-                        decided => decided,
-                    }
-                }
-                Ok(None) => Probe::Replaced,
-                Err(error) => {
-                    metrics::increment_wallet_tracker_error();
-                    tracing::warn!(%error, %tx_hash, "failed to re-read receipt; not concluding replacement");
-                    Probe::Wait
-                }
-            };
-        }
-
-        let pending = match provider
-            .get_transaction_count(entry.wallet.address)
-            .pending()
-            .await
-        {
-            Ok(count) => count,
-            Err(error) => {
-                metrics::increment_wallet_tracker_error();
-                tracing::warn!(%error, "failed to read pending transaction count");
-                return Probe::Wait;
-            }
-        };
-
-        if pending > submission.nonce {
-            // The nonce is occupied in a mempool, so the transaction may still
-            // land whether or not the entry is ours.
-            Probe::Wait
-        } else {
-            Probe::Absent
-        }
-    }
-
-    /// Turns a receipt into a probe outcome, verifying it is still canonical.
-    async fn classify_receipt(
-        &self,
-        provider: &DynProvider,
-        submission: &Submission,
-        receipt: &TransactionReceipt,
-    ) -> Probe {
-        let Some(block_number) = receipt.block_number else {
-            return Probe::Wait;
-        };
-
-        // A receipt without a block hash cannot be checked against the chain.
-        // Waiting is the only answer that neither treats the transaction as
-        // reorganised out on no evidence nor releases the wallet below the
-        // configured confirmation floor.
-        let Some(receipt_block_hash) = receipt.block_hash else {
-            tracing::warn!(
-                tx_hash = %submission.tx_hash,
-                "receipt has no block hash; cannot verify inclusion yet"
-            );
-            return Probe::Wait;
-        };
-
-        match provider.get_block_by_number(block_number.into()).await {
-            Ok(Some(block)) if block.header.hash == receipt_block_hash => {}
-            // The block that included this transaction is no longer canonical,
-            // so the transaction is no longer included.
-            Ok(Some(_) | None) => return Probe::Reorged,
-            Err(error) => {
-                metrics::increment_wallet_tracker_error();
-                tracing::warn!(
-                    %error,
-                    tx_hash = %submission.tx_hash,
-                    "failed to check whether the inclusion block is still canonical"
-                );
-                return Probe::Wait;
-            }
-        }
-
-        let head = match provider.get_block_number().await {
-            Ok(head) => head,
-            Err(error) => {
-                metrics::increment_wallet_tracker_error();
-                tracing::warn!(%error, "failed to read the chain head");
-                return Probe::Wait;
-            }
-        };
-
-        // Count the inclusion block itself, so the default of one confirmation
-        // means "included" and an operator raises it purely for reorg margin.
-        // Counting blocks *on top* instead would make a lone transaction on a
-        // quiet chain wait for a block that may never come: nothing else is
-        // transacting, so the wallet would never be released.
-        let confirmations = head.saturating_sub(block_number).saturating_add(1);
-        if confirmations < self.config.release_confirmations {
-            return Probe::Wait;
-        }
-
-        Probe::Included {
-            success: receipt.status(),
-            confirmations,
-        }
-    }
-
     /// Resolves a batch whose transaction is on chain, and releases the wallet.
     async fn settle(
         &self,
-        entry: &WalletEntry,
+        entry: &ProviderWallet,
         record: &WalletRecord,
         submission: &Submission,
         success: bool,
         confirmations: u64,
     ) {
-        let wallet = entry.wallet.address;
-        let formatted_tx_hash = format!("0x{:x}", submission.tx_hash);
-        let latency_ms = now_unix_secs()
-            .saturating_sub(submission.submitted_at)
-            .saturating_mul(1_000) as f64;
-
-        metrics::record_batch_confirmed(submission.batch_type.as_str(), success, latency_ms);
-        metrics::record_wallet_time_in_flight(latency_ms);
-        metrics::record_wallet_confirmations_at_release(confirmations);
-
-        if success {
-            tracing::info!(
-                tx_hash = %formatted_tx_hash,
-                %wallet,
-                batch_type = %submission.batch_type,
-                confirmations,
-                latency_ms,
-                "batch transaction confirmed on-chain"
-            );
+        let tx_hash = format!("{:#x}", submission.tx_hash);
+        let (status, outcome) = if success {
+            (
+                GatewayRequestState::Finalized {
+                    tx_hash: tx_hash.clone(),
+                },
+                "confirmed",
+            )
         } else {
             tracing::error!(
-                tx_hash = %formatted_tx_hash,
-                %wallet,
+                %tx_hash,
+                wallet = %entry.address,
                 batch_type = %submission.batch_type,
                 "batch transaction reverted on-chain"
             );
-        }
-
-        let status = if success {
-            GatewayRequestState::Finalized {
-                tx_hash: formatted_tx_hash.clone(),
-            }
-        } else {
-            GatewayRequestState::failed(
-                format!("transaction reverted on-chain (tx: {formatted_tx_hash})"),
-                Some(GatewayErrorCode::TransactionReverted),
+            (
+                GatewayRequestState::failed(
+                    format!("transaction reverted on-chain (tx: {tx_hash})"),
+                    Some(GatewayErrorCode::TransactionReverted),
+                ),
+                "reverted",
             )
         };
 
         if self
-            .mark_terminal(&submission.request_ids, &status, wallet)
+            .resolve_batch(entry, record, submission, &status, outcome)
             .await
         {
-            metrics::record_wallet_outcome(if success { "confirmed" } else { "reverted" });
-            self.release_lease(wallet, record.lease_id).await;
+            let latency_ms = now_unix_secs()
+                .saturating_sub(submission.submitted_at)
+                .saturating_mul(1_000) as f64;
+            metrics::record_batch_confirmed(submission.batch_type.as_str(), success, latency_ms);
+            metrics::record_wallet_time_in_flight(latency_ms);
+            metrics::record_wallet_confirmations_at_release(confirmations);
         }
     }
 
     /// Fails a batch whose nonce was consumed by a different transaction.
     async fn fail_replaced(
         &self,
-        entry: &WalletEntry,
+        entry: &ProviderWallet,
         record: &WalletRecord,
         submission: &Submission,
     ) {
-        let wallet = entry.wallet.address;
+        tracing::error!(
+            wallet = %entry.address,
+            tx_hash = %format!("{:#x}", submission.tx_hash),
+            nonce = submission.nonce,
+            "wallet transaction was replaced; its requests cannot be confirmed"
+        );
         let status = GatewayRequestState::failed(
             format!(
                 "transaction replaced by another transaction with the same nonce (nonce {})",
@@ -828,14 +679,8 @@ impl TransactionSubmitter {
             ),
             Some(GatewayErrorCode::ConfirmationError),
         );
-
-        metrics::record_wallet_outcome("replaced");
-        if self
-            .mark_terminal(&submission.request_ids, &status, wallet)
-            .await
-        {
-            self.release_lease(wallet, record.lease_id).await;
-        }
+        self.resolve_batch(entry, record, submission, &status, "replaced")
+            .await;
     }
 
     /// Parks a wallet whose transaction fate could not be decided.
@@ -844,8 +689,8 @@ impl TransactionSubmitter {
     /// deliberately kept: releasing the wallet could reuse a nonce whose
     /// transaction still exists. Parking is a capacity loss, not a correctness
     /// risk, and it stops the wallet until the chain settles or an operator acts.
-    async fn park(&self, entry: &WalletEntry, record: &WalletRecord, submission: &Submission) {
-        let wallet = entry.wallet.address;
+    async fn park(&self, entry: &ProviderWallet, record: &WalletRecord, submission: &Submission) {
+        let wallet = entry.address;
         let status = GatewayRequestState::failed(
             format!(
                 "transaction fate undecided after {}s (tx: 0x{:x})",
@@ -903,39 +748,62 @@ impl TransactionSubmitter {
     /// Fails a batch whose transaction is neither on chain nor pending.
     ///
     /// [`Probe::Absent`] established that the nonce is unconsumed and the signed
-    /// hash is unknown to the endpoint, so the transaction never landed and the
-    /// wallet's nonce is free to reuse. Nothing is retried: the requests are
-    /// answered and the wallet returns to the pool.
+    /// hash is unknown to the endpoint after the broadcast grace, so the
+    /// transaction never landed and the wallet's nonce is free to reuse.
+    /// Nothing is retried: the requests are answered and the wallet returns to
+    /// the pool.
     async fn fail_absent(
         &self,
-        entry: &WalletEntry,
+        entry: &ProviderWallet,
         record: &WalletRecord,
         submission: &Submission,
     ) {
-        let wallet = entry.wallet.address;
-        let tx_hash = format!("0x{:x}", submission.tx_hash);
         let status = GatewayRequestState::failed(
-            format!("transaction was not accepted by the network (tx: {tx_hash})"),
+            format!(
+                "transaction was not accepted by the network (tx: {:#x})",
+                submission.tx_hash
+            ),
             Some(GatewayErrorCode::ConfirmationError),
         );
+        self.resolve_batch(entry, record, submission, &status, "absent")
+            .await;
+    }
 
-        if self
-            .mark_terminal(&submission.request_ids, &status, wallet)
+    /// Writes a batch's terminal status and releases its wallet.
+    ///
+    /// Returns whether this caller released the wallet. Every replica resolves
+    /// every wallet, so only the one whose release applied records the outcome;
+    /// the others would count the same transaction again.
+    async fn resolve_batch(
+        &self,
+        entry: &ProviderWallet,
+        record: &WalletRecord,
+        submission: &Submission,
+        status: &GatewayRequestState,
+        outcome: &'static str,
+    ) -> bool {
+        if !self
+            .mark_terminal(&submission.request_ids, status, entry.address)
             .await
         {
-            metrics::record_wallet_outcome("absent");
-            self.release_lease(wallet, record.lease_id).await;
+            return false;
         }
+        let released = self.release_lease(entry.address, record.lease_id).await;
+        if released {
+            metrics::record_wallet_outcome(outcome);
+        }
+        released
     }
 
     /// Writes a terminal status for a batch, returning whether the wallet may be
     /// released.
     ///
-    /// The lease is released only once every request is resolved. If a request
-    /// has already been resolved by another owner the write is refused, so the
-    /// records are re-read: a batch whose requests are all terminal is still
-    /// safe to release, while one that is only partly resolved is retried on the
-    /// next pass.
+    /// The batch write is all-or-nothing, so it refuses the whole batch when any
+    /// request was already resolved by another owner or has expired. The
+    /// remaining requests are then resolved one by one: leaving them for the
+    /// next pass would refuse again forever, and the sweeper does not touch
+    /// requests a wallet owns. The wallet is released only once every write has
+    /// reached Redis.
     async fn mark_terminal(
         &self,
         ids: &[String],
@@ -948,28 +816,12 @@ impl TransactionSubmitter {
             .set_status_batch_if(ids, &allowed, status.clone(), Some(wallet))
             .await
         {
-            Ok(StatusWriteOutcome::Applied | StatusWriteOutcome::Missing) => true,
-            Ok(StatusWriteOutcome::Guarded) => self.all_resolved(ids).await,
-            Err(error) => {
-                tracing::error!(%error, "failed to write terminal status for a batch");
-                false
+            Ok(StatusWriteOutcome::Applied) => true,
+            Ok(StatusWriteOutcome::Guarded | StatusWriteOutcome::Missing) => {
+                self.set_each_if(ids, &allowed, status, Some(wallet)).await
             }
-        }
-    }
-
-    /// Whether every request in a batch is already in a terminal state.
-    async fn all_resolved(&self, ids: &[String]) -> bool {
-        match self.tracker.snapshot_batch(ids).await {
-            Ok(records) => records.iter().all(|(_, record)| {
-                record.as_ref().is_none_or(|record| {
-                    matches!(
-                        record.status,
-                        GatewayRequestState::Finalized { .. } | GatewayRequestState::Failed { .. }
-                    )
-                })
-            }),
             Err(error) => {
-                tracing::error!(%error, "failed to re-read request states");
+                tracing::error!(%error, %wallet, "failed to write terminal status for a batch");
                 false
             }
         }
@@ -1038,24 +890,31 @@ impl TransactionSubmitter {
         }
     }
 
-    /// Whether a wallet record exists and is still owned by this lease.
-    async fn wallet_record_is_ours(&self, wallet: Address, lease_id: Uuid) -> bool {
+    /// Whether this lease's record holds `tx_hash` in flight, i.e. whether an
+    /// ambiguous commit actually landed.
+    async fn is_committed(&self, wallet: Address, lease_id: Uuid, tx_hash: TxHash) -> bool {
         match self.wallet_store.get(wallet).await {
-            Ok(Some(record)) => record.lease_id == lease_id,
-            Ok(None) | Err(_) => false,
+            Ok(Some(record)) => {
+                record.lease_id == lease_id
+                    && record.state == WalletState::InFlight
+                    && record
+                        .submission()
+                        .is_some_and(|submission| submission.tx_hash == tx_hash)
+            }
+            Ok(None) => false,
+            Err(error) => {
+                tracing::error!(%error, %wallet, "failed to re-read the wallet record after an ambiguous commit");
+                false
+            }
         }
     }
 
     /// Acquires a free wallet, waiting up to the configured timeout.
     ///
-    /// Returns `Ok(None)` when the pool stayed busy for the whole timeout. That
-    /// is a capacity signal, not an error: the caller should retry the batch
-    /// rather than fail its requests.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when Redis cannot be reached.
-    async fn acquire(&self) -> GatewayResult<Option<(WalletEntry, Uuid)>> {
+    /// Returns `None` when no wallet could be reserved for the whole timeout,
+    /// whether because the pool was busy or because Redis failed. Either way it
+    /// is a capacity signal, not a reason to fail the batch's requests.
+    async fn acquire(&self) -> Option<(ProviderWallet, Uuid)> {
         let started = tokio::time::Instant::now();
         let deadline = started + Duration::from_secs(self.config.acquire_timeout_secs);
         let lease = Duration::from_secs(self.config.sign_lease_secs);
@@ -1068,13 +927,24 @@ impl TransactionSubmitter {
                 let entry = self.wallets[index].clone();
                 let lease_id = Uuid::new_v4();
 
-                if self
+                match self
                     .wallet_store
-                    .reserve(entry.wallet.address, lease_id, lease)
-                    .await?
+                    .reserve(entry.address, lease_id, lease)
+                    .await
                 {
-                    metrics::record_wallet_acquire_wait(started.elapsed().as_secs_f64() * 1000.0);
-                    return Ok(Some((entry, lease_id)));
+                    Ok(true) => {
+                        metrics::record_wallet_acquire_wait(
+                            started.elapsed().as_secs_f64() * 1000.0,
+                        );
+                        return Some((entry, lease_id));
+                    }
+                    Ok(false) => {}
+                    Err(error) => {
+                        // If the reservation applied anyway, its short signing
+                        // lease expires on its own.
+                        metrics::increment_wallet_resolver_error("redis");
+                        tracing::warn!(%error, wallet = %entry.address, "failed to reserve wallet");
+                    }
                 }
             }
 
@@ -1085,32 +955,36 @@ impl TransactionSubmitter {
                 // saturated for the whole timeout is exactly the case the wait
                 // histogram exists to show.
                 metrics::record_wallet_acquire_wait(started.elapsed().as_secs_f64() * 1000.0);
-                return Ok(None);
+                return None;
             }
 
             // A release notification is process-local, so it cannot report a
-            // wallet freed by another replica. Recheck every tracker interval as
+            // wallet freed by another replica. Recheck every resolver interval as
             // well, or a shared pool would only pick those up after the whole
             // acquire timeout.
             let recheck = tokio::time::Instant::now()
-                + Duration::from_secs(self.config.tracker_interval_secs);
+                + Duration::from_secs(self.config.resolver_interval_secs);
             let notified = self.wallet_released.notified();
             let _ = tokio::time::timeout_at(deadline.min(recheck), notified).await;
         }
     }
 
-    /// Releases a lease and wakes anything waiting for a wallet.
-    async fn release_lease(&self, wallet: Address, lease_id: Uuid) {
+    /// Releases a lease and wakes anything waiting for a wallet, returning
+    /// whether this call deleted the record.
+    ///
+    /// `Missing` and `Conflict` mean another replica released it first (and
+    /// possibly re-leased the wallet), which is a normal race, not an error.
+    async fn release_lease(&self, wallet: Address, lease_id: Uuid) -> bool {
         match self.wallet_store.release(wallet, lease_id).await {
-            Ok(CasOutcome::Applied | CasOutcome::Missing) => self.wallet_released.notify_waiters(),
-            Ok(CasOutcome::Conflict) => {
-                tracing::error!(
-                    %wallet,
-                    "wallet lease changed before it could be released; leaving it for the resolver"
-                );
+            Ok(CasOutcome::Applied) => {
+                self.wallet_released.notify_waiters();
+                true
             }
+            Ok(CasOutcome::Missing | CasOutcome::Conflict) => false,
             Err(error) => {
+                metrics::increment_wallet_resolver_error("redis");
                 tracing::error!(%error, %wallet, "failed to release wallet lease");
+                false
             }
         }
     }

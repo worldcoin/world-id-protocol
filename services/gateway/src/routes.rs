@@ -29,6 +29,7 @@ use crate::{
         update_authenticator::update_authenticator,
         update_recovery_agent::update_recovery_agent,
     },
+    storage::wallet_store::WalletStore,
     transaction_submitter::TransactionSubmitter,
     types::RootExpiry,
 };
@@ -182,7 +183,11 @@ pub(crate) async fn build_app(
         "Transaction resolver initialized"
     );
 
-    tokio::spawn(run_orphan_sweeper(tracker.clone(), orphan_sweeper_config));
+    tokio::spawn(run_orphan_sweeper(
+        tracker.clone(),
+        WalletStore::connect(&redis_url).await?,
+        orphan_sweeper_config,
+    ));
     tracing::info!("Orphan sweeper initialized");
 
     let root_cache = Cache::builder()

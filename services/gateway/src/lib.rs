@@ -7,6 +7,7 @@ pub use crate::{
     },
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},
+    storage::wallet_store::WalletStore,
 };
 use crate::{routes::build_app, types::AppState};
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc};

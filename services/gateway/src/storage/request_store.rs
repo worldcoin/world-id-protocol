@@ -144,7 +144,7 @@ impl RequestStore {
     /// Returns [`CreateRequestOutcome::DuplicateInflight`] without changing
     /// storage when any requested lock already exists. Each lock stores the
     /// owning request ID. The request record uses [`REQUESTS_TTL`], while lock
-    /// entries use [`INFLIGHT_TTL`].
+    /// entries use the in-flight TTL this store was connected with.
     pub(crate) async fn create_request(
         &self,
         id: &str,
@@ -303,8 +303,7 @@ impl RequestStore {
     /// snapshot can overwrite a status another task has already advanced,
     /// reporting a request as failed while its transaction is on chain.
     ///
-    /// `wallet` is written when supplied and left untouched when `None`, so a
-    /// legacy record is never given a budget it did not earn.
+    /// `wallet` is written when supplied and left untouched when `None`.
     ///
     /// Terminal statuses additionally remove the request from the pending set
     /// and delete the in-flight locks it still owns, matching
@@ -321,76 +320,8 @@ impl RequestStore {
         updated_at: u64,
         wallet: Option<Address>,
     ) -> GatewayResult<StatusWriteOutcome> {
-        let allowed_json = Self::status_guard_json(allowed)?;
-        let status_json = serde_json::to_string(status)?;
-        let wallet = wallet.map_or_else(String::new, |wallet| wallet.to_string());
-
-        let mut manager = self.manager.clone();
-        let outcome: i64 = redis::Script::new(
-            r#"
-            local request_key = KEYS[1]
-            local pending_set_key = KEYS[2]
-
-            local allowed = cjson.decode(ARGV[1])
-            local status = ARGV[2]
-            local updated_at = tonumber(ARGV[3])
-            local request_id = ARGV[4]
-            local wallet = ARGV[5]
-
-            local record = redis.call('GET', request_key)
-            if not record then
-                return -1
-            end
-
-            local decoded = cjson.decode(record)
-            local current = decoded.status.state
-            local accepted = false
-            for _, name in ipairs(allowed) do
-                if current == name then
-                    accepted = true
-                    break
-                end
-            end
-            if not accepted then
-                return 0
-            end
-
-            decoded.status = cjson.decode(status)
-            decoded.updated_at = updated_at
-            if wallet ~= '' then
-                decoded.wallet = wallet
-            end
-            redis.call('SET', request_key, cjson.encode(decoded), 'KEEPTTL')
-
-            local state = decoded.status.state
-            if state == 'finalized' or state == 'failed' then
-                redis.call('SREM', pending_set_key, request_id)
-                local inflight = decoded.inflight_keys
-                if inflight then
-                    for _, key in ipairs(inflight) do
-                        local owner = redis.call('GET', key)
-                        -- Gateway versions predating lock ownership stored literal 1.
-                        if owner == request_id or owner == '1' then
-                            redis.call('DEL', key)
-                        end
-                    end
-                end
-            end
-
-            return 1
-            "#,
-        )
-        .key(Self::request_key(id))
-        .key(PENDING_SET_KEY)
-        .arg(allowed_json)
-        .arg(status_json)
-        .arg(updated_at)
-        .arg(id)
-        .arg(wallet)
-        .invoke_async(&mut manager)
-        .await?;
-
-        Ok(Self::status_write_outcome(outcome))
+        self.update_status_batch_if(&[id.to_owned()], allowed, status, updated_at, wallet)
+            .await
     }
 
     /// Atomically applies a status to every request in a batch, or to none of
@@ -400,11 +331,12 @@ impl RequestStore {
     /// some requests recorded as `Submitted` for a transaction the caller is
     /// about to discard, with no wallet record for the resolver to pick up.
     /// Callers treat [`StatusWriteOutcome::Guarded`] as "do not broadcast".
+    /// An empty batch, or one with any missing record, reports
+    /// [`StatusWriteOutcome::Missing`] and writes nothing.
     ///
     /// # Errors
     ///
-    /// Returns an error when `ids` is empty, serialization fails, or the Redis
-    /// call fails.
+    /// Returns an error when serialization or the Redis call fails.
     pub(crate) async fn update_status_batch_if(
         &self,
         ids: &[String],
@@ -474,6 +406,7 @@ impl RequestStore {
                     if inflight then
                         for _, key in ipairs(inflight) do
                             local owner = redis.call('GET', key)
+                            -- Gateway versions predating lock ownership stored literal 1.
                             if owner == request_id or owner == '1' then
                                 redis.call('DEL', key)
                             end

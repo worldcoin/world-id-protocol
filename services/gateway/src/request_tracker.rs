@@ -144,9 +144,9 @@ impl RequestTracker {
     /// Applies a status only while the stored status is one of `allowed`.
     ///
     /// Returns the outcome so the caller can tell "the write landed" apart from
-    /// "another owner already advanced this request". Per-request guarded
-    /// writes are used where a caller owns exactly one request; batch
-    /// submission uses [`Self::set_status_batch_if`] instead.
+    /// "another owner already advanced this request". Use it where each request
+    /// stands alone; where a batch must transition together, use
+    /// [`Self::set_status_batch_if`].
     ///
     /// # Errors
     ///
@@ -166,9 +166,9 @@ impl RequestTracker {
     /// All-or-nothing guarded status write over a whole batch.
     ///
     /// A transaction may only be broadcast once every request it carries has
-    /// transitioned, so partial application is reported as
-    /// [`StatusWriteOutcome::Guarded`] and the caller must abandon the
-    /// transaction rather than broadcast it.
+    /// transitioned, so nothing is written unless every request qualifies: a
+    /// refused request reports [`StatusWriteOutcome::Guarded`], a missing one
+    /// [`StatusWriteOutcome::Missing`].
     ///
     /// # Errors
     ///

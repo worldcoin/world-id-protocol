@@ -38,7 +38,7 @@ pub const METRICS_WALLET_ACQUIRE_EMPTY: &str = "wallet.acquire_empty";
 pub const METRICS_WALLET_OUTCOME: &str = "wallet.outcome";
 pub const METRICS_WALLET_TIME_IN_FLIGHT_MS: &str = "wallet.time_in_flight_ms";
 pub const METRICS_WALLET_CONFIRMATIONS_AT_RELEASE: &str = "wallet.confirmations_at_release";
-pub const METRICS_WALLET_TRACKER_ERRORS: &str = "wallet.tracker_error";
+pub const METRICS_WALLET_RESOLVER_ERRORS: &str = "wallet.resolver_error";
 
 pub fn describe_metrics() {
     world_id_services_common::describe_http_request_metrics();
@@ -164,9 +164,9 @@ pub fn describe_metrics() {
         "Confirmations observed when a wallet was released; evidence for the release threshold."
     );
     ::metrics::describe_counter!(
-        METRICS_WALLET_TRACKER_ERRORS,
+        METRICS_WALLET_RESOLVER_ERRORS,
         ::metrics::Unit::Count,
-        "Number of errors while resolving wallet transactions."
+        "Errors while leasing or resolving wallet transactions, by failure class."
     );
 
     world_id_services_common::describe_provider_transport_metrics();
@@ -267,8 +267,9 @@ pub fn increment_wallet_acquire_empty() {
 
 /// Records how a wallet left the pool.
 ///
-/// `outcome` is one of `confirmed`, `reverted`, `replaced` or `parked`; park is
-/// deliberately included even though it is not a release.
+/// `outcome` is one of `confirmed`, `reverted`, `replaced`, `absent`, `parked`,
+/// `abandoned` or `lease_lost`. The last three are counted even though the
+/// first is not a release and the other two never broadcast.
 pub fn record_wallet_outcome(outcome: &'static str) {
     ::metrics::counter!(METRICS_WALLET_OUTCOME, "outcome" => outcome).increment(1);
 }
@@ -283,7 +284,9 @@ pub fn record_wallet_confirmations_at_release(confirmations: u64) {
     ::metrics::histogram!(METRICS_WALLET_CONFIRMATIONS_AT_RELEASE).record(confirmations as f64);
 }
 
-/// Records an error while resolving wallet transactions.
-pub fn increment_wallet_tracker_error() {
-    ::metrics::counter!(METRICS_WALLET_TRACKER_ERRORS).increment(1);
+/// Records an error while leasing or resolving wallet transactions.
+///
+/// `class` is the failing dependency or cause: `rpc`, `redis` or `timeout`.
+pub fn increment_wallet_resolver_error(class: &'static str) {
+    ::metrics::counter!(METRICS_WALLET_RESOLVER_ERRORS, "class" => class).increment(1);
 }

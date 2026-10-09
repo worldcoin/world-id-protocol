@@ -102,8 +102,9 @@ pub struct ProviderArgs {
 }
 
 /// Secrets for the signer.
-/// Exactly one of `wallet_private_key`, `aws_kms_key_id`, or `aws_kms_key_ids` may be
-/// provided. When none is set, no signer is configured.
+/// At most one of `wallet_private_key`, `aws_kms_key_id`, `aws_kms_key_ids`,
+/// `aws_kms_wallet_keys` or `wallet_private_keys` may be provided. When none is
+/// set, no signer is configured.
 #[derive(Args, Debug, Clone, Default, Deserialize)]
 #[group(required = false, multiple = false)]
 pub struct SignerArgs {
@@ -295,10 +296,9 @@ impl SignerArgs {
     /// Splits a pooled configuration into one single-signer configuration per
     /// wallet.
     ///
-    /// Each wallet is then built by [`ProviderArgs::http_wallet`], so the pool
-    /// reuses the exact construction path a single-wallet gateway always used
-    /// rather than introducing a second one. A legacy configuration yields
-    /// exactly one entry, which is what makes this change additive.
+    /// Each wallet is then built by [`ProviderArgs::http_wallet`], so pooled and
+    /// single-wallet configurations share one construction path. A single-key
+    /// configuration yields exactly one entry.
     ///
     /// # Errors
     ///

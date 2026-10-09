@@ -7,7 +7,11 @@ mod ops;
 pub(crate) use create::{CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope};
 pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope};
 
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy::{primitives::Bytes, providers::DynProvider, rpc::types::TransactionRequest};
 use tokio::{sync::mpsc, time::Instant};
@@ -160,12 +164,24 @@ where
             return None;
         }
 
-        let ids = Self::request_ids(&batch);
-        metrics::record_batch_submitted(self.strategy.batch_type().as_str(), ids.len());
-
         // Take ownership of the requests before waiting for a wallet: a batch
         // that is queued behind capacity must not look abandoned to the sweeper.
-        self.submitter.mark_batching(&ids).await;
+        // Requests already resolved elsewhere are dropped from the batch, so
+        // they are never put on chain.
+        let claimed: HashSet<String> = self
+            .submitter
+            .mark_batching(&Self::request_ids(&batch))
+            .await
+            .into_iter()
+            .collect();
+        let batch: Vec<E> = batch
+            .into_iter()
+            .filter(|envelope| claimed.contains(envelope.request_id()))
+            .collect();
+        if batch.is_empty() {
+            return None;
+        }
+        metrics::record_batch_submitted(self.strategy.batch_type().as_str(), batch.len());
 
         self.try_submit(batch).await
     }
