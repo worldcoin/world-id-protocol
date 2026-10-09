@@ -95,6 +95,25 @@ impl ServiceClient {
     }
 
     fn error_from_response(&self, resp: &TransportResponse) -> AuthenticatorError {
+        let service = match self.service_kind {
+            ServiceKind::Gateway => "gateway",
+            ServiceKind::Indexer => "indexer",
+        };
+
+        // 502/503/504 specifically signal an unreachable or overloaded upstream
+        // (RFC 9458 §5.2 uses 504 for a gateway that cannot reach its target).
+        // Surface them as a clear "service unavailable" error rather than a raw
+        // 5xx body, which is typically an opaque infra error page.
+        if matches!(
+            resp.status,
+            StatusCode::BAD_GATEWAY | StatusCode::SERVICE_UNAVAILABLE | StatusCode::GATEWAY_TIMEOUT
+        ) {
+            return AuthenticatorError::ServiceUnavailable {
+                service: service.to_owned(),
+                status: resp.status,
+            };
+        }
+
         let body = String::from_utf8_lossy(&resp.body).into_owned();
         match self.service_kind {
             ServiceKind::Gateway => AuthenticatorError::GatewayError {
