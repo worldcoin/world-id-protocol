@@ -384,7 +384,7 @@ impl Authenticator {
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
-    async fn fetch_packed_account_data_for(
+    pub(crate) async fn fetch_packed_account_data_for(
         onchain_signer_address: Address,
         registry: Option<&WorldIdRegistryInstance<DynProvider>>,
         config: &Config,

@@ -171,6 +171,31 @@ impl IncomingRegistration {
         self,
         approver: &Authenticator,
     ) -> Result<CheckedRegistration, ApproverError> {
+        // WIP-109 §3.7.2 step 1: the registry, not the snapshot, decides whether the approver is
+        // still an Admin Authenticator of its account.
+        match before(
+            self.respond_by,
+            packed_account_data_of(approver, approver.onchain_address()),
+        )
+        .await
+        {
+            None => {
+                return Err(self
+                    .refuse(RegistrationErrorReason::InternalError, None)
+                    .await);
+            }
+            Some(Ok(packed)) if leaf_index_of(packed) == approver.leaf_index() => {}
+            Some(Ok(_) | Err(AuthenticatorError::AccountDoesNotExist)) => {
+                return Err(self
+                    .refuse(RegistrationErrorReason::NotAuthorized, None)
+                    .await);
+            }
+            Some(Err(error)) => {
+                return Err(self
+                    .refuse(RegistrationErrorReason::InternalError, Some(error))
+                    .await);
+            }
+        }
         let snapshot = match before(self.respond_by, approver.fetch_account_snapshot()).await {
             None => {
                 return Err(self
@@ -184,14 +209,38 @@ impl IncomingRegistration {
                     .await);
             }
         };
-        match plan_registration(&snapshot, approver, &self.request) {
-            Ok(plan) => Ok(CheckedRegistration {
-                incoming: self,
-                snapshot,
-                plan,
-            }),
-            Err(reason) => Err(self.refuse(reason, None).await),
+        let plan = match plan_registration(&snapshot, approver, &self.request) {
+            Ok(plan) => plan,
+            Err(reason) => return Err(self.refuse(reason, None).await),
+        };
+        // WIP-109 §3.7.2 step 4: a new Admin address must not be registered to any account yet.
+        if let (RegistrationPlan::Insert { .. }, AuthenticatorClass::Admin { address }) =
+            (plan, self.request.class)
+        {
+            match before(self.respond_by, packed_account_data_of(approver, address)).await {
+                None => {
+                    return Err(self
+                        .refuse(RegistrationErrorReason::InternalError, None)
+                        .await);
+                }
+                Some(Err(AuthenticatorError::AccountDoesNotExist)) => {}
+                Some(Ok(_)) => {
+                    return Err(self
+                        .refuse(RegistrationErrorReason::AuthenticatorConflict, None)
+                        .await);
+                }
+                Some(Err(error)) => {
+                    return Err(self
+                        .refuse(RegistrationErrorReason::InternalError, Some(error))
+                        .await);
+                }
+            }
         }
+        Ok(CheckedRegistration {
+            incoming: self,
+            snapshot,
+            plan,
+        })
     }
 
     /// Refuses the request, e.g. with `invalid_name` for a name the host does not accept.
@@ -675,6 +724,27 @@ impl ResponseChannel {
         }
         delivery
     }
+}
+
+/// Looks up the packed account data registered for a management `address`, from the registry
+/// when an RPC is configured and from the indexer otherwise. A revoked address is
+/// [`AuthenticatorError::AccountDoesNotExist`].
+async fn packed_account_data_of(
+    approver: &Authenticator,
+    address: alloy::primitives::Address,
+) -> Result<alloy::primitives::U256, AuthenticatorError> {
+    Authenticator::fetch_packed_account_data_for(
+        address,
+        approver.registry().as_deref(),
+        &approver.config,
+        &approver.indexer_client,
+    )
+    .await
+}
+
+/// The leaf index in packed account data: its low 64 bits.
+fn leaf_index_of(packed: alloy::primitives::U256) -> u64 {
+    packed.as_limbs()[0]
 }
 
 /// A short tag that correlates log lines of one session. The request id itself is never logged:
