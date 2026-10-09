@@ -12234,7 +12234,6 @@ dependencies = [
  "getrandom 0.4.1",
  "hex",
  "hkdf 0.13.0",
- "httpdate",
  "mockito",
  "ohttp",
  "quantum-box",

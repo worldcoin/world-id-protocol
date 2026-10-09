@@ -400,8 +400,9 @@ pub enum TransportError {
     /// The ciphertext is malformed or failed authentication.
     #[error("decryption failed")]
     Decrypt,
-    /// The `iv` or `payload` is not valid base64, or the nonce has the wrong length.
-    #[error("invalid base64 or nonce length in the encrypted payload")]
+    /// The `iv` or `payload` is not valid base64, the nonce has the wrong length, or the
+    /// ciphertext is shorter than the authentication tag.
+    #[error("invalid base64, nonce length or ciphertext length in the encrypted payload")]
     Encoding,
     /// The response public key is not a valid X-Wing encapsulation key.
     #[error("invalid response public key")]

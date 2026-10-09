@@ -1,7 +1,10 @@
 //! The response to a `worldid_auth_v1_register` request (WIP-109 §3.6.2 and §3.6.3).
 
 use serde::{Deserialize, Serialize};
-use world_id_primitives::authenticator_message::{ErrorObject, Response};
+use world_id_primitives::{
+    MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
+    authenticator_message::{ErrorObject, Response},
+};
 
 use super::request::AuthenticatorName;
 
@@ -13,9 +16,11 @@ pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErro
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegistrationResult {
-    /// The index of the account the authenticator was registered on.
+    /// The index of the account the authenticator was registered on, from 1 to 2^30 − 1.
+    #[serde(serialize_with = "leaf_index::serialize")]
     pub leaf_index: u64,
-    /// The slot the authenticator was inserted at.
+    /// The slot the authenticator was inserted at, below [`MAX_AUTHENTICATOR_KEYS`].
+    #[serde(serialize_with = "pubkey_id::serialize")]
     pub pubkey_id: u32,
     /// Names of the account's other authenticators known to the Approving Authenticator.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -30,8 +35,8 @@ pub struct RegistrationResult {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct KnownAuthenticator {
-    /// The slot of the authenticator.
-    #[serde(deserialize_with = "deserialize_unsigned")]
+    /// The slot of the authenticator, below [`MAX_AUTHENTICATOR_KEYS`].
+    #[serde(with = "pubkey_id")]
     pub pubkey_id: u32,
     /// The name the Approving Authenticator knows it by.
     pub name: AuthenticatorName,
@@ -182,9 +187,9 @@ impl<'de> Deserialize<'de> for RegistrationErrorData {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireRegistrationResult {
-    #[serde(deserialize_with = "deserialize_unsigned")]
+    #[serde(deserialize_with = "leaf_index::deserialize")]
     leaf_index: u64,
-    #[serde(deserialize_with = "deserialize_unsigned")]
+    #[serde(deserialize_with = "pubkey_id::deserialize")]
     pubkey_id: u32,
     #[serde(default)]
     authenticators: Vec<KnownAuthenticator>,
@@ -201,6 +206,58 @@ impl<'de> Deserialize<'de> for RegistrationResult {
             authenticators: wire.authenticators,
             vault: wire.vault,
         })
+    }
+}
+
+/// Account indices run from 1 to 2^30 − 1; index 0 is reserved (WIP-100 §3.8, §5.1).
+mod leaf_index {
+    use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
+
+    use super::{TREE_DEPTH, deserialize_unsigned};
+
+    const fn is_valid(index: u64) -> bool {
+        index != 0 && index < 1 << TREE_DEPTH
+    }
+
+    pub(super) fn serialize<S: Serializer>(index: &u64, serializer: S) -> Result<S::Ok, S::Error> {
+        if !is_valid(*index) {
+            return Err(S::Error::custom("leaf index out of range"));
+        }
+        serializer.serialize_u64(*index)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+        let index = deserialize_unsigned(deserializer)?;
+        if !is_valid(index) {
+            return Err(D::Error::custom("leaf index out of range"));
+        }
+        Ok(index)
+    }
+}
+
+/// Authenticator slots are below `NUM_KEYS` (WIP-100 §3.8).
+mod pubkey_id {
+    use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
+
+    use super::{MAX_AUTHENTICATOR_KEYS, deserialize_unsigned};
+
+    fn is_valid(slot: u32) -> bool {
+        usize::try_from(slot).is_ok_and(|slot| slot < MAX_AUTHENTICATOR_KEYS)
+    }
+
+    pub(super) fn serialize<S: Serializer>(slot: &u32, serializer: S) -> Result<S::Ok, S::Error> {
+        if !is_valid(*slot) {
+            return Err(S::Error::custom("pubkey_id out of range"));
+        }
+        serializer.serialize_u32(*slot)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+        let slot = deserialize_unsigned(deserializer)?;
+        if !is_valid(slot) {
+            return Err(D::Error::custom("pubkey_id out of range"));
+        }
+        Ok(slot)
     }
 }
 
@@ -351,6 +408,65 @@ mod tests {
             ),
         ]);
         assert!(result.deserialized::<RegistrationResult>().is_err());
+    }
+
+    #[test]
+    fn indexes_are_bounded_to_the_protocol_ranges() {
+        use ciborium::Value;
+        let result = |leaf_index: u64, pubkey_id: u64, known: u64| {
+            Value::Map(vec![
+                ("leaf_index".into(), leaf_index.into()),
+                ("pubkey_id".into(), pubkey_id.into()),
+                (
+                    "authenticators".into(),
+                    Value::Array(vec![Value::Map(vec![
+                        ("pubkey_id".into(), known.into()),
+                        ("name".into(), "phone".into()),
+                    ])]),
+                ),
+            ])
+            .deserialized::<RegistrationResult>()
+        };
+        let max_leaf = (1 << 30) - 1;
+        assert!(result(1, 0, 6).is_ok());
+        assert!(result(max_leaf, 6, 0).is_ok());
+        for (leaf_index, pubkey_id, known) in [(0, 1, 0), (1 << 30, 1, 0), (42, 7, 0), (42, 1, 7)] {
+            assert!(
+                result(leaf_index, pubkey_id, known).is_err(),
+                "{leaf_index} {pubkey_id} {known}"
+            );
+        }
+
+        let valid = RegistrationResult {
+            leaf_index: 42,
+            pubkey_id: 1,
+            authenticators: Vec::new(),
+            vault: None,
+        };
+        let encode_result = |result: &RegistrationResult| {
+            let mut out = Vec::new();
+            ciborium::into_writer(result, &mut out)
+        };
+        assert!(encode_result(&valid).is_ok());
+        for invalid in [
+            RegistrationResult {
+                leaf_index: 0,
+                ..valid.clone()
+            },
+            RegistrationResult {
+                pubkey_id: 7,
+                ..valid.clone()
+            },
+            RegistrationResult {
+                authenticators: vec![KnownAuthenticator {
+                    pubkey_id: 7,
+                    name: "phone".to_string().try_into().unwrap(),
+                }],
+                ..valid.clone()
+            },
+        ] {
+            assert!(encode_result(&invalid).is_err(), "{invalid:?}");
+        }
     }
 
     #[test]

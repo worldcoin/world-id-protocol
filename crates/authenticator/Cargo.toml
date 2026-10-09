@@ -60,7 +60,6 @@ serde_json = { workspace = true }
 
 # WIP-109 authenticator registration
 aes-gcm = { workspace = true }
-httpdate = { workspace = true }
 argon2 = { workspace = true }
 ciborium = { workspace = true }
 hkdf = { workspace = true }
