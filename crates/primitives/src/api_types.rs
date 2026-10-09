@@ -496,6 +496,34 @@ pub struct IndexerAuthenticatorPubkeysResponse {
     pub offchain_signer_commitment: U256,
 }
 
+/// The registered authenticators of an account, read from a single indexed account state.
+///
+/// `authenticator_pubkeys` and `authenticator_addresses` are indexed by `pubkey_id` and always
+/// have the same length. A removed slot is `null` in both. A Proving Authenticator (WIP-104) has
+/// the zero address, and an Admin Authenticator has its management key's address.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerAuthenticatorsResponse {
+    /// The compressed authenticator public keys, by `pubkey_id`.
+    #[serde(with = "hex_u256_opt_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<Option<String>>, format = "hex"))]
+    pub authenticator_pubkeys: Vec<Option<U256>>,
+
+    /// The authenticator addresses, by `pubkey_id`.
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<Option<String>>, format = "hex"))]
+    pub authenticator_addresses: Vec<Option<Address>>,
+
+    /// The commitment to all the authenticator pubkeys, as stored in the `WorldIDRegistry`.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub offchain_signer_commitment: U256,
+
+    /// The number of recoveries of the account.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub recovery_counter: u64,
+}
+
 /// Health response for an API service (gateway or indexer).
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]

@@ -280,6 +280,61 @@ async fn test_insert_authenticator_at_index() {
     assert_eq!(account.offchain_signer_commitment, new_commitment);
 }
 
+/// A sparse insertion lands at its slot, with the skipped slots null in both arrays.
+#[tokio::test]
+async fn test_insert_authenticator_at_sparse_index() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    let leaf_index = 1u64;
+    db.accounts()
+        .insert(
+            leaf_index,
+            &Address::ZERO,
+            &[Address::from([1u8; 20])],
+            &[U256::from(123)],
+            &U256::from(456),
+            100,
+            0,
+        )
+        .await
+        .unwrap();
+
+    let new_address = Address::from([2u8; 20]);
+    let new_pubkey = U256::from(789);
+    db.accounts()
+        .insert_authenticator_at_index(
+            leaf_index,
+            5,
+            &new_address,
+            &new_pubkey,
+            &U256::from(999),
+            100,
+            2,
+        )
+        .await
+        .unwrap();
+
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.authenticator_addresses.len(), 6);
+    assert_eq!(account.authenticator_pubkeys.len(), 6);
+    assert_eq!(
+        account.authenticator_addresses[0],
+        Some(Address::from([1u8; 20]))
+    );
+    for slot in 1..5 {
+        assert_eq!(account.authenticator_addresses[slot], None, "slot {slot}");
+        assert_eq!(account.authenticator_pubkeys[slot], None, "slot {slot}");
+    }
+    assert_eq!(account.authenticator_addresses[5], Some(new_address));
+    assert_eq!(account.authenticator_pubkeys[5], Some(new_pubkey));
+}
+
 /// Test removing authenticator at index
 #[tokio::test]
 async fn test_remove_authenticator_at_index() {

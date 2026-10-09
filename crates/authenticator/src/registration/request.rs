@@ -16,6 +16,7 @@ use super::{
     bytes,
     session::{RESPONSE_PUBLIC_KEY_LEN, RequestId, ResponsePublicKey},
 };
+use crate::account::AuthenticatorClass;
 
 /// The method of the registration request.
 pub const REGISTER_METHOD: MethodName = MethodName::from_static("worldid_auth_v1_register");
@@ -108,35 +109,6 @@ impl RegistrationRequest {
     pub fn verify_signature(&self, digest: &RegistrationDigest) -> bool {
         self.new_authenticator_pubkey
             .verify(*digest.signing_message(), &self.registration_sig)
-    }
-}
-
-/// The kind of authenticator a Requesting Authenticator asks to become, as defined in WIP-104.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AuthenticatorClass {
-    /// An Admin Authenticator, which can manage the account with its management key.
-    Admin {
-        /// The non-zero address of the authenticator's management key.
-        address: Address,
-    },
-    /// A Proving Authenticator, which can generate proofs but cannot manage the account.
-    Proving,
-}
-
-impl AuthenticatorClass {
-    /// Returns the address registered on-chain for this class: the management key of an Admin
-    /// Authenticator, or the zero address for a Proving Authenticator.
-    #[must_use]
-    pub const fn onchain_address(&self) -> Address {
-        match self {
-            Self::Admin { address } => *address,
-            Self::Proving => Address::ZERO,
-        }
-    }
-
-    /// An Admin Authenticator with the zero address cannot be registered or encoded.
-    fn has_zero_management_address(&self) -> bool {
-        matches!(self, Self::Admin { address } if address.is_zero())
     }
 }
 

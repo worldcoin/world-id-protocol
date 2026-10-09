@@ -122,6 +122,7 @@ impl ServiceClient {
             HttpTransport::Direct(client) => {
                 let response = client
                     .post(format!("{base_url}{path}"))
+                    .timeout(REQUEST_TIMEOUT)
                     .json(body)
                     .send()
                     .await?;
@@ -161,7 +162,11 @@ impl ServiceClient {
     {
         let resp = match &self.transport {
             HttpTransport::Direct(client) => {
-                let response = client.get(format!("{base_url}{path}")).send().await?;
+                let response = client
+                    .get(format!("{base_url}{path}"))
+                    .timeout(REQUEST_TIMEOUT)
+                    .send()
+                    .await?;
                 Self::success_or_fallback_body(response).await?
             }
             HttpTransport::Ohttp(client) => {
@@ -187,4 +192,26 @@ impl ServiceClient {
             ))
         })
     }
+}
+
+/// The maximum time to establish a connection to a gateway or indexer.
+#[cfg(not(target_arch = "wasm32"))]
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// The maximum time for a whole gateway, indexer or OHTTP relay request, including reading the
+/// response. Set on each request because browser clients have no client-wide timeout.
+pub(crate) const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Builds the HTTP client for gateway and indexer requests.
+///
+/// Native clients also bound connection setup with [`CONNECT_TIMEOUT`]. Every request sets
+/// [`REQUEST_TIMEOUT`] on both native and browser clients.
+pub(crate) fn default_http_client() -> reqwest::Client {
+    #[cfg(not(target_arch = "wasm32"))]
+    let client = reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .build()
+        .unwrap_or_default();
+    #[cfg(target_arch = "wasm32")]
+    let client = reqwest::Client::new();
+    client
 }

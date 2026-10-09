@@ -5,6 +5,7 @@ mod error;
 pub use error::AuthenticatorError;
 
 mod account;
+pub use account::{AccountAuthenticators, AccountSnapshot, AuthenticatorClass, PendingInsertion};
 mod init;
 mod prove;
 mod recovery;
