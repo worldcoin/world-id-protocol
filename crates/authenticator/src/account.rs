@@ -410,4 +410,9 @@ impl AuthenticatorClass {
             Self::Proving => Address::ZERO,
         }
     }
+
+    /// An Admin Authenticator with the zero address cannot be registered or encoded.
+    pub(crate) fn has_zero_management_address(&self) -> bool {
+        matches!(self, Self::Admin { address } if address.is_zero())
+    }
 }

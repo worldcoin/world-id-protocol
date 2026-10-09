@@ -63,6 +63,12 @@ impl RegistrationRequest {
         name: Option<AuthenticatorName>,
         request_id: &RequestId,
     ) -> Result<(Self, RegistrationDigest), PrimitiveError> {
+        if class.has_zero_management_address() {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "class".to_string(),
+                reason: ZERO_MANAGEMENT_ADDRESS.to_string(),
+            });
+        }
         let new_authenticator_pubkey = signing_key.public();
         let digest = RegistrationDigest::compute(
             request_id,
@@ -103,6 +109,8 @@ impl RegistrationRequest {
             .verify(*digest.signing_message(), &self.registration_sig)
     }
 }
+
+const ZERO_MANAGEMENT_ADDRESS: &str = "management address must not be zero";
 
 /// A self-reported, advisory label for an authenticator, at most [`MAX_NAME_LEN`] bytes of UTF-8.
 ///
@@ -237,6 +245,9 @@ struct WireRegistrationRequest {
 
 impl Serialize for RegistrationRequest {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        if self.class.has_zero_management_address() {
+            return Err(serde::ser::Error::custom(ZERO_MANAGEMENT_ADDRESS));
+        }
         let address = match self.class {
             AuthenticatorClass::Admin { address } => {
                 Some(bytes::AddressBytes(address.into_array()))
@@ -274,7 +285,7 @@ impl<'de> Deserialize<'de> for RegistrationRequest {
             Some(address) => {
                 let address = Address::from(address.0);
                 if address.is_zero() {
-                    return Err(D::Error::custom("management address must not be zero"));
+                    return Err(D::Error::custom(ZERO_MANAGEMENT_ADDRESS));
                 }
                 AuthenticatorClass::Admin { address }
             }
@@ -360,6 +371,34 @@ mod tests {
         let mut renamed = request;
         renamed.name = None;
         assert_eq!(renamed.digest(&request_id).unwrap(), digest);
+    }
+
+    #[test]
+    fn zero_management_address_is_neither_signed_nor_encoded() {
+        let zero = AuthenticatorClass::Admin {
+            address: Address::ZERO,
+        };
+        let request_id = PairingSecret::from_bytes([9; 32]).request_id();
+        let response_pubkey = ResponseSecretKey::from_seed(&[4; 32]).public_key();
+        assert!(
+            RegistrationRequest::new_signed(
+                &signing_key(1),
+                zero,
+                response_pubkey,
+                None,
+                &request_id
+            )
+            .is_err()
+        );
+
+        let (mut request, _, request_id) = signed_request(admin());
+        request.class = zero;
+        let message = RegisterRequestMessage::new(
+            Some(Id::String(request_id.to_string())),
+            REGISTER_METHOD,
+            request,
+        );
+        assert!(world_id_primitives::authenticator_message::encode(&message).is_err());
     }
 
     #[test]
