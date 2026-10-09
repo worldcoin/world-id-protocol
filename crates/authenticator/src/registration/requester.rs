@@ -280,7 +280,9 @@ impl RegistrationRequester {
                     &authenticator.indexer_client,
                 )
                 .await?
-                .find(&self.request.new_authenticator_pubkey);
+                .find(&self.request.new_authenticator_pubkey)
+                // Another indexer replica may still lag behind the one `init` read from.
+                .ok_or(AuthenticatorError::PublicKeyNotFound)?;
                 Ok::<_, AuthenticatorError>((authenticator, registered))
             };
             let (authenticator, registered) = attempt
@@ -301,7 +303,7 @@ impl RegistrationRequester {
                         error.into()
                     }
                 })?;
-            if registered != Some((result.pubkey_id, self.request.class)) {
+            if registered != (result.pubkey_id, self.request.class) {
                 return Err(RequesterError::RegistrationMismatch);
             }
             Ok(authenticator)
