@@ -559,7 +559,7 @@ fn parse_param(pair: &str) -> Result<(String, String), DeeplinkError> {
 }
 
 fn percent_decode(component: &str) -> Result<String, DeeplinkError> {
-    if !is_well_formed_percent_encoding(component) {
+    if !is_valid_query_component(component) {
         return Err(DeeplinkError::MalformedParameter);
     }
     percent_decode_str(component)
@@ -568,8 +568,9 @@ fn percent_decode(component: &str) -> Result<String, DeeplinkError> {
         .map_err(|_| DeeplinkError::MalformedParameter)
 }
 
-/// Returns whether every `%` in `component` starts a `%XX` escape with two hex digits.
-fn is_well_formed_percent_encoding(component: &str) -> bool {
+/// Returns whether `component` is valid in an RFC 3986 query: every byte is a query character,
+/// and every `%` starts a `%XX` escape with two hex digits.
+fn is_valid_query_component(component: &str) -> bool {
     let bytes = component.as_bytes();
     let mut i = 0;
     while i < bytes.len() {
@@ -579,11 +580,40 @@ fn is_well_formed_percent_encoding(component: &str) -> bool {
                 return false;
             }
             i += 3;
-        } else {
+        } else if is_query_char(bytes[i]) {
             i += 1;
+        } else {
+            return false;
         }
     }
     true
+}
+
+/// Returns whether `byte` may appear unescaped in an RFC 3986 query: an unreserved character, a
+/// sub-delimiter, `:`, `@`, `/` or `?`.
+const fn is_query_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric()
+        || matches!(
+            byte,
+            b'-' | b'.'
+                | b'_'
+                | b'~'
+                | b'!'
+                | b'$'
+                | b'&'
+                | b'\''
+                | b'('
+                | b')'
+                | b'*'
+                | b'+'
+                | b','
+                | b';'
+                | b'='
+                | b':'
+                | b'@'
+                | b'/'
+                | b'?'
+        )
 }
 
 #[cfg(test)]
@@ -704,6 +734,14 @@ mod tests {
                 DeeplinkError::MalformedParameter; "short_escape")]
     #[test_case("worldid://auth/v1/register?a=%ff",
                 DeeplinkError::MalformedParameter; "invalid_utf8")]
+    #[test_case("worldid://auth/v1/register?a=hello world",
+                DeeplinkError::MalformedParameter; "raw_space")]
+    #[test_case("worldid://auth/v1/register?a=caf\u{e9}",
+                DeeplinkError::MalformedParameter; "raw_non_ascii")]
+    #[test_case("worldid://auth/v1/register?a=\u{7}",
+                DeeplinkError::MalformedParameter; "raw_control")]
+    #[test_case("worldid://auth/v1/register?a<b=1",
+                DeeplinkError::MalformedParameter; "raw_delimiter_in_key")]
     fn deeplink_parsing_rejects_malformed_uris(uri: &str, expected: DeeplinkError) {
         assert_eq!(uri.parse::<Deeplink>(), Err(expected), "{uri}");
     }
