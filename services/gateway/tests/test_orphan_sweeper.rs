@@ -2,7 +2,12 @@
 
 use std::time::Duration;
 
-use alloy::primitives::Address;
+use alloy::{
+    network::TransactionBuilder as _,
+    primitives::{Address, B256, U256},
+    providers::{DynProvider, Provider as _, ProviderBuilder},
+    rpc::types::TransactionRequest,
+};
 use redis::{AsyncCommands, aio::ConnectionManager};
 use testcontainers_modules::{redis::Redis, testcontainers::ContainerAsync};
 use world_id_gateway::{
@@ -10,6 +15,7 @@ use world_id_gateway::{
     request_tracker::BacklogScope, sweep_once,
 };
 use world_id_primitives::api_types::{GatewayRequestKind, GatewayRequestState};
+use world_id_test_utils::anvil::TestAnvil;
 
 async fn setup_redis(redis_url: &str) -> ConnectionManager {
     let client = redis::Client::open(redis_url).expect("Failed to create Redis client");
@@ -76,12 +82,35 @@ async fn tracker(redis_url: &str) -> RequestTracker {
     RequestTracker::new(redis_url.to_string(), None, Duration::from_secs(300)).await
 }
 
-/// Runs one sweep pass against the test Redis.
+/// Runs one sweep pass against the test Redis and a fresh chain, on which no
+/// injected transaction has a receipt.
 async fn sweep(url: &str, tracker: &RequestTracker, config: &OrphanSweeperConfig) {
+    let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
+    sweep_on(url, tracker, &provider(&anvil), config).await;
+}
+
+/// Runs one sweep pass against the test Redis and the given chain.
+async fn sweep_on(
+    url: &str,
+    tracker: &RequestTracker,
+    provider: &DynProvider,
+    config: &OrphanSweeperConfig,
+) {
     let wallets = WalletStore::connect(url)
         .await
         .expect("failed to connect wallet store");
-    sweep_once(tracker, &wallets, config).await;
+    sweep_once(tracker, &wallets, provider, config).await;
+}
+
+fn provider(anvil: &TestAnvil) -> DynProvider {
+    ProviderBuilder::new()
+        .connect_http(anvil.endpoint().parse().expect("anvil endpoint"))
+        .erased()
+}
+
+/// A well-formed transaction hash that no chain in these tests knows.
+fn unknown_tx_hash(byte: u8) -> String {
+    format!("{:#x}", B256::repeat_byte(byte))
 }
 
 /// Read request record from Redis.
@@ -510,7 +539,7 @@ async fn sweep_stale_owned_submission(wallet_lists_request: bool) -> GatewayRequ
         "owned-submitted",
         GatewayRequestKind::CreateAccount,
         GatewayRequestState::Submitted {
-            tx_hash: "0x11".to_string(),
+            tx_hash: unknown_tx_hash(0x11),
         },
         now_unix_secs() - 3_600,
         Some(wallet),
@@ -558,8 +587,9 @@ async fn sweep_fails_submission_its_wallet_record_no_longer_lists() {
 }
 
 /// Verifies that a submission with no wallet, written by a gateway build that
-/// predates wallet leases, is still failed once stale. Nothing else can resolve
-/// it, and the class disappears as those records expire.
+/// predates wallet leases, is failed once stale when its transaction has no
+/// receipt. Nothing else can resolve it, and the class disappears as those
+/// records expire.
 #[tokio::test]
 async fn sweep_fails_legacy_submission_without_wallet() {
     let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
@@ -570,7 +600,7 @@ async fn sweep_fails_legacy_submission_without_wallet() {
         "legacy-submitted",
         GatewayRequestKind::CreateAccount,
         GatewayRequestState::Submitted {
-            tx_hash: "0x22".to_string(),
+            tx_hash: unknown_tx_hash(0x22),
         },
         now_unix_secs() - 300,
     )
@@ -601,7 +631,7 @@ async fn sweep_leaves_fresh_legacy_submission_untouched() {
         "fresh-legacy-submitted",
         GatewayRequestKind::CreateAccount,
         GatewayRequestState::Submitted {
-            tx_hash: "0x33".to_string(),
+            tx_hash: unknown_tx_hash(0x33),
         },
         now_unix_secs(),
     )
@@ -617,4 +647,57 @@ async fn sweep_leaves_fresh_legacy_submission_untouched() {
         GatewayRequestState::Submitted { .. }
     ));
     assert!(is_in_pending_set(&mut redis, "fresh-legacy-submitted").await);
+}
+
+/// A legacy submission whose transaction was mined is finalized from its
+/// receipt, not failed: during a rolling deploy the old build that broadcast it
+/// may have died before its own receipt task finished.
+#[tokio::test]
+async fn sweep_finalizes_legacy_submission_from_its_receipt() {
+    let (url, _redis_container, mut redis) = setup_isolated_redis_for_test().await;
+    let tracker = tracker(&url).await;
+    let anvil = TestAnvil::spawn_auto_mine().expect("failed to spawn anvil");
+    let sender = anvil.signer(0).expect("anvil signer");
+    let chain = ProviderBuilder::new()
+        .wallet(sender.clone())
+        .connect_http(anvil.endpoint().parse().expect("anvil endpoint"));
+    let receipt = chain
+        .send_transaction(
+            TransactionRequest::default()
+                .with_to(sender.address())
+                .with_value(U256::from(1)),
+        )
+        .await
+        .expect("send")
+        .get_receipt()
+        .await
+        .expect("receipt");
+    let tx_hash = format!("{:#x}", receipt.transaction_hash);
+
+    inject_request(
+        &mut redis,
+        "legacy-mined",
+        GatewayRequestKind::CreateAccount,
+        GatewayRequestState::Submitted {
+            tx_hash: tx_hash.clone(),
+        },
+        now_unix_secs() - 30,
+    )
+    .await;
+
+    sweep_on(
+        &url,
+        &tracker,
+        &provider(&anvil),
+        &OrphanSweeperConfig::default(),
+    )
+    .await;
+
+    let record = read_record(&mut redis, "legacy-mined").await.unwrap();
+    assert!(
+        matches!(&record.status, GatewayRequestState::Finalized { tx_hash: hash } if *hash == tx_hash),
+        "expected a finalized request, got {:?}",
+        record.status
+    );
+    assert!(!is_in_pending_set(&mut redis, "legacy-mined").await);
 }

@@ -10,7 +10,7 @@ use crate::{
         BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
         WalletConfig,
     },
-    error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
+    error::{GatewayError, GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
     request::GatewayContext,
     request_tracker::RequestTracker,
@@ -124,6 +124,9 @@ pub(crate) async fn build_app(
     )
     .await;
 
+    // The sweeper only reads receipts of submissions no wallet record owns, so
+    // any one endpoint will do.
+    let sweeper_provider = resolver_providers.first().cloned();
     let submitter = TransactionSubmitter::connect(
         wallets,
         resolver_providers,
@@ -183,9 +186,13 @@ pub(crate) async fn build_app(
         "Transaction resolver initialized"
     );
 
+    // `connect` has already rejected an empty provider list.
+    let sweeper_provider = sweeper_provider
+        .ok_or_else(|| GatewayError::Config("at least one RPC endpoint is required".to_string()))?;
     tokio::spawn(run_orphan_sweeper(
         tracker.clone(),
         WalletStore::connect(&redis_url).await?,
+        sweeper_provider,
         orphan_sweeper_config,
     ));
     tracing::info!("Orphan sweeper initialized");
