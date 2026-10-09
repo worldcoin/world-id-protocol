@@ -245,7 +245,7 @@ impl TransactionSubmitter {
             submitted_at: now_unix_secs(),
         };
         let tx_hash = submission.tx_hash;
-        let formatted_tx_hash = format!("0x{tx_hash:x}");
+        let formatted_tx_hash = format!("{tx_hash:#x}");
 
         // Write-ahead commit. A conflict means the signing lease was lost, so
         // the signature must be discarded rather than broadcast: broadcasting
@@ -397,9 +397,9 @@ impl TransactionSubmitter {
     /// Claims a batch's requests for a batcher, returning the ids it claimed.
     ///
     /// Guarded on `Queued`, so a request another owner already resolved (the
-    /// sweeper, typically) is left out and never put on chain. A request whose
-    /// write failed is kept: the write may have landed, and `guard_broadcast`
-    /// re-checks every request before anything is sent.
+    /// sweeper, typically) is left out and never put on chain. When the write
+    /// errors it may still have applied, so the request is re-read and kept
+    /// only if it is now `Batching`.
     pub(crate) async fn mark_batching(&self, ids: &[String]) -> Vec<String> {
         let mut claimed = Vec::with_capacity(ids.len());
         for id in ids {
@@ -416,8 +416,13 @@ impl TransactionSubmitter {
                 Ok(StatusWriteOutcome::Applied) => claimed.push(id.clone()),
                 Ok(StatusWriteOutcome::Guarded | StatusWriteOutcome::Missing) => {}
                 Err(error) => {
-                    tracing::error!(%error, request_id = %id, "failed to claim a request for batching");
-                    claimed.push(id.clone());
+                    tracing::warn!(%error, request_id = %id, "claim for batching failed; re-reading the request");
+                    let now_batching = self.tracker.snapshot(id).await.is_some_and(|record| {
+                        matches!(record.status, GatewayRequestState::Batching)
+                    });
+                    if now_batching {
+                        claimed.push(id.clone());
+                    }
                 }
             }
         }
@@ -661,7 +666,7 @@ impl TransactionSubmitter {
     /// written the status and cannot disturb a request another owner resolved.
     async fn adopt_requests(&self, wallet: Address, submission: &Submission) {
         let status = GatewayRequestState::Submitted {
-            tx_hash: format!("0x{:x}", submission.tx_hash),
+            tx_hash: format!("{:#x}", submission.tx_hash),
         };
         match self
             .tracker
@@ -766,7 +771,7 @@ impl TransactionSubmitter {
     async fn park(&self, wallet: Address, record: &WalletRecord, submission: &Submission) {
         let status = GatewayRequestState::failed(
             format!(
-                "transaction fate undecided after {}s (tx: 0x{:x})",
+                "transaction fate undecided after {}s (tx: {:#x})",
                 self.config.resolution_timeout_secs, submission.tx_hash
             ),
             Some(GatewayErrorCode::ConfirmationError),
@@ -804,7 +809,7 @@ impl TransactionSubmitter {
                 metrics::record_wallet_outcome("parked");
                 tracing::error!(
                     %wallet,
-                    tx_hash = %format!("0x{:x}", submission.tx_hash),
+                    tx_hash = %format!("{:#x}", submission.tx_hash),
                     nonce = submission.nonce,
                     "wallet parked: transaction fate could not be decided; it will not be reused until resolved"
                 );
@@ -918,7 +923,7 @@ impl TransactionSubmitter {
         wallet: Address,
     ) -> BroadcastGuard {
         let status = GatewayRequestState::Submitted {
-            tx_hash: format!("0x{tx_hash:x}"),
+            tx_hash: format!("{tx_hash:#x}"),
         };
         let allowed = [StatusGuard::Batching];
 
@@ -935,36 +940,34 @@ impl TransactionSubmitter {
                 BroadcastGuard::Abandon
             }
             Err(error) => {
-                // Ambiguous: the write may or may not have landed. Re-read before
-                // deciding, because a request another owner resolved must stop
-                // the broadcast.
+                // Ambiguous: the write may or may not have landed. Broadcast only
+                // if it demonstrably did; a batch left in `Batching` could be
+                // failed by the sweeper while its transaction executes.
                 tracing::warn!(%error, "guarded status write failed; re-reading request states");
-                if self.any_resolved(ids).await {
-                    BroadcastGuard::Abandon
-                } else {
+                if self.all_submitted_as(ids, tx_hash).await {
                     BroadcastGuard::Proceed
+                } else {
+                    BroadcastGuard::Abandon
                 }
             }
         }
     }
 
-    /// Whether any request in a batch has already been resolved.
-    async fn any_resolved(&self, ids: &[String]) -> bool {
+    /// Whether every request in a batch is recorded as submitted in `tx_hash`.
+    ///
+    /// An unreadable batch counts as not submitted: refusing to broadcast costs
+    /// a retry, while broadcasting risks executing a request nobody owns.
+    async fn all_submitted_as(&self, ids: &[String], tx_hash: TxHash) -> bool {
+        let expected = format!("{tx_hash:#x}");
         match self.tracker.snapshot_batch(ids).await {
-            Ok(records) => records.iter().any(|(_, record)| {
+            Ok(records) => records.iter().all(|(_, record)| {
                 record.as_ref().is_some_and(|record| {
-                    matches!(
-                        record.status,
-                        GatewayRequestState::Finalized { .. } | GatewayRequestState::Failed { .. }
-                    )
+                    matches!(&record.status, GatewayRequestState::Submitted { tx_hash } if *tx_hash == expected)
                 })
             }),
             Err(error) => {
                 tracing::error!(%error, "failed to re-read request states");
-                // Treat an unreadable batch as resolved: refusing to broadcast
-                // risks a retry, while broadcasting risks executing a request
-                // that was already answered.
-                true
+                false
             }
         }
     }
