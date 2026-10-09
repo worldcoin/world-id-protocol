@@ -33,6 +33,15 @@ const MIN_PASS_TIMEOUT: Duration = Duration::from_secs(60);
 /// Upper bound on the pause between passes while the RPC keeps failing.
 const MAX_BACKOFF: Duration = Duration::from_secs(30);
 
+/// Base spacing after `failing_passes` consecutive unhealthy passes: the
+/// interval, doubled per failing pass, capped at [`MAX_BACKOFF`] (or at the
+/// interval itself, if that is longer).
+fn backoff(interval: Duration, failing_passes: u32) -> Duration {
+    interval
+        .saturating_mul(2u32.saturating_pow(failing_passes.min(16)))
+        .min(MAX_BACKOFF.max(interval))
+}
+
 /// How a resolved batch ended, for the outcome metric and the nonce floor.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Resolution {
@@ -68,8 +77,9 @@ impl TransactionSubmitter {
     /// Errors are handled per wallet and per pass, so the loop never returns
     /// one. Passes are spaced by the resolver interval with ±20% jitter, so
     /// replicas started together do not probe in lockstep. While passes keep
-    /// hitting RPC failures the spacing doubles, up to [`MAX_BACKOFF`], so a
-    /// degraded provider is not hammered by every replica.
+    /// failing (see [`Self::resolve_all`]) the spacing doubles, up to
+    /// [`MAX_BACKOFF`], so a degraded dependency is not hammered by every
+    /// replica.
     pub(crate) async fn run_resolver(self: Arc<Self>) {
         let interval = Duration::from_secs(self.config.resolver_interval_secs);
         let pass_timeout = interval.max(MIN_PASS_TIMEOUT);
@@ -92,11 +102,8 @@ impl TransactionSubmitter {
             } else {
                 failing_passes.saturating_add(1)
             };
-
-            let base = interval
-                .saturating_mul(2u32.saturating_pow(failing_passes.min(16)))
-                .min(MAX_BACKOFF.max(interval));
-            let pause = base.mul_f64(rand::thread_rng().gen_range(0.8..1.2));
+            let pause =
+                backoff(interval, failing_passes).mul_f64(rand::thread_rng().gen_range(0.8..1.2));
             tokio::time::sleep(pause).await;
         }
     }
@@ -108,17 +115,19 @@ impl TransactionSubmitter {
     /// was scaled down, still has a transaction someone must decide. Resolving
     /// needs only the address, never the signer.
     ///
-    /// Returns whether the pass was healthy, i.e. no probe found the RPC
-    /// unavailable and the records could be read.
+    /// Returns whether the pass was healthy: the records could be read, and the
+    /// RPC answered at least one probe. One flaky wallet or endpoint does not
+    /// make the pass unhealthy, so it cannot slow the release of every other
+    /// wallet on this replica.
     pub(crate) async fn resolve_all(&self) -> bool {
         let mut addresses: Vec<Address> = self.wallets.iter().map(|entry| entry.address).collect();
+        let configured = addresses.len();
         match self.wallet_store.addresses().await {
             Ok(stored) => {
                 let unconfigured: Vec<Address> = stored
                     .into_iter()
                     .filter(|address| !addresses.contains(address))
                     .collect();
-                metrics::record_wallet_unconfigured(unconfigured.len());
                 addresses.extend(unconfigured);
             }
             Err(error) => {
@@ -136,6 +145,12 @@ impl TransactionSubmitter {
                 return false;
             }
         };
+
+        let unconfigured_records = records[configured..]
+            .iter()
+            .filter(|record| record.is_some())
+            .count();
+        metrics::record_wallet_unconfigured(unconfigured_records);
 
         let in_flight = records
             .iter()
@@ -165,18 +180,18 @@ impl TransactionSubmitter {
         // together still probe each wallet about once per interval.
         let claim = Duration::from_secs(self.config.resolver_interval_secs).mul_f64(0.75);
 
-        let outcomes: Vec<bool> = futures::stream::iter(active)
+        let probes: Vec<Option<bool>> = futures::stream::iter(active)
             .map(|(wallet, record)| {
                 let provider = provider.clone();
                 async move {
                     match self.wallet_store.claim_resolution(wallet, claim).await {
-                        Ok(true) => self.resolve_wallet(wallet, &record, &provider).await,
+                        Ok(true) => Some(self.resolve_wallet(wallet, &record, &provider).await),
                         // Another replica resolves this wallet in this interval.
-                        Ok(false) => true,
+                        Ok(false) => None,
                         Err(error) => {
                             metrics::increment_wallet_error("resolve", "redis");
                             tracing::warn!(%error, %wallet, "failed to claim a wallet for resolution");
-                            true
+                            None
                         }
                     }
                 }
@@ -184,11 +199,13 @@ impl TransactionSubmitter {
             .buffer_unordered(RESOLVER_CONCURRENCY)
             .collect()
             .await;
-        outcomes.into_iter().all(|healthy| healthy)
+        // Unhealthy only when wallets were probed and the RPC answered none.
+        let mut probed = probes.into_iter().flatten().peekable();
+        probed.peek().is_none() || probed.any(|answered| answered)
     }
 
     /// Resolves one committed wallet record (`InFlight` or `Parked`), returning
-    /// `false` when the RPC was unavailable.
+    /// whether the RPC answered the probe.
     async fn resolve_wallet(
         &self,
         wallet: Address,
@@ -520,5 +537,22 @@ impl TransactionSubmitter {
                 false
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn backoff_doubles_per_failing_pass_and_caps() {
+        let interval = Duration::from_secs(2);
+        assert_eq!(backoff(interval, 0), interval);
+        assert_eq!(backoff(interval, 1), Duration::from_secs(4));
+        assert_eq!(backoff(interval, 3), Duration::from_secs(16));
+        assert_eq!(backoff(interval, 4), MAX_BACKOFF);
+        assert_eq!(backoff(interval, u32::MAX), MAX_BACKOFF);
+        // An interval longer than the cap is never shortened.
+        assert_eq!(backoff(Duration::from_secs(45), 3), Duration::from_secs(45));
     }
 }

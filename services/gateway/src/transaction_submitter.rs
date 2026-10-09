@@ -342,7 +342,7 @@ impl TransactionSubmitter {
         if send_started >= broadcast_deadline {
             // Skipping is always safe: nothing was sent, so the resolver finds
             // the transaction absent after the grace and frees the nonce.
-            metrics::record_batch_send_failed(batch_type.as_str(), 0.0);
+            metrics::record_wallet_outcome("broadcast_skipped");
             tracing::warn!(
                 tx_hash = %formatted_tx_hash,
                 %wallet,

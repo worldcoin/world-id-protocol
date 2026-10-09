@@ -451,8 +451,12 @@ async fn an_unreachable_resolver_rpc_parks_the_wallet_until_the_chain_answers() 
         .await
         .expect("submit");
 
-    // Every probe fails, so the fate is undecided past the timeout.
-    blind.resolve_all().await;
+    // Every probe fails, so the fate is undecided past the timeout, and the
+    // pass reports itself unhealthy so the resolver backs off.
+    assert!(
+        !blind.resolve_all().await,
+        "a pass the RPC never answered is unhealthy"
+    );
 
     assert_failed_with(
         &harness.status(&ids[0]).await,

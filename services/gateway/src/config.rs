@@ -181,7 +181,8 @@ pub struct WalletArgs {
     pub release_confirmations: u64,
 
     /// How long a transaction may stay undecided before its wallet is parked, in seconds.
-    /// At least 60, and less than `WALLET_STATE_TTL_SECS`.
+    /// At least 60, greater than `WALLET_ABSENT_GRACE_SECS`, and less than
+    /// `WALLET_STATE_TTL_SECS`.
     #[arg(long, env = "WALLET_RESOLUTION_TIMEOUT_SECS", default_value_t = defaults::WALLET_RESOLUTION_TIMEOUT_SECS)]
     pub resolution_timeout_secs: u64,
 

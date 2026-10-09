@@ -276,7 +276,9 @@ pub fn increment_wallet_acquire_empty() {
 /// Outcomes that release the wallet: `confirmed`, `reverted`, `replaced`,
 /// `absent`, and `parked_landed` (a parked wallet's transaction landed after
 /// its requests were reported failed). `parked` keeps the wallet out of the
-/// pool. `abandoned` and `lease_lost` end a submission before any broadcast.
+/// pool. `abandoned` and `lease_lost` end a submission before any broadcast;
+/// `broadcast_skipped` means the commit-to-send deadline passed, so the
+/// committed transaction was never sent and the resolver will find it absent.
 pub fn record_wallet_outcome(outcome: &'static str) {
     ::metrics::counter!(METRICS_WALLET_OUTCOME, "outcome" => outcome).increment(1);
 }
@@ -294,7 +296,8 @@ pub fn record_wallet_confirmations_at_release(confirmations: u64) {
 /// Records a wallet error.
 ///
 /// `phase` is `acquire`, `release` or `resolve`. `class` is the failing
-/// dependency or cause: `rpc`, `redis`, `timeout` or `invalid_record`.
+/// dependency or cause: `rpc`, `redis`, `timeout`, `invalid_record` or
+/// `nonce_gap`.
 pub fn increment_wallet_error(phase: &'static str, class: &'static str) {
     ::metrics::counter!(METRICS_WALLET_ERROR, "phase" => phase, "class" => class).increment(1);
 }
