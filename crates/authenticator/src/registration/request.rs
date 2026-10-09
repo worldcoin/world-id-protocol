@@ -54,7 +54,9 @@ impl RegistrationRequest {
     ///
     /// # Errors
     ///
-    /// Returns an error if the public key fails to serialize.
+    /// - [`PrimitiveError::InvalidInput`] if `class` is an Admin Authenticator with the zero
+    ///   management address.
+    /// - Another [`PrimitiveError`] if the public key fails to serialize.
     pub fn new_signed(
         signing_key: &EdDSAPrivateKey,
         class: AuthenticatorClass,
