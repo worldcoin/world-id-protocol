@@ -34,8 +34,8 @@ use world_id_core::{
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, WalletArgs, defaults,
-    spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RateLimitConfig, RegistryVersion, SignerArgs, WalletArgs,
+    defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::{
     Config, FieldElement, ServiceEndpoint, SessionRef, TREE_DEPTH, merkle::AccountInclusionProof,
@@ -95,8 +95,7 @@ async fn main() -> Result<()> {
         max_ops_batch_size: 10,
         redis_url,
         request_timeout_secs: 10,
-        rate_limit_max_requests: None,
-        rate_limit_window_secs: None,
+        rate_limit: RateLimitConfig::default(),
         sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,

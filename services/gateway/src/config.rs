@@ -53,30 +53,24 @@ impl std::str::FromStr for RegistryVersion {
     }
 }
 
-/// Batching configuration for transaction submission.
-#[derive(Clone, Debug)]
-pub struct BatcherConfig {
-    pub max_create_batch_size: usize,
-    pub max_ops_batch_size: usize,
-}
-
-impl Default for BatcherConfig {
-    fn default() -> Self {
-        Self {
-            max_create_batch_size: defaults::MAX_CREATE_BATCH_SIZE,
-            max_ops_batch_size: defaults::MAX_OPS_BATCH_SIZE,
-        }
-    }
-}
-
 /// Rate limiting configuration for leaf_index-based requests.
-///
-/// Both fields are always present — the optionality is expressed at the
-/// call-site via `Option<RateLimitConfig>`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default, clap::Args)]
 pub struct RateLimitConfig {
-    pub window_secs: u64,
-    pub max_requests: u64,
+    /// Rate limit window in seconds (sliding window). Requires --rate-limit-max-requests.
+    #[arg(
+        long = "rate-limit-window-secs",
+        env = "RATE_LIMIT_WINDOW_SECS",
+        requires = "max_requests"
+    )]
+    pub window_secs: Option<u64>,
+
+    /// Maximum requests per leaf_index within the rate limit window. Requires --rate-limit-window-secs.
+    #[arg(
+        long = "rate-limit-max-requests",
+        env = "RATE_LIMIT_MAX_REQUESTS",
+        requires = "window_secs"
+    )]
+    pub max_requests: Option<u64>,
 }
 
 /// Configuration for the orphan sweeper background task.
@@ -295,24 +289,15 @@ pub struct GatewayConfig {
     #[arg(long, env = "REDIS_URL")]
     pub redis_url: String,
 
-    /// Rate limit window in seconds (sliding window). Requires --rate-limit-max-requests.
-    #[arg(
-        long = "rate-limit-window-secs",
-        env = "RATE_LIMIT_WINDOW_SECS",
-        requires = "rate_limit_max_requests"
-    )]
-    pub rate_limit_window_secs: Option<u64>,
-
-    /// Maximum requests per leaf_index within the rate limit window. Requires --rate-limit-window-secs.
-    #[arg(
-        long = "rate-limit-max-requests",
-        env = "RATE_LIMIT_MAX_REQUESTS",
-        requires = "rate_limit_window_secs"
-    )]
-    pub rate_limit_max_requests: Option<u64>,
+    #[command(flatten)]
+    pub rate_limit: RateLimitConfig,
 
     /// How often the orphan sweeper runs, in seconds.
-    #[arg(long, env = "ORPHAN_SWEEPER_INTERVAL_SECS", default_value_t = defaults::SWEEPER_INTERVAL_SECS)]
+    #[arg(
+        long,
+        env = "ORPHAN_SWEEPER_INTERVAL_SECS",
+        default_value_t = defaults::SWEEPER_INTERVAL_SECS
+    )]
     pub sweeper_interval_secs: u64,
 
     #[command(flatten)]
@@ -408,7 +393,7 @@ impl GatewayConfig {
             ));
         }
 
-        if self.sweeper().stale_queued_threshold_secs <= self.batch_policy.max_wait_secs {
+        if self.stale_queued_threshold_secs <= self.batch_policy.max_wait_secs {
             return Err(GatewayError::Config(
                 "STALE_QUEUED_THRESHOLD_SECS must be greater than BATCH_MAX_WAIT_SECS".to_string(),
             ));
@@ -486,23 +471,6 @@ impl GatewayConfig {
         }
 
         Ok(())
-    }
-
-    pub fn batcher(&self) -> BatcherConfig {
-        BatcherConfig {
-            max_create_batch_size: self.max_create_batch_size,
-            max_ops_batch_size: self.max_ops_batch_size,
-        }
-    }
-
-    pub fn rate_limit(&self) -> Option<RateLimitConfig> {
-        match (self.rate_limit_window_secs, self.rate_limit_max_requests) {
-            (Some(window_secs), Some(max_requests)) => Some(RateLimitConfig {
-                window_secs,
-                max_requests,
-            }),
-            _ => None,
-        }
     }
 
     pub fn sweeper(&self) -> OrphanSweeperConfig {
@@ -691,7 +659,8 @@ mod tests {
     #[test]
     fn rate_limit_disabled_when_omitted() {
         let config = parse_with_signer_args(&[]).expect("clap parsing should succeed");
-        assert!(config.rate_limit().is_none());
+        assert_eq!(config.rate_limit.window_secs, None);
+        assert_eq!(config.rate_limit.max_requests, None);
     }
 
     #[test]
@@ -703,9 +672,8 @@ mod tests {
             "100",
         ])
         .expect("clap parsing should succeed");
-        let rl = config.rate_limit().expect("rate_limit should be Some");
-        assert_eq!(rl.window_secs, 60);
-        assert_eq!(rl.max_requests, 100);
+        assert_eq!(config.rate_limit.window_secs, Some(60));
+        assert_eq!(config.rate_limit.max_requests, Some(100));
     }
 
     #[test]

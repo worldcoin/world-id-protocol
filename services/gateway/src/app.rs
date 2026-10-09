@@ -52,9 +52,8 @@ impl Gateway {
         wallets: Vec<ProviderWallet>,
         resolver_providers: Vec<DynProvider>,
     ) -> GatewayResult<Self> {
-        let batcher_config = config.batcher();
         let batch_policy_config = config.batch_policy.clone();
-        let rate_limit = config.rate_limit();
+        let rate_limit = config.rate_limit.clone();
         let sweeper_config = config.sweeper();
         let wallet_config = config.wallet()?;
         let tracker = RequestTracker::new(
@@ -79,7 +78,7 @@ impl Gateway {
         let create_batcher = Arc::new(CreateBatcher::new(
             registry.clone(),
             submitter.clone(),
-            batcher_config.max_create_batch_size,
+            config.max_create_batch_size,
             CREATE_BATCHER_CHANNEL_CAPACITY,
             batch_policy_config.clone(),
             base_fee_cache.clone(),
@@ -87,7 +86,7 @@ impl Gateway {
         let ops_batcher = Arc::new(OpsBatcher::new(
             registry.clone(),
             submitter.clone(),
-            batcher_config.max_ops_batch_size,
+            config.max_ops_batch_size,
             OPS_BATCHER_CHANNEL_CAPACITY,
             batch_policy_config,
             base_fee_cache.clone(),

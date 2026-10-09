@@ -27,8 +27,8 @@ fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
     Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached())
 }
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, WalletArgs, defaults,
-    spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RateLimitConfig, RegistryVersion, SignerArgs, WalletArgs,
+    defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::{
     Config, FieldElement, ServiceEndpoint, SessionId, SessionRef, TREE_DEPTH,
@@ -98,8 +98,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         max_ops_batch_size: 10,
         redis_url,
         request_timeout_secs: 10,
-        rate_limit_max_requests: None,
-        rate_limit_window_secs: None,
+        rate_limit: RateLimitConfig::default(),
         sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,

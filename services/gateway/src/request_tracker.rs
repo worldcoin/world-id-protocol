@@ -58,7 +58,7 @@ pub struct RequestTracker {
     /// Persistent request storage.
     store: RequestStore,
     /// Rate limiting configuration, if enabled.
-    rate_limit: Option<RateLimitConfig>,
+    rate_limit: RateLimitConfig,
 }
 
 impl RequestTracker {
@@ -72,7 +72,7 @@ impl RequestTracker {
     /// If the connection to Redis fails.
     pub async fn new(
         redis_url: String,
-        rate_limit: Option<RateLimitConfig>,
+        rate_limit: RateLimitConfig,
         inflight_ttl: std::time::Duration,
     ) -> Self {
         Self {
@@ -303,10 +303,11 @@ impl RequestTracker {
         leaf_index: u64,
         request_id: &str,
     ) -> Result<(), GatewayErrorResponse> {
-        let Some(ref rl) = self.rate_limit else {
+        let (Some(window_secs), Some(max_requests)) =
+            (self.rate_limit.window_secs, self.rate_limit.max_requests)
+        else {
             return Ok(());
         };
-        let (window_secs, max_requests) = (rl.window_secs, rl.max_requests);
 
         let result = self
             .store

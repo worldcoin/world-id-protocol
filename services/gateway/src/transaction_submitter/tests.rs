@@ -59,7 +59,12 @@ impl Harness {
         let redis_url = format!("redis://{host}:{port}");
 
         let wallet = wallet_for(&anvil, anvil.endpoint()).await;
-        let tracker = RequestTracker::new(redis_url.clone(), None, Duration::from_secs(600)).await;
+        let tracker = RequestTracker::new(
+            redis_url.clone(),
+            crate::config::RateLimitConfig::default(),
+            Duration::from_secs(600),
+        )
+        .await;
         let wallet_store = WalletStore::connect(&redis_url)
             .await
             .expect("failed to connect wallet store");

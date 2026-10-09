@@ -3,8 +3,8 @@
 use crate::app::{build_gateway, serve_gateway};
 pub use crate::{
     config::{
-        BatchPolicyConfig, BatcherConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig,
-        RegistryVersion, WalletArgs, WalletConfig, defaults,
+        BatchPolicyConfig, GatewayConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
+        WalletArgs, WalletConfig, defaults,
     },
     orphan_sweeper::sweep_once,
     request_tracker::{RequestRecord, RequestTracker, now_unix_secs},

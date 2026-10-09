@@ -15,8 +15,8 @@ use world_id_core::{
     artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, WalletArgs, defaults,
-    spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RateLimitConfig, RegistryVersion, SignerArgs, WalletArgs,
+    defaults, spawn_gateway_for_tests,
 };
 use world_id_primitives::{Config, ServiceEndpoint, TREE_DEPTH, merkle::AccountInclusionProof};
 
@@ -133,8 +133,7 @@ async fn e2e_authenticator_insert_update_remove() {
         max_ops_batch_size: 10,
         redis_url,
         request_timeout_secs: 10,
-        rate_limit_max_requests: None,
-        rate_limit_window_secs: None,
+        rate_limit: RateLimitConfig::default(),
         sweeper_interval_secs: defaults::SWEEPER_INTERVAL_SECS,
         stale_queued_threshold_secs: defaults::STALE_QUEUED_THRESHOLD_SECS,
         stale_submitted_threshold_secs: defaults::STALE_SUBMITTED_THRESHOLD_SECS,

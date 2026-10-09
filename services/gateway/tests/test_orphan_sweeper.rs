@@ -79,7 +79,12 @@ async fn inject_dangling_set_member(redis: &mut ConnectionManager, id: &str) {
 /// Builds a tracker with a fixed in-flight lock lifetime, so individual tests
 /// do not have to care about it.
 async fn tracker(redis_url: &str) -> RequestTracker {
-    RequestTracker::new(redis_url.to_string(), None, Duration::from_secs(300)).await
+    RequestTracker::new(
+        redis_url.to_string(),
+        world_id_gateway::RateLimitConfig::default(),
+        Duration::from_secs(300),
+    )
+    .await
 }
 
 /// Runs one sweep pass against the test Redis and a fresh chain, on which no
