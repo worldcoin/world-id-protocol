@@ -18,7 +18,7 @@ Thank you for your interest in contributing to our project! This document provid
 - Noir Lang: ([`noirup`](https://github.com/noir-lang/noirup) recommended): 
   ```bash
   curl -L https://raw.githubusercontent.com/noir-lang/noirup/main/install | bash
-  noirup --version v1.0.0-beta.11 # this specific Noir Lang version is needed
+  noirup --version v1.0.0-beta.26 # this specific Noir Lang version is needed
   ```
 - For running the Rust services look at the specific READMEs of each service.
 

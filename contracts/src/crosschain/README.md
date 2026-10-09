@@ -37,6 +37,11 @@ The chain head is a single `bytes32` stored on-chain. Destination chains verify 
 3. **Gateway**: Verifies the proof (owner signature, DisputeGame+MPT, or ZK+MPT) and extracts the proven chain head.
 4. **Satellite**: Receives the message via `receiveMessage()`, verifies the commitments hash to the proven chain head, and applies the state updates.
 
+`WorldIDSourceV2` accepts at most 63 key IDs combined, including duplicates, plus one root commitment.
+Deploy the relay's bounded source batching before upgrading an existing source proxy.
+Deploy V2 with the same registry addresses, then call `upgradeToAndCall(implementation, "")` as the proxy owner; no reinitialization is needed.
+Oversized V1 events already emitted still require the permissioned relay's event splitting or operator recovery.
+
 ### State Types
 
 The bridge propagates three types of state, each identified by a commitment selector:

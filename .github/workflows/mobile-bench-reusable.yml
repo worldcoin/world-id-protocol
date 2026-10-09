@@ -159,7 +159,7 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
 
       - name: Cache cargo registry/git
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0 https://github.com/actions/cache/releases/tag/v6.1.0
@@ -323,8 +323,8 @@ jobs:
           BENCH_OUTCOME: ${{ steps.run_ios_benchmarks.outcome }}
         run: |
           set -euo pipefail
-          json_count=$(find target/mobench/ci/ios/ios -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
-          csv_count=$(find target/mobench/ci/ios/ios -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
+          json_count=$(find target/mobench/ci/ios -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
+          csv_count=$(find target/mobench/ci/ios -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
 
           if [ "$json_count" -eq 0 ] || [ "$csv_count" -eq 0 ]; then
             echo "::error::iOS benchmark artifacts were not produced"
@@ -402,7 +402,11 @@ jobs:
             ${{ runner.os }}-target-android-
 
       - name: Setup Android SDK/NDK
-        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3.2.2 https://github.com/android-actions/setup-android/releases/tag/v3.2.2
+        uses: android-actions/setup-android@be39fa834029ff78f1a44aa3bb0819b8fc2bd8fd # v4.0.4 https://github.com/android-actions/setup-android/releases/tag/v4.0.4
+        with:
+          # The action's v3 default is 'tools platform-tools'; the obsolete 'tools'
+          # package was dropped from Google's SDK manifest and now fails the install.
+          packages: "platform-tools"
 
       - name: Install SDK packages and resolve NDK
         shell: bash
@@ -442,7 +446,7 @@ jobs:
       - uses: noir-lang/noirup@7dbe69ccc78877f0200ffa5a40836c953d2cfd8f # v0.1.4 https://github.com/noir-lang/noirup/releases/tag/v0.1.4
         with:
           # See https://github.com/worldfnd/provekit, a specific nargo toolchain version is required
-          toolchain: v1.0.0-beta.11
+          toolchain: v1.0.0-beta.26
 
       - name: Install mobench
         shell: bash
@@ -564,8 +568,8 @@ jobs:
           BENCH_OUTCOME: ${{ steps.run_android_benchmarks.outcome }}
         run: |
           set -euo pipefail
-          json_count=$(find target/mobench/ci/android/android -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
-          csv_count=$(find target/mobench/ci/android/android -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
+          json_count=$(find target/mobench/ci/android -type f -name summary.json 2>/dev/null | wc -l | tr -d ' ')
+          csv_count=$(find target/mobench/ci/android -type f -name results.csv 2>/dev/null | wc -l | tr -d ' ')
 
           if [ "$json_count" -eq 0 ] || [ "$csv_count" -eq 0 ]; then
             echo "::error::Android benchmark artifacts were not produced"

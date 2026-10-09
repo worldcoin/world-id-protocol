@@ -34,10 +34,10 @@ pub enum TreeError {
     CacheRestore(#[source] Box<dyn std::error::Error + Send + Sync>),
     #[error("failed to create mmap tree: {0}")]
     CacheCreate(#[source] Box<dyn std::error::Error + Send + Sync>),
-    #[error("root mismatch - actual: {actual}, expected: {expected}")]
-    RootMismatch { actual: String, expected: String },
-    #[error("restored root not found in DB: {root}")]
-    StaleCache { root: String },
+    #[error("root mismatch - actual: 0x{actual:x}, expected: 0x{expected:x}")]
+    RootMismatch { actual: U256, expected: U256 },
+    #[error("restored root not found in DB: 0x{root:x}")]
+    RootMissing { root: U256 },
     #[error("simulate_root computation did not produce a root — this is a bug")]
     SimulationMissingRoot,
     #[error(

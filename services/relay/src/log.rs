@@ -43,6 +43,25 @@ pub struct PendingSnapshot {
 }
 
 impl PendingSnapshot {
+    /// Splits pending keys into bounded batches and retains one empty batch for a root update.
+    pub fn into_batches(self, max_keys: usize) -> Vec<Self> {
+        assert!(max_keys > 0);
+        let mut issuers = self.issuers.into_iter();
+        let mut oprfs = self.oprfs.into_iter();
+        let mut batches = Vec::new();
+        loop {
+            let issuer_batch: HashMap<_, _> = issuers.by_ref().take(max_keys).collect();
+            let oprf_batch = oprfs.by_ref().take(max_keys - issuer_batch.len()).collect();
+            batches.push(Self {
+                issuers: issuer_batch,
+                oprfs: oprf_batch,
+            });
+            if issuers.len() == 0 && oprfs.len() == 0 {
+                return batches;
+            }
+        }
+    }
+
     /// Returns the issuer schema IDs for the `propagateState` call.
     pub fn issuer_ids(&self) -> Vec<u64> {
         self.issuers.keys().map(|k| k.0).collect()
@@ -551,6 +570,58 @@ mod tests {
         // Maps should now be empty after drain.
         let empty = log.take_pending();
         assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn pending_batches_bound_combined_keys_without_loss() {
+        let log = CommitmentLog::new();
+        for id in 0..80 {
+            log.insert_pending_issuer(make_issuer_update(id, 1000));
+            log.insert_pending_oprf(make_oprf_update(id, 1000));
+        }
+        let batches = log.take_pending().into_batches(63);
+        assert_eq!(batches.len(), 3);
+        let mut issuer_ids = std::collections::HashSet::new();
+        let mut oprf_ids = std::collections::HashSet::new();
+        for batch in batches {
+            assert!(batch.issuer_ids().len() + batch.oprf_ids().len() <= 63);
+            for id in batch.issuer_ids() {
+                assert!(issuer_ids.insert(id));
+            }
+            for id in batch.oprf_ids() {
+                assert!(oprf_ids.insert(id));
+            }
+        }
+        assert_eq!(issuer_ids.len(), 80);
+        assert_eq!(oprf_ids.len(), 80);
+    }
+
+    #[test]
+    fn empty_pending_keeps_root_only_batch() {
+        let batches = CommitmentLog::new().take_pending().into_batches(63);
+        assert_eq!(batches.len(), 1);
+        assert!(batches[0].is_empty());
+    }
+
+    #[test]
+    fn failed_and_unattempted_batches_preserve_newer_updates() {
+        let log = CommitmentLog::new();
+        for id in 0..64 {
+            log.insert_pending_oprf(make_oprf_update(id, 1000));
+        }
+        let mut batches = log.take_pending().into_batches(63).into_iter();
+        let failed = batches.next().unwrap();
+        let updated_id = *failed.oprfs.keys().next().unwrap();
+        let mut newer = failed.oprfs[&updated_id].clone();
+        newer.timestamp = 2000;
+        log.insert_pending_oprf(newer);
+        log.restore_pending(failed);
+        for remaining in batches {
+            log.restore_pending(remaining);
+        }
+        let restored = log.take_pending();
+        assert_eq!(restored.oprfs.len(), 64);
+        assert_eq!(restored.oprfs[&updated_id].timestamp, 2000);
     }
 
     #[test]
