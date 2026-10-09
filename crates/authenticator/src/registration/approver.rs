@@ -20,6 +20,7 @@ use world_id_primitives::{
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
     authenticator_message::{self, ErrorObject, Id, Version},
 };
+use zeroize::Zeroizing;
 
 use super::{
     EncryptedPayload, KnownAuthenticator, MAX_RESPONSE_SIZE, PairingCode, PairingUri,
@@ -397,6 +398,7 @@ impl CheckedRegistration {
             }),
         };
         authenticator_message::encode(&response)
+            .map(Zeroizing::new)
             .is_ok_and(|encoded| encoded.len() <= MAX_RESPONSE_SIZE)
     }
 
@@ -618,7 +620,7 @@ impl ResponseChannel {
         };
         let sealed = self.transport_key.encrypt_response(
             &self.response_pubkey,
-            &authenticator_message::encode(&response)?,
+            &Zeroizing::new(authenticator_message::encode(&response)?),
         )?;
         let delivery = before(
             self.expires_at,

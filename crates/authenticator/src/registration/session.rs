@@ -472,7 +472,9 @@ mod tests {
             .unwrap();
         assert_eq!(STANDARD.decode(&response.iv).unwrap().len(), 12);
         assert_eq!(
-            key.decrypt_response(&recipient, &response).unwrap().as_slice(),
+            key.decrypt_response(&recipient, &response)
+                .unwrap()
+                .as_slice(),
             b"response"
         );
         assert_eq!(key.decrypt_request(&response), Err(TransportError::Decrypt));
