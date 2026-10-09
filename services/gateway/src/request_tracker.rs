@@ -25,6 +25,20 @@ pub enum BacklogScope {
     Ops,
 }
 
+/// The terminal status a mined transaction gives the requests it carries.
+pub(crate) fn receipt_status(success: bool, tx_hash: &str) -> GatewayRequestState {
+    if success {
+        GatewayRequestState::Finalized {
+            tx_hash: tx_hash.to_string(),
+        }
+    } else {
+        GatewayRequestState::failed(
+            format!("transaction reverted on-chain (tx: {tx_hash})"),
+            Some(GatewayErrorCode::TransactionReverted),
+        )
+    }
+}
+
 pub fn now_unix_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -127,18 +141,15 @@ impl RequestTracker {
         }
     }
 
-    /// Updates the status of multiple requests in a batch.
-    pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
-        for id in ids {
-            if let Err(e) = self.update_stored_status(id, &status).await {
-                tracing::error!("Error updating status for request {id}: {e}");
-            }
-        }
-    }
-
-    /// Updates the status of a single request.
+    /// Overwrites a request's status without a guard.
+    ///
+    /// Gateway code writes statuses through [`Self::set_status_if`] and
+    /// [`Self::set_status_batch_if`], so a stale writer cannot clobber another
+    /// owner's decision. This exists to seed request states in tests.
     pub async fn set_status(&self, id: &str, status: GatewayRequestState) {
-        self.set_status_batch(&[id.to_string()], status).await;
+        if let Err(error) = self.update_stored_status(id, &status).await {
+            tracing::error!(%error, request_id = %id, "failed to update request status");
+        }
     }
 
     /// Applies a status only while the stored status is one of `allowed`.

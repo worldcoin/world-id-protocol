@@ -22,7 +22,7 @@ use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestState};
 
 use crate::{
     config::OrphanSweeperConfig,
-    request_tracker::{RequestTracker, now_unix_secs},
+    request_tracker::{RequestTracker, now_unix_secs, receipt_status},
     storage::{request_store::StatusGuard, wallet_store::WalletStore},
 };
 
@@ -31,15 +31,24 @@ use crate::{
 /// Sleeps for `config.interval_secs` between passes and never returns an error:
 /// a failed pass is logged and the next one retries, because terminating the
 /// task would silently disable cleanup.
+///
+/// Receipt lookups rotate across `providers` pass by pass, so one endpoint
+/// that is down only delays the passes that land on it.
+///
+/// # Panics
+///
+/// Panics when `providers` is empty.
 pub async fn run_orphan_sweeper(
     tracker: RequestTracker,
     wallets: WalletStore,
-    provider: DynProvider,
+    providers: Vec<DynProvider>,
     config: OrphanSweeperConfig,
 ) {
-    loop {
+    assert!(!providers.is_empty(), "the sweeper needs an RPC endpoint");
+    for pass in 0usize.. {
         tokio::time::sleep(Duration::from_secs(config.interval_secs)).await;
-        sweep_once(&tracker, &wallets, &provider, &config).await;
+        let provider = &providers[pass % providers.len()];
+        sweep_once(&tracker, &wallets, provider, &config).await;
     }
 }
 
@@ -194,16 +203,7 @@ async fn resolve_unowned_submission(
     };
 
     if let Some(receipt) = receipt {
-        let status = if receipt.status() {
-            GatewayRequestState::Finalized {
-                tx_hash: tx_hash.to_string(),
-            }
-        } else {
-            GatewayRequestState::failed(
-                format!("transaction reverted on-chain (tx: {tx_hash})"),
-                Some(GatewayErrorCode::TransactionReverted),
-            )
-        };
+        let status = receipt_status(receipt.status(), tx_hash);
         for (id, _) in group {
             if let Err(error) = tracker
                 .set_status_if(id, &[StatusGuard::Submitted], status.clone(), None)

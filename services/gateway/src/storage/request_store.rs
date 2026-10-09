@@ -53,6 +53,18 @@ pub(crate) enum StatusWriteOutcome {
     Missing,
 }
 
+impl StatusWriteOutcome {
+    /// Maps the integer convention used by the Lua scripts: `1` applied, `0`
+    /// refused by the guard, anything else missing.
+    const fn from_lua(value: i64) -> Self {
+        match value {
+            1 => Self::Applied,
+            0 => Self::Guarded,
+            _ => Self::Missing,
+        }
+    }
+}
+
 /// Result of atomically creating a tracked request and acquiring its locks.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum CreateRequestOutcome {
@@ -432,22 +444,13 @@ impl RequestStore {
         }
 
         let outcome: i64 = invocation.invoke_async(&mut manager).await?;
-        Ok(Self::status_write_outcome(outcome))
+        Ok(StatusWriteOutcome::from_lua(outcome))
     }
 
     /// Serializes a guard list into the JSON array the Lua scripts expect.
     fn status_guard_json(allowed: &[StatusGuard]) -> GatewayResult<String> {
         let names: Vec<String> = allowed.iter().map(ToString::to_string).collect();
         Ok(serde_json::to_string(&names)?)
-    }
-
-    /// Maps the integer convention used by the guarded status scripts.
-    const fn status_write_outcome(value: i64) -> StatusWriteOutcome {
-        match value {
-            1 => StatusWriteOutcome::Applied,
-            0 => StatusWriteOutcome::Guarded,
-            _ => StatusWriteOutcome::Missing,
-        }
     }
 
     /// Returns every request ID in the pending set.

@@ -63,6 +63,10 @@ pub enum ProviderError {
         "exactly one of wallet_private_key, aws_kms_key_id, or aws_kms_key_ids must be provided"
     )]
     SignerConfigMissing,
+    #[error(
+        "a wallet pool (WALLET_PRIVATE_KEYS or AWS_KMS_WALLET_KEYS) builds several wallets; use `http_wallets`"
+    )]
+    PoolSignerNeedsWallets,
     #[error("pod ordinal {ordinal} is out of range: AWS_KMS_KEY_IDS contains {key_count} key(s)")]
     OrdinalOutOfRange { ordinal: usize, key_count: usize },
     #[error(
@@ -181,6 +185,11 @@ fn endpoint_label(url: &Url) -> String {
 
 impl SignerArgs {
     async fn signer(&self, rpc_url: &Url) -> ProviderResult<EthereumWallet> {
+        // A pool is several signers; `http_wallets` splits it into one
+        // single-signer configuration per wallet before reaching here.
+        if self.wallet_private_keys.is_some() || self.aws_kms_wallet_keys.is_some() {
+            return Err(ProviderError::PoolSignerNeedsWallets);
+        }
         match (
             &self.wallet_private_key,
             &self.aws_kms_key_id,
@@ -215,8 +224,8 @@ impl SignerArgs {
                 tracing::info!(ordinal, key_id, "Initializing per-replica AWS KMS signer");
                 Self::aws_kms_wallet(key_id, rpc_url).await
             }
-            // (None, None, None) — no signer configured at all.
-            // Any multi-field combo is prevented at parse time by the clap
+            // No single signer configured (pools are rejected above). Any
+            // multi-field combo is prevented at parse time by the clap
             // `#[group(multiple = false)]` attribute; direct construction that
             // reaches here is a programming error, but SignerConfigMissing is
             // still the most actionable error for callers.

@@ -16,7 +16,7 @@ use std::{
 use alloy::{primitives::Bytes, providers::DynProvider, rpc::types::TransactionRequest};
 use tokio::{sync::mpsc, time::Instant};
 use uuid::Uuid;
-use world_id_primitives::api_types::{CreateAccountRequest, GatewayRequestState};
+use world_id_primitives::api_types::{CreateAccountRequest, GatewayErrorCode, GatewayRequestState};
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::{
@@ -214,12 +214,18 @@ where
                     batch_type = %batch_type,
                     "batch submission failed before broadcast"
                 );
-                let code = parse_contract_error(&error.to_string());
+                let message = error.to_string();
+                // Signing estimates gas, so a contract revert surfaces here and
+                // keeps its specific code. Anything else (RPC, Redis) is ours,
+                // not the caller's.
+                let code = match parse_contract_error(&message) {
+                    GatewayErrorCode::BadRequest if !message.contains("revert") => {
+                        GatewayErrorCode::InternalServerError
+                    }
+                    code => code,
+                };
                 self.submitter
-                    .fail_batching(
-                        &ids,
-                        GatewayRequestState::failed(error.to_string(), Some(code)),
-                    )
+                    .fail_batching(&ids, GatewayRequestState::failed(message, Some(code)))
                     .await;
                 None
             }

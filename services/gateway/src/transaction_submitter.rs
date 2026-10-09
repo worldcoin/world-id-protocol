@@ -52,10 +52,12 @@ use crate::{
 /// cannot stall resolution of the rest of the pool.
 const RESOLVER_CONCURRENCY: usize = 4;
 
-/// Upper bound on one broadcast call, retries included.
+/// Upper bound on the time from commit to the end of the broadcast call,
+/// retries included.
 ///
-/// The resolver must not conclude [`probe::Probe::Absent`] while a broadcast may still
-/// be in progress, so `WALLET_ABSENT_GRACE_SECS` is validated to exceed this.
+/// The resolver must not conclude [`probe::Probe::Absent`] while a broadcast
+/// may still be in progress, so `WALLET_ABSENT_GRACE_SECS` is validated to
+/// exceed this.
 const BROADCAST_TIMEOUT: Duration = Duration::from_secs(defaults::BROADCAST_TIMEOUT_SECS);
 
 /// Whether a batch may be broadcast after its requests were guarded.
@@ -246,6 +248,10 @@ impl TransactionSubmitter {
         };
         let sign_latency_ms = sign_started.elapsed().as_secs_f64() * 1000.0;
 
+        // One deadline for the whole post-commit sequence, taken with
+        // `submitted_at`: the resolver's grace counts from that moment, so a
+        // broadcast must never start, or still be running, after it.
+        let broadcast_deadline = tokio::time::Instant::now() + BROADCAST_TIMEOUT;
         let submission = Submission {
             nonce: signed.nonce(),
             tx_hash: *signed.tx_hash(),
@@ -285,7 +291,7 @@ impl TransactionSubmitter {
                         %error, %wallet, %batch_type,
                         "failed to commit signed transaction"
                     );
-                    return Err(error);
+                    return Err(GatewayError::Submission(format!("commit failed: {error}")));
                 }
                 tracing::warn!(
                     %error, %wallet, %batch_type,
@@ -307,12 +313,16 @@ impl TransactionSubmitter {
                 %wallet, %batch_type,
                 "requests were resolved by another owner before broadcast; discarding signature"
             );
-            self.fail_batching(
+            // `Submitted` too: an ambiguous guard write may have applied before
+            // the batch was abandoned, and nothing will broadcast it now.
+            self.set_each_if(
                 &request_ids,
-                GatewayRequestState::failed(
+                &[StatusGuard::Batching, StatusGuard::Submitted],
+                &GatewayRequestState::failed(
                     "batch was abandoned before broadcast because another request in it was resolved",
                     Some(GatewayErrorCode::InternalServerError),
                 ),
+                None,
             )
             .await;
             self.release_lease(wallet, lease_id).await;
@@ -329,13 +339,26 @@ impl TransactionSubmitter {
         );
 
         let send_started = tokio::time::Instant::now();
-        let sent = tokio::time::timeout(BROADCAST_TIMEOUT, entry.provider.send_tx_envelope(signed))
-            .await
-            .unwrap_or_else(|_| {
-                Err(alloy::transports::TransportErrorKind::custom_str(
-                    "broadcast timed out",
-                ))
-            });
+        if send_started >= broadcast_deadline {
+            // Skipping is always safe: nothing was sent, so the resolver finds
+            // the transaction absent after the grace and frees the nonce.
+            metrics::record_batch_send_failed(batch_type.as_str(), 0.0);
+            tracing::warn!(
+                tx_hash = %formatted_tx_hash,
+                %wallet,
+                %batch_type,
+                "broadcast deadline passed before sending; leaving the transaction to the resolver"
+            );
+            return Ok(SubmitOutcome::Submitted);
+        }
+        let sent =
+            tokio::time::timeout_at(broadcast_deadline, entry.provider.send_tx_envelope(signed))
+                .await
+                .unwrap_or_else(|_| {
+                    Err(alloy::transports::TransportErrorKind::custom_str(
+                        "broadcast timed out",
+                    ))
+                });
         match sent {
             Ok(_) => {
                 let send_latency_ms = send_started.elapsed().as_secs_f64() * 1000.0;

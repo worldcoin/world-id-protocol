@@ -17,6 +17,9 @@ use crate::{metrics, storage::wallet_store::Submission};
 pub(super) enum Probe {
     /// No definitive answer yet.
     Wait,
+    /// The RPC failed, so nothing was learned. Treated like [`Probe::Wait`],
+    /// but tells the resolver to back off.
+    Unavailable,
     /// The transaction is on chain, with a canonical receipt.
     Included {
         /// Whether the transaction succeeded rather than reverted.
@@ -43,7 +46,7 @@ enum ReceiptCheck {
 /// Probes the chain for one outstanding transaction.
 ///
 /// The receipt lookup is treated as the source of truth. An RPC failure is
-/// never evidence of anything, so it always yields [`Probe::Wait`]. Failures
+/// never evidence of anything, so it always yields [`Probe::Unavailable`]. Failures
 /// are counted in `wallet.error{phase="resolve",class="rpc"}` and logged only
 /// at debug, because an RPC outage repeats them every pass for every wallet.
 ///
@@ -64,7 +67,7 @@ pub(super) async fn probe(
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
             tracing::debug!(%error, %tx_hash, "failed to fetch transaction receipt");
-            return Probe::Wait;
+            return Probe::Unavailable;
         }
     };
 
@@ -80,12 +83,12 @@ pub(super) async fn probe(
     // No canonical receipt. Distinguish "never landed" from "landed then reorged out"
     // by asking where the transaction and its nonce are.
     match provider.get_transaction_by_hash(tx_hash).await {
-        Ok(Some(_)) => return Probe::Wait,
+        Ok(Some(_)) => return pending_in_mempool(provider, wallet, submission).await,
         Ok(None) => {}
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
             tracing::debug!(%error, %tx_hash, "failed to look up transaction by hash");
-            return Probe::Wait;
+            return Probe::Unavailable;
         }
     }
 
@@ -94,7 +97,7 @@ pub(super) async fn probe(
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
             tracing::debug!(%error, "failed to read latest transaction count");
-            return Probe::Wait;
+            return Probe::Unavailable;
         }
     };
 
@@ -116,7 +119,7 @@ pub(super) async fn probe(
             Err(error) => {
                 metrics::increment_wallet_error("resolve", "rpc");
                 tracing::debug!(%error, %tx_hash, "failed to re-read receipt; not concluding replacement");
-                Probe::Wait
+                Probe::Unavailable
             }
         };
     }
@@ -126,7 +129,7 @@ pub(super) async fn probe(
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
             tracing::debug!(%error, "failed to read pending transaction count");
-            return Probe::Wait;
+            return Probe::Unavailable;
         }
     };
 
@@ -144,7 +147,7 @@ pub(super) async fn probe(
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
             tracing::debug!(%error, "failed to read the head block");
-            Probe::Wait
+            Probe::Unavailable
         }
     }
 }
@@ -184,7 +187,7 @@ async fn classify_receipt(
                 tx_hash = %submission.tx_hash,
                 "failed to check whether the inclusion block is still canonical"
             );
-            return ReceiptCheck::Decided(Probe::Wait);
+            return ReceiptCheck::Decided(Probe::Unavailable);
         }
     }
 
@@ -193,7 +196,7 @@ async fn classify_receipt(
         Err(error) => {
             metrics::increment_wallet_error("resolve", "rpc");
             tracing::debug!(%error, "failed to read the chain head");
-            return ReceiptCheck::Decided(Probe::Wait);
+            return ReceiptCheck::Decided(Probe::Unavailable);
         }
     };
 
@@ -211,6 +214,37 @@ async fn classify_receipt(
         success: receipt.status(),
         confirmations,
     })
+}
+
+/// Probe result for a transaction the node holds in its mempool.
+///
+/// Normally it is simply not mined yet. If an earlier nonce of the wallet is
+/// still unmined, though, the transaction is queued behind a gap and cannot be
+/// mined until something fills it; that is surfaced so an operator can act
+/// before the wallet parks.
+async fn pending_in_mempool(
+    provider: &DynProvider,
+    wallet: Address,
+    submission: &Submission,
+) -> Probe {
+    match provider.get_transaction_count(wallet).latest().await {
+        Ok(latest) if latest < submission.nonce => {
+            metrics::increment_wallet_error("resolve", "nonce_gap");
+            tracing::warn!(
+                %wallet,
+                latest,
+                nonce = submission.nonce,
+                "wallet transaction is queued behind a nonce gap"
+            );
+            Probe::Wait
+        }
+        Ok(_) => Probe::Wait,
+        Err(error) => {
+            metrics::increment_wallet_error("resolve", "rpc");
+            tracing::debug!(%error, "failed to read latest transaction count");
+            Probe::Unavailable
+        }
+    }
 }
 
 #[cfg(test)]
@@ -315,7 +349,7 @@ mod tests {
     async fn an_rpc_failure_is_never_evidence() {
         let asserter = Asserter::new();
         asserter.push_failure_msg("upstream returned 502");
-        assert_eq!(run(&asserter, 1).await, Probe::Wait);
+        assert_eq!(run(&asserter, 1).await, Probe::Unavailable);
     }
 
     #[tokio::test]
@@ -406,7 +440,7 @@ mod tests {
         unknown_by_hash(&asserter);
         nonce(&asserter, NONCE + 1);
         asserter.push_failure_msg("request timed out");
-        assert_eq!(run(&asserter, 1).await, Probe::Wait);
+        assert_eq!(run(&asserter, 1).await, Probe::Unavailable);
     }
 
     #[tokio::test]

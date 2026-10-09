@@ -39,7 +39,7 @@ pub const METRICS_WALLET_OUTCOME: &str = "wallet.outcome";
 pub const METRICS_WALLET_TIME_IN_FLIGHT_MS: &str = "wallet.time_in_flight_ms";
 pub const METRICS_WALLET_CONFIRMATIONS_AT_RELEASE: &str = "wallet.confirmations_at_release";
 pub const METRICS_WALLET_UNCONFIGURED: &str = "wallet.unconfigured";
-pub const METRICS_WALLET_ERRORS: &str = "wallet.error";
+pub const METRICS_WALLET_ERROR: &str = "wallet.error";
 
 pub fn describe_metrics() {
     world_id_services_common::describe_http_request_metrics();
@@ -165,7 +165,7 @@ pub fn describe_metrics() {
         "Confirmations observed when a wallet was released; evidence for the release threshold."
     );
     ::metrics::describe_counter!(
-        METRICS_WALLET_ERRORS,
+        METRICS_WALLET_ERROR,
         ::metrics::Unit::Count,
         "Wallet errors, tagged by phase (acquire, release, resolve) and failure class."
     );
@@ -296,7 +296,7 @@ pub fn record_wallet_confirmations_at_release(confirmations: u64) {
 /// `phase` is `acquire`, `release` or `resolve`. `class` is the failing
 /// dependency or cause: `rpc`, `redis`, `timeout` or `invalid_record`.
 pub fn increment_wallet_error(phase: &'static str, class: &'static str) {
-    ::metrics::counter!(METRICS_WALLET_ERRORS, "phase" => phase, "class" => class).increment(1);
+    ::metrics::counter!(METRICS_WALLET_ERROR, "phase" => phase, "class" => class).increment(1);
 }
 
 /// Records how many wallet records belong to wallets this replica is not

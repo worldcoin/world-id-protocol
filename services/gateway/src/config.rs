@@ -99,8 +99,8 @@ impl Default for OrphanSweeperConfig {
 
 /// Configuration for durable wallet leasing and transaction resolution.
 ///
-/// Every field is a bound on an operation that can fail: signing, waiting for a
-/// free wallet, and deciding a transaction's fate.
+/// Bounds on the operations that can fail (signing, waiting for a free wallet,
+/// deciding a transaction's fate) and the pool's release and draining policy.
 #[derive(Clone, Debug)]
 pub struct WalletConfig {
     /// How long a wallet lease is held while its batch is signed. Bounds only
@@ -167,6 +167,7 @@ impl Default for WalletConfig {
 #[derive(Clone, Debug, clap::Args)]
 pub struct WalletArgs {
     /// How long a wallet lease is held while its batch is signed, in seconds.
+    /// At least 5.
     #[arg(long, env = "WALLET_SIGN_LEASE_SECS", default_value_t = defaults::WALLET_SIGN_LEASE_SECS)]
     pub sign_lease_secs: u64,
 
@@ -174,11 +175,13 @@ pub struct WalletArgs {
     #[arg(long, env = "WALLET_STATE_TTL_SECS", default_value_t = defaults::WALLET_STATE_TTL_SECS)]
     pub state_ttl_secs: u64,
 
-    /// Confirmations required before a wallet is reused.
+    /// Confirmations required before a wallet is reused, counting the
+    /// inclusion block. At least 1.
     #[arg(long, env = "WALLET_RELEASE_CONFIRMATIONS", default_value_t = defaults::WALLET_RELEASE_CONFIRMATIONS)]
     pub release_confirmations: u64,
 
     /// How long a transaction may stay undecided before its wallet is parked, in seconds.
+    /// At least 60, and less than `WALLET_STATE_TTL_SECS`.
     #[arg(long, env = "WALLET_RESOLUTION_TIMEOUT_SECS", default_value_t = defaults::WALLET_RESOLUTION_TIMEOUT_SECS)]
     pub resolution_timeout_secs: u64,
 
@@ -188,7 +191,8 @@ pub struct WalletArgs {
 
     /// How long after commit a transaction unknown to the chain may still be
     /// mid-broadcast, in seconds. Must exceed the broadcast deadline
-    /// (`defaults::BROADCAST_TIMEOUT_SECS`).
+    /// (`defaults::BROADCAST_TIMEOUT_SECS`) by more than a second, and be less
+    /// than `WALLET_RESOLUTION_TIMEOUT_SECS`.
     #[arg(long, env = "WALLET_ABSENT_GRACE_SECS", default_value_t = defaults::WALLET_ABSENT_GRACE_SECS)]
     pub absent_grace_secs: u64,
 
@@ -334,6 +338,9 @@ impl GatewayConfig {
     }
 
     pub fn validate(&self) -> GatewayResult<()> {
+        // Clap's argument group already rejects this from the command line and
+        // environment; the check covers a config built any other way, such as
+        // `ProviderArgs::from_file`.
         if self.provider.signer.is_pool_signer() && self.provider.signer.has_legacy_signer() {
             return Err(GatewayError::Config(
                 "a shared wallet pool (WALLET_PRIVATE_KEYS or AWS_KMS_WALLET_KEYS) must not be \
@@ -446,11 +453,22 @@ impl GatewayConfig {
             ));
         }
 
-        if wallet.absent_grace_secs <= defaults::BROADCAST_TIMEOUT_SECS {
+        // `submitted_at` is truncated to whole seconds, so the grace needs a
+        // second of margin over the broadcast deadline.
+        if wallet.absent_grace_secs <= defaults::BROADCAST_TIMEOUT_SECS + 1 {
             return Err(GatewayError::Config(format!(
-                "WALLET_ABSENT_GRACE_SECS must exceed the {}s broadcast deadline",
+                "WALLET_ABSENT_GRACE_SECS must exceed the {}s broadcast deadline by more than 1s",
                 defaults::BROADCAST_TIMEOUT_SECS
             )));
+        }
+
+        // Otherwise a transaction that never reached the network is always
+        // parked before it can be found absent.
+        if wallet.absent_grace_secs >= wallet.resolution_timeout_secs {
+            return Err(GatewayError::Config(
+                "WALLET_ABSENT_GRACE_SECS must be less than WALLET_RESOLUTION_TIMEOUT_SECS"
+                    .to_string(),
+            ));
         }
 
         if wallet.acquire_timeout_secs == 0 {
@@ -563,6 +581,45 @@ mod tests {
     fn parse_valid_config() -> GatewayConfig {
         parse_with_signer_args(&["--wallet-private-key", TEST_PRIVATE_KEY])
             .expect("valid config should parse")
+    }
+
+    fn validate_with(extra: &[&str]) -> GatewayResult<()> {
+        let args: Vec<&str> = ["--wallet-private-key", TEST_PRIVATE_KEY]
+            .iter()
+            .chain(extra.iter())
+            .copied()
+            .collect();
+        parse_with_signer_args(&args)
+            .expect("clap parsing should succeed")
+            .validate()
+    }
+
+    #[test]
+    fn absent_grace_must_clear_the_broadcast_deadline() {
+        let at_deadline = (defaults::BROADCAST_TIMEOUT_SECS + 1).to_string();
+        let error = validate_with(&["--absent-grace-secs", &at_deadline])
+            .expect_err("a grace within a second of the deadline is rejected")
+            .to_string();
+        assert!(error.contains("WALLET_ABSENT_GRACE_SECS"), "got {error}");
+
+        let clear = (defaults::BROADCAST_TIMEOUT_SECS + 2).to_string();
+        validate_with(&["--absent-grace-secs", &clear]).expect("a clear margin is accepted");
+    }
+
+    #[test]
+    fn absent_grace_must_be_shorter_than_the_resolution_timeout() {
+        let error = validate_with(&[
+            "--absent-grace-secs",
+            "120",
+            "--resolution-timeout-secs",
+            "120",
+        ])
+        .expect_err("a grace that outlasts the resolution timeout is rejected")
+        .to_string();
+        assert!(
+            error.contains("WALLET_RESOLUTION_TIMEOUT_SECS"),
+            "got {error}"
+        );
     }
 
     #[test]

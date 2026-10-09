@@ -15,6 +15,8 @@
 //! Key families, all new, so a gateway build that predates them ignores them:
 //!
 //! - `gateway:wallet:{address}`: the record above.
+//! - `gateway:wallets`: the set of addresses that have held a lease, so the
+//!   resolver can find records of wallets it is not configured with.
 //! - `gateway:wallet_resolver:{address}`: a short-lived claim that lets one
 //!   replica probe a wallet per resolver interval.
 //! - `gateway:wallet_nonce:{address}`: the lowest nonce the wallet may sign
@@ -36,8 +38,8 @@ use crate::{batch_type::BatchType, error::GatewayResult};
 /// reader that depends on a field must therefore treat it as optional.
 const SCHEMA_VERSION: u8 = 1;
 
-/// Prefix of the wallet record keys, followed by the checksummed address.
-const KEY_PREFIX: &str = "gateway:wallet:";
+/// Set of every wallet address that has held a lease.
+const INDEX_KEY: &str = "gateway:wallets";
 
 /// Outcome of a compare-and-set write against a wallet record.
 ///
@@ -191,15 +193,23 @@ impl WalletStore {
     ) -> GatewayResult<bool> {
         let value = serde_json::to_string(&WalletRecord::signing(lease_id))?;
         let mut manager = self.manager.clone();
-        let inserted: Option<String> = redis::cmd("SET")
-            .arg(Self::key(wallet))
-            .arg(value)
-            .arg("NX")
-            .arg("EX")
-            .arg(lease.as_secs())
-            .query_async(&mut manager)
-            .await?;
-        Ok(inserted.is_some())
+        let inserted: i64 = redis::Script::new(
+            r#"
+            if not redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2]) then
+                return 0
+            end
+            redis.call('SADD', KEYS[2], ARGV[3])
+            return 1
+            "#,
+        )
+        .key(Self::key(wallet))
+        .key(INDEX_KEY)
+        .arg(value)
+        .arg(lease.as_secs())
+        .arg(wallet.to_string())
+        .invoke_async(&mut manager)
+        .await?;
+        Ok(inserted == 1)
     }
 
     /// Transitions a record from [`WalletState::Signing`] to
@@ -408,37 +418,28 @@ impl WalletStore {
             .collect())
     }
 
-    /// Addresses of every wallet that currently has a record.
+    /// Addresses of every wallet that has ever held a lease.
     ///
     /// Includes wallets this process is not configured with, such as a pool
     /// key removed without draining or the per-replica key of a scaled-down
-    /// replica. Keys whose suffix is not an address are skipped.
+    /// replica. Read from an index set written by [`Self::reserve`], so the
+    /// cost is bounded by the number of wallets rather than the keyspace. The
+    /// set is never pruned: it only grows when a new key signs, and an entry
+    /// whose record is gone costs one empty read per pass.
     ///
     /// # Errors
     ///
     /// Returns an error when the Redis call fails.
     pub(crate) async fn addresses(&self) -> GatewayResult<Vec<Address>> {
         let mut manager = self.manager.clone();
-        let mut cursor = 0u64;
-        let mut addresses = Vec::new();
-        loop {
-            let (next, keys): (u64, Vec<String>) = redis::cmd("SCAN")
-                .arg(cursor)
-                .arg("MATCH")
-                .arg(format!("{KEY_PREFIX}*"))
-                .arg("COUNT")
-                .arg(100)
-                .query_async(&mut manager)
-                .await?;
-            addresses.extend(
-                keys.iter()
-                    .filter_map(|key| key.strip_prefix(KEY_PREFIX)?.parse::<Address>().ok()),
-            );
-            if next == 0 {
-                return Ok(addresses);
-            }
-            cursor = next;
-        }
+        let members: Vec<String> = redis::cmd("SMEMBERS")
+            .arg(INDEX_KEY)
+            .query_async(&mut manager)
+            .await?;
+        Ok(members
+            .iter()
+            .filter_map(|member| member.parse::<Address>().ok())
+            .collect())
     }
 
     /// Claims the right to resolve `wallet` for `ttl`, returning whether this
@@ -460,7 +461,7 @@ impl WalletStore {
     ) -> GatewayResult<bool> {
         let mut manager = self.manager.clone();
         let claimed: Option<String> = redis::cmd("SET")
-            .arg(format!("gateway:wallet_resolver:{wallet}"))
+            .arg(Self::resolver_claim_key(wallet))
             .arg(1)
             .arg("NX")
             .arg("PX")
@@ -520,13 +521,19 @@ impl WalletStore {
         Ok(())
     }
 
-    fn nonce_floor_key(wallet: Address) -> String {
-        format!("gateway:wallet_nonce:{wallet}")
-    }
-
     /// Redis key holding one wallet's record.
     fn key(wallet: Address) -> String {
-        format!("{KEY_PREFIX}{wallet}")
+        format!("gateway:wallet:{wallet}")
+    }
+
+    /// Redis key holding one wallet's resolution claim.
+    fn resolver_claim_key(wallet: Address) -> String {
+        format!("gateway:wallet_resolver:{wallet}")
+    }
+
+    /// Redis key holding one wallet's nonce floor.
+    fn nonce_floor_key(wallet: Address) -> String {
+        format!("gateway:wallet_nonce:{wallet}")
     }
 }
 
@@ -804,6 +811,23 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert!(records[0].is_none());
         assert!(records[1].is_some());
+    }
+
+    #[tokio::test]
+    async fn reserving_a_wallet_indexes_its_address() {
+        let (store, _redis) = store().await;
+        let first = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let second = address!("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+
+        assert!(store.addresses().await.unwrap().is_empty());
+        store.reserve(first, Uuid::new_v4(), LEASE).await.unwrap();
+        store.reserve(second, Uuid::new_v4(), LEASE).await.unwrap();
+        // A refused reservation indexes nothing new.
+        store.reserve(first, Uuid::new_v4(), LEASE).await.unwrap();
+
+        let mut addresses = store.addresses().await.unwrap();
+        addresses.sort();
+        assert_eq!(addresses, vec![first, second]);
     }
 
     #[tokio::test]
