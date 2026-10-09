@@ -139,7 +139,7 @@ async fn e2e_authenticator_registration() {
         panic!("registration failed");
     };
     assert_eq!(result.leaf_index, account.leaf_index);
-    assert_eq!(result.vault, Some(vault));
+    assert_eq!(result.vault, Some(vault.clone()));
     assert_eq!(result.authenticators[0].name.as_str(), "iPhone");
     let proving = session
         .verify(&proving_seed, &result, config.clone(), dummy_zk_source())
@@ -168,14 +168,49 @@ async fn e2e_authenticator_registration() {
         RegistrationPlan::AlreadyRegistered { pubkey_id: 1 }
     );
     checked
-        .approve(&primary, Approval::default(), verified())
+        .approve(
+            &primary,
+            Approval {
+                vault: Some(vault.clone()),
+                ..Approval::default()
+            },
+            verified(),
+        )
         .await
         .delivery
         .unwrap();
     let RequesterStatus::Completed(Ok(result)) = completed(&mut retry).await else {
         panic!("retry failed");
     };
-    assert_eq!((result.pubkey_id, result.vault), (1, None));
+    assert_eq!((result.pubkey_id, result.vault), (1, Some(vault)));
+    assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
+
+    // An indexed key set that differs from the registry is refused on both plans.
+    account.authenticators.push(([99_u8; 32], Address::ZERO));
+    account.sync(&indexer);
+    for seed in [proving_seed, [98_u8; 32]] {
+        let mut stale = requester(&seed, RequestedClass::Proving, &bridge);
+        stale.publish().await.unwrap();
+        let refused = receive(&mut stale, &bridge)
+            .await
+            .unwrap()
+            .with_response_deadline(Duration::from_millis(250))
+            .check(&primary)
+            .await;
+        assert!(matches!(
+            refused,
+            Err(ApproverError::Refused {
+                reason: RegistrationErrorReason::InternalError,
+                ..
+            })
+        ));
+        let RequesterStatus::Completed(Err(error)) = completed(&mut stale).await else {
+            panic!("stale snapshot must not produce a success response");
+        };
+        assert_eq!(error.code, RegistrationErrorReason::InternalError.code());
+    }
+    account.authenticators.pop();
+    account.sync(&indexer);
     assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
 
     // Asking for another class with a registered key is a conflict.

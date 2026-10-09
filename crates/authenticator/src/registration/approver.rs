@@ -13,12 +13,15 @@
 
 use std::{future::Future, time::Duration};
 
+use alloy::{primitives::U256, providers::Provider as _};
 use backon::{BackoffBuilder as _, ExponentialBuilder, Sleeper as _};
 use futures_util::future::{Either, select};
 use web_time::Instant;
 use world_id_primitives::{
+    FieldElement, TREE_DEPTH,
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
     authenticator_message::{self, ErrorObject, Id, Version},
+    merkle::MerkleInclusionProof,
 };
 use zeroize::Zeroizing;
 
@@ -161,6 +164,11 @@ impl IncomingRegistration {
 
     /// Reads the account state of `approver` and plans the registration (WIP-109 §3.7.2).
     ///
+    /// With an RPC configured, checks the snapshot commitment against the registry's current
+    /// leaf before trusting it, retrying stale snapshots until the response deadline. Without
+    /// an RPC, insertion still relies on the registry's submission checks; an already-registered
+    /// approval succeeds without a vault because snapshot freshness cannot be proven.
+    ///
     /// # Errors
     ///
     /// Returns [`ApproverError::Refused`] after sending the reason when `approver` is not an
@@ -196,10 +204,15 @@ impl IncomingRegistration {
                     .await);
             }
         }
-        let snapshot = match before(self.respond_by, approver.fetch_account_snapshot()).await {
+        let snapshot = match before(self.respond_by, fetch_fresh_snapshot(approver)).await {
             None => {
                 return Err(self
-                    .refuse(RegistrationErrorReason::InternalError, None)
+                    .refuse(
+                        RegistrationErrorReason::InternalError,
+                        Some(AuthenticatorError::InvalidAccountSnapshot(
+                            "snapshot freshness was not established before the response deadline",
+                        )),
+                    )
                     .await);
             }
             Some(Ok(snapshot)) => snapshot,
@@ -240,6 +253,7 @@ impl IncomingRegistration {
             incoming: self,
             snapshot,
             plan,
+            snapshot_freshness_verified: approver.registry().is_some(),
         })
     }
 
@@ -349,6 +363,7 @@ pub struct CheckedRegistration {
     incoming: IncomingRegistration,
     snapshot: AccountSnapshot,
     plan: RegistrationPlan,
+    snapshot_freshness_verified: bool,
 }
 
 impl CheckedRegistration {
@@ -404,16 +419,24 @@ impl CheckedRegistration {
     /// unknown at [`respond_by`](Self::respond_by), the response is `outcome_unknown`. A failed
     /// or unknown outcome is never retried with a second insertion.
     ///
+    /// An already-registered approval checked without an RPC returns success without the vault,
+    /// even when `approval` includes one.
+    ///
     /// If less than [`MIN_TRACKING_TIME`] is left before the deadline, nothing is submitted and
     /// the response is `internal_error`, so the user can start over with a new link.
     #[must_use = "the outcome tells whether the authenticator was registered"]
     pub async fn approve(
         self,
         approver: &Authenticator,
-        approval: Approval,
+        mut approval: Approval,
         verified: UserVerification,
     ) -> ApprovalOutcome {
         let UserVerification(()) = verified;
+        if matches!(self.plan, RegistrationPlan::AlreadyRegistered { .. })
+            && !self.snapshot_freshness_verified
+        {
+            approval.vault = None;
+        }
         let request_id = self.incoming.channel.request_id;
         let result = match self.plan {
             _ if !self.response_fits(&approval) => Err((
@@ -742,6 +765,81 @@ async fn packed_account_data_of(
     .await
 }
 
+async fn fetch_fresh_snapshot(
+    approver: &Authenticator,
+) -> Result<AccountSnapshot, AuthenticatorError> {
+    let registry = approver.registry();
+    let mut delays = ExponentialBuilder::default()
+        .with_min_delay(Duration::from_secs(1))
+        .with_max_delay(Duration::from_secs(8))
+        .without_max_times()
+        .with_jitter()
+        .build();
+    loop {
+        let snapshot = approver.fetch_account_snapshot().await?;
+        let Some(registry) = &registry else {
+            return Ok(snapshot);
+        };
+        let commitment: U256 = snapshot.authenticators.key_set.leaf_hash().into();
+        if commitment != snapshot.authenticators.offchain_signer_commitment {
+            return Err(AuthenticatorError::InvalidAccountSnapshot(
+                "off-chain signer commitment does not match the public key set",
+            ));
+        }
+        let block = registry
+            .provider()
+            .get_block_number()
+            .await
+            .map_err(|error| {
+                AuthenticatorError::Generic(format!(
+                    "failed to read registry freshness block: {error}"
+                ))
+            })?;
+        let siblings = registry
+            .getProof(snapshot.leaf_index)
+            .block(block.into())
+            .call()
+            .await?;
+        let root = registry.currentRoot().block(block.into()).call().await?;
+        if snapshot_commitment_is_current(
+            root,
+            snapshot.leaf_index,
+            siblings,
+            snapshot.authenticators.offchain_signer_commitment,
+        )? {
+            return Ok(snapshot);
+        }
+        tracing::debug!("indexed registration snapshot is stale; waiting for the indexer");
+        backon::DefaultSleeper::default()
+            .sleep(delays.next().unwrap_or(Duration::from_secs(8)))
+            .await;
+    }
+}
+
+fn snapshot_commitment_is_current(
+    root: U256,
+    leaf_index: u64,
+    siblings: Vec<U256>,
+    commitment: U256,
+) -> Result<bool, AuthenticatorError> {
+    let siblings = siblings
+        .into_iter()
+        .map(FieldElement::try_from)
+        .collect::<Result<Vec<_>, _>>()?
+        .try_into()
+        .map_err(|_| {
+            AuthenticatorError::InvalidServiceResponse(
+                "registry freshness proof has an unexpected depth".to_string(),
+            )
+        })?;
+    let proof = MerkleInclusionProof::<TREE_DEPTH> {
+        root: root.try_into()?,
+        leaf_index,
+        siblings,
+    };
+    Ok(proof.is_valid(commitment.try_into()?))
+}
+
 /// The leaf index in packed account data: its low 64 bits.
 fn leaf_index_of(packed: alloy::primitives::U256) -> u64 {
     packed.as_limbs()[0]
@@ -868,6 +966,158 @@ fn classify_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn registry_proof() -> (U256, u64, Vec<U256>, U256) {
+        let commitment = FieldElement::from(42_u64);
+        let leaf_index = 5;
+        let siblings = [FieldElement::from(7_u64); TREE_DEPTH];
+        let root = siblings
+            .iter()
+            .enumerate()
+            .fold(commitment, |hash, (level, sibling)| {
+                if (leaf_index >> level) & 1 == 0 {
+                    world_id_primitives::poseidon::compress(hash, *sibling)
+                } else {
+                    world_id_primitives::poseidon::compress(*sibling, hash)
+                }
+            });
+        (
+            root.into(),
+            leaf_index,
+            siblings.map(Into::into).to_vec(),
+            commitment.into(),
+        )
+    }
+
+    #[test]
+    fn current_snapshot_commitment_passes_registry_proof() {
+        let (root, leaf_index, siblings, commitment) = registry_proof();
+        assert!(snapshot_commitment_is_current(root, leaf_index, siblings, commitment).unwrap());
+    }
+
+    #[test]
+    fn stale_snapshot_commitment_fails_registry_proof() {
+        let (root, leaf_index, siblings, _) = registry_proof();
+        assert!(
+            !snapshot_commitment_is_current(root, leaf_index, siblings, U256::from(43)).unwrap()
+        );
+    }
+
+    #[test]
+    fn tampered_registry_sibling_fails_freshness_check() {
+        let (root, leaf_index, mut siblings, commitment) = registry_proof();
+        siblings[0] += U256::from(1);
+        assert!(!snapshot_commitment_is_current(root, leaf_index, siblings, commitment).unwrap());
+    }
+
+    #[test]
+    fn malformed_registry_proof_is_rejected() {
+        let (root, leaf_index, mut siblings, commitment) = registry_proof();
+        siblings.pop();
+        assert!(snapshot_commitment_is_current(root, leaf_index, siblings, commitment).is_err());
+        let (_, _, siblings, _) = registry_proof();
+        assert!(
+            snapshot_commitment_is_current(U256::MAX, leaf_index, siblings, commitment).is_err()
+        );
+    }
+
+    #[tokio::test]
+    async fn indexer_only_already_registered_approval_withholds_vault() {
+        use super::super::{RegistrationRequester, RequestedClass};
+        use crate::traits::OnchainKeyRepresentable as _;
+        use world_id_primitives::{AuthenticatorPublicKeySet, Config, ServiceEndpoint, Signer};
+
+        let mut server = mockito::Server::new_async().await;
+        let seed = [42_u8; 32];
+        let signer = Signer::from_seed_bytes(&seed).unwrap();
+        let pubkey = signer.offchain_signer_pubkey();
+        let key_set = AuthenticatorPublicKeySet::new(vec![pubkey.clone()]).unwrap();
+        let commitment: U256 = key_set.leaf_hash().into();
+        let _account = server
+            .mock("POST", "/packed-account")
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"packed_account_data":"0x1"}"#)
+            .create_async()
+            .await;
+        let _nonce = server
+            .mock("POST", "/signature-nonce")
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"signature_nonce":"0x0"}"#)
+            .create_async()
+            .await;
+        let _authenticators = server.mock("POST", "/authenticators")
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({
+                "authenticator_pubkeys": [format!("{:#x}", pubkey.to_ethereum_representation().unwrap())],
+                "authenticator_addresses": [format!("{:#x}", signer.onchain_signer_address())],
+                "offchain_signer_commitment": format!("{commitment:#x}"),
+                "recovery_counter": "0x0",
+            }).to_string())
+            .create_async().await;
+        let config = Config::new(
+            None,
+            1,
+            alloy::primitives::Address::repeat_byte(1),
+            ServiceEndpoint::direct(server.url()),
+            ServiceEndpoint::direct(server.url()),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+        let approver = Authenticator::init(
+            &seed,
+            config,
+            std::sync::Arc::new(world_id_proof::artifacts::dummy::DummyZkArtifactSource),
+        )
+        .await
+        .unwrap();
+        let bridge = BridgeClient::new(server.url().parse().unwrap()).unwrap();
+        let requester =
+            RegistrationRequester::new(&seed, RequestedClass::Admin, None, bridge.clone(), None)
+                .unwrap();
+        let secret = requester.pairing_uri().unwrap().secret;
+        let request = requester.request().clone();
+        let incoming = IncomingRegistration {
+            request: request.clone(),
+            channel: ResponseChannel {
+                request_id: secret.request_id(),
+                response_pubkey: request.response_pubkey,
+                transport_key: secret
+                    .transport_key(&PairingCode::generate().unwrap())
+                    .unwrap(),
+                bridge,
+                expires_at: Instant::now() + BRIDGE_SESSION_TTL,
+            },
+            respond_by: Instant::now() + DEFAULT_RESPONSE_DEADLINE,
+        };
+        let checked = incoming.check(&approver).await.unwrap();
+        assert_eq!(
+            checked.plan(),
+            RegistrationPlan::AlreadyRegistered { pubkey_id: 0 }
+        );
+        let response = server
+            .mock("PUT", format!("/response/{}", secret.request_id()).as_str())
+            .with_status(200)
+            .expect(1)
+            .create_async()
+            .await;
+        let outcome = checked
+            .approve(
+                &approver,
+                Approval {
+                    vault: Some(Vault {
+                        format: super::super::VaultFormat::WalletkitPlaintextV1,
+                        data: vec![1, 2, 3],
+                    }),
+                    ..Approval::default()
+                },
+                UserVerification::platform_check_succeeded(),
+            )
+            .await;
+        assert_eq!(outcome.result.unwrap().vault, None);
+        assert_eq!(outcome.delivery.unwrap(), DeliveryOutcome::Delivered);
+        response.assert_async().await;
+    }
 
     #[tokio::test]
     async fn expired_deadline_never_polls_operation() {
