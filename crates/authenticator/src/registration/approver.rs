@@ -390,7 +390,8 @@ impl CheckedRegistration {
             id: Some(Id::String(self.incoming.channel.request_id.to_string())),
             outcome: Ok(RegistrationResult {
                 leaf_index: self.snapshot.leaf_index,
-                pubkey_id: u32::MAX,
+                // Every valid slot encodes to the same single CBOR byte.
+                pubkey_id: 0,
                 authenticators: approval.authenticators.clone(),
                 vault: approval.vault.clone(),
             }),
