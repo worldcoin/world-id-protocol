@@ -1005,6 +1005,20 @@ mod tests {
                 .await,
             Err(AuthenticatorError::InvalidAccountSnapshot(_))
         ));
+        assert!(matches!(
+            authenticator
+                .insert_authenticator_from_snapshot(
+                    &snapshot,
+                    test_pubkey(2),
+                    AuthenticatorClass::Admin {
+                        address: Address::ZERO
+                    }
+                )
+                .await,
+            Err(AuthenticatorError::PrimitiveError(
+                PrimitiveError::InvalidInput { .. }
+            ))
+        ));
         no_submission.assert_async().await;
         no_submission.remove_async().await;
 

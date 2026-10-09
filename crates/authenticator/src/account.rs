@@ -4,7 +4,7 @@ use alloy::primitives::Address;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
 
-use world_id_primitives::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS};
+use world_id_primitives::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, PrimitiveError};
 
 use crate::{
     api_types::{
@@ -105,6 +105,8 @@ impl Authenticator {
     /// # Errors
     /// - [`AuthenticatorError::InvalidAccountSnapshot`] if the snapshot belongs to another account
     ///   or its commitment does not match its public keys.
+    /// - [`AuthenticatorError::PrimitiveError`] if `class` is an Admin Authenticator with the zero
+    ///   address, which the registry would record as a Proving Authenticator.
     /// - [`AuthenticatorError::MaxAuthenticatorsReached`] if the snapshot has no free slot.
     /// - [`AuthenticatorError::GatewayError`] if the gateway rejects the operation, e.g. because
     ///   the snapshot is stale or the address is already registered.
@@ -119,6 +121,13 @@ impl Authenticator {
             return Err(AuthenticatorError::InvalidAccountSnapshot(
                 "snapshot belongs to a different account",
             ));
+        }
+        if class.has_zero_management_address() {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "class".to_string(),
+                reason: "management address must not be zero".to_string(),
+            }
+            .into());
         }
         let commitment: U256 = snapshot.authenticators.key_set.leaf_hash().into();
         if snapshot.authenticators.offchain_signer_commitment != commitment {

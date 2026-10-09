@@ -41,12 +41,26 @@ pub(crate) async fn handler(
         })?
         .ok_or(IndexerErrorResponse::not_found())?;
 
-    if authenticators.authenticator_addresses.len() != authenticators.authenticator_pubkeys.len() {
+    let addresses = &authenticators.authenticator_addresses;
+    let pubkeys = &authenticators.authenticator_pubkeys;
+    if addresses.len() != pubkeys.len() {
         tracing::error!(
             leaf_index = %req.leaf_index,
-            addresses = authenticators.authenticator_addresses.len(),
-            pubkeys = authenticators.authenticator_pubkeys.len(),
+            addresses = addresses.len(),
+            pubkeys = pubkeys.len(),
             "Indexed authenticator addresses and pubkeys have different lengths"
+        );
+        return Err(IndexerErrorResponse::internal_server_error());
+    }
+    if let Some(slot) = addresses
+        .iter()
+        .zip(pubkeys)
+        .position(|(address, pubkey)| address.is_some() != pubkey.is_some())
+    {
+        tracing::error!(
+            leaf_index = %req.leaf_index,
+            slot,
+            "Indexed authenticator address and pubkey disagree on whether the slot is removed"
         );
         return Err(IndexerErrorResponse::internal_server_error());
     }
