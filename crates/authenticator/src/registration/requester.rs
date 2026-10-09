@@ -156,9 +156,26 @@ impl RegistrationRequester {
             REGISTER_METHOD,
             self.request.clone(),
         );
-        let plaintext = authenticator_message::encode(&message)
-            .map_err(|e| AuthenticatorError::Generic(format!("failed to encode request: {e}")))?;
-        let encrypted = secrets.transport_key.encrypt_request(&plaintext)?;
+        // A retry needs a new requester, so a local failure ends the session and wipes its keys.
+        let encrypted = authenticator_message::encode(&message)
+            .map_err(|e| {
+                RequesterError::from(AuthenticatorError::Generic(format!(
+                    "failed to encode request: {e}"
+                )))
+            })
+            .and_then(|plaintext| {
+                secrets
+                    .transport_key
+                    .encrypt_request(&plaintext)
+                    .map_err(RequesterError::from)
+            });
+        let encrypted = match encrypted {
+            Ok(encrypted) => encrypted,
+            Err(error) => {
+                self.cancel();
+                return Err(error);
+            }
+        };
         self.published = true;
         match self.bridge.publish_request(&request_id, &encrypted).await {
             Ok(_) => {
