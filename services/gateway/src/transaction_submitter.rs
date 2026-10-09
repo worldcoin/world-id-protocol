@@ -11,6 +11,8 @@
 //! sweeper keeps only the requests no wallet record owns.
 
 mod probe;
+#[cfg(test)]
+mod tests;
 
 use std::{
     sync::{
