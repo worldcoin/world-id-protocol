@@ -45,7 +45,7 @@ pub struct KnownAuthenticator {
 /// A credential vault export.
 ///
 /// The vault holds the account's credentials and the associated data from their issuers, which
-/// may include biometric data.
+/// may include biometric data. Its bytes are zeroized on drop.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Vault {
@@ -54,6 +54,13 @@ pub struct Vault {
     /// The vault bytes, a CBOR byte string on the wire.
     #[serde(with = "super::bytes::vec")]
     pub data: Vec<u8>,
+}
+
+impl Drop for Vault {
+    /// The vault may hold biometric data, so its bytes are wiped when dropped.
+    fn drop(&mut self) {
+        zeroize::Zeroize::zeroize(&mut self.data);
+    }
 }
 
 impl std::fmt::Debug for Vault {

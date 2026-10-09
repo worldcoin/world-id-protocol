@@ -207,17 +207,19 @@ impl TransportKey {
     }
 
     /// Authenticates the outer envelope before opening the recipient's HPKE seal.
+    /// The plaintext may carry the credential vault, so it is zeroized on drop.
     /// Returns an error for malformed encoding or failed authentication at either layer.
     pub fn decrypt_response(
         &self,
         recipient: &ResponseSecretKey,
         encrypted: &EncryptedPayload,
-    ) -> Result<Vec<u8>, TransportError> {
+    ) -> Result<Zeroizing<Vec<u8>>, TransportError> {
         let sealed = self.decrypt(&self.request_id, RESPONSE_INFO, encrypted)?;
         if !sealed.starts_with(&[0x02, 0x64, 0x7a, 0x00, 0x01, 0x00, 0x03]) {
             return Err(TransportError::Decrypt);
         }
         quantum_box::SecretKey::unseal(&recipient.0, &sealed, Some(RESPONSE_INFO))
+            .map(Zeroizing::new)
             .map_err(|_| TransportError::Decrypt)
     }
 
@@ -470,7 +472,7 @@ mod tests {
             .unwrap();
         assert_eq!(STANDARD.decode(&response.iv).unwrap().len(), 12);
         assert_eq!(
-            key.decrypt_response(&recipient, &response).unwrap(),
+            key.decrypt_response(&recipient, &response).unwrap().as_slice(),
             b"response"
         );
         assert_eq!(key.decrypt_request(&response), Err(TransportError::Decrypt));
