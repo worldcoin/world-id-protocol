@@ -20,9 +20,7 @@ use world_id_registries::world_id::{
 };
 
 use crate::{
-    request::{
-        GatewayContext, Registry, RevertRecoveryAgentUpdateRequest, UpdateRecoveryAgentV2Request,
-    },
+    request::{Registry, RevertRecoveryAgentUpdateRequest, UpdateRecoveryAgentV2Request},
     types::MAX_AUTHENTICATORS,
 };
 
@@ -69,7 +67,7 @@ pub(crate) trait RequestValidation: Sized + Sync {
     /// and returns the already-encoded calldata for submission.
     fn validate_and_calldata(
         &self,
-        ctx: &GatewayContext,
+        ctx: &crate::app::Gateway,
     ) -> impl Future<Output = Result<Bytes, GatewayErrorResponse>> + Send {
         async move {
             let registry = ctx.registry.as_ref();
@@ -85,7 +83,7 @@ pub(crate) trait RequestValidation: Sized + Sync {
             let pre_flight_ctx = PreFlightContext {
                 chain_id,
                 verifying_contract: *registry.address(),
-                registry_version: ctx.registry_version,
+                registry_version: ctx.config.registry_version,
             };
 
             self.pre_flight(pre_flight_ctx)?;

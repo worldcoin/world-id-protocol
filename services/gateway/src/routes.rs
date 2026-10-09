@@ -1,19 +1,5 @@
-use std::{sync::Arc, time::Duration};
-
 use crate::{
-    AppState,
-    batch_policy::{BaseFeeCache, spawn_base_fee_sampler},
-    batcher::{
-        BatcherHandle, CreateBatcherHandle, CreateBatcherRunner, OpsBatcherHandle, OpsBatcherRunner,
-    },
-    config::{
-        BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
-        WalletConfig,
-    },
-    error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
-    orphan_sweeper::run_orphan_sweeper,
-    request::GatewayContext,
-    request_tracker::RequestTracker,
+    error::{GatewayErrorBody, GatewayErrorResponse},
     routes::{
         cancel_recovery_agent_update::cancel_recovery_agent_update,
         create_account::create_account,
@@ -29,11 +15,8 @@ use crate::{
         update_authenticator::update_authenticator,
         update_recovery_agent::update_recovery_agent,
     },
-    storage::wallet_store::WalletStore,
-    transaction_submitter::TransactionSubmitter,
-    types::RootExpiry,
+    types::AppState,
 };
-use alloy::providers::DynProvider;
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -41,8 +24,6 @@ use axum::{
     response::IntoResponse,
     routing::{get, post},
 };
-use moka::future::Cache;
-use tokio::sync::mpsc;
 use utoipa::OpenApi;
 use world_id_primitives::api_types::{
     CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
@@ -51,8 +32,7 @@ use world_id_primitives::api_types::{
     RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     UpdateRecoveryAgentRequest,
 };
-use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
-use world_id_services_common::{ProviderWallet, V1RecoveryAgentMethodsDeprecationLayer};
+use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
 // Health and status routes
 mod health;
@@ -81,141 +61,9 @@ mod is_valid_root;
 pub(crate) mod middleware;
 pub(crate) mod validation;
 
-const ROOT_CACHE_SIZE: u64 = 1024;
-const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
-const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
-
-/// Restarts the transaction resolver if it ever exits or panics.
-///
-/// The resolver should run for the lifetime of the process. Restarting rather
-/// than trusting it keeps a transient panic from silently disabling resolution
-/// for the rest of the pod's life.
-async fn supervise_resolver(submitter: Arc<TransactionSubmitter>) {
-    loop {
-        let worker = tokio::spawn(submitter.clone().run_resolver());
-        match worker.await {
-            Ok(()) => tracing::error!("transaction resolver exited unexpectedly; restarting"),
-            Err(error) => tracing::error!(%error, "transaction resolver panicked; restarting"),
-        }
-        tokio::time::sleep(Duration::from_secs(1)).await;
-    }
-}
-
-#[expect(clippy::too_many_arguments)]
-pub(crate) async fn build_app(
-    registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
-    wallets: Vec<ProviderWallet>,
-    resolver_providers: Vec<DynProvider>,
-    registry_version: RegistryVersion,
-    batcher_config: BatcherConfig,
-    redis_url: String,
-    rate_limit: Option<RateLimitConfig>,
-    request_timeout_secs: u64,
-    orphan_sweeper_config: OrphanSweeperConfig,
-    batch_policy_config: BatchPolicyConfig,
-    wallet_config: WalletConfig,
-) -> GatewayResult<Router> {
-    let tracker = RequestTracker::new(
-        redis_url.clone(),
-        rate_limit,
-        // In-flight locks must outlive the submission they protect, otherwise
-        // duplicate detection lapses while a request is still being submitted.
-        Duration::from_secs(wallet_config.inflight_ttl_secs(&orphan_sweeper_config)),
-    )
-    .await;
-
-    // The sweeper only reads receipts of submissions no wallet record owns, so
-    // it rotates over the same endpoints. `connect` rejects an empty list.
-    let sweeper_providers = resolver_providers.clone();
-    let submitter = TransactionSubmitter::connect(
-        wallets,
-        resolver_providers,
-        tracker.clone(),
-        &redis_url,
-        wallet_config,
-    )
-    .await?;
-    // Every fallible step happens before the first background task is spawned,
-    // so a failed startup leaves nothing running.
-    let sweeper_wallets = WalletStore::connect(&redis_url).await?;
-
-    let base_fee_cache = BaseFeeCache::default();
-
-    spawn_base_fee_sampler(
-        registry.provider().clone(),
-        Duration::from_millis(batch_policy_config.reeval_ms),
-        base_fee_cache.clone(),
-    );
-
-    let (tx, rx) = mpsc::channel(CREATE_BATCHER_CHANNEL_CAPACITY);
-    let batcher = CreateBatcherHandle { tx };
-    let runner = CreateBatcherRunner::new(
-        registry.clone(),
-        submitter.clone(),
-        batcher_config.max_create_batch_size,
-        CREATE_BATCHER_CHANNEL_CAPACITY,
-        rx,
-        batch_policy_config.clone(),
-        base_fee_cache.clone(),
-    );
-    tokio::spawn(runner.run());
-
-    // ops batcher (insert/remove/recover/update)
-    let (otx, orx) = mpsc::channel(OPS_BATCHER_CHANNEL_CAPACITY);
-    let ops_batcher = OpsBatcherHandle { tx: otx };
-    let ops_runner = OpsBatcherRunner::new(
-        registry.clone(),
-        submitter.clone(),
-        batcher_config.max_ops_batch_size,
-        OPS_BATCHER_CHANNEL_CAPACITY,
-        orx,
-        batch_policy_config,
-        base_fee_cache,
-    );
-    tokio::spawn(ops_runner.run());
-
-    tracing::info!("Ops batcher initialized");
-
-    // Resolves every outstanding wallet transaction, including receipt polling.
-    //
-    // Supervised, because an exit or panic here would silently stop every
-    // resolution: in-flight records would stop being refreshed until their TTL
-    // expired and their wallets became reusable with a transaction still
-    // outstanding.
-    tokio::spawn(supervise_resolver(submitter.clone()));
-    tracing::info!(
-        wallets = submitter.pool_size(),
-        acquirable = submitter.acquirable_size(),
-        "Transaction resolver initialized"
-    );
-
-    tokio::spawn(run_orphan_sweeper(
-        tracker.clone(),
-        sweeper_wallets,
-        sweeper_providers,
-        orphan_sweeper_config,
-    ));
-    tracing::info!("Orphan sweeper initialized");
-
-    let root_cache = Cache::builder()
-        .max_capacity(ROOT_CACHE_SIZE)
-        .expire_after(RootExpiry)
-        .build();
-
-    let batcher_handle = BatcherHandle {
-        create: batcher,
-        ops: ops_batcher,
-    };
-    let ctx = GatewayContext {
-        registry: registry.clone(),
-        registry_version,
-        tracker,
-        batcher: batcher_handle,
-        root_cache,
-    };
-    let state = AppState { ctx };
-
-    Ok(Router::new()
+pub(crate) fn router(state: AppState) -> Router {
+    let request_timeout_secs = state.config.request_timeout_secs;
+    Router::new()
         .route("/health", get(health))
         // account creation (batched)
         .route("/create-account", post(create_account))
@@ -260,7 +108,7 @@ pub(crate) async fn build_app(
             GatewayErrorResponse::request_timeout(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer())
-        .layer(world_id_services_common::cors_layer()))
+        .layer(world_id_services_common::cors_layer())
 }
 
 #[utoipa::path(

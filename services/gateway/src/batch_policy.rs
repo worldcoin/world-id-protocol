@@ -299,21 +299,19 @@ fn high_cost_target_batch_size(max_batch_size: usize, urgency_score: f64) -> usi
     ((max_batch_size as f64) * ratio).ceil() as usize
 }
 
-/// Spawn a background task that refreshes latest base fee in a shared cache.
-pub fn spawn_base_fee_sampler(
+/// Refresh the latest base fee in a shared cache until the task is cancelled.
+pub async fn run_base_fee_sampler(
     provider: Arc<DynProvider>,
     interval: Duration,
     cache: BaseFeeCache,
-) -> tokio::task::JoinHandle<()> {
-    tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            ticker.tick().await;
-            let fee = latest_base_fee_wei(provider.as_ref()).await;
-            cache.set_latest(fee);
-        }
-    })
+) {
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        ticker.tick().await;
+        let fee = latest_base_fee_wei(provider.as_ref()).await;
+        cache.set_latest(fee);
+    }
 }
 
 /// Fetch latest block base fee. Returns `None` for chains without EIP-1559

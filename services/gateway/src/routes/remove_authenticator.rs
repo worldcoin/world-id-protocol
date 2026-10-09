@@ -18,9 +18,9 @@ pub(crate) async fn remove_authenticator(
     Json(payload): Json<RemoveAuthenticatorRequest>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
     payload
-        .into_request_with_rate_limit(id, &state.ctx)
+        .into_request_with_rate_limit(id, &state)
         .await?
-        .submit(&state.ctx)
+        .submit(&state)
         .await
         .map(|r| Json(r.into_response()))
 }

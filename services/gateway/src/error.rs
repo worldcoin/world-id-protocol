@@ -56,6 +56,8 @@ pub enum GatewayError {
         source: tokio::task::JoinError,
         backtrace: String,
     },
+    #[error("background task exited unexpectedly: {0}")]
+    BackgroundTaskExited(&'static str),
     #[error("config error: {0}")]
     Config(String),
     /// A batch transaction could not be signed or committed, so nothing was
