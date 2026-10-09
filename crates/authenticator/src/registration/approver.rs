@@ -31,13 +31,14 @@ use super::{
 };
 use crate::{AccountSnapshot, Authenticator, AuthenticatorClass, AuthenticatorError};
 
-/// How long the bridge keeps a session after the request is taken.
-const BRIDGE_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
+/// The bridge resets its session TTL to 900 s after a successful request fetch.
+const BRIDGE_SESSION_TTL: Duration = Duration::from_secs(900);
 
-/// How long before the bridge session expires the response is due. WIP-109 recommends 60 s.
+/// Time reserved for delivering the response before the bridge session expires.
 const RESPONSE_MARGIN: Duration = Duration::from_secs(60);
 
-/// How long after taking the request the response is due.
+/// The response is due 840 s after the approver successfully fetches the request:
+/// the bridge session TTL (900 s) minus the delivery margin (60 s).
 pub const DEFAULT_RESPONSE_DEADLINE: Duration =
     Duration::from_secs(BRIDGE_SESSION_TTL.as_secs() - RESPONSE_MARGIN.as_secs());
 
@@ -136,7 +137,7 @@ pub struct IncomingRegistration {
 
 impl IncomingRegistration {
     /// Sets how long from now the response is due, instead of [`DEFAULT_RESPONSE_DEADLINE`]
-    /// after the request was taken. This cannot extend the bridge session expiry.
+    /// after the successful fetch. The deadline is capped at 60 s before session expiry.
     #[must_use]
     pub fn with_response_deadline(mut self, deadline: Duration) -> Self {
         let latest = self.channel.expires_at - RESPONSE_MARGIN;
@@ -406,6 +407,8 @@ impl CheckedRegistration {
     ///
     /// If less than [`MIN_TRACKING_TIME`] is left before the deadline, nothing is submitted and
     /// the response is `internal_error`, so the user can start over with a new link.
+    /// An encoded response exceeding 3 MiB is also refused with `internal_error` before
+    /// submission; the vault is never silently omitted.
     #[must_use = "the outcome tells whether the authenticator was registered"]
     pub async fn approve(
         self,
@@ -868,6 +871,142 @@ fn classify_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn incoming(taken_at: Instant) -> IncomingRegistration {
+        use crate::registration::{PairingSecret, ResponseSecretKey};
+
+        let secret = PairingSecret::from_bytes([9; 32]);
+        let request_id = secret.request_id();
+        let transport_key = secret.transport_key(&"ABCDEF".parse().unwrap()).unwrap();
+        let (request, digest) = RegistrationRequest::new_signed(
+            &eddsa_babyjubjub::EdDSAPrivateKey::from_bytes([1; 32]),
+            AuthenticatorClass::Proving,
+            ResponseSecretKey::from_seed(&[4; 32]).public_key(),
+            None,
+            &request_id,
+        )
+        .unwrap();
+        let plaintext = authenticator_message::encode(&RegisterRequestMessage::new(
+            Some(Id::String(request_id.to_string())),
+            REGISTER_METHOD,
+            request,
+        ))
+        .unwrap();
+        let attempt = PendingAttempt {
+            uri: PairingUri {
+                secret,
+                digest,
+                bridge: None,
+            },
+            encrypted: transport_key.encrypt_request(&plaintext).unwrap(),
+            bridge: BridgeClient::new("https://bridge.example.org".parse().unwrap()).unwrap(),
+            taken_at,
+        };
+        IncomingRegistration::from_authenticated(attempt, transport_key, &plaintext)
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn response_deadline_is_fetch_plus_840_seconds() {
+        let taken_at = Instant::now() - Duration::from_secs(30);
+        let incoming = incoming(taken_at).await;
+        assert_eq!(incoming.respond_by(), taken_at + Duration::from_secs(840));
+        assert_eq!(
+            incoming.channel.expires_at,
+            taken_at + Duration::from_secs(900)
+        );
+        assert_eq!(
+            incoming.channel.expires_at - incoming.respond_by(),
+            Duration::from_secs(60)
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_response_deadline_is_capped_and_handles_overflow() {
+        let taken_at = Instant::now();
+        for deadline in [
+            Duration::from_secs(840),
+            Duration::from_secs(900),
+            Duration::MAX,
+        ] {
+            let incoming = incoming(taken_at).await.with_response_deadline(deadline);
+            assert_eq!(incoming.respond_by(), taken_at + Duration::from_secs(840));
+        }
+    }
+
+    #[tokio::test]
+    async fn shorter_response_deadline_is_measured_from_override() {
+        let incoming = incoming(Instant::now() - Duration::from_secs(30)).await;
+        let before_override = Instant::now();
+        let incoming = incoming.with_response_deadline(Duration::from_secs(30));
+        let after_override = Instant::now();
+        assert!(incoming.respond_by() >= before_override + Duration::from_secs(30));
+        assert!(incoming.respond_by() <= after_override + Duration::from_secs(30));
+    }
+
+    #[tokio::test]
+    async fn zero_response_deadline_expires_immediately() {
+        let incoming = incoming(Instant::now()).await;
+        let before_override = Instant::now();
+        let incoming = incoming.with_response_deadline(Duration::ZERO);
+        assert!(incoming.respond_by() >= before_override);
+        assert!(incoming.respond_by() <= Instant::now());
+        assert_eq!(
+            before(incoming.respond_by(), async {
+                panic!("expired operation was polled")
+            })
+            .await,
+            None::<()>
+        );
+    }
+
+    #[tokio::test]
+    async fn response_size_limit_includes_envelope_and_accepts_exact_boundary() {
+        use crate::{account::AccountAuthenticators, registration::VaultFormat};
+
+        let checked = CheckedRegistration {
+            incoming: incoming(Instant::now()).await,
+            snapshot: AccountSnapshot {
+                leaf_index: 1,
+                signature_nonce: Default::default(),
+                authenticators: AccountAuthenticators {
+                    key_set: Default::default(),
+                    classes: vec![],
+                    offchain_signer_commitment: Default::default(),
+                    recovery_counter: 0,
+                },
+            },
+            plan: RegistrationPlan::Insert { pubkey_id: 0 },
+        };
+        let mut approval = Approval {
+            vault: Some(Vault {
+                format: VaultFormat::WalletkitPlaintextV1,
+                data: vec![0; MAX_RESPONSE_SIZE + 1],
+            }),
+            ..Approval::default()
+        };
+        assert!(!checked.response_fits(&approval));
+        let encoded = authenticator_message::encode(&RegisterResponseMessage {
+            version: Version::V1,
+            id: Some(Id::String(checked.incoming.channel.request_id.to_string())),
+            outcome: Ok(RegistrationResult {
+                leaf_index: 1,
+                pubkey_id: 0,
+                authenticators: vec![],
+                vault: approval.vault.clone(),
+            }),
+        })
+        .unwrap();
+        let overhead = encoded.len() - approval.vault.as_ref().unwrap().data.len();
+        let vault = approval.vault.as_mut().unwrap();
+        vault.data.truncate(MAX_RESPONSE_SIZE - overhead - 1);
+        assert!(checked.response_fits(&approval));
+        approval.vault.as_mut().unwrap().data.push(0);
+        assert!(checked.response_fits(&approval));
+        approval.vault.as_mut().unwrap().data.push(0);
+        assert!(!checked.response_fits(&approval));
+    }
 
     #[tokio::test]
     async fn expired_deadline_never_polls_operation() {

@@ -320,7 +320,7 @@ async fn e2e_authenticator_registration() {
     let oversized = Approval {
         vault: Some(Vault {
             format: VaultFormat::WalletkitPlaintextV1,
-            data: vec![0; 16 * 1024 * 1024],
+            data: vec![0; 3 * 1024 * 1024 + 1],
         }),
         ..Approval::default()
     };

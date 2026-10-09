@@ -44,8 +44,8 @@ pub use session::{
     ResponsePublicKey, ResponseSecretKey, TransportError, TransportKey,
 };
 
-/// The largest encoded response a Requesting Authenticator accepts.
-const MAX_RESPONSE_SIZE: usize = 16 * 1024 * 1024;
+/// Maximum CBOR response size before encryption (3 MiB), enforced by both authenticators.
+const MAX_RESPONSE_SIZE: usize = 3 * 1024 * 1024;
 
 fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where

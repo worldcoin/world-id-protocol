@@ -19,7 +19,9 @@ use crate::service_client::default_http_client;
 
 /// Maximum retries after a transient failure.
 const MAX_RETRIES: usize = 3;
-const MAX_BODY_SIZE: usize = 24 * 1024 * 1024;
+/// The bridge's 5 MiB JSON body limit accommodates a 3 MiB CBOR response, encryption
+/// overhead and base64 encoding. The plaintext limit is enforced separately.
+const MAX_BODY_SIZE: usize = 5 * 1024 * 1024;
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A client for one bridge deployment.
@@ -275,7 +277,7 @@ pub enum BridgeError {
     #[error("invalid bridge JSON: {0}")]
     Json(#[from] serde_json::Error),
     /// The bridge response exceeded the transport body limit.
-    #[error("bridge response exceeds the 24 MiB body limit")]
+    #[error("bridge response exceeds the 5 MiB body limit")]
     TooLarge,
     /// The operation exhausted its overall time budget.
     #[error("bridge operation timed out")]
@@ -422,6 +424,27 @@ mod tests {
 
     fn client(server: &mockito::ServerGuard) -> BridgeClient {
         BridgeClient::new(Url::parse(&server.url()).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn maximum_response_fits_bridge_body_limit_after_encryption() {
+        use crate::registration::{MAX_RESPONSE_SIZE, ResponseSecretKey};
+
+        let key = PairingSecret::from_bytes([1; 32])
+            .transport_key(&"ABCDEF".parse().unwrap())
+            .unwrap();
+        let response = key
+            .encrypt_response(
+                &ResponseSecretKey::from_seed(&[2; 32]).public_key(),
+                &vec![0; MAX_RESPONSE_SIZE],
+            )
+            .unwrap();
+        let body = serde_json::to_vec(&serde_json::json!({
+            "status": "completed",
+            "response": response,
+        }))
+        .unwrap();
+        assert!(body.len() <= MAX_BODY_SIZE);
     }
 
     #[tokio::test]
