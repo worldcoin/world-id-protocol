@@ -202,14 +202,7 @@ impl Authenticator {
             ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())?;
 
         let authenticators =
-            match Self::fetch_authenticators_for(leaf_index, &config, &indexer_client).await {
-                Err(AuthenticatorError::IndexerError { status, .. })
-                    if status == reqwest::StatusCode::NOT_FOUND =>
-                {
-                    return Err(AuthenticatorError::AccountDoesNotExist);
-                }
-                result => result?,
-            };
+            Self::fetch_authenticators_for(leaf_index, &config, &indexer_client).await?;
         let (pubkey_id, _) = authenticators
             .find(&signer.offchain_signer_pubkey())
             .ok_or(AuthenticatorError::PublicKeyNotFound)?;
@@ -558,9 +551,27 @@ impl Authenticator {
         indexer_client: &ServiceClient,
     ) -> Result<AccountAuthenticators, AuthenticatorError> {
         let req = IndexerQueryRequest { leaf_index };
-        let response: IndexerAuthenticatorsResponse = indexer_client
+        let response: IndexerAuthenticatorsResponse = match indexer_client
             .post_json(config.indexer_url(), "/authenticators", &req)
-            .await?;
+            .await
+        {
+            // Only the indexer's own `not_found` means the account is unknown. Any other 404,
+            // e.g. from an indexer without this endpoint or from a proxy, stays an indexer error.
+            Err(AuthenticatorError::IndexerError { status, body })
+                if status == reqwest::StatusCode::NOT_FOUND
+                    && serde_json::from_str::<ServiceApiError<IndexerErrorCode>>(&body)
+                        .is_ok_and(|error| matches!(error.code, IndexerErrorCode::NotFound)) =>
+            {
+                return Err(AuthenticatorError::AccountDoesNotExist);
+            }
+            result => result?,
+        };
+        if u32::try_from(response.recovery_counter).is_err() {
+            return Err(PrimitiveError::Deserialization(
+                "indexer returned a recovery counter above 32 bits".to_string(),
+            )
+            .into());
+        }
         if response.authenticator_addresses.len() != response.authenticator_pubkeys.len() {
             return Err(PrimitiveError::Deserialization(
                 "indexer returned different numbers of authenticator addresses and pubkeys"
@@ -884,6 +895,59 @@ mod tests {
         assert!(matches!(
             result,
             Err(AuthenticatorError::AccountDoesNotExist)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_init_with_leaf_index_keeps_other_404s_as_indexer_errors() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("POST", "/authenticators")
+            .with_status(404)
+            .with_body("404 page not found")
+            .create_async()
+            .await;
+
+        let result = Authenticator::init_with_leaf_index(
+            &[7u8; 32],
+            42,
+            config_with_indexer(server.url()),
+            dummy_zk_artifact_source(),
+        )
+        .await;
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::IndexerError { status, .. }) if status == reqwest::StatusCode::NOT_FOUND
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_fetch_authenticators_rejects_a_recovery_counter_above_32_bits() {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = mock_authenticators(
+            &mut server,
+            200,
+            serde_json::json!({
+                "authenticator_pubkeys": [format!("{:#x}", encoded_test_pubkey(1))],
+                "authenticator_addresses": ["0x0000000000000000000000000000000000000011"],
+                "offchain_signer_commitment": "0x1",
+                "recovery_counter": "0x100000000",
+            }),
+        )
+        .await;
+        let config = config_with_indexer(server.url());
+        let client = ServiceClient::new(
+            reqwest::Client::new(),
+            ServiceKind::Indexer,
+            config.indexer(),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            Authenticator::fetch_authenticators_for(42, &config, &client).await,
+            Err(AuthenticatorError::PrimitiveError(
+                PrimitiveError::Deserialization(_)
+            ))
         ));
     }
 
