@@ -22,8 +22,8 @@ use world_id_primitives::{
 };
 
 use super::{
-    EncryptedPayload, KnownAuthenticator, PairingCode, PairingUri, REGISTER_METHOD,
-    RegisterRequestMessage, RegisterResponseMessage, RegistrationErrorData,
+    EncryptedPayload, KnownAuthenticator, MAX_RESPONSE_SIZE, PairingCode, PairingUri,
+    REGISTER_METHOD, RegisterRequestMessage, RegisterResponseMessage, RegistrationErrorData,
     RegistrationErrorReason, RegistrationRequest, RegistrationResult, RequestId, ResponsePublicKey,
     TransportError, TransportKey, Vault,
     bridge::{BridgeClient, BridgeError, DeliveryOutcome},
@@ -343,6 +343,10 @@ impl CheckedRegistration {
     pub async fn approve(self, approver: &Authenticator, approval: Approval) -> ApprovalOutcome {
         let request_id = self.incoming.channel.request_id;
         let result = match self.plan {
+            _ if !self.response_fits(&approval) => Err((
+                RegistrationErrorReason::InternalError,
+                Some("the approval exceeds the response size limit".to_string()),
+            )),
             RegistrationPlan::AlreadyRegistered { pubkey_id } => Ok(pubkey_id),
             RegistrationPlan::Insert { .. }
                 if self
@@ -375,6 +379,24 @@ impl CheckedRegistration {
         };
         let delivery = self.incoming.channel.send(outcome).await;
         ApprovalOutcome { result, delivery }
+    }
+
+    /// Whether a successful response carrying `approval` stays within the size the Requesting
+    /// Authenticator accepts. Checked before submitting anything, so that an oversized vault does
+    /// not leave a registered authenticator that never learns its result.
+    fn response_fits(&self, approval: &Approval) -> bool {
+        let response = RegisterResponseMessage {
+            version: Version::V1,
+            id: Some(Id::String(self.incoming.channel.request_id.to_string())),
+            outcome: Ok(RegistrationResult {
+                leaf_index: self.snapshot.leaf_index,
+                pubkey_id: u32::MAX,
+                authenticators: approval.authenticators.clone(),
+                vault: approval.vault.clone(),
+            }),
+        };
+        authenticator_message::encode(&response)
+            .is_ok_and(|encoded| encoded.len() <= MAX_RESPONSE_SIZE)
     }
 
     async fn insert(

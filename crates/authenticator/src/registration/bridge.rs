@@ -61,7 +61,7 @@ impl BridgeClient {
 
     /// Stores the encrypted request under `request_id` (`POST /request`).
     ///
-    /// Retried on server errors and transport failures. A retry of a request that the bridge
+    /// Retried on server errors, `429` and transport failures. A retry of a request that the bridge
     /// stored before the reply was lost yields [`PublishOutcome::AlreadyPublished`]. In the rare
     /// case that the Approving Authenticator took the request in between, the retry stores it
     /// again and resets the session status to `initialized`, as WIP-109 accepts.
@@ -149,7 +149,7 @@ impl BridgeClient {
 
     /// Stores the encrypted response to `request_id` (`PUT /response/:id`).
     ///
-    /// Retried on server errors and transport failures.
+    /// Retried on server errors, `429` and transport failures, honoring `Retry-After`.
     ///
     /// # Errors
     ///
@@ -160,18 +160,30 @@ impl BridgeClient {
         response: &EncryptedPayload,
     ) -> Result<DeliveryOutcome, BridgeError> {
         let url = self.url(&["response", &request_id.to_string()])?;
-        let attempts = std::sync::atomic::AtomicUsize::new(0);
+        // Set once an attempt failed in a way that may have stored the response anyway.
+        let maybe_stored = std::sync::atomic::AtomicBool::new(false);
         let send = || async {
-            let is_retry = attempts.fetch_add(1, std::sync::atomic::Ordering::Relaxed) > 0;
-            let reply = self.http.put(url.clone()).json(response).send().await?;
-            match reply.status() {
-                StatusCode::CREATED | StatusCode::OK => Ok(DeliveryOutcome::Delivered),
-                StatusCode::BAD_REQUEST | StatusCode::CONFLICT if is_retry => {
-                    Ok(DeliveryOutcome::PossiblyDelivered)
+            let attempt = async {
+                let reply = self.http.put(url.clone()).json(response).send().await?;
+                match reply.status() {
+                    StatusCode::CREATED | StatusCode::OK => Ok(DeliveryOutcome::Delivered),
+                    StatusCode::BAD_REQUEST | StatusCode::CONFLICT
+                        if maybe_stored.load(std::sync::atomic::Ordering::Relaxed) =>
+                    {
+                        Ok(DeliveryOutcome::PossiblyDelivered)
+                    }
+                    StatusCode::BAD_REQUEST | StatusCode::CONFLICT => Ok(DeliveryOutcome::Rejected),
+                    _ => Err(BridgeError::from_response(&reply)),
                 }
-                StatusCode::BAD_REQUEST | StatusCode::CONFLICT => Ok(DeliveryOutcome::Rejected),
-                _ => Err(BridgeError::from_response(&reply)),
+            };
+            let outcome = attempt.await;
+            if outcome
+                .as_ref()
+                .is_err_and(BridgeError::may_have_been_stored)
+            {
+                maybe_stored.store(true, std::sync::atomic::Ordering::Relaxed);
             }
+            outcome
         };
         bounded(
             send.retry(backoff())
@@ -192,7 +204,7 @@ impl BridgeClient {
         };
         bounded(
             send.retry(backoff())
-                .when(BridgeError::read_is_retryable)
+                .when(BridgeError::is_retryable)
                 .adjust(BridgeError::retry_delay),
         )
         .await
@@ -277,7 +289,9 @@ impl BridgeError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Transport(error) => !error.is_decode(),
-            Self::UnexpectedStatus { status, .. } => status.is_server_error(),
+            Self::UnexpectedStatus { status, .. } => {
+                status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS
+            }
             Self::InvalidUrl(_)
             | Self::InvalidResponse(_)
             | Self::Timeout
@@ -297,15 +311,14 @@ impl BridgeError {
         }
     }
 
-    fn read_is_retryable(&self) -> bool {
-        self.is_retryable()
-            || matches!(
-                self,
-                Self::UnexpectedStatus {
-                    status: StatusCode::TOO_MANY_REQUESTS,
-                    ..
-                }
-            )
+    /// Whether the bridge may have stored a write that failed this way: the request reached
+    /// it, or the reply was lost. A `429` means it was not processed.
+    fn may_have_been_stored(&self) -> bool {
+        match self {
+            Self::Transport(_) => true,
+            Self::UnexpectedStatus { status, .. } => status.is_server_error(),
+            _ => false,
+        }
     }
 
     fn retry_delay(&self, delay: Option<Duration>) -> Option<Duration> {
@@ -678,5 +691,31 @@ mod tests {
             DeliveryOutcome::PossiblyDelivered
         );
         failed.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn put_response_retries_rate_limit_and_keeps_a_later_rejection_definite() {
+        let mut server = mockito::Server::new_async().await;
+        let path = format!("/response/{}", request_id());
+        let limited = server
+            .mock("PUT", path.as_str())
+            .with_status(429)
+            .with_header("retry-after", "0")
+            .expect(1)
+            .create_async()
+            .await;
+        let _rejected = server
+            .mock("PUT", path.as_str())
+            .with_status(409)
+            .create_async()
+            .await;
+        assert_eq!(
+            client(&server)
+                .put_response(&request_id(), &payload())
+                .await
+                .unwrap(),
+            DeliveryOutcome::Rejected
+        );
+        limited.assert_async().await;
     }
 }

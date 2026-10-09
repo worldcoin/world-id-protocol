@@ -289,6 +289,30 @@ async fn e2e_authenticator_registration() {
     };
     assert_eq!(error.code, RegistrationErrorReason::InternalError.code());
 
+    // A vault too large for the requester to accept is refused before anything is submitted.
+    let mut session = requester(&[47u8; 32], RequestedClass::Proving, &bridge);
+    session.publish().await.unwrap();
+    let checked = receive(&mut session, &bridge)
+        .await
+        .unwrap()
+        .check(&primary)
+        .await
+        .unwrap();
+    let oversized = Approval {
+        vault: Some(Vault {
+            format: VaultFormat::WalletkitPlaintextV1,
+            data: vec![0; 16 * 1024 * 1024],
+        }),
+        ..Approval::default()
+    };
+    let outcome = checked.approve(&primary, oversized).await;
+    assert_eq!(outcome.result, Err(RegistrationErrorReason::InternalError));
+    assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
+    let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
+        panic!("expected an internal error");
+    };
+    assert_eq!(error.code, RegistrationErrorReason::InternalError.code());
+
     // A request that does not match the digest in the link is dropped without a response.
     let mut session = requester(&[45u8; 32], RequestedClass::Proving, &bridge);
     session.publish().await.unwrap();

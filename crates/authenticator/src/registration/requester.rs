@@ -12,15 +12,15 @@ use world_id_primitives::{
 use world_id_proof::artifacts::ZkArtifactSource;
 
 use super::{
-    AuthenticatorName, BridgeDomain, PairingCode, PairingSecret, PairingUri, REGISTER_METHOD,
-    RegisterRequestMessage, RegisterResponseMessage, RegistrationDigest, RegistrationErrorData,
-    RegistrationRequest, RegistrationResult, ResponseSecretKey, TransportError, TransportKey,
+    AuthenticatorName, BridgeDomain, MAX_RESPONSE_SIZE, PairingCode, PairingSecret, PairingUri,
+    REGISTER_METHOD, RegisterRequestMessage, RegisterResponseMessage, RegistrationDigest,
+    RegistrationErrorData, RegistrationRequest, RegistrationResult, ResponseSecretKey,
+    TransportError, TransportKey,
     approver::before,
     bridge::{BridgeClient, BridgeError, ResponseState},
 };
 use crate::{Authenticator, AuthenticatorClass, AuthenticatorError};
 
-const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
 const SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 
 /// How long [`RegistrationRequester::verify`] waits for the indexer to show a new registration.
@@ -221,7 +221,7 @@ impl RegistrationRequester {
             .transport_key
             .decrypt_response(&secrets.response_key, &sealed)?;
         let response: RegisterResponseMessage =
-            authenticator_message::decode(&plaintext, MAX_MESSAGE_SIZE)
+            authenticator_message::decode(&plaintext, MAX_RESPONSE_SIZE)
                 .map_err(|e| RequesterError::MalformedResponse(e.to_string()))?;
         if response.id != Some(Id::String(request_id.to_string())) {
             return Err(RequesterError::MalformedResponse(
@@ -246,8 +246,11 @@ impl RegistrationRequester {
     ///
     /// - [`RequesterError::RegistrationMismatch`] if the key is registered at another slot or
     ///   with another class.
-    /// - [`RequesterError::VerificationTimeout`] if verification exceeds its deadline.
-    /// - [`RequesterError::Authenticator`] if initialization or an account lookup fails.
+    /// - [`RequesterError::VerificationTimeout`] if the key is still not found on the account, or
+    ///   the indexer still fails transiently, when the deadline passes. A wrong `leaf_index`
+    ///   cannot be told apart from indexer lag, so it also ends here.
+    /// - [`RequesterError::Authenticator`] if initialization or an account lookup fails
+    ///   permanently.
     pub async fn verify(
         &self,
         seed: &[u8],
@@ -263,15 +266,24 @@ impl RegistrationRequester {
                 )
                 .into());
             }
-            let init = || {
-                Authenticator::init_with_leaf_index(
+            let attempt = || async {
+                let authenticator = Authenticator::init_with_leaf_index(
                     seed,
                     result.leaf_index,
                     config.clone(),
                     Arc::clone(&zk_artifact_source),
                 )
+                .await?;
+                let registered = Authenticator::fetch_authenticators_for(
+                    result.leaf_index,
+                    &config,
+                    &authenticator.indexer_client,
+                )
+                .await?
+                .find(&self.request.new_authenticator_pubkey);
+                Ok::<_, AuthenticatorError>((authenticator, registered))
             };
-            let authenticator = init
+            let (authenticator, registered) = attempt
                 .retry(
                     ExponentialBuilder::default()
                         .with_min_delay(Duration::from_secs(1))
@@ -280,22 +292,15 @@ impl RegistrationRequester {
                         .with_total_delay(Some(VERIFY_TIMEOUT))
                         .with_jitter(),
                 )
-                .when(|e| {
-                    matches!(
-                        e,
-                        AuthenticatorError::PublicKeyNotFound
-                            | AuthenticatorError::AccountDoesNotExist
-                            | AuthenticatorError::NetworkError(_)
-                    )
-                })
-                .await?;
-            let registered = Authenticator::fetch_authenticators_for(
-                result.leaf_index,
-                &config,
-                &authenticator.indexer_client,
-            )
-            .await?
-            .find(&self.request.new_authenticator_pubkey);
+                .when(is_transient)
+                .await
+                .map_err(|error| {
+                    if is_transient(&error) {
+                        RequesterError::VerificationTimeout
+                    } else {
+                        error.into()
+                    }
+                })?;
             if registered != Some((result.pubkey_id, self.request.class)) {
                 return Err(RequesterError::RegistrationMismatch);
             }
@@ -304,6 +309,19 @@ impl RegistrationRequester {
         before(Instant::now() + VERIFY_TIMEOUT, verification)
             .await
             .ok_or(RequesterError::VerificationTimeout)?
+    }
+}
+
+/// Errors that may clear up while the indexer catches up with the registry or recovers.
+fn is_transient(error: &AuthenticatorError) -> bool {
+    match error {
+        AuthenticatorError::PublicKeyNotFound
+        | AuthenticatorError::AccountDoesNotExist
+        | AuthenticatorError::NetworkError(_) => true,
+        AuthenticatorError::IndexerError { status, .. } => {
+            status.is_server_error() || *status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        }
+        _ => false,
     }
 }
 

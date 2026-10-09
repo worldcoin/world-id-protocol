@@ -43,6 +43,9 @@ pub use session::{
     ResponsePublicKey, ResponseSecretKey, TransportError, TransportKey,
 };
 
+/// The largest encoded response a Requesting Authenticator accepts.
+const MAX_RESPONSE_SIZE: usize = 16 * 1024 * 1024;
+
 fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where
     D: serde::Deserializer<'de>,
