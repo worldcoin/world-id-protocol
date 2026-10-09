@@ -68,7 +68,7 @@ impl RegistrationRequester {
             },
             RequestedClass::Proving => AuthenticatorClass::Proving,
         };
-        let secret = PairingSecret::generate();
+        let secret = PairingSecret::generate()?;
         let response_key = ResponseSecretKey::generate()?;
         let code = PairingCode::generate()?;
         let transport_key = secret.transport_key(&code)?;
