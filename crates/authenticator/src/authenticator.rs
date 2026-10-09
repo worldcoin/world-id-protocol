@@ -355,14 +355,36 @@ impl Authenticator {
             // A Proving Authenticator is registered with the zero address, so its own address is
             // unknown to the registry or registered on another account or slot. Look it up by leaf
             // index and public key instead.
-            Ok(_) | Err(AuthenticatorError::AccountDoesNotExist) => Self::fetch_authenticators_for(
-                self.leaf_index(),
-                &self.config,
-                &self.indexer_client,
-            )
-            .await?
-            .packed_account_data(self.leaf_index(), &self.offchain_pubkey())
-            .ok_or(AuthenticatorError::AccountDoesNotExist),
+            Ok(_) | Err(AuthenticatorError::AccountDoesNotExist) => {
+                let authenticators = Self::fetch_authenticators_for(
+                    self.leaf_index(),
+                    &self.config,
+                    &self.indexer_client,
+                )
+                .await?;
+                // Only a Proving Authenticator may take this path. An Admin Authenticator the
+                // registry no longer knows was revoked, and a stale indexed key must not revive it.
+                let is_proving = authenticators
+                    .find(&self.offchain_pubkey())
+                    .is_some_and(|(_, class)| class == AuthenticatorClass::Proving);
+                if !is_proving {
+                    return Err(AuthenticatorError::AccountDoesNotExist);
+                }
+                // A recovery revokes every authenticator. If the registry is ahead of the indexed
+                // account, the indexed key may already be revoked.
+                if let Some(registry) = self.registry() {
+                    let current = registry
+                        .getRecoveryCounter(self.leaf_index())
+                        .call()
+                        .await?;
+                    if current != U256::from(authenticators.recovery_counter) {
+                        return Err(AuthenticatorError::AccountDoesNotExist);
+                    }
+                }
+                authenticators
+                    .packed_account_data(self.leaf_index(), &self.offchain_pubkey())
+                    .ok_or(AuthenticatorError::AccountDoesNotExist)
+            }
             result => result,
         }
     }
@@ -945,6 +967,54 @@ mod tests {
             expected
         );
         assert_eq!(authenticator.pubkey_id(), U256::from(1));
+    }
+
+    #[tokio::test]
+    async fn test_refresh_does_not_revive_a_revoked_admin_authenticator() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut server = mockito::Server::new_async().await;
+        let seed = [7u8; 32];
+        let signer = Signer::from_seed_bytes(&seed).unwrap();
+        let own_pubkey = signer
+            .offchain_signer_pubkey()
+            .to_ethereum_representation()
+            .unwrap();
+        // The indexer still lists the key with an Admin address, as it would right after a
+        // recovery revoked it, while the registry no longer knows the address.
+        let _authenticators = mock_authenticators(
+            &mut server,
+            200,
+            serde_json::json!({
+                "authenticator_pubkeys": [format!("{own_pubkey:#x}")],
+                "authenticator_addresses": [format!("{:#x}", signer.onchain_signer_address())],
+                "offchain_signer_commitment": "0x1",
+                "recovery_counter": "0x0",
+            }),
+        )
+        .await;
+        let _by_address = server
+            .mock("POST", "/packed-account")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({ "code": "account_does_not_exist", "message": "revoked" })
+                    .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let mut authenticator = Authenticator::init_with_leaf_index(
+            &seed,
+            42,
+            config_with_indexer(server.url()),
+            dummy_zk_artifact_source(),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(
+            authenticator.refresh_packed_account_data().await,
+            Err(AuthenticatorError::AccountDoesNotExist)
+        ));
     }
 
     #[tokio::test]
