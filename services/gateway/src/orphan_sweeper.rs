@@ -1,7 +1,7 @@
 //! Cleanup for requests that no owner is responsible for.
 //!
 //! Requests fall into two classes. Those referenced by a wallet record are owned
-//! by the transaction resolver in [`crate::transaction_submitter`], which knows
+//! by the transaction resolver in `transaction_submitter`, which knows
 //! their transaction and decides their fate. Everything else has no owner: a
 //! request that never reached a batcher, a batcher that died holding a batch, or
 //! a submission written by a gateway build that predates wallet records.
