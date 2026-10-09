@@ -370,6 +370,22 @@ impl AccountAuthenticators {
         ))
     }
 
+    /// Returns the registry's packed account data for `pubkey` on `leaf_index`: the recovery
+    /// counter, the slot and the leaf index. `None` if `pubkey` is not registered.
+    #[must_use]
+    pub(crate) fn packed_account_data(
+        &self,
+        leaf_index: u64,
+        pubkey: &EdDSAPublicKey,
+    ) -> Option<U256> {
+        let (pubkey_id, _) = self.find(pubkey)?;
+        Some(
+            (U256::from(self.recovery_counter) << 224)
+                | (U256::from(pubkey_id) << 192)
+                | U256::from(leaf_index),
+        )
+    }
+
     /// Returns the lowest slot a new authenticator would be inserted at, or `None` if all
     /// [`MAX_AUTHENTICATOR_KEYS`] slots are taken.
     ///
