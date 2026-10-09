@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use alloy::{
     primitives::{Address, U256},
     signers::local::PrivateKeySigner,
