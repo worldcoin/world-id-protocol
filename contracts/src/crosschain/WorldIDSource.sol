@@ -17,9 +17,13 @@ import {ZeroAddress, NothingChanged} from "@world-id-bridge/Error.sol";
 contract WorldIDSource is StateBridge {
     using Lib for *;
 
+    uint8 internal constant _INITIALIZER_VERSION = 1;
+
     /// @dev The contract version.
     /// @custom:semver v1.0.0
-    uint8 public constant override VERSION = 1;
+    function VERSION() external pure virtual override returns (uint8) {
+        return 1;
+    }
 
     /// @notice The WorldIDRegistry contract on World Chain.
     IWorldIDRegistry internal immutable WORLD_CHAIN_REGISTRY;
@@ -43,7 +47,7 @@ contract WorldIDSource is StateBridge {
     }
 
     /// @dev Initializes the contract with the given configuration. Can only be called once.
-    function initialize(IStateBridge.InitConfig memory cfg) external reinitializer(VERSION) {
+    function initialize(IStateBridge.InitConfig memory cfg) external reinitializer(_INITIALIZER_VERSION) {
         _initialize(cfg);
     }
 
