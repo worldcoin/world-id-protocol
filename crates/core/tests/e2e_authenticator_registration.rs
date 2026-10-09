@@ -352,9 +352,10 @@ fn requester(seed: &[u8; 32], class: RequestedClass, bridge: &BridgeStub) -> Reg
 
 async fn completed(requester: &mut RegistrationRequester) -> RequesterStatus {
     let status = requester.poll().await.unwrap();
+    // The status is not printed: a completed one holds the decrypted response.
     assert!(
         matches!(status, RequesterStatus::Completed(_)),
-        "unexpected status {status:?}"
+        "registration did not complete"
     );
     status
 }
