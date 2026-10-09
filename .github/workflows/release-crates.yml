@@ -30,4 +30,6 @@ jobs:
       - name: Run release-plz
         uses: release-plz/action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.139 (https://github.com/release-plz/action/releases/tag/v0.5.139)
         env:
+          # Override rust-toolchain.toml, including in release-plz's temporary workspaces.
+          RUSTUP_TOOLCHAIN: stable
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
