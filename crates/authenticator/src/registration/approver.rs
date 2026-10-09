@@ -84,11 +84,13 @@ impl PendingRegistration {
 
     /// Authenticates the retained ciphertext, then validates the CBOR request and signature.
     /// At most three code attempts are allowed before expiry. No response is sent before
-    /// authentication, or when CBOR decoding, envelope validation, or digest matching fails.
+    /// authentication, or when CBOR decoding or envelope validation fails. An authenticated,
+    /// decoded request whose digest differs from the Pairing URI receives `invalid_params`.
     ///
     /// # Errors
     /// An incorrect code leaves the ciphertext available for the reported remaining attempts.
-    /// All other errors end this attempt and require a fresh pairing.
+    /// All other errors end this attempt and require a fresh pairing. A digest mismatch returns
+    /// [`ApproverError::Refused`], with any response delivery failure in `undelivered`.
     pub async fn authenticate(
         &mut self,
         code: &PairingCode,
@@ -286,11 +288,6 @@ impl IncomingRegistration {
                 reason: e.to_string(),
                 responded: false,
             })?;
-        if digest != attempt.uri.digest {
-            tracing::warn!(request = %log_tag(&request_id), "registration request does not match the pairing link");
-            return Err(ApproverError::DigestMismatch);
-        }
-
         let incoming = Self {
             channel: ResponseChannel {
                 request_id,
@@ -302,6 +299,15 @@ impl IncomingRegistration {
             request,
             respond_by: attempt.taken_at + DEFAULT_RESPONSE_DEADLINE,
         };
+        if digest != attempt.uri.digest {
+            return Err(incoming
+                .refuse_with_detail(
+                    RegistrationErrorReason::InvalidParams,
+                    None,
+                    Some("registration digest does not match the pairing link".to_string()),
+                )
+                .await);
+        }
         if !incoming.request.verify_signature(&digest) {
             let responded = incoming
                 .channel
@@ -323,6 +329,15 @@ impl IncomingRegistration {
         reason: RegistrationErrorReason,
         source: Option<AuthenticatorError>,
     ) -> ApproverError {
+        self.refuse_with_detail(reason, source, None).await
+    }
+
+    async fn refuse_with_detail(
+        &self,
+        reason: RegistrationErrorReason,
+        source: Option<AuthenticatorError>,
+        detail: Option<String>,
+    ) -> ApproverError {
         tracing::warn!(
             request = %log_tag(&self.channel.request_id),
             ?reason,
@@ -331,7 +346,7 @@ impl IncomingRegistration {
         );
         let undelivered = self
             .channel
-            .send(Err(reason.into_error(None)))
+            .send(Err(reason.into_error(detail)))
             .await
             .err()
             .map(Box::new);
@@ -643,9 +658,6 @@ pub enum ApproverError {
         /// Number of remaining code attempts; zero means a new pairing is required.
         attempts_remaining: u8,
     },
-    /// The request does not match the digest in the Pairing URI. No response was sent.
-    #[error("the registration request does not match the pairing link")]
-    DigestMismatch,
     /// The request is malformed. `responded` tells whether an `invalid_params` error was sent.
     #[error("invalid registration request: {reason}")]
     InvalidRequest {

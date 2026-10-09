@@ -418,7 +418,9 @@ mod tests {
     use world_id_primitives::authenticator_message::Version;
 
     use super::*;
-    use crate::registration::{ApproverError, PendingRegistration};
+    use crate::registration::{
+        ApproverError, PendingRegistration, RegistrationDigest, RegistrationErrorReason,
+    };
 
     fn requester(server: &mockito::ServerGuard) -> RegistrationRequester {
         RegistrationRequester::new(
@@ -458,6 +460,74 @@ mod tests {
                 .unwrap();
         mock.assert_async().await;
         pending
+    }
+
+    #[tokio::test]
+    async fn digest_mismatch_receives_invalid_params() {
+        let bridge = world_id_test_utils::bridge::BridgeStub::spawn()
+            .await
+            .unwrap();
+        let mut session = RegistrationRequester::new(
+            &[77; 32],
+            RequestedClass::Proving,
+            None,
+            BridgeClient::new(bridge.url.parse().unwrap()).unwrap(),
+            None,
+        )
+        .unwrap();
+        session.publish().await.unwrap();
+        let mut uri = session.pairing_uri().unwrap();
+        uri.digest = RegistrationDigest::from_bytes([0; 32]);
+        let mut pending = PendingRegistration::receive(&uri, session.bridge.clone())
+            .await
+            .unwrap();
+        assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
+        assert!(matches!(
+            pending.authenticate(session.pairing_code().unwrap()).await,
+            Err(ApproverError::Refused {
+                reason: RegistrationErrorReason::InvalidParams,
+                source: None,
+                undelivered: None,
+            })
+        ));
+        assert!(matches!(
+            pending.authenticate(session.pairing_code().unwrap()).await,
+            Err(ApproverError::Expired)
+        ));
+        let RequesterStatus::Completed(Err(error)) = session.poll().await.unwrap() else {
+            panic!("expected invalid_params for a digest mismatch");
+        };
+        assert_eq!(error.code, RegistrationErrorReason::InvalidParams.code());
+        assert_eq!(
+            error.data.unwrap().detail.as_deref(),
+            Some("registration digest does not match the pairing link")
+        );
+        bridge.abort();
+    }
+
+    #[tokio::test]
+    async fn digest_mismatch_preserves_response_delivery_failure() {
+        let mut server = mockito::Server::new_async().await;
+        let mut session = requester(&server);
+        session.digest = RegistrationDigest::from_bytes([0; 32]);
+        let secrets = session.secrets.as_ref().unwrap();
+        let id = secrets.secret.request_id();
+        let response = server
+            .mock("PUT", format!("/response/{id}").as_str())
+            .with_status(403)
+            .expect(1)
+            .create_async()
+            .await;
+        let mut attempt = pending(&session, &mut server, Some(Id::String(id.to_string()))).await;
+        assert!(matches!(
+            attempt.authenticate(&secrets.code).await,
+            Err(ApproverError::Refused {
+                reason: RegistrationErrorReason::InvalidParams,
+                source: None,
+                undelivered: Some(_),
+            })
+        ));
+        response.assert_async().await;
     }
 
     #[tokio::test]
