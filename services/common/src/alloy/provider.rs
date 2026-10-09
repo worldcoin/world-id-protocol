@@ -635,6 +635,45 @@ mod tests {
         assert_eq!(wallet.address, signer.address());
     }
 
+    /// Signing goes through the provider's own filler stack, so a
+    /// caller-supplied nonce manager is honoured. The removed implementation
+    /// rebuilt the stack with `SimpleNonceManager` and would sign both
+    /// transactions below at nonce 0.
+    #[tokio::test]
+    async fn sign_transaction_uses_the_configured_nonce_manager() {
+        use ::alloy::{
+            consensus::Transaction as _, network::TransactionBuilder as _, node_bindings::Anvil,
+            providers::fillers::CachedNonceManager,
+        };
+
+        let anvil = Anvil::new().spawn();
+        let wallet = ProviderArgs::new()
+            .with_http_urls([anvil.endpoint()])
+            .with_signer(SignerArgs::from_wallet(format!(
+                "0x{}",
+                ::alloy::primitives::hex::encode(anvil.keys()[0].to_bytes())
+            )))
+            .http_with_nonce_manager_and_address(CachedNonceManager::default())
+            .await
+            .unwrap()
+            .try_into_wallet()
+            .unwrap();
+
+        let transaction = TransactionRequest::default()
+            .with_to(Address::with_last_byte(9))
+            .with_value(::alloy::primitives::U256::from(1));
+
+        let first = wallet.sign_transaction(transaction.clone()).await.unwrap();
+        let second = wallet.sign_transaction(transaction).await.unwrap();
+
+        assert_eq!(first.nonce(), 0);
+        assert_eq!(
+            second.nonce(),
+            1,
+            "the cached nonce manager hands out the next nonce"
+        );
+    }
+
     #[tokio::test]
     async fn http_wallet_signs_without_broadcasting() {
         use ::alloy::{
