@@ -351,7 +351,9 @@ mod tests {
                 domain.parse::<BridgeDomain>(),
                 Err(PairingUriError::InvalidBridge)
             );
-            let link = format!("{}&b={domain}", uri(None));
+            // Brackets are not valid in a URI query, so they arrive percent-encoded.
+            let encoded = domain.replace('[', "%5B").replace(']', "%5D");
+            let link = format!("{}&b={encoded}", uri(None));
             assert_eq!(
                 link.parse::<PairingUri>(),
                 Err(PairingUriError::InvalidBridge)
