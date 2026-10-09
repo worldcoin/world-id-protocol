@@ -485,6 +485,40 @@ impl WalletStore {
             .await?)
     }
 
+    /// Clears the nonce floor of `wallet` if it is at most `nonce`.
+    ///
+    /// Called when a transaction signed at `nonce` was found absent, which
+    /// proves the chain never consumed `nonce`. A floor at or below it can
+    /// only be stale (its transaction was reorged out and dropped after the
+    /// wallet was released), and keeping it would sign every later batch
+    /// behind a nonce gap until it expired. A higher floor was raised after
+    /// this transaction and is left alone.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Redis call fails.
+    pub(crate) async fn clear_nonce_floor_at_most(
+        &self,
+        wallet: Address,
+        nonce: u64,
+    ) -> GatewayResult<()> {
+        let mut manager = self.manager.clone();
+        let _: i64 = redis::Script::new(
+            r#"
+            local current = tonumber(redis.call('GET', KEYS[1]))
+            if current and current <= tonumber(ARGV[1]) then
+                return redis.call('DEL', KEYS[1])
+            end
+            return 0
+            "#,
+        )
+        .key(Self::nonce_floor_key(wallet))
+        .arg(nonce)
+        .invoke_async(&mut manager)
+        .await?;
+        Ok(())
+    }
+
     /// Raises the nonce floor of `wallet` to `next`; a lower value never
     /// replaces a higher one.
     ///
@@ -841,6 +875,23 @@ mod tests {
         assert_eq!(store.nonce_floor(wallet).await.unwrap(), Some(5));
         store.raise_nonce_floor(wallet, 8, STATE_TTL).await.unwrap();
         assert_eq!(store.nonce_floor(wallet).await.unwrap(), Some(8));
+    }
+
+    #[tokio::test]
+    async fn an_absent_transaction_clears_only_a_floor_it_proves_stale() {
+        let (store, _redis) = store().await;
+        let wallet = address!("9999999999999999999999999999999999999999");
+
+        store.raise_nonce_floor(wallet, 8, STATE_TTL).await.unwrap();
+        store.clear_nonce_floor_at_most(wallet, 7).await.unwrap();
+        assert_eq!(
+            store.nonce_floor(wallet).await.unwrap(),
+            Some(8),
+            "a newer floor stays"
+        );
+
+        store.clear_nonce_floor_at_most(wallet, 8).await.unwrap();
+        assert_eq!(store.nonce_floor(wallet).await.unwrap(), None);
     }
 
     #[test]

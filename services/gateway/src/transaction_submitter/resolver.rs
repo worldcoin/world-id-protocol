@@ -499,6 +499,18 @@ impl TransactionSubmitter {
             tracing::warn!(%error, %wallet, "failed to record the nonce floor; keeping the wallet for the next pass");
             return false;
         }
+        // An absent transaction proves its nonce is unconsumed, so a floor at
+        // or below it is stale. Best effort: if this fails, the stale floor
+        // costs failed batches until the next absent result or its TTL.
+        if !resolution.consumes_nonce()
+            && let Err(error) = self
+                .wallet_store
+                .clear_nonce_floor_at_most(wallet, submission.nonce)
+                .await
+        {
+            metrics::increment_wallet_error("release", "redis");
+            tracing::warn!(%error, %wallet, "failed to clear a stale nonce floor");
+        }
         let released = self.release_lease(wallet, record.lease_id).await;
         if released {
             metrics::record_wallet_outcome(resolution.as_str());

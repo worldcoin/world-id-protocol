@@ -155,8 +155,8 @@ impl Harness {
     ) -> alloy::consensus::TxEnvelope {
         submitter.mark_batching(ids).await;
         let (entry, lease_id) = submitter.acquire().await.expect("a wallet is free");
-        let signed = entry
-            .sign_transaction(transfer())
+        let signed = submitter
+            .sign(&entry, transfer())
             .await
             .expect("failed to sign");
 
@@ -616,5 +616,41 @@ async fn a_recorded_nonce_floor_overrides_a_lagging_pending_nonce() {
         record.submission().expect("committed").nonce,
         3,
         "the transaction is signed at the floor, not at the chain's pending nonce of 0"
+    );
+}
+
+#[tokio::test]
+async fn an_absent_transaction_clears_the_stale_nonce_floor_it_was_signed_at() {
+    let harness = Harness::start().await;
+    let submitter = harness.submitter(harness.anvil.endpoint(), config()).await;
+    let ids = harness.requests(1).await;
+
+    // As if nonce 2 had been confirmed, the wallet released, and the
+    // transaction then reorged out and dropped: the chain is back at nonce 0
+    // but the floor still says 3.
+    harness
+        .wallet_store
+        .raise_nonce_floor(harness.wallet.address, 3, Duration::from_secs(600))
+        .await
+        .expect("raise floor");
+
+    // Signed at the floor, so behind a nonce gap; it never reaches the chain.
+    let signed = harness.commit_without_broadcast(&submitter, &ids).await;
+    assert_eq!(alloy::consensus::Transaction::nonce(&signed), 3);
+    harness.mine().await;
+    resolve(&harness, &submitter).await;
+
+    assert_failed_with(
+        &harness.status(&ids[0]).await,
+        GatewayErrorCode::ConfirmationError,
+    );
+    assert_eq!(
+        harness
+            .wallet_store
+            .nonce_floor(harness.wallet.address)
+            .await
+            .expect("read floor"),
+        None,
+        "the absent transaction proved the floor stale, so the next batch signs at the chain nonce"
     );
 }
