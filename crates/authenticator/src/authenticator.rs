@@ -203,12 +203,9 @@ impl Authenticator {
 
         let authenticators =
             Self::fetch_authenticators_for(leaf_index, &config, &indexer_client).await?;
-        let (pubkey_id, _) = authenticators
-            .find(&signer.offchain_signer_pubkey())
+        let packed_account_data = authenticators
+            .packed_account_data(leaf_index, &signer.offchain_signer_pubkey())
             .ok_or(AuthenticatorError::PublicKeyNotFound)?;
-        let packed_account_data = (U256::from(authenticators.recovery_counter) << 224)
-            | (U256::from(pubkey_id) << 192)
-            | U256::from(leaf_index);
 
         Ok(Self::from_parts(
             config,
@@ -339,13 +336,26 @@ impl Authenticator {
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
     pub async fn fetch_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
-        Self::fetch_packed_account_data_for(
+        let by_address = Self::fetch_packed_account_data_for(
             self.onchain_address(),
             self.registry().as_deref(),
             &self.config,
             &self.indexer_client,
         )
-        .await
+        .await;
+        match by_address {
+            // A Proving Authenticator is registered with the zero address, so its own address is
+            // unknown to the registry. Look it up by leaf index and public key instead.
+            Err(AuthenticatorError::AccountDoesNotExist) => Self::fetch_authenticators_for(
+                self.leaf_index(),
+                &self.config,
+                &self.indexer_client,
+            )
+            .await?
+            .packed_account_data(self.leaf_index(), &self.offchain_pubkey())
+            .ok_or(AuthenticatorError::AccountDoesNotExist),
+            result => result,
+        }
     }
 
     /// Re-fetches the packed account data for this authenticator and updates local state.
@@ -848,6 +858,55 @@ mod tests {
         assert_eq!(authenticator.pubkey_id(), U256::from(2));
         assert_eq!(authenticator.recovery_counter(), U256::from(3));
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_proving_authenticator_refreshes_by_leaf_index() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut server = mockito::Server::new_async().await;
+        let seed = [7u8; 32];
+        let own_pubkey = Signer::from_seed_bytes(&seed)
+            .unwrap()
+            .offchain_signer_pubkey()
+            .to_ethereum_representation()
+            .unwrap();
+        let _authenticators = mock_authenticators(
+            &mut server,
+            200,
+            serde_json::json!({
+                "authenticator_pubkeys": [format!("{:#x}", encoded_test_pubkey(1)), format!("{own_pubkey:#x}")],
+                "authenticator_addresses": ["0x0000000000000000000000000000000000000011", "0x0000000000000000000000000000000000000000"],
+                "offchain_signer_commitment": "0x1",
+                "recovery_counter": "0x3",
+            }),
+        )
+        .await;
+        let _by_address = server
+            .mock("POST", "/packed-account")
+            .with_status(400)
+            .with_header("content-type", "application/json")
+            .with_body(
+                serde_json::json!({ "code": "account_does_not_exist", "message": "no account" })
+                    .to_string(),
+            )
+            .create_async()
+            .await;
+
+        let mut authenticator = Authenticator::init_with_leaf_index(
+            &seed,
+            42,
+            config_with_indexer(server.url()),
+            dummy_zk_artifact_source(),
+        )
+        .await
+        .unwrap();
+        let packed = authenticator.refresh_packed_account_data().await.unwrap();
+
+        assert_eq!(
+            packed,
+            (U256::from(3) << 224) | (U256::from(1) << 192) | U256::from(42)
+        );
+        assert_eq!(authenticator.pubkey_id(), U256::from(1));
     }
 
     #[tokio::test]
