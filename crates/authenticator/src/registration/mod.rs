@@ -60,13 +60,30 @@ where
     T: serde::de::DeserializeOwned,
 {
     use serde::{Deserialize as _, de::Error as _};
-    let value = ciborium::Value::deserialize(deserializer)?;
-    if !value.is_map() || contains_tag(&value) {
-        return Err(D::Error::custom(
+    let mut value = ciborium::Value::deserialize(deserializer)?;
+    let payload = if !value.is_map() || contains_tag(&value) {
+        Err(D::Error::custom(
             "registration payload must be an untagged CBOR map",
-        ));
+        ))
+    } else {
+        value.deserialized().map_err(D::Error::custom)
+    };
+    // The intermediate value may hold a copy of the vault.
+    wipe_byte_strings(&mut value);
+    payload
+}
+
+fn wipe_byte_strings(value: &mut ciborium::Value) {
+    match value {
+        ciborium::Value::Bytes(bytes) => zeroize::Zeroize::zeroize(bytes),
+        ciborium::Value::Tag(_, value) => wipe_byte_strings(value),
+        ciborium::Value::Array(values) => values.iter_mut().for_each(wipe_byte_strings),
+        ciborium::Value::Map(entries) => entries.iter_mut().for_each(|(key, value)| {
+            wipe_byte_strings(key);
+            wipe_byte_strings(value);
+        }),
+        _ => {}
     }
-    value.deserialized().map_err(D::Error::custom)
 }
 
 fn contains_tag(value: &ciborium::Value) -> bool {
