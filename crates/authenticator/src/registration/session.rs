@@ -72,21 +72,28 @@ impl PairingSecret {
             .expect("WIP-109 Argon2 parameters are valid");
         let argon =
             argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+        // Argon2id password `pairing_secret || code`, salted with the raw request id.
+        let mut password = Zeroizing::new([0u8; 38]);
+        password[..32].copy_from_slice(&self.0);
+        password[32..].copy_from_slice(&code.0);
+        let request_id = self.request_id();
         let mut input = Zeroizing::new([0u8; 64]);
         input[..32].copy_from_slice(&self.0);
         let mut memory =
             Zeroizing::new(vec![argon2::Block::default(); argon.params().block_count()]);
         argon
-            .hash_password_into_with_memory(&code.0, &self.0, &mut input[32..], &mut *memory)
+            .hash_password_into_with_memory(
+                password.as_ref(),
+                request_id.as_bytes(),
+                &mut input[32..],
+                &mut *memory,
+            )
             .map_err(|_| TransportError::KeyDerivation)?;
         let mut key = Zeroizing::new([0u8; 32]);
         Hkdf::<Sha256>::new(None, input.as_ref())
             .expand(TRANSPORT_SECRET_INFO, key.as_mut())
             .expect("32 bytes is a valid HKDF-SHA256 output length");
-        Ok(TransportKey {
-            key,
-            request_id: self.request_id(),
-        })
+        Ok(TransportKey { key, request_id })
     }
 
     fn derive(&self, info: &[u8]) -> Zeroizing<[u8; 32]> {
