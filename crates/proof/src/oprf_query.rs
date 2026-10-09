@@ -208,15 +208,14 @@ impl<'a> OprfEntrypoint<'a> {
             .validate_proof_type()
             .map_err(|err| ProofError::GenerationError(err.to_string()))?;
 
-        let (action, module) = if proof_request.is_session_proof() {
+        let (action, module) = match proof_request.proof_type {
             // For session proofs a random action is used internally. This is opaque to RPs who receive
             // it within the encoded `SessionNullifier`
-            let action = FieldElement::random_with_prefix(rng, OprfPrefix::SessionAction);
-            (action, OprfModule::Session)
-        } else {
-            // If the RP didn't provide an action, we provide a default.
-            let action = proof_request.action.unwrap_or(FieldElement::ZERO);
-            (action, OprfModule::Nullifier)
+            ProofType::Session => (
+                FieldElement::random_with_prefix(rng, OprfPrefix::SessionAction),
+                OprfModule::Session,
+            ),
+            ProofType::Uniqueness { action } => (action, OprfModule::Nullifier),
         };
 
         // Quick validation before performing the compute-heavy `generate_query_proof` fn.
@@ -285,12 +284,10 @@ impl<'a> OprfEntrypoint<'a> {
             rng,
         )?;
 
-        let rp_signature_verification = match (proof_request.proof_type, proof_request.action) {
-            (ProofType::Uniqueness, Some(action)) => {
-                Some(RpSignatureVerification::UniquenessAction { action })
-            }
-            _ => None,
-        };
+        let rp_signature_verification = proof_request
+            .proof_type
+            .action()
+            .map(|action| RpSignatureVerification::UniquenessAction { action });
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: result.proof.into(),
