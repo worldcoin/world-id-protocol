@@ -63,6 +63,10 @@ pub mod ds {
     /// Separates the hash of an Authenticator Provider key (WIP-106).
     pub const AUTHENTICATOR_PROVIDER_KEY: DomainSeparator<2> =
         DomainSeparator::new(b"WORLD-ID/WIP-106/KEY");
+    /// Separates the message a new authenticator signs to prove it holds the key it asks to
+    /// register: the lowered registration digest (WIP-109).
+    pub const AUTHENTICATOR_REGISTRATION: DomainSeparator<2> =
+        DomainSeparator::new(b"WORLD-ID/WIP-109/REGSIG");
     /// Separates the hash of a single raw-bytes credential claim.
     pub const CLAIMS_HASH_V1: VariableLengthDomainSeparator =
         VariableLengthDomainSeparator::new(b"CLAIMS_HASH_V1");
@@ -240,7 +244,7 @@ mod tests {
 
     /// The raw tag of every constant in [`ds`], across both separator types, to keep
     /// the collision and length checks exhaustive.
-    const ALL_TAGS: [&[u8]; 12] = [
+    const ALL_TAGS: [&[u8]; 13] = [
         ds::CREDENTIAL_V1.as_bytes(),
         ds::CREDENTIAL_SUB.as_bytes(),
         ds::SESSION_COMMITMENT.as_bytes(),
@@ -251,6 +255,7 @@ mod tests {
         ds::AUTHENTICATOR_ASSERTION_REQUEST.as_bytes(),
         ds::AUTHENTICATOR_ASSERTION_TOKEN.as_bytes(),
         ds::AUTHENTICATOR_PROVIDER_KEY.as_bytes(),
+        ds::AUTHENTICATOR_REGISTRATION.as_bytes(),
         ds::CLAIMS_HASH_V1.as_bytes(),
         ds::ASSOCIATED_DATA_V1.as_bytes(),
     ];

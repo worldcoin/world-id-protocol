@@ -1081,6 +1081,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03918c3dbd7701a85c6b9887732e2921175f26c350b4563841d0958c21d57e6d"
 
 [[package]]
+name = "argon2"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3610892ee6e0cbce8ae2700349fcf8f98adb0dbfbee85aec3c9179d29cc072"
+dependencies = [
+ "base64ct",
+ "blake2 0.10.6",
+ "cpufeatures 0.2.17",
+ "zeroize",
+]
+
+[[package]]
 name = "ark-bls12-381"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3141,7 +3153,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "faf9468729b8cbcea668e36183cb69d317348c2e08e994829fb56ebfdfbaac34"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7623,6 +7635,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "quantum-box"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb7283ace318fb11a5d8730ec2914c111d00588527a09902c142e8c0c229bf52"
+dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.4.1",
+ "hpke",
+ "thiserror 2.0.18",
+ "x-wing",
+ "zeroize",
+]
+
+[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -11706,7 +11732,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -12193,19 +12219,24 @@ dependencies = [
 name = "world-id-authenticator"
 version = "0.14.1"
 dependencies = [
+ "aes-gcm",
  "alloy",
  "anyhow",
+ "argon2",
  "ark-serialize 0.6.0",
  "axum",
  "backon",
  "base64 0.22.1",
  "bhttp",
+ "ciborium",
  "eyre",
  "getrandom 0.2.17",
  "getrandom 0.4.1",
  "hex",
+ "hkdf 0.13.0",
  "mockito",
  "ohttp",
+ "quantum-box",
  "rand 0.8.6",
  "reqwest 0.13.2",
  "ruint",
@@ -12213,6 +12244,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
@@ -12225,6 +12257,7 @@ dependencies = [
  "world-id-proof",
  "world-id-registries",
  "world-id-test-utils",
+ "zeroize",
 ]
 
 [[package]]
