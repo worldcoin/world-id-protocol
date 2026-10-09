@@ -344,11 +344,17 @@ impl Authenticator {
         )
         .await;
         match by_address {
-            // An authenticator never changes accounts, so only accept data for its own leaf.
-            Ok(packed) if (packed & MASK_LEAF_INDEX) == U256::from(self.leaf_index()) => Ok(packed),
+            // An authenticator never changes accounts or slots, so only accept data for its own
+            // leaf and slot. The recovery counter may change.
+            Ok(packed)
+                if packed & !MASK_RECOVERY_COUNTER
+                    == self.packed_account_data & !MASK_RECOVERY_COUNTER =>
+            {
+                Ok(packed)
+            }
             // A Proving Authenticator is registered with the zero address, so its own address is
-            // unknown to the registry or registered on another account. Look it up by leaf index
-            // and public key instead.
+            // unknown to the registry or registered on another account or slot. Look it up by leaf
+            // index and public key instead.
             Ok(_) | Err(AuthenticatorError::AccountDoesNotExist) => Self::fetch_authenticators_for(
                 self.leaf_index(),
                 &self.config,
@@ -924,6 +930,21 @@ mod tests {
             expected
         );
         assert_eq!(authenticator.leaf_index(), 42);
+
+        // Nor does it resolving to another slot on the same account.
+        _other_account.remove_async().await;
+        let _other_slot = server
+            .mock("POST", "/packed-account")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({ "packed_account_data": "0x2a" }).to_string())
+            .create_async()
+            .await;
+        assert_eq!(
+            authenticator.refresh_packed_account_data().await.unwrap(),
+            expected
+        );
+        assert_eq!(authenticator.pubkey_id(), U256::from(1));
     }
 
     #[tokio::test]
