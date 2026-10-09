@@ -344,9 +344,12 @@ impl Authenticator {
         )
         .await;
         match by_address {
+            // An authenticator never changes accounts, so only accept data for its own leaf.
+            Ok(packed) if (packed & MASK_LEAF_INDEX) == U256::from(self.leaf_index()) => Ok(packed),
             // A Proving Authenticator is registered with the zero address, so its own address is
-            // unknown to the registry. Look it up by leaf index and public key instead.
-            Err(AuthenticatorError::AccountDoesNotExist) => Self::fetch_authenticators_for(
+            // unknown to the registry or registered on another account. Look it up by leaf index
+            // and public key instead.
+            Ok(_) | Err(AuthenticatorError::AccountDoesNotExist) => Self::fetch_authenticators_for(
                 self.leaf_index(),
                 &self.config,
                 &self.indexer_client,
@@ -902,11 +905,25 @@ mod tests {
         .unwrap();
         let packed = authenticator.refresh_packed_account_data().await.unwrap();
 
-        assert_eq!(
-            packed,
-            (U256::from(3) << 224) | (U256::from(1) << 192) | U256::from(42)
-        );
+        let expected = (U256::from(3) << 224) | (U256::from(1) << 192) | U256::from(42);
+        assert_eq!(packed, expected);
         assert_eq!(authenticator.pubkey_id(), U256::from(1));
+
+        // The same seed's address registered as an Admin on another account does not move this
+        // authenticator to that account.
+        _by_address.remove_async().await;
+        let _other_account = server
+            .mock("POST", "/packed-account")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({ "packed_account_data": "0x7" }).to_string())
+            .create_async()
+            .await;
+        assert_eq!(
+            authenticator.refresh_packed_account_data().await.unwrap(),
+            expected
+        );
+        assert_eq!(authenticator.leaf_index(), 42);
     }
 
     #[tokio::test]
