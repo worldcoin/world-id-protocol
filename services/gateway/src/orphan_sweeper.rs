@@ -84,12 +84,16 @@ pub async fn sweep_once(
                         "request timed out in queued state due to unexpected error",
                         Some(GatewayErrorCode::InternalServerError),
                     );
-                    // Guarded on the states this arm owns: a request another
-                    // owner advanced out of `Queued`/`Batching` between the
-                    // snapshot and this write must not be failed under it.
-                    match tracker
-                        .set_status_if(id, &[StatusGuard::Queued, StatusGuard::Batching], status)
-                        .await
+                    // Guarded on exactly the state the snapshot saw. A request a
+                    // batcher claimed (`Queued` -> `Batching`) or advanced between
+                    // the snapshot and this write is no longer stale, so it must
+                    // not be failed under its new owner.
+                    let observed = if matches!(record.status, GatewayRequestState::Queued) {
+                        StatusGuard::Queued
+                    } else {
+                        StatusGuard::Batching
+                    };
+                    match tracker.set_status_if(id, &[observed], status).await
                     {
                         Ok(StatusWriteOutcome::Applied | StatusWriteOutcome::Missing) => {}
                         Ok(StatusWriteOutcome::Guarded) => {
