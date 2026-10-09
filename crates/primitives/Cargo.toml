@@ -29,6 +29,7 @@ protocol = [
 openapi = ["dep:utoipa"]
 
 [dependencies]
+ciborium = { workspace = true }
 alloy = { workspace = true, optional = true, features = ["sol-types", "signer-local"] }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
@@ -49,6 +50,7 @@ serde_json = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true, features = ["serde"] }
+percent-encoding = { workspace = true }
 poseidon2 = { workspace = true }
 provekit-common = { workspace = true, optional = true }
 sha3 = { workspace = true, default-features = false }
@@ -65,8 +67,9 @@ embed-doc-image = "0.1.4"
 getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
+cbor-diag = { workspace = true }
+test-case = { workspace = true }
 ark-ec = { workspace = true }
 ark-serialize = { workspace = true }
-ciborium = { workspace = true }
 k256 = { workspace = true, features = ["ecdsa"] }
 taceo-oprf = { workspace = true, features = ["core", "types"] }
