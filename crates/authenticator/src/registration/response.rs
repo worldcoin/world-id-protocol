@@ -6,8 +6,6 @@ use world_id_primitives::{
     authenticator_message::{ErrorObject, Response},
 };
 
-use super::request::AuthenticatorName;
-
 /// The registration response as sent over the bridge.
 pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErrorData>;
 
@@ -38,8 +36,9 @@ pub struct KnownAuthenticator {
     /// The slot of the authenticator, below [`MAX_AUTHENTICATOR_KEYS`].
     #[serde(with = "pubkey_id")]
     pub pubkey_id: u32,
-    /// The name the Approving Authenticator knows it by.
-    pub name: AuthenticatorName,
+    /// The name the Approving Authenticator knows it by. Untrusted text with no length limit of
+    /// its own (WIP-109 §3.6.2); the message size limit bounds it.
+    pub name: String,
 }
 
 /// A credential vault export.
@@ -322,7 +321,7 @@ mod tests {
                 pubkey_id: 1,
                 authenticators: vec![KnownAuthenticator {
                     pubkey_id: 0,
-                    name: "phone".to_string().try_into().unwrap(),
+                    name: "phone".to_string(),
                 }],
                 vault: Some(Vault {
                     format: VaultFormat::WalletkitPlaintextV1,
@@ -492,13 +491,33 @@ mod tests {
             RegistrationResult {
                 authenticators: vec![KnownAuthenticator {
                     pubkey_id: 7,
-                    name: "phone".to_string().try_into().unwrap(),
+                    name: "phone".to_string(),
                 }],
                 ..valid.clone()
             },
         ] {
             assert!(encode_result(&invalid).is_err(), "{invalid:?}");
         }
+    }
+
+    #[test]
+    fn known_authenticator_names_have_no_length_limit() {
+        use ciborium::Value;
+        let name = "n".repeat(200);
+        let result = Value::Map(vec![
+            ("leaf_index".into(), 42.into()),
+            ("pubkey_id".into(), 1.into()),
+            (
+                "authenticators".into(),
+                Value::Array(vec![Value::Map(vec![
+                    ("pubkey_id".into(), 0.into()),
+                    ("name".into(), name.clone().into()),
+                ])]),
+            ),
+        ])
+        .deserialized::<RegistrationResult>()
+        .unwrap();
+        assert_eq!(result.authenticators[0].name, name);
     }
 
     #[test]
