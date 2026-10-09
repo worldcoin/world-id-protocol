@@ -46,14 +46,39 @@ pub struct KnownAuthenticator {
 ///
 /// The vault holds the account's credentials and the associated data from their issuers, which
 /// may include biometric data. Its bytes are zeroized on drop.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, PartialEq, Eq, Serialize)]
 pub struct Vault {
     /// The format of `data`.
     pub format: VaultFormat,
     /// The vault bytes, a CBOR byte string on the wire.
-    #[serde(with = "super::bytes::vec")]
+    #[serde(serialize_with = "super::bytes::vec::serialize")]
     pub data: Vec<u8>,
+}
+
+/// The wire form of [`Vault`]. Its bytes are zeroized even when decoding fails after `data` was
+/// read, e.g. on a later unknown field.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireVault {
+    format: VaultFormat,
+    #[serde(deserialize_with = "deserialize_zeroizing")]
+    data: zeroize::Zeroizing<Vec<u8>>,
+}
+
+fn deserialize_zeroizing<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<zeroize::Zeroizing<Vec<u8>>, D::Error> {
+    super::bytes::vec::deserialize(deserializer).map(zeroize::Zeroizing::new)
+}
+
+impl<'de> Deserialize<'de> for Vault {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let mut wire = WireVault::deserialize(deserializer)?;
+        Ok(Self {
+            format: wire.format,
+            data: std::mem::take(&mut *wire.data),
+        })
+    }
 }
 
 impl Drop for Vault {
