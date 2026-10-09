@@ -17,6 +17,8 @@
 //! - `gateway:wallet:{address}`: the record above.
 //! - `gateway:wallet_resolver:{address}`: a short-lived claim that lets one
 //!   replica probe a wallet per resolver interval.
+//! - `gateway:wallet_nonce:{address}`: the lowest nonce the wallet may sign
+//!   next, so a lagging RPC node cannot hand out a consumed nonce.
 
 use std::time::Duration;
 
@@ -467,6 +469,60 @@ impl WalletStore {
         Ok(claimed.is_some())
     }
 
+    /// The lowest nonce `wallet` may sign next, if one was recorded.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Redis call fails or the stored value is not a
+    /// number.
+    pub(crate) async fn nonce_floor(&self, wallet: Address) -> GatewayResult<Option<u64>> {
+        let mut manager = self.manager.clone();
+        Ok(redis::cmd("GET")
+            .arg(Self::nonce_floor_key(wallet))
+            .query_async(&mut manager)
+            .await?)
+    }
+
+    /// Raises the nonce floor of `wallet` to `next`; a lower value never
+    /// replaces a higher one.
+    ///
+    /// Written when a wallet is released after its transaction consumed a
+    /// nonce. The next signer reads its nonce from whichever RPC node answers
+    /// first, and a node that has not seen that transaction yet would hand
+    /// back the consumed nonce; the floor overrides it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Redis call fails.
+    pub(crate) async fn raise_nonce_floor(
+        &self,
+        wallet: Address,
+        next: u64,
+        ttl: Duration,
+    ) -> GatewayResult<()> {
+        let mut manager = self.manager.clone();
+        let _: i64 = redis::Script::new(
+            r#"
+            local current = tonumber(redis.call('GET', KEYS[1]))
+            if current and current >= tonumber(ARGV[1]) then
+                return 0
+            end
+            redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[2])
+            return 1
+            "#,
+        )
+        .key(Self::nonce_floor_key(wallet))
+        .arg(next)
+        .arg(ttl.as_secs())
+        .invoke_async(&mut manager)
+        .await?;
+        Ok(())
+    }
+
+    fn nonce_floor_key(wallet: Address) -> String {
+        format!("gateway:wallet_nonce:{wallet}")
+    }
+
     /// Redis key holding one wallet's record.
     fn key(wallet: Address) -> String {
         format!("{KEY_PREFIX}{wallet}")
@@ -747,6 +803,19 @@ mod tests {
         assert_eq!(records.len(), 2);
         assert!(records[0].is_none());
         assert!(records[1].is_some());
+    }
+
+    #[tokio::test]
+    async fn nonce_floor_only_rises() {
+        let (store, _redis) = store().await;
+        let wallet = address!("9999999999999999999999999999999999999999");
+
+        assert_eq!(store.nonce_floor(wallet).await.unwrap(), None);
+        store.raise_nonce_floor(wallet, 5, STATE_TTL).await.unwrap();
+        store.raise_nonce_floor(wallet, 3, STATE_TTL).await.unwrap();
+        assert_eq!(store.nonce_floor(wallet).await.unwrap(), Some(5));
+        store.raise_nonce_floor(wallet, 8, STATE_TTL).await.unwrap();
+        assert_eq!(store.nonce_floor(wallet).await.unwrap(), Some(8));
     }
 
     #[test]

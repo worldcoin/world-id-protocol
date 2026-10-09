@@ -564,3 +564,36 @@ async fn a_record_of_an_unconfigured_wallet_is_still_resolved() {
     ));
     assert_eq!(harness.wallet_state().await, None, "the record is released");
 }
+
+#[tokio::test]
+async fn a_recorded_nonce_floor_overrides_a_lagging_pending_nonce() {
+    let harness = Harness::start().await;
+    let submitter = harness.submitter(harness.anvil.endpoint(), config()).await;
+    let ids = harness.requests(1).await;
+
+    // As if the wallet's last transaction (nonce 2) were confirmed but the node
+    // answering the nonce query had not seen it.
+    harness
+        .wallet_store
+        .raise_nonce_floor(harness.wallet.address, 3, Duration::from_secs(600))
+        .await
+        .expect("raise floor");
+
+    submitter.mark_batching(&ids).await;
+    submitter
+        .submit(transfer(), ids.clone(), BatchType::Create)
+        .await
+        .expect("submit");
+
+    let record = harness
+        .wallet_store
+        .get(harness.wallet.address)
+        .await
+        .expect("read record")
+        .expect("record exists");
+    assert_eq!(
+        record.submission().expect("committed").nonce,
+        3,
+        "the transaction is signed at the floor, not at the chain's pending nonce of 0"
+    );
+}

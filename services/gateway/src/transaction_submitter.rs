@@ -23,10 +23,11 @@ use std::{
 };
 
 use alloy::{
-    consensus::Transaction as _,
+    consensus::{Transaction as _, TxEnvelope},
     primitives::{Address, TxHash},
     providers::{DynProvider, Provider},
     rpc::types::TransactionRequest,
+    transports::TransportError,
 };
 use futures::StreamExt as _;
 use rand::Rng as _;
@@ -227,7 +228,7 @@ impl TransactionSubmitter {
         let wallet = entry.address;
 
         let sign_started = tokio::time::Instant::now();
-        let signed = match entry.sign_transaction(transaction).await {
+        let signed = match self.sign(&entry, transaction).await {
             Ok(signed) => signed,
             Err(error) => {
                 self.release_lease(wallet, lease_id).await;
@@ -355,6 +356,42 @@ impl TransactionSubmitter {
         }
 
         Ok(SubmitOutcome::Submitted)
+    }
+
+    /// Signs `transaction`, never below the wallet's recorded nonce floor.
+    ///
+    /// The filler takes the pending nonce from whichever RPC node answers
+    /// first. A node that has not yet seen the wallet's last transaction hands
+    /// back its consumed nonce, and the new transaction would then be reported
+    /// as replaced; the floor recorded at release prevents that. An unreadable
+    /// floor only loses that protection, so it does not fail the batch.
+    async fn sign(
+        &self,
+        entry: &ProviderWallet,
+        transaction: TransactionRequest,
+    ) -> Result<TxEnvelope, TransportError> {
+        let floor = match self.wallet_store.nonce_floor(entry.address).await {
+            Ok(floor) => floor,
+            Err(error) => {
+                metrics::increment_wallet_error("acquire", "redis");
+                tracing::warn!(%error, wallet = %entry.address, "failed to read the nonce floor; signing without it");
+                None
+            }
+        };
+
+        let signed = entry.sign_transaction(transaction.clone()).await?;
+        match floor {
+            Some(floor) if signed.nonce() < floor => {
+                tracing::warn!(
+                    wallet = %entry.address,
+                    filled = signed.nonce(),
+                    floor,
+                    "RPC node returned a consumed nonce; signing at the recorded floor"
+                );
+                entry.sign_transaction(transaction.nonce(floor)).await
+            }
+            _ => Ok(signed),
+        }
     }
 
     /// Claims a batch's requests for a batcher, returning the ids it claimed.
@@ -817,6 +854,17 @@ impl TransactionSubmitter {
             .await
         {
             return false;
+        }
+        // Every outcome but `absent` consumed the nonce. Recorded before the
+        // release, so the next holder of the wallet sees it.
+        if outcome != "absent"
+            && let Err(error) = self
+                .wallet_store
+                .raise_nonce_floor(wallet, submission.nonce + 1, self.state_ttl())
+                .await
+        {
+            metrics::increment_wallet_error("release", "redis");
+            tracing::warn!(%error, %wallet, "failed to record the nonce floor");
         }
         let released = self.release_lease(wallet, record.lease_id).await;
         if released {
