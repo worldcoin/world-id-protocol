@@ -54,7 +54,7 @@ pub(super) async fn probe(
     let receipt = match provider.get_transaction_receipt(tx_hash).await {
         Ok(receipt) => receipt,
         Err(error) => {
-            metrics::increment_wallet_resolver_error("rpc");
+            metrics::increment_wallet_error("resolve", "rpc");
             tracing::warn!(%error, %tx_hash, "failed to fetch transaction receipt");
             return Probe::Wait;
         }
@@ -75,7 +75,7 @@ pub(super) async fn probe(
         Ok(Some(_)) => return Probe::Wait,
         Ok(None) => {}
         Err(error) => {
-            metrics::increment_wallet_resolver_error("rpc");
+            metrics::increment_wallet_error("resolve", "rpc");
             tracing::warn!(%error, %tx_hash, "failed to look up transaction by hash");
             return Probe::Wait;
         }
@@ -84,7 +84,7 @@ pub(super) async fn probe(
     let latest = match provider.get_transaction_count(wallet).latest().await {
         Ok(count) => count,
         Err(error) => {
-            metrics::increment_wallet_resolver_error("rpc");
+            metrics::increment_wallet_error("resolve", "rpc");
             tracing::warn!(%error, "failed to read latest transaction count");
             return Probe::Wait;
         }
@@ -106,7 +106,7 @@ pub(super) async fn probe(
             }
             Ok(None) => Probe::Replaced,
             Err(error) => {
-                metrics::increment_wallet_resolver_error("rpc");
+                metrics::increment_wallet_error("resolve", "rpc");
                 tracing::warn!(%error, %tx_hash, "failed to re-read receipt; not concluding replacement");
                 Probe::Wait
             }
@@ -116,7 +116,7 @@ pub(super) async fn probe(
     let pending = match provider.get_transaction_count(wallet).pending().await {
         Ok(count) => count,
         Err(error) => {
-            metrics::increment_wallet_resolver_error("rpc");
+            metrics::increment_wallet_error("resolve", "rpc");
             tracing::warn!(%error, "failed to read pending transaction count");
             return Probe::Wait;
         }
@@ -160,7 +160,7 @@ async fn classify_receipt(
         // so the transaction is no longer included.
         Ok(Some(_) | None) => return ReceiptCheck::Reorged,
         Err(error) => {
-            metrics::increment_wallet_resolver_error("rpc");
+            metrics::increment_wallet_error("resolve", "rpc");
             tracing::warn!(
                 %error,
                 tx_hash = %submission.tx_hash,
@@ -173,7 +173,7 @@ async fn classify_receipt(
     let head = match provider.get_block_number().await {
         Ok(head) => head,
         Err(error) => {
-            metrics::increment_wallet_resolver_error("rpc");
+            metrics::increment_wallet_error("resolve", "rpc");
             tracing::warn!(%error, "failed to read the chain head");
             return ReceiptCheck::Decided(Probe::Wait);
         }

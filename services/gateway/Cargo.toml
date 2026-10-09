@@ -32,6 +32,7 @@ futures = { workspace = true }
 hex = { workspace = true }
 moka = { workspace = true }
 once_cell = { workspace = true }
+rand = { workspace = true }
 redis = { workspace = true, features = ["tokio-comp", "connection-manager"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -50,7 +51,6 @@ uuid = { workspace = true, features = ["v4"] }
 world-id-test-utils = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 world-id-authenticator = { workspace = true }
-rand = { workspace = true }
 reqwest = { workspace = true }
 rustls = { workspace = true }
 serde = { workspace = true }

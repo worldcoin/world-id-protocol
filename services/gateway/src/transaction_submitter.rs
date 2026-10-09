@@ -29,6 +29,7 @@ use alloy::{
     rpc::types::TransactionRequest,
 };
 use futures::StreamExt as _;
+use rand::Rng as _;
 use tokio::sync::Notify;
 use uuid::Uuid;
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestState};
@@ -436,9 +437,9 @@ impl TransactionSubmitter {
 
     /// Runs the resolution loop until the process exits.
     ///
-    /// Errors are handled per wallet and per pass: the loop never returns an
-    /// error, because a supervisor that treats an unexpected task exit as fatal
-    /// would turn a Redis or RPC blip into a fleet-wide restart.
+    /// Errors are handled per wallet and per pass, so the loop never returns
+    /// one. Passes are spaced by the resolver interval with ±20% jitter, so
+    /// replicas started together do not probe in lockstep.
     pub(crate) async fn run_resolver(self: Arc<Self>) {
         let interval = Duration::from_secs(self.config.resolver_interval_secs);
         // Bounded so a Redis or RPC call that accepts a connection and never
@@ -451,24 +452,45 @@ impl TransactionSubmitter {
                 .await
                 .is_err()
             {
-                metrics::increment_wallet_resolver_error("timeout");
+                metrics::increment_wallet_error("resolve", "timeout");
                 tracing::error!(
                     timeout_secs = pass_timeout.as_secs(),
                     "resolution pass did not finish in time; abandoning it"
                 );
             }
-            tokio::time::sleep(interval).await;
+            let pause = interval.mul_f64(rand::thread_rng().gen_range(0.8..1.2));
+            tokio::time::sleep(pause).await;
         }
     }
 
-    /// One resolution pass over every configured wallet.
+    /// One resolution pass over every wallet that has a record.
+    ///
+    /// That is the configured wallets plus any other record in Redis: a pool
+    /// key removed without draining, or the per-replica key of a replica that
+    /// was scaled down, still has a transaction someone must decide. Resolving
+    /// needs only the address, never the signer.
     pub(crate) async fn resolve_all(&self) {
-        let addresses: Vec<Address> = self.wallets.iter().map(|entry| entry.address).collect();
+        let mut addresses: Vec<Address> = self.wallets.iter().map(|entry| entry.address).collect();
+        match self.wallet_store.addresses().await {
+            Ok(stored) => {
+                let unconfigured: Vec<Address> = stored
+                    .into_iter()
+                    .filter(|address| !addresses.contains(address))
+                    .collect();
+                metrics::record_wallet_unconfigured(unconfigured.len());
+                addresses.extend(unconfigured);
+            }
+            Err(error) => {
+                // The configured wallets can still be resolved without the scan.
+                metrics::increment_wallet_error("resolve", "redis");
+                tracing::warn!(%error, "failed to list wallet records; resolving configured wallets only");
+            }
+        }
 
         let records = match self.wallet_store.get_many(&addresses).await {
             Ok(records) => records,
             Err(error) => {
-                metrics::increment_wallet_resolver_error("redis");
+                metrics::increment_wallet_error("resolve", "redis");
                 tracing::error!(%error, "failed to load wallet records");
                 return;
             }
@@ -486,10 +508,10 @@ impl TransactionSubmitter {
             .count();
         metrics::record_wallet_pool_state(in_flight, parked);
 
-        let active: Vec<(usize, WalletRecord)> = records
+        let active: Vec<(Address, WalletRecord)> = addresses
             .into_iter()
-            .enumerate()
-            .filter_map(|(index, record)| record.map(|record| (index, record)))
+            .zip(records)
+            .filter_map(|(address, record)| record.map(|record| (address, record)))
             .filter(|(_, record)| record.state != WalletState::Signing)
             .collect();
 
@@ -497,12 +519,21 @@ impl TransactionSubmitter {
         // the same node.
         let pass = self.resolver_pass.fetch_add(1, Ordering::Relaxed);
         let provider = self.resolver_providers[pass % self.resolver_providers.len()].clone();
+        let claim = Duration::from_secs(self.config.resolver_interval_secs);
 
         futures::stream::iter(active)
-            .map(|(index, record)| {
+            .map(|(wallet, record)| {
                 let provider = provider.clone();
                 async move {
-                    self.resolve_wallet(index, &record, &provider).await;
+                    match self.wallet_store.claim_resolution(wallet, claim).await {
+                        Ok(true) => self.resolve_wallet(wallet, &record, &provider).await,
+                        // Another replica resolves this wallet in this interval.
+                        Ok(false) => {}
+                        Err(error) => {
+                            metrics::increment_wallet_error("resolve", "redis");
+                            tracing::warn!(%error, %wallet, "failed to claim a wallet for resolution");
+                        }
+                    }
                 }
             })
             .buffer_unordered(RESOLVER_CONCURRENCY)
@@ -511,14 +542,11 @@ impl TransactionSubmitter {
     }
 
     /// Resolves one committed wallet record (`InFlight` or `Parked`).
-    async fn resolve_wallet(&self, index: usize, record: &WalletRecord, provider: &DynProvider) {
-        let Some(entry) = self.wallets.get(index) else {
-            return;
-        };
-        let wallet = entry.address;
+    async fn resolve_wallet(&self, wallet: Address, record: &WalletRecord, provider: &DynProvider) {
         let lease_id = record.lease_id;
 
         let Some(submission) = record.submission() else {
+            metrics::increment_wallet_error("resolve", "invalid_record");
             tracing::error!(
                 %wallet,
                 "wallet record has no signed transaction; it cannot be resolved automatically"
@@ -553,7 +581,7 @@ impl TransactionSubmitter {
 
         match probe::probe(
             provider,
-            entry.address,
+            wallet,
             submission,
             self.config.release_confirmations,
         )
@@ -564,7 +592,7 @@ impl TransactionSubmitter {
                 success,
                 confirmations,
             } => {
-                self.settle(entry, record, submission, success, confirmations)
+                self.settle(wallet, record, submission, success, confirmations)
                     .await;
                 // Resolved: the record is released or retried on its own terms.
                 // Falling through to the timeout check below would park a wallet
@@ -572,11 +600,11 @@ impl TransactionSubmitter {
                 return;
             }
             Probe::Replaced => {
-                self.fail_replaced(entry, record, submission).await;
+                self.fail_replaced(wallet, record, submission).await;
                 return;
             }
             Probe::Absent if submitter_done => {
-                self.fail_absent(entry, record, submission).await;
+                self.fail_absent(wallet, record, submission).await;
                 // Resolved: the transaction never landed, so its wallet is free.
                 return;
             }
@@ -585,7 +613,7 @@ impl TransactionSubmitter {
         }
 
         if !parked && age >= self.config.resolution_timeout_secs {
-            self.park(entry, record, submission).await;
+            self.park(wallet, record, submission).await;
         }
     }
 
@@ -618,24 +646,35 @@ impl TransactionSubmitter {
     /// Resolves a batch whose transaction is on chain, and releases the wallet.
     async fn settle(
         &self,
-        entry: &ProviderWallet,
+        wallet: Address,
         record: &WalletRecord,
         submission: &Submission,
         success: bool,
         confirmations: u64,
     ) {
         let tx_hash = format!("{:#x}", submission.tx_hash);
+        let parked = record.state == WalletState::Parked;
+        if parked {
+            // The requests were already failed when the wallet was parked, and a
+            // terminal answer is not taken back. Make the contradiction loud.
+            tracing::error!(
+                %tx_hash,
+                %wallet,
+                success,
+                "a parked wallet's transaction landed after its requests were reported failed"
+            );
+        }
         let (status, outcome) = if success {
             (
                 GatewayRequestState::Finalized {
                     tx_hash: tx_hash.clone(),
                 },
-                "confirmed",
+                if parked { "parked_landed" } else { "confirmed" },
             )
         } else {
             tracing::error!(
                 %tx_hash,
-                wallet = %entry.address,
+                %wallet,
                 batch_type = %submission.batch_type,
                 "batch transaction reverted on-chain"
             );
@@ -644,12 +683,12 @@ impl TransactionSubmitter {
                     format!("transaction reverted on-chain (tx: {tx_hash})"),
                     Some(GatewayErrorCode::TransactionReverted),
                 ),
-                "reverted",
+                if parked { "parked_landed" } else { "reverted" },
             )
         };
 
         if self
-            .resolve_batch(entry, record, submission, &status, outcome)
+            .resolve_batch(wallet, record, submission, &status, outcome)
             .await
         {
             let latency_ms = now_unix_secs()
@@ -662,14 +701,9 @@ impl TransactionSubmitter {
     }
 
     /// Fails a batch whose nonce was consumed by a different transaction.
-    async fn fail_replaced(
-        &self,
-        entry: &ProviderWallet,
-        record: &WalletRecord,
-        submission: &Submission,
-    ) {
+    async fn fail_replaced(&self, wallet: Address, record: &WalletRecord, submission: &Submission) {
         tracing::error!(
-            wallet = %entry.address,
+            %wallet,
             tx_hash = %format!("{:#x}", submission.tx_hash),
             nonce = submission.nonce,
             "wallet transaction was replaced; its requests cannot be confirmed"
@@ -681,7 +715,7 @@ impl TransactionSubmitter {
             ),
             Some(GatewayErrorCode::ConfirmationError),
         );
-        self.resolve_batch(entry, record, submission, &status, "replaced")
+        self.resolve_batch(wallet, record, submission, &status, "replaced")
             .await;
     }
 
@@ -691,8 +725,7 @@ impl TransactionSubmitter {
     /// deliberately kept: releasing the wallet could reuse a nonce whose
     /// transaction still exists. Parking is a capacity loss, not a correctness
     /// risk, and it stops the wallet until the chain settles or an operator acts.
-    async fn park(&self, entry: &ProviderWallet, record: &WalletRecord, submission: &Submission) {
-        let wallet = entry.address;
+    async fn park(&self, wallet: Address, record: &WalletRecord, submission: &Submission) {
         let status = GatewayRequestState::failed(
             format!(
                 "transaction fate undecided after {}s (tx: 0x{:x})",
@@ -754,12 +787,7 @@ impl TransactionSubmitter {
     /// transaction never landed and the wallet's nonce is free to reuse.
     /// Nothing is retried: the requests are answered and the wallet returns to
     /// the pool.
-    async fn fail_absent(
-        &self,
-        entry: &ProviderWallet,
-        record: &WalletRecord,
-        submission: &Submission,
-    ) {
+    async fn fail_absent(&self, wallet: Address, record: &WalletRecord, submission: &Submission) {
         let status = GatewayRequestState::failed(
             format!(
                 "transaction was not accepted by the network (tx: {:#x})",
@@ -767,30 +795,30 @@ impl TransactionSubmitter {
             ),
             Some(GatewayErrorCode::ConfirmationError),
         );
-        self.resolve_batch(entry, record, submission, &status, "absent")
+        self.resolve_batch(wallet, record, submission, &status, "absent")
             .await;
     }
 
     /// Writes a batch's terminal status and releases its wallet.
     ///
-    /// Returns whether this caller released the wallet. Every replica resolves
-    /// every wallet, so only the one whose release applied records the outcome;
-    /// the others would count the same transaction again.
+    /// Returns whether this caller released the wallet. Two replicas can still
+    /// resolve the same wallet when a resolution claim lapses mid-pass, so only
+    /// the one whose release applied records the outcome.
     async fn resolve_batch(
         &self,
-        entry: &ProviderWallet,
+        wallet: Address,
         record: &WalletRecord,
         submission: &Submission,
         status: &GatewayRequestState,
         outcome: &'static str,
     ) -> bool {
         if !self
-            .mark_terminal(&submission.request_ids, status, entry.address)
+            .mark_terminal(&submission.request_ids, status, wallet)
             .await
         {
             return false;
         }
-        let released = self.release_lease(entry.address, record.lease_id).await;
+        let released = self.release_lease(wallet, record.lease_id).await;
         if released {
             metrics::record_wallet_outcome(outcome);
         }
@@ -944,7 +972,7 @@ impl TransactionSubmitter {
                     Err(error) => {
                         // If the reservation applied anyway, its short signing
                         // lease expires on its own.
-                        metrics::increment_wallet_resolver_error("redis");
+                        metrics::increment_wallet_error("acquire", "redis");
                         tracing::warn!(%error, wallet = %entry.address, "failed to reserve wallet");
                     }
                 }
@@ -984,7 +1012,7 @@ impl TransactionSubmitter {
             }
             Ok(CasOutcome::Missing | CasOutcome::Conflict) => false,
             Err(error) => {
-                metrics::increment_wallet_resolver_error("redis");
+                metrics::increment_wallet_error("release", "redis");
                 tracing::error!(%error, %wallet, "failed to release wallet lease");
                 false
             }

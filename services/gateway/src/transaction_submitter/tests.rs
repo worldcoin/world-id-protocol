@@ -168,8 +168,13 @@ impl Harness {
 }
 
 async fn wallet_for(anvil: &TestAnvil, rpc: &str) -> ProviderWallet {
+    wallet_at(anvil, rpc, 0).await
+}
+
+/// A provider wallet for the anvil account at `index`.
+async fn wallet_at(anvil: &TestAnvil, rpc: &str, index: usize) -> ProviderWallet {
     let key = anvil
-        .signer(0)
+        .signer(index)
         .expect("anvil signer")
         .to_bytes()
         .to_string();
@@ -207,21 +212,20 @@ fn config() -> WalletConfig {
     }
 }
 
-/// Runs resolver passes until the wallet record is released or parked.
+/// Runs resolver passes until the wallet record is released.
 ///
-/// A receipt can trail the broadcast by a moment on a loaded machine, so one
-/// pass is not always enough even with auto-mining.
+/// A receipt can trail the broadcast by a moment on a loaded machine, and a
+/// pass skips a wallet another submitter resolved within the last interval, so
+/// one pass is not always enough.
 async fn resolve(harness: &Harness, submitter: &TransactionSubmitter) {
     for _ in 0..50 {
         submitter.resolve_all().await;
-        if matches!(
-            harness.wallet_state().await,
-            None | Some(WalletState::Parked)
-        ) {
+        if harness.wallet_state().await.is_none() {
             return;
         }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
+    panic!("the wallet record was not released after 50 resolver passes");
 }
 
 fn assert_failed_with(status: &GatewayRequestState, code: GatewayErrorCode) {
@@ -531,4 +535,32 @@ async fn a_partly_resolved_batch_is_still_resolved_and_released() {
         GatewayErrorCode::InternalServerError,
     );
     assert_eq!(harness.wallet_state().await, None, "the wallet is released");
+}
+
+#[tokio::test]
+async fn a_record_of_an_unconfigured_wallet_is_still_resolved() {
+    let harness = Harness::start().await;
+    let removed = harness.submitter(harness.anvil.endpoint(), config()).await;
+    let ids = harness.requests(1).await;
+
+    removed.mark_batching(&ids).await;
+    removed
+        .submit(transfer(), ids.clone(), BatchType::Create)
+        .await
+        .expect("submit");
+    drop(removed);
+
+    // The wallet that signed is dropped from configuration without draining;
+    // a replica that knows only another wallet must still decide its record.
+    let other_wallet = wallet_at(&harness.anvil, harness.anvil.endpoint(), 1).await;
+    let other = harness
+        .submitter_with_wallet(other_wallet, harness.anvil.endpoint(), config())
+        .await;
+    resolve(&harness, &other).await;
+
+    assert!(matches!(
+        harness.status(&ids[0]).await,
+        GatewayRequestState::Finalized { .. }
+    ));
+    assert_eq!(harness.wallet_state().await, None, "the record is released");
 }

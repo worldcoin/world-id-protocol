@@ -12,8 +12,11 @@
 //! ([`WalletState::Parked`]). A wallet is reusable only when its record is
 //! gone, so the record must be deleted by an explicit, guarded transition.
 //!
-//! This is the only Redis key family the wallet mechanism adds, so a gateway
-//! build that predates it ignores these keys entirely.
+//! Key families, all new, so a gateway build that predates them ignores them:
+//!
+//! - `gateway:wallet:{address}`: the record above.
+//! - `gateway:wallet_resolver:{address}`: a short-lived claim that lets one
+//!   replica probe a wallet per resolver interval.
 
 use std::time::Duration;
 
@@ -30,6 +33,9 @@ use crate::{batch_type::BatchType, error::GatewayResult};
 /// that a build which predates a new field can still decode a newer record. Any
 /// reader that depends on a field must therefore treat it as optional.
 const SCHEMA_VERSION: u8 = 1;
+
+/// Prefix of the wallet record keys, followed by the checksummed address.
+const KEY_PREFIX: &str = "gateway:wallet:";
 
 /// Outcome of a compare-and-set write against a wallet record.
 ///
@@ -399,9 +405,71 @@ impl WalletStore {
             .collect())
     }
 
+    /// Addresses of every wallet that currently has a record.
+    ///
+    /// Includes wallets this process is not configured with, such as a pool
+    /// key removed without draining or the per-replica key of a scaled-down
+    /// replica. Keys whose suffix is not an address are skipped.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Redis call fails.
+    pub(crate) async fn addresses(&self) -> GatewayResult<Vec<Address>> {
+        let mut manager = self.manager.clone();
+        let mut cursor = 0u64;
+        let mut addresses = Vec::new();
+        loop {
+            let (next, keys): (u64, Vec<String>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(format!("{KEY_PREFIX}*"))
+                .arg("COUNT")
+                .arg(100)
+                .query_async(&mut manager)
+                .await?;
+            addresses.extend(
+                keys.iter()
+                    .filter_map(|key| key.strip_prefix(KEY_PREFIX)?.parse::<Address>().ok()),
+            );
+            if next == 0 {
+                return Ok(addresses);
+            }
+            cursor = next;
+        }
+    }
+
+    /// Claims the right to resolve `wallet` for `ttl`, returning whether this
+    /// caller holds it.
+    ///
+    /// Every replica runs a resolver over the same wallets. The claim makes one
+    /// of them probe each wallet per interval instead of all of them, which
+    /// bounds RPC load by the pool size rather than pool size times replicas.
+    /// It is an optimisation only: every write the resolver makes is guarded,
+    /// so two replicas resolving the same wallet stay correct.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the Redis call fails.
+    pub(crate) async fn claim_resolution(
+        &self,
+        wallet: Address,
+        ttl: Duration,
+    ) -> GatewayResult<bool> {
+        let mut manager = self.manager.clone();
+        let claimed: Option<String> = redis::cmd("SET")
+            .arg(format!("gateway:wallet_resolver:{wallet}"))
+            .arg(1)
+            .arg("NX")
+            .arg("PX")
+            .arg(u64::try_from(ttl.as_millis()).unwrap_or(u64::MAX).max(1))
+            .query_async(&mut manager)
+            .await?;
+        Ok(claimed.is_some())
+    }
+
     /// Redis key holding one wallet's record.
     fn key(wallet: Address) -> String {
-        format!("gateway:wallet:{wallet}")
+        format!("{KEY_PREFIX}{wallet}")
     }
 }
 
