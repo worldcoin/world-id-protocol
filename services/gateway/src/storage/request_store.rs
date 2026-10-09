@@ -883,7 +883,7 @@ mod tests {
                     &[StatusGuard::Queued],
                     &GatewayRequestState::Batching,
                     11,
-                    None
+                    None,
                 )
                 .await
                 .unwrap(),
@@ -950,6 +950,48 @@ mod tests {
         ));
         assert_eq!(record.wallet, Some(wallet));
         assert_eq!(record.updated_at, 13);
+    }
+
+    #[tokio::test]
+    async fn guarded_terminal_write_releases_pending_entry_and_locks() {
+        let (store, _redis) = store().await;
+        let id = "guarded-terminal";
+        store
+            .create_request(
+                id,
+                GatewayRequestKind::CreateAccount,
+                &["0x5678".to_string()],
+                10,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            store
+                .update_status_if(
+                    id,
+                    &[StatusGuard::Queued],
+                    &GatewayRequestState::failed("stale", None),
+                    11,
+                    None,
+                )
+                .await
+                .unwrap(),
+            StatusWriteOutcome::Applied
+        );
+
+        let record = store.request(id).await.unwrap().expect("record exists");
+        assert!(matches!(record.status, GatewayRequestState::Failed { .. }));
+        assert!(
+            store.pending_request_ids().await.unwrap().is_empty(),
+            "a terminal guarded write leaves the pending set"
+        );
+        let mut manager = store.manager.clone();
+        let lock_exists: bool = manager
+            .exists("gateway:inflight:create:0x5678")
+            .await
+            .unwrap();
+        assert!(!lock_exists, "a terminal guarded write releases its locks");
     }
 
     #[tokio::test]
