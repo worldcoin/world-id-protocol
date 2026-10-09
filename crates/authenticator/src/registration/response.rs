@@ -156,15 +156,27 @@ impl RegistrationErrorReason {
 }
 
 /// The `data` member of a registration error.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RegistrationErrorData {
     /// Optional implementation-specific detail, e.g. a gateway error code.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "super::deserialize_present"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct WireRegistrationErrorData {
+    #[serde(default, deserialize_with = "super::deserialize_present")]
+    detail: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for RegistrationErrorData {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire: WireRegistrationErrorData = super::deserialize_payload(deserializer)?;
+        Ok(Self {
+            detail: wire.detail,
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -289,6 +301,30 @@ mod tests {
             Some(RegistrationErrorReason::UserRejected)
         );
         assert_eq!(RegistrationErrorReason::from_code("future_error"), None);
+    }
+
+    #[test]
+    fn error_data_must_be_an_untagged_map_without_unknown_fields() {
+        use ciborium::Value;
+        let data = Value::Map(vec![("detail".into(), "transaction_reverted".into())]);
+        assert_eq!(
+            data.deserialized::<RegistrationErrorData>().unwrap(),
+            RegistrationErrorData {
+                detail: Some("transaction_reverted".into())
+            }
+        );
+        for invalid in [
+            Value::Tag(0, Box::new(data)),
+            Value::Map(vec![("detail".into(), Value::Tag(0, Box::new("x".into())))]),
+            Value::Map(vec![("other".into(), "x".into())]),
+            Value::Map(vec![("detail".into(), Value::Null)]),
+            Value::Null,
+        ] {
+            assert!(
+                invalid.deserialized::<RegistrationErrorData>().is_err(),
+                "{invalid:?}"
+            );
+        }
     }
 
     #[test]

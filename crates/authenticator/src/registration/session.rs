@@ -33,11 +33,16 @@ pub struct PairingSecret([u8; 32]);
 
 impl PairingSecret {
     /// Generates a fresh pairing secret from the operating system CSPRNG.
-    #[must_use]
-    pub fn generate() -> Self {
-        let mut secret = [0u8; 32];
-        RandOsRng.fill_bytes(&mut secret);
-        Self(secret)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::Rng`] if randomness is unavailable.
+    pub fn generate() -> Result<Self, TransportError> {
+        let mut secret = Self([0u8; 32]);
+        RandOsRng
+            .try_fill_bytes(&mut secret.0)
+            .map_err(|_| TransportError::Rng)?;
+        Ok(secret)
     }
 
     /// Wraps raw secret bytes, e.g. ones parsed from a Pairing URI or restored after a restart.
