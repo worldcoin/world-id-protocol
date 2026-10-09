@@ -124,6 +124,19 @@ impl Harness {
             .status
     }
 
+    /// Mines an empty block, so the chain's head is at least as new as
+    /// anything committed so far. Auto-mining only produces blocks for
+    /// transactions, and `Absent` is concluded only from a head that is newer
+    /// than the commit.
+    async fn mine(&self) {
+        let _: String = self
+            .wallet
+            .provider
+            .raw_request("evm_mine".into(), ())
+            .await
+            .expect("evm_mine");
+    }
+
     async fn wallet_state(&self) -> Option<WalletState> {
         self.wallet_store
             .get(self.wallet.address)
@@ -307,6 +320,7 @@ async fn a_crash_between_commit_and_broadcast_fails_the_batch_and_frees_the_nonc
 
     harness.commit_without_broadcast(&crashed, &ids).await;
     drop(crashed);
+    harness.mine().await;
 
     let restarted = harness.submitter(harness.anvil.endpoint(), config()).await;
     resolve(&harness, &restarted).await;

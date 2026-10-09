@@ -4,6 +4,7 @@
 //! mocked provider.
 
 use alloy::{
+    eips::BlockNumberOrTag,
     primitives::Address,
     providers::{DynProvider, Provider},
     rpc::types::TransactionReceipt,
@@ -43,11 +44,16 @@ enum ReceiptCheck {
 ///
 /// The receipt lookup is treated as the source of truth. An RPC failure is
 /// never evidence of anything, so it always yields [`Probe::Wait`].
+///
+/// [`Probe::Absent`] is concluded only from a node whose head block is at
+/// least `absent_after` (unix seconds): a stuck or lagging node also knows
+/// nothing of the transaction and reports its nonce free.
 pub(super) async fn probe(
     provider: &DynProvider,
     wallet: Address,
     submission: &Submission,
     release_confirmations: u64,
+    absent_after: u64,
 ) -> Probe {
     let tx_hash = submission.tx_hash;
 
@@ -125,9 +131,19 @@ pub(super) async fn probe(
     if pending > submission.nonce {
         // The nonce is occupied in a mempool, so the transaction may still
         // land whether or not the entry is ours.
-        Probe::Wait
-    } else {
-        Probe::Absent
+        return Probe::Wait;
+    }
+
+    match provider.get_block_by_number(BlockNumberOrTag::Latest).await {
+        Ok(Some(head)) if head.header.timestamp >= absent_after => Probe::Absent,
+        // The node has not caught up with the time the transaction should have
+        // reached it, so its silence proves nothing yet.
+        Ok(_) => Probe::Wait,
+        Err(error) => {
+            metrics::increment_wallet_error("resolve", "rpc");
+            tracing::debug!(%error, "failed to read the head block");
+            Probe::Wait
+        }
     }
 }
 
@@ -254,14 +270,43 @@ mod tests {
         block
     }
 
+    /// Earliest head timestamp from which `Absent` may be concluded.
+    const ABSENT_AFTER: u64 = 1_000;
+
     async fn run(asserter: &Asserter, release_confirmations: u64) -> Probe {
         probe(
             &provider(asserter),
             WALLET,
             &submission(),
             release_confirmations,
+            ABSENT_AFTER,
         )
         .await
+    }
+
+    // The mock answers calls in order, so each helper names the call it stands
+    // for: receipt, transaction by hash, latest nonce, pending nonce, head.
+
+    fn no_receipt(asserter: &Asserter) {
+        asserter.push_success(&serde_json::Value::Null);
+    }
+
+    fn unknown_by_hash(asserter: &Asserter) {
+        asserter.push_success(&serde_json::Value::Null);
+    }
+
+    fn nonce(asserter: &Asserter, nonce: u64) {
+        asserter.push_success(&format!("{nonce:#x}"));
+    }
+
+    fn head_number(asserter: &Asserter, number: u64) {
+        asserter.push_success(&format!("{number:#x}"));
+    }
+
+    fn head_at(asserter: &Asserter, timestamp: u64) {
+        let mut head = block(B256::repeat_byte(0xcc));
+        head.header.inner.timestamp = timestamp;
+        asserter.push_success(&head);
     }
 
     #[tokio::test]
@@ -276,7 +321,7 @@ mod tests {
         let asserter = Asserter::new();
         asserter.push_success(&receipt(Some(INCLUSION_HASH), true));
         asserter.push_success(&block(INCLUSION_HASH));
-        asserter.push_success(&format!("{:#x}", INCLUSION_BLOCK + 2));
+        head_number(&asserter, INCLUSION_BLOCK + 2);
         assert_eq!(
             run(&asserter, 1).await,
             Probe::Included {
@@ -291,7 +336,7 @@ mod tests {
         let asserter = Asserter::new();
         asserter.push_success(&receipt(Some(INCLUSION_HASH), false));
         asserter.push_success(&block(INCLUSION_HASH));
-        asserter.push_success(&format!("{INCLUSION_BLOCK:#x}"));
+        head_number(&asserter, INCLUSION_BLOCK);
         assert_eq!(
             run(&asserter, 1).await,
             Probe::Included {
@@ -306,7 +351,7 @@ mod tests {
         let asserter = Asserter::new();
         asserter.push_success(&receipt(Some(INCLUSION_HASH), true));
         asserter.push_success(&block(INCLUSION_HASH));
-        asserter.push_success(&format!("{INCLUSION_BLOCK:#x}"));
+        head_number(&asserter, INCLUSION_BLOCK);
         assert_eq!(run(&asserter, 3).await, Probe::Wait);
     }
 
@@ -314,6 +359,9 @@ mod tests {
     async fn a_receipt_without_a_block_hash_waits() {
         let asserter = Asserter::new();
         asserter.push_success(&receipt(None, true));
+        // Without the block-hash check these would make it `Included`.
+        asserter.push_success(&block(INCLUSION_HASH));
+        head_number(&asserter, INCLUSION_BLOCK);
         assert_eq!(run(&asserter, 1).await, Probe::Wait);
     }
 
@@ -324,22 +372,22 @@ mod tests {
         asserter.push_success(&receipt(Some(INCLUSION_HASH), true));
         asserter.push_success(&block(B256::repeat_byte(0xbb)));
         // Unknown by hash, nonce consumed, and the re-read still finds nothing.
-        asserter.push_success(&serde_json::Value::Null);
-        asserter.push_success(&format!("{:#x}", NONCE + 1));
-        asserter.push_success(&serde_json::Value::Null);
+        unknown_by_hash(&asserter);
+        nonce(&asserter, NONCE + 1);
+        no_receipt(&asserter);
         assert_eq!(run(&asserter, 1).await, Probe::Replaced);
     }
 
     #[tokio::test]
     async fn a_consumed_nonce_with_a_late_receipt_is_not_replaced() {
         let asserter = Asserter::new();
-        asserter.push_success(&serde_json::Value::Null);
-        asserter.push_success(&serde_json::Value::Null);
-        asserter.push_success(&format!("{:#x}", NONCE + 1));
+        no_receipt(&asserter);
+        unknown_by_hash(&asserter);
+        nonce(&asserter, NONCE + 1);
         // A load-balanced node answers the re-read with the receipt after all.
         asserter.push_success(&receipt(Some(INCLUSION_HASH), true));
         asserter.push_success(&block(INCLUSION_HASH));
-        asserter.push_success(&format!("{INCLUSION_BLOCK:#x}"));
+        head_number(&asserter, INCLUSION_BLOCK);
         assert_eq!(
             run(&asserter, 1).await,
             Probe::Included {
@@ -352,9 +400,9 @@ mod tests {
     #[tokio::test]
     async fn a_failed_re_read_does_not_conclude_replacement() {
         let asserter = Asserter::new();
-        asserter.push_success(&serde_json::Value::Null);
-        asserter.push_success(&serde_json::Value::Null);
-        asserter.push_success(&format!("{:#x}", NONCE + 1));
+        no_receipt(&asserter);
+        unknown_by_hash(&asserter);
+        nonce(&asserter, NONCE + 1);
         asserter.push_failure_msg("request timed out");
         assert_eq!(run(&asserter, 1).await, Probe::Wait);
     }
@@ -362,20 +410,32 @@ mod tests {
     #[tokio::test]
     async fn an_occupied_pending_nonce_waits() {
         let asserter = Asserter::new();
-        asserter.push_success(&serde_json::Value::Null);
-        asserter.push_success(&serde_json::Value::Null);
-        asserter.push_success(&format!("{NONCE:#x}"));
-        asserter.push_success(&format!("{:#x}", NONCE + 1));
+        no_receipt(&asserter);
+        unknown_by_hash(&asserter);
+        nonce(&asserter, NONCE);
+        nonce(&asserter, NONCE + 1);
         assert_eq!(run(&asserter, 1).await, Probe::Wait);
     }
 
     #[tokio::test]
     async fn an_unknown_transaction_with_a_free_nonce_is_absent() {
         let asserter = Asserter::new();
-        asserter.push_success(&serde_json::Value::Null);
-        asserter.push_success(&serde_json::Value::Null);
-        asserter.push_success(&format!("{NONCE:#x}"));
-        asserter.push_success(&format!("{NONCE:#x}"));
+        no_receipt(&asserter);
+        unknown_by_hash(&asserter);
+        nonce(&asserter, NONCE);
+        nonce(&asserter, NONCE);
+        head_at(&asserter, ABSENT_AFTER);
         assert_eq!(run(&asserter, 1).await, Probe::Absent);
+    }
+
+    #[tokio::test]
+    async fn a_lagging_node_never_concludes_absent() {
+        let asserter = Asserter::new();
+        no_receipt(&asserter);
+        unknown_by_hash(&asserter);
+        nonce(&asserter, NONCE);
+        nonce(&asserter, NONCE);
+        head_at(&asserter, ABSENT_AFTER - 1);
+        assert_eq!(run(&asserter, 1).await, Probe::Wait);
     }
 }

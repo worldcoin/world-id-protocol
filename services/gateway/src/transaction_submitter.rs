@@ -621,6 +621,7 @@ impl TransactionSubmitter {
             wallet,
             submission,
             self.config.release_confirmations,
+            submission.submitted_at + self.config.absent_grace_secs,
         )
         .await
         {
