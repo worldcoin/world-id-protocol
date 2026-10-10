@@ -41,6 +41,18 @@ pub enum SparseAuthenticatorPubkeysError {
     },
 }
 
+/// Decodes an authenticator public key from its `WorldIDRegistry` representation.
+///
+/// The registry stores each authenticator public key as a `uint256` holding the little-endian
+/// bytes of the compressed BabyJubJub point. The registry does not validate these values, so any
+/// `uint256` can be committed on chain; decode a key before relying on it.
+///
+/// # Errors
+/// Returns an error if `encoded` is not a canonical compressed point in the prime-order subgroup.
+pub fn decode_authenticator_pubkey(encoded: U256) -> Result<EdDSAPublicKey, eyre::Error> {
+    EdDSAPublicKey::from_compressed_bytes(encoded.to_le_bytes())
+}
+
 /// A set of **off-chain** authenticator public keys for a World ID Account.
 ///
 /// Each World ID Account has a number of public keys for each authorized authenticator;
@@ -105,14 +117,12 @@ impl AuthenticatorPublicKeySet {
             .take(normalized_len)
             .enumerate()
             .map(|(idx, pubkey)| match pubkey {
-                Some(pubkey) => EdDSAPublicKey::from_compressed_bytes(pubkey.to_le_bytes())
-                    .map(Some)
-                    .map_err(
-                        |e| SparseAuthenticatorPubkeysError::InvalidCompressedPubkey {
-                            slot_index: idx,
-                            reason: e.to_string(),
-                        },
-                    ),
+                Some(pubkey) => decode_authenticator_pubkey(pubkey).map(Some).map_err(|e| {
+                    SparseAuthenticatorPubkeysError::InvalidCompressedPubkey {
+                        slot_index: idx,
+                        reason: e.to_string(),
+                    }
+                }),
                 None => Ok(None),
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -249,6 +259,7 @@ mod tests {
     use crate::{MAX_AUTHENTICATOR_KEYS, Signer};
     use ark_babyjubjub::EdwardsAffine;
     use ark_serialize::CanonicalSerialize as _;
+    use ruint::uint;
 
     fn create_test_pubkey() -> EdDSAPublicKey {
         EdDSAPublicKey {
@@ -392,6 +403,49 @@ mod tests {
         assert_eq!(key_set[0].as_ref().unwrap().pk, test_pubkey(1).pk);
         assert_eq!(key_set[1], None);
         assert_eq!(key_set[2].as_ref().unwrap().pk, test_pubkey(2).pk);
+    }
+
+    #[test]
+    fn test_decode_authenticator_pubkey_round_trips_encoded_key() {
+        let decoded = decode_authenticator_pubkey(encoded_test_pubkey(1)).unwrap();
+
+        assert_eq!(decoded.pk, test_pubkey(1).pk);
+    }
+
+    /// The non-zero values were committed to the staging registry as authenticator public keys.
+    #[test]
+    fn test_decode_authenticator_pubkey_rejects_invalid_points() {
+        let invalid_pubkeys = [
+            // Not a canonical field element.
+            uint!(0x5c516cbd06a7603ee22dfb235e10b0a27449ae5786269f1b462faf2030e6033e_U256),
+            // Not on the curve.
+            uint!(0x1111111111111111111111111111111111111111111111111111111111111111_U256),
+            // On the curve, but outside the prime-order subgroup.
+            uint!(0xdead000000000000000000000000000000001234_U256),
+            U256::ZERO,
+        ];
+
+        for pubkey in invalid_pubkeys {
+            assert!(
+                decode_authenticator_pubkey(pubkey).is_err(),
+                "{pubkey:#x} must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_decode_sparse_pubkeys_reports_slot_of_invalid_pubkey() {
+        let error = AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(vec![
+            Some(encoded_test_pubkey(1)),
+            None,
+            Some(U256::MAX),
+        ])
+        .unwrap_err();
+
+        assert!(matches!(
+            error,
+            SparseAuthenticatorPubkeysError::InvalidCompressedPubkey { slot_index: 2, .. }
+        ));
     }
 
     #[test]

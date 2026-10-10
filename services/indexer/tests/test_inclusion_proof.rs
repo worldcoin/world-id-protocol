@@ -231,3 +231,84 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
 
     http_task.abort();
 }
+
+/// The registry accepts any `uint256` as an authenticator public key, so an account can hold a key
+/// that is not a valid compressed point. Such an account cannot produce proofs, and the indexer
+/// must report that as a client error rather than as an internal failure.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[serial]
+async fn test_inclusion_proof_rejects_invalid_stored_pubkey() {
+    let setup = TestSetup::new_with_tree_depth(6).await;
+
+    // Not a canonical field element, so not a valid compressed point.
+    let invalid_pubkey = U256::MAX;
+    setup
+        .create_account(
+            address!("0x0000000000000000000000000000000000000031"),
+            invalid_pubkey,
+            1,
+        )
+        .await;
+
+    let temp_cache_path =
+        std::env::temp_dir().join(format!("test_cache_{}.mmap", uuid::Uuid::new_v4()));
+    let global_config = GlobalConfig {
+        environment: Environment::Development,
+        run_mode: RunMode::Both {
+            indexer_config: IndexerConfig {
+                start_block: 0,
+                batch_size: 1000,
+                tree_max_block_age: 1000,
+                blockchain_poll_interval_ms: 1000,
+                max_concurrent_log_requests: 1,
+            },
+            http_config: HttpConfig {
+                http_addr: "0.0.0.0:8088".parse().unwrap(),
+                db_poll_interval_secs: 1,
+                request_timeout_secs: 10,
+                sanity_check_interval_secs: None,
+            },
+        },
+        db_url: setup.db_url.clone(),
+        provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
+        registry_address: setup.registry_address,
+        tree_cache: TreeCacheConfig {
+            cache_file_path: temp_cache_path.to_str().unwrap().to_string(),
+            tree_depth: 6,
+            http_cache_refresh_interval_secs: 1,
+        },
+    };
+
+    let indexer_task = tokio::spawn(async move {
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
+    });
+
+    let deadline = std::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        let c = query_count(&setup.pool).await;
+        if c >= 1 {
+            break;
+        }
+        if std::time::Instant::now() > deadline {
+            panic!("timeout waiting for backfill; count {c}");
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    TestSetup::wait_for_health("http://127.0.0.1:8088").await;
+
+    let resp = reqwest::Client::new()
+        .post("http://127.0.0.1:8088/inclusion-proof")
+        .json(&serde_json::json!({ "leaf_index": "0x1" }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::UNPROCESSABLE_ENTITY);
+
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(
+        json["code"].as_str().unwrap(),
+        "invalid_authenticator_pubkey"
+    );
+
+    indexer_task.abort();
+}

@@ -1,4 +1,7 @@
-use crate::{config::AppState, error::IndexerErrorResponse};
+use crate::{
+    config::AppState,
+    error::{IndexerErrorBody, IndexerErrorResponse},
+};
 use alloy::primitives::U256;
 use axum::{Json, extract::State};
 use http::StatusCode;
@@ -41,6 +44,7 @@ pub(crate) struct AccountInclusionProofSchema {
     request_body = IndexerQueryRequest,
     responses(
         (status = 200, body = AccountInclusionProofSchema, description = "Merkle inclusion proof with authenticator public keys"),
+        (status = 422, description = "An authenticator public key stored for the account is not a valid compressed point", body = IndexerErrorBody),
     ),
     tag = "indexer"
 )]
@@ -65,25 +69,34 @@ pub(crate) async fn handler(
         .map_err(|_err| IndexerErrorResponse::internal_server_error())?
         .ok_or(IndexerErrorResponse::not_found())?;
 
-    let authenticator_pubkeys =
-        AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(pubkeys).map_err(|e| {
-        match e {
+    let authenticator_pubkeys = AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(pubkeys)
+        .map_err(|e| match e {
             SparseAuthenticatorPubkeysError::SlotOutOfBounds {
                 slot_index,
                 max_supported_slot,
-            } => tracing::error!(
-                leaf_index = %leaf_index,
-                "Invalid authenticator slot index returned from DB: {slot_index} (max {max_supported_slot})"
-            ),
-            SparseAuthenticatorPubkeysError::InvalidCompressedPubkey { slot_index, reason } => {
+            } => {
                 tracing::error!(
+                    leaf_index = %leaf_index,
+                    "Invalid authenticator slot index returned from DB: {slot_index} (max {max_supported_slot})"
+                );
+                IndexerErrorResponse::internal_server_error()
+            }
+            // The registry accepts any `uint256` as a public key, so this is bad account data
+            // rather than an indexer fault.
+            SparseAuthenticatorPubkeysError::InvalidCompressedPubkey { slot_index, reason } => {
+                tracing::warn!(
                     leaf_index = %leaf_index,
                     "Invalid public key stored for account at slot {slot_index}: {reason}"
                 );
+                IndexerErrorResponse::new(
+                    IndexerErrorCode::InvalidAuthenticatorPubkey,
+                    format!(
+                        "Authenticator public key at slot {slot_index} is not a valid compressed point."
+                    ),
+                    StatusCode::UNPROCESSABLE_ENTITY,
+                )
             }
-        }
-        IndexerErrorResponse::internal_server_error()
-    })?;
+        })?;
 
     let index_as_usize = leaf_index as usize;
     let num_leaves = state.tree_state.num_leaves().await;
