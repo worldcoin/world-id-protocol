@@ -8,10 +8,13 @@ use alloy::{
     sol_types::{Eip712Domain, SolStruct, eip712_domain},
 };
 use axum::http::StatusCode;
-use world_id_primitives::api_types::{
-    CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
-    GatewayErrorCode, InsertAuthenticatorRequest, RecoverAccountRequest,
-    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+use world_id_primitives::{
+    api_types::{
+        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+        GatewayErrorCode, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+    },
+    decode_authenticator_pubkey,
 };
 use world_id_registries::world_id::{
     CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
@@ -132,6 +135,23 @@ fn recover_signer<T: SolStruct>(
         })
 }
 
+/// Rejects an authenticator public key that the indexer could not decode.
+///
+/// The registry stores any `uint256` it is given, so an undecodable key would be committed on chain
+/// and leave the account unable to fetch inclusion proofs from the indexer.
+fn ensure_valid_authenticator_pubkey(
+    field: &str,
+    pubkey: U256,
+) -> Result<(), GatewayErrorResponse> {
+    decode_authenticator_pubkey(pubkey)
+        .map(|_| ())
+        .map_err(|e| {
+            GatewayErrorResponse::bad_request_message(format!(
+                "{field} is not a valid authenticator public key: {e}"
+            ))
+        })
+}
+
 // =============================================================================
 // CreateAccountRequest
 // =============================================================================
@@ -163,6 +183,9 @@ impl RequestValidation for CreateAccountRequest {
             return Err(GatewayErrorResponse::bad_request_message(
                 "offchain signer commitment cannot be zero".to_string(),
             ));
+        }
+        for (index, pubkey) in self.authenticator_pubkeys.iter().enumerate() {
+            ensure_valid_authenticator_pubkey(&format!("authenticator_pubkeys[{index}]"), *pubkey)?;
         }
         Ok(())
     }
@@ -208,6 +231,10 @@ impl RequestValidation for InsertAuthenticatorRequest {
                 "offchain signer commitment cannot be zero".to_string(),
             ));
         }
+        ensure_valid_authenticator_pubkey(
+            "new_authenticator_pubkey",
+            self.new_authenticator_pubkey,
+        )?;
 
         // Verify ECDSA signature
         let typed_data = InsertAuthenticatorTypedData {
@@ -282,6 +309,10 @@ impl RequestValidation for UpdateAuthenticatorRequest {
                 "offchain signer commitment cannot be zero".to_string(),
             ));
         }
+        ensure_valid_authenticator_pubkey(
+            "new_authenticator_pubkey",
+            self.new_authenticator_pubkey,
+        )?;
 
         // Verify ECDSA signature is from the authenticator being replaced
         let typed_data = UpdateAuthenticatorTypedData {
@@ -357,6 +388,7 @@ impl RequestValidation for RemoveAuthenticatorRequest {
                 "offchain signer commitment cannot be zero".to_string(),
             ));
         }
+        // The removed key is deliberately not decoded so that an undecodable key can be removed.
 
         // Verify ECDSA signature format and recoverability
         // Note: Any authenticator on the account can authorize removal, not just the one being removed.
@@ -566,8 +598,6 @@ impl RequestValidation for RevertRecoveryAgentUpdateRequest {
 
 impl RequestValidation for RecoverAccountRequest {
     fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
-        let new_pubkey = self.new_authenticator_pubkey.unwrap_or(U256::ZERO);
-
         if self.leaf_index == 0 {
             return Err(GatewayErrorResponse::bad_request_message(
                 "leaf_index cannot be zero".to_string(),
@@ -585,6 +615,12 @@ impl RequestValidation for RecoverAccountRequest {
                 "offchain signer commitment cannot be zero".to_string(),
             ));
         }
+        let Some(new_pubkey) = self.new_authenticator_pubkey else {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "new_authenticator_pubkey is required".to_string(),
+            ));
+        };
+        ensure_valid_authenticator_pubkey("new_authenticator_pubkey", new_pubkey)?;
 
         // Verify ECDSA signature
         let typed_data = RecoverAccountTypedData {
@@ -629,6 +665,7 @@ mod tests {
         primitives::{Address, U256, address},
         signers::local::PrivateKeySigner,
     };
+    use eddsa_babyjubjub::EdDSAPrivateKey;
     use world_id_primitives::api_types::{
         CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
         InsertAuthenticatorRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
@@ -663,6 +700,118 @@ mod tests {
         pre_flight_context_for(RegistryVersion::V2)
     }
 
+    /// Not a canonical field element, so not a valid compressed point.
+    const INVALID_PUBKEY: U256 = U256::MAX;
+
+    fn valid_pubkey(seed: u8) -> U256 {
+        let pubkey = EdDSAPrivateKey::from_bytes([seed; 32]).public();
+        U256::from_le_bytes(pubkey.to_compressed_bytes().unwrap())
+    }
+
+    fn unsigned() -> Signature {
+        Signature::new(U256::ZERO, U256::ZERO, false)
+    }
+
+    // ------------------------------------------------------------------
+    // Authenticator public key validation
+    // ------------------------------------------------------------------
+
+    fn create_account_request(authenticator_pubkeys: Vec<U256>) -> CreateAccountRequest {
+        CreateAccountRequest {
+            recovery_address: None,
+            authenticator_addresses: vec![
+                address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+                authenticator_pubkeys.len()
+            ],
+            authenticator_pubkeys,
+            offchain_signer_commitment: U256::from(1u64),
+        }
+    }
+
+    fn recover_account_request(new_authenticator_pubkey: Option<U256>) -> RecoverAccountRequest {
+        RecoverAccountRequest {
+            leaf_index: 1,
+            new_authenticator_address: address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            old_offchain_signer_commitment: U256::from(1u64),
+            new_offchain_signer_commitment: U256::from(2u64),
+            signature: unsigned(),
+            nonce: U256::ZERO,
+            new_authenticator_pubkey,
+        }
+    }
+
+    #[test]
+    fn create_account_preflight_accepts_valid_pubkeys() {
+        let req = create_account_request(vec![valid_pubkey(1), valid_pubkey(2)]);
+
+        assert!(req.pre_flight(pre_flight_context()).is_ok());
+    }
+
+    #[test]
+    fn create_account_preflight_rejects_invalid_pubkey() {
+        let req = create_account_request(vec![valid_pubkey(1), INVALID_PUBKEY]);
+
+        let err = req.pre_flight(pre_flight_context()).unwrap_err();
+        assert!(err.to_string().contains("authenticator_pubkeys[1]"));
+    }
+
+    #[test]
+    fn insert_preflight_rejects_invalid_pubkey() {
+        let req = InsertAuthenticatorRequest {
+            leaf_index: 1,
+            new_authenticator_address: address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            old_offchain_signer_commitment: U256::from(1u64),
+            new_offchain_signer_commitment: U256::from(2u64),
+            signature: unsigned(),
+            nonce: U256::ZERO,
+            pubkey_id: 1,
+            new_authenticator_pubkey: INVALID_PUBKEY,
+        };
+
+        let err = req.pre_flight(pre_flight_context()).unwrap_err();
+        assert!(err.to_string().contains("new_authenticator_pubkey"));
+    }
+
+    #[test]
+    fn update_authenticator_preflight_rejects_invalid_pubkey() {
+        let req = UpdateAuthenticatorRequest {
+            leaf_index: 1,
+            old_authenticator_address: address!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+            new_authenticator_address: address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+            old_offchain_signer_commitment: U256::from(1u64),
+            new_offchain_signer_commitment: U256::from(2u64),
+            signature: unsigned(),
+            nonce: U256::ZERO,
+            pubkey_id: 1,
+            new_authenticator_pubkey: INVALID_PUBKEY,
+        };
+
+        let err = req.pre_flight(pre_flight_context()).unwrap_err();
+        assert!(err.to_string().contains("new_authenticator_pubkey"));
+    }
+
+    #[test]
+    fn recover_account_preflight_rejects_missing_pubkey() {
+        let req = recover_account_request(None);
+
+        let err = req.pre_flight(pre_flight_context()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("new_authenticator_pubkey is required")
+        );
+    }
+
+    #[test]
+    fn recover_account_preflight_rejects_invalid_pubkey() {
+        let req = recover_account_request(Some(INVALID_PUBKEY));
+
+        let err = req.pre_flight(pre_flight_context()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("new_authenticator_pubkey is not a valid")
+        );
+    }
+
     // ------------------------------------------------------------------
     // V2 registry-specific authenticator pre_flight
     // ------------------------------------------------------------------
@@ -673,7 +822,7 @@ mod tests {
         let domain = make_domain();
         let leaf_index = 1u64;
         let pubkey_id = 1u32;
-        let new_authenticator_pubkey = U256::from(200u64);
+        let new_authenticator_pubkey = valid_pubkey(1);
         let new_offchain_signer_commitment = U256::from(2u64);
         let nonce = U256::ZERO;
 
@@ -750,7 +899,7 @@ mod tests {
         let new_authenticator_address: Address =
             address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         let pubkey_id = 1u32;
-        let new_authenticator_pubkey = U256::from(200u64);
+        let new_authenticator_pubkey = valid_pubkey(1);
         let new_offchain_signer_commitment = U256::from(2u64);
         let nonce = U256::ZERO;
 

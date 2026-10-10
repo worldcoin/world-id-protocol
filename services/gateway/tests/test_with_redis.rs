@@ -13,7 +13,9 @@ use world_id_primitives::api_types::GatewayStatusResponse;
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{GW_PRIVATE_KEY, start_redis, wait_for_finalized, wait_http_ready};
+use crate::common::{
+    GW_PRIVATE_KEY, authenticator_pubkey, start_redis, wait_for_finalized, wait_http_ready,
+};
 
 mod common;
 
@@ -68,7 +70,7 @@ async fn redis_integration() {
     let body = world_id_primitives::api_types::CreateAccountRequest {
         recovery_address: Some(wallet_addr),
         authenticator_addresses: vec![address!("0x1111111111111111111111111111111111111111")],
-        authenticator_pubkeys: vec![U256::from(100)],
+        authenticator_pubkeys: vec![authenticator_pubkey(100)],
         offchain_signer_commitment: U256::from(1),
     };
 

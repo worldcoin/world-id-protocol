@@ -23,7 +23,10 @@ use world_id_registries::world_id::{
     sign_initiate_recovery_agent_update,
 };
 
-use crate::common::{TestGateway, spawn_test_gateway, spawn_test_gateway_v2, wait_for_finalized};
+use crate::common::{
+    TestGateway, authenticator_pubkey, spawn_test_gateway, spawn_test_gateway_v2,
+    wait_for_finalized,
+};
 
 mod common;
 
@@ -141,7 +144,7 @@ async fn create_account(gw: &TestGateway) -> (PrivateKeySigner, Address) {
     let body_create = serde_json::json!({
         "recovery_address": wallet_addr.to_string(),
         "authenticator_addresses": [wallet_addr.to_string()],
-        "authenticator_pubkeys": ["0x64"],
+        "authenticator_pubkeys": [authenticator_pubkey(100).to_string()],
         "offchain_signer_commitment": "0x1",
     });
     let resp = gw

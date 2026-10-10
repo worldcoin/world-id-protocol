@@ -255,6 +255,9 @@ pub struct RecoverAccountRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub nonce: U256,
     /// The new authenticator pubkey.
+    ///
+    /// The gateway rejects requests without it: the registry would store a zero key, which no
+    /// authenticator can prove with.
     #[serde(default, with = "hex_u256_opt")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
     pub new_authenticator_pubkey: Option<U256>,
@@ -526,6 +529,7 @@ pub struct IsValidRootResponse {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum IndexerErrorCode {
     /// Internal server error occurred in the indexer.
     InternalServerError,
@@ -539,6 +543,10 @@ pub enum IndexerErrorCode {
     AccountDoesNotExist,
     /// The request timed out.
     RequestTimeout,
+    /// An authenticator public key stored for the account is not a valid public key.
+    ///
+    /// The account cannot produce proofs until the key is replaced.
+    InvalidAuthenticatorPubkey,
 }
 
 /// Gateway error codes.
