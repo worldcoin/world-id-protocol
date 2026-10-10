@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 use alloy::primitives::Address;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
