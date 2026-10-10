@@ -44,7 +44,7 @@ pub(crate) struct AccountInclusionProofSchema {
     request_body = IndexerQueryRequest,
     responses(
         (status = 200, body = AccountInclusionProofSchema, description = "Merkle inclusion proof with authenticator public keys"),
-        (status = 422, description = "An authenticator public key stored for the account is not a valid compressed point", body = IndexerErrorBody),
+        (status = 422, description = "An authenticator public key stored for the account is not a valid public key", body = IndexerErrorBody),
     ),
     tag = "indexer"
 )]
@@ -91,7 +91,7 @@ pub(crate) async fn handler(
                 IndexerErrorResponse::new(
                     IndexerErrorCode::InvalidAuthenticatorPubkey,
                     format!(
-                        "Authenticator public key at slot {slot_index} is not a valid compressed point."
+                        "Authenticator public key at slot {slot_index} is not a valid public key."
                     ),
                     StatusCode::UNPROCESSABLE_ENTITY,
                 )

@@ -543,7 +543,7 @@ pub enum IndexerErrorCode {
     AccountDoesNotExist,
     /// The request timed out.
     RequestTimeout,
-    /// An authenticator public key stored for the account is not a valid compressed point.
+    /// An authenticator public key stored for the account is not a valid public key.
     ///
     /// The account cannot produce proofs until the key is replaced.
     InvalidAuthenticatorPubkey,

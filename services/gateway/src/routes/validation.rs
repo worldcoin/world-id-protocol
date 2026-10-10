@@ -135,7 +135,7 @@ fn recover_signer<T: SolStruct>(
         })
 }
 
-/// Rejects an authenticator public key that cannot be decoded as a compressed point.
+/// Rejects an authenticator public key that the indexer could not decode.
 ///
 /// The registry stores any `uint256` it is given, so an undecodable key would be committed on chain
 /// and leave the account unable to fetch inclusion proofs from the indexer.
@@ -147,7 +147,7 @@ fn ensure_valid_authenticator_pubkey(
         .map(|_| ())
         .map_err(|e| {
             GatewayErrorResponse::bad_request_message(format!(
-                "{field} is not a valid compressed authenticator public key: {e}"
+                "{field} is not a valid authenticator public key: {e}"
             ))
         })
 }

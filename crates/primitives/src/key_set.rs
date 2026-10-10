@@ -48,9 +48,15 @@ pub enum SparseAuthenticatorPubkeysError {
 /// `uint256` can be committed on chain; decode a key before relying on it.
 ///
 /// # Errors
-/// Returns an error if `encoded` is not a canonical compressed point in the prime-order subgroup.
+/// Returns an error if `encoded` is not a canonical compressed point in the prime-order subgroup,
+/// or if it is the identity point. No signature verifies against the identity, and proof circuits
+/// use it to fill empty key slots.
 pub fn decode_authenticator_pubkey(encoded: U256) -> Result<EdDSAPublicKey, eyre::Error> {
-    EdDSAPublicKey::from_compressed_bytes(encoded.to_le_bytes())
+    let pubkey = EdDSAPublicKey::from_compressed_bytes(encoded.to_le_bytes())?;
+    if pubkey.pk == EdwardsAffine::default() {
+        eyre::bail!("the identity point is not a valid authenticator public key");
+    }
+    Ok(pubkey)
 }
 
 /// A set of **off-chain** authenticator public keys for a World ID Account.
@@ -431,6 +437,18 @@ mod tests {
                 "{pubkey:#x} must be rejected"
             );
         }
+    }
+
+    #[test]
+    fn test_decode_authenticator_pubkey_rejects_identity_point() {
+        let mut compressed = Vec::new();
+        EdwardsAffine::default()
+            .serialize_compressed(&mut compressed)
+            .unwrap();
+        let identity = U256::from_le_slice(&compressed);
+
+        assert!(EdDSAPublicKey::from_compressed_bytes(identity.to_le_bytes()).is_ok());
+        assert!(decode_authenticator_pubkey(identity).is_err());
     }
 
     #[test]
