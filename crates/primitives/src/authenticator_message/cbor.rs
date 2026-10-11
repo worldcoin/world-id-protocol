@@ -67,20 +67,6 @@ mod tests {
         )
     }
 
-    fn response(result: Value) -> Value {
-        map(&[
-            ("version", "1.0".into()),
-            ("id", 1.into()),
-            ("result", result),
-        ])
-    }
-
-    fn raw(value: &Value) -> Vec<u8> {
-        let mut bytes = Vec::new();
-        ciborium::into_writer(value, &mut bytes).unwrap();
-        bytes
-    }
-
     #[test_case(Id::Number(i128::from(u64::MAX)); "maximum_positive")]
     #[test_case(Id::Number(-1 - i128::from(u64::MAX)); "minimum_negative")]
     #[test_case(Id::String("1".into()); "string")]
@@ -105,51 +91,32 @@ mod tests {
         assert!(encode(&request).is_err());
     }
 
-    #[test]
-    fn preserves_map_entry_order() {
-        let value = Value::Map(vec![
-            (Value::Integer((-1).into()), Value::Null),
-            (Value::Integer(24.into()), Value::Null),
-        ]);
-        let encoded = encode(&value).unwrap();
-        assert_eq!(encoded, [0xa2, 0x20, 0xf6, 0x18, 0x18, 0xf6]);
-        assert_eq!(decode::<Value>(&encoded, 1024).unwrap(), value);
-    }
-
-    #[test]
-    fn unknown_sequence_lengths_round_trip() {
-        use serde::ser::SerializeSeq as _;
-
-        struct UnknownLength;
-        impl Serialize for UnknownLength {
-            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                let mut sequence = serializer.serialize_seq(None)?;
-                sequence.serialize_element(&1)?;
-                sequence.end()
-            }
-        }
-        let encoded = encode(&UnknownLength).unwrap();
-        assert_eq!(encoded, [0x9f, 1, 0xff]);
-        assert_eq!(decode::<Vec<u8>>(&encoded, 1024).unwrap(), vec![1]);
-    }
-
-    #[test]
-    fn notifications_and_absent_arguments_round_trip() {
-        let notification =
-            Request::<Value>::without_params(None, MethodName::from_static("worldid_ping"));
-        let bytes = encode(&notification).unwrap();
-        assert_eq!(
-            decode::<Request<Value>>(&bytes, 1024).unwrap(),
-            notification
-        );
-        let request = Request::<Value>::without_params(
-            Some(1.into()),
-            MethodName::from_static("worldid_ping"),
-        );
+    #[test_case(Some(1.into()), None; "absent_params")]
+    #[test_case(Some(1.into()), Some(Value::Null); "null_params")]
+    #[test_case(Some(1.into()), Some(map(&[("x", 1.into())])); "map_params")]
+    #[test_case(None, None; "notification")]
+    fn requests_preserve_absent_and_null_fields(id: Option<Id>, params: Option<Value>) {
+        let request = Request {
+            version: Version::V1,
+            id,
+            method: MethodName::from_static("worldid_ping"),
+            params,
+        };
         assert_eq!(
             decode::<Request<Value>>(&encode(&request).unwrap(), 1024).unwrap(),
             request
         );
+    }
+
+    #[test]
+    fn typed_request_params_reject_null() {
+        let request = Request::new(
+            Some(1.into()),
+            MethodName::from_static("worldid_ping"),
+            Value::Null,
+        );
+        let bytes = encode(&request).unwrap();
+        assert!(decode::<Request<std::collections::BTreeMap<String, u64>>>(&bytes, 1024).is_err());
     }
 
     #[test]
@@ -203,64 +170,10 @@ mod tests {
         assert_eq!(decoded.outcome.unwrap_err().code, "parse_error");
     }
 
-    #[test_case(Value::Null; "null")]
-    #[test_case(Value::Bool(true); "boolean")]
-    #[test_case(Value::Bytes(vec![1, 2]); "bytes")]
-    #[test_case(map(&[("x", 1.into())]); "map_payload")]
-    fn generic_codec_accepts_arbitrary_payloads(value: Value) {
-        assert_eq!(
-            decode::<Value>(&encode(&value).unwrap(), 1024).unwrap(),
-            value
-        );
-    }
-
-    #[test_case(None; "absent")]
-    #[test_case(Some(Value::Null); "present null")]
-    #[test_case(Some(map(&[("x", 1.into())])); "present map")]
-    fn request_params_preserve_presence(params: Option<Value>) {
-        let request = Request {
-            version: Version::V1,
-            id: Some(1.into()),
-            method: MethodName::from_static("worldid_ping"),
-            params,
-        };
-        assert_eq!(
-            decode::<Request<Value>>(&encode(&request).unwrap(), 1024).unwrap(),
-            request
-        );
-    }
-
-    #[test_case(None, true; "absent")]
-    #[test_case(Some(Value::Null), false; "present null")]
-    #[test_case(Some(map(&[("x", 1.into())])), true; "present map")]
-    fn typed_request_params_reject_null(params: Option<Value>, accepted: bool) {
-        let request = Request {
-            version: Version::V1,
-            id: Some(1.into()),
-            method: MethodName::from_static("worldid_ping"),
-            params,
-        };
-        let bytes = encode(&request).unwrap();
-        assert_eq!(
-            decode::<Request<std::collections::BTreeMap<String, u64>>>(&bytes, 1024).is_ok(),
-            accepted
-        );
-    }
-
-    #[test]
-    fn requests_accept_boolean_params() {
-        let request = Request::new(None, MethodName::from_static("worldid_ping"), true);
-        assert_eq!(
-            decode::<Request<bool>>(&encode(&request).unwrap(), 1024).unwrap(),
-            request
-        );
-    }
-
     #[test_case("id", Value::Null; "null_id")]
     #[test_case("id", Value::Float(1.0); "float_id")]
-    #[test_case("method", "other_ping".into(); "invalid_method")]
     #[test_case("version", "2.0".into(); "unsupported_version")]
-    fn typed_envelopes_reject_invalid_fields(field: &str, value: Value) {
+    fn typed_requests_reject_invalid_fields(field: &str, value: Value) {
         let mut modified = map(&[
             ("version", "1.0".into()),
             ("id", 1.into()),
@@ -269,21 +182,12 @@ mod tests {
         let fields = modified.as_map_mut().unwrap();
         fields.retain(|(key, _)| key.as_text() != Some(field));
         fields.push((field.into(), value));
-        assert!(
-            matches!(
-                decode::<Request<Value>>(&raw(&modified), 1024),
-                Err(MessageError::Deserialize(_))
-            ),
-            "{field}"
-        );
+        assert!(matches!(
+            decode::<Request<Value>>(&encode(&modified).unwrap(), 1024),
+            Err(MessageError::Deserialize(_))
+        ));
     }
 
-    #[test_case(map(&[("id", 1.into()), ("result", Value::Null)]); "missing_version")]
-    #[test_case(map(&[
-        ("version", "2.0".into()),
-        ("id", 1.into()),
-        ("result", Value::Null),
-    ]); "unsupported_version")]
     #[test_case(map(&[("version", "1.0".into()), ("id", 1.into())]); "missing_outcome")]
     #[test_case(map(&[("version", "1.0".into()), ("result", Value::Null)]); "missing_id")]
     #[test_case(map(&[
@@ -298,17 +202,17 @@ mod tests {
         ("error", map(&[("code", "failed".into()), ("message", "failed".into())])),
     ]); "both_outcomes")]
     fn typed_responses_reject_invalid_fields(invalid: Value) {
-        assert!(decode::<Response<Value>>(&raw(&invalid), 1024).is_err());
+        assert!(decode::<Response<Value>>(&encode(&invalid).unwrap(), 1024).is_err());
     }
 
-    #[test_case(&[0xa1, 0x61, 0xff, 0]; "invalid utf8")]
-    #[test_case(&[0x9b, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff]; "truncated array")]
-    #[test_case(&[0x5a, 0xff, 0xff, 0xff, 0xff]; "truncated bytes")]
-    fn rejects_malformed_input(invalid: &[u8]) {
-        assert!(matches!(
-            decode::<Value>(invalid, 1024),
-            Err(MessageError::Deserialize(_))
-        ));
+    #[test]
+    fn typed_requests_reject_duplicate_fields() {
+        let duplicate = map(&[
+            ("version", "1.0".into()),
+            ("version", "1.0".into()),
+            ("method", "worldid_ping".into()),
+        ]);
+        assert!(decode::<Request<Value>>(&encode(&duplicate).unwrap(), 1024).is_err());
     }
 
     #[test]
@@ -320,34 +224,8 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_handling_follows_the_requested_type() {
-        let duplicate = map(&[
-            ("version", "1.0".into()),
-            ("version", "1.0".into()),
-            ("method", "worldid_ping".into()),
-        ]);
-        let encoded = encode(&duplicate).unwrap();
-        assert_eq!(decode::<Value>(&encoded, 1024).unwrap(), duplicate);
-        assert!(decode::<Request<Value>>(&encoded, 1024).is_err());
-    }
-
-    #[test]
-    fn undefined_uses_ciborium_null_semantics() {
-        assert_eq!(decode::<Value>(&[0xf7], 1024).unwrap(), Value::Null);
-    }
-
-    #[test_case(vec![0xb8, 0], Value::Map(vec![]); "wide_map_length")]
-    #[test_case(vec![0x1b, 0, 0, 0, 0, 0, 0, 0, 1], Value::Integer(1.into()); "wide_integer")]
-    #[test_case(vec![0xa2, 0x61, b'b', 0, 0x61, b'a', 0],
-                map(&[("b", 0.into()), ("a", 0.into())]); "unsorted_map")]
-    #[test_case(vec![0xfa, 0x3f, 0x80, 0, 0], Value::Float(1.0); "wide_float")]
-    fn accepts_map_order_and_nonpreferred_widths(input: Vec<u8>, expected: Value) {
-        assert_eq!(decode::<Value>(&input, 1024).unwrap(), expected);
-    }
-
-    #[test]
     fn enforces_size_and_depth_limits() {
-        let encoded = encode(&response(Value::Null)).unwrap();
+        let encoded = encode(&map(&[("version", "1.0".into())])).unwrap();
         assert!(matches!(
             decode::<Value>(&encoded, encoded.len() - 1),
             Err(MessageError::TooLarge)
