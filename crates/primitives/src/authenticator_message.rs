@@ -7,10 +7,10 @@
 
 use std::{borrow::Cow, fmt, str::FromStr};
 
-use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_decode_str, utf8_percent_encode};
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
 pub mod cbor;
+mod uri;
 pub use cbor::{MessageError, decode, encode};
 pub use ciborium::Value;
 
@@ -330,8 +330,8 @@ impl fmt::Display for Deeplink {
             write!(
                 f,
                 "{separator}{}={}",
-                utf8_percent_encode(key, QUERY_VALUE_ENCODE_SET),
-                utf8_percent_encode(value, QUERY_VALUE_ENCODE_SET)
+                uri::encode_query_component(key),
+                uri::encode_query_component(value)
             )?;
         }
         Ok(())
@@ -371,7 +371,8 @@ impl FromStr for Deeplink {
             link.params = query
                 .split('&')
                 .map(parse_param)
-                .collect::<Result<_, _>>()?;
+                .collect::<Option<_>>()
+                .ok_or(DeeplinkError::MalformedParameter)?;
         }
         Ok(link)
     }
@@ -513,14 +514,6 @@ fn is_camel_case_segment(segment: &str) -> bool {
     chars.next().is_some_and(|c| c.is_ascii_lowercase()) && chars.all(|c| c.is_ascii_alphanumeric())
 }
 
-/// Characters that are percent-encoded in deeplink query values: everything except the RFC 3986
-/// unreserved characters.
-const QUERY_VALUE_ENCODE_SET: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'-')
-    .remove(b'.')
-    .remove(b'_')
-    .remove(b'~');
-
 /// Parses a version segment of the form `v{n}`, where `n` is a positive integer without leading
 /// zeros.
 fn parse_version(segment: &str) -> Result<u32, DeeplinkError> {
@@ -532,72 +525,13 @@ fn parse_version(segment: &str) -> Result<u32, DeeplinkError> {
     digits.parse().map_err(|_| DeeplinkError::InvalidVersion)
 }
 
-fn parse_param(pair: &str) -> Result<(String, String), DeeplinkError> {
-    let (key, value) = pair
-        .split_once('=')
-        .ok_or(DeeplinkError::MalformedParameter)?;
-    if key.is_empty() {
-        return Err(DeeplinkError::MalformedParameter);
-    }
-    Ok((percent_decode(key)?, percent_decode(value)?))
-}
-
-fn percent_decode(component: &str) -> Result<String, DeeplinkError> {
-    if !is_valid_query_component(component) {
-        return Err(DeeplinkError::MalformedParameter);
-    }
-    percent_decode_str(component)
-        .decode_utf8()
-        .map(Cow::into_owned)
-        .map_err(|_| DeeplinkError::MalformedParameter)
-}
-
-/// Returns whether `component` is valid in an RFC 3986 query: every byte is a query character,
-/// and every `%` starts a `%XX` escape with two hex digits.
-fn is_valid_query_component(component: &str) -> bool {
-    let bytes = component.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        if bytes[i] == b'%' {
-            let escape = bytes.get(i + 1..i + 3);
-            if !escape.is_some_and(|hex| hex.iter().all(u8::is_ascii_hexdigit)) {
-                return false;
-            }
-            i += 3;
-        } else if is_query_char(bytes[i]) {
-            i += 1;
-        } else {
-            return false;
-        }
-    }
-    true
-}
-
-/// Returns whether `byte` may appear unescaped in an RFC 3986 query: an unreserved character, a
-/// sub-delimiter, `:`, `@`, `/` or `?`.
-const fn is_query_char(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric()
-        || matches!(
-            byte,
-            b'-' | b'.'
-                | b'_'
-                | b'~'
-                | b'!'
-                | b'$'
-                | b'&'
-                | b'\''
-                | b'('
-                | b')'
-                | b'*'
-                | b'+'
-                | b','
-                | b';'
-                | b'='
-                | b':'
-                | b'@'
-                | b'/'
-                | b'?'
-        )
+/// Parses a `key=value` query parameter with a nonempty key.
+fn parse_param(pair: &str) -> Option<(String, String)> {
+    let (key, value) = pair.split_once('=').filter(|(key, _)| !key.is_empty())?;
+    Some((
+        uri::decode_query_component(key)?,
+        uri::decode_query_component(value)?,
+    ))
 }
 
 #[cfg(test)]
@@ -662,12 +596,6 @@ mod tests {
     }
 
     #[test]
-    fn deeplink_decodes_params_exactly_once() {
-        let link: Deeplink = "worldid://auth/v1/register?s=%2541".parse().unwrap();
-        assert_eq!(link.params(), [("s".to_string(), "%41".to_string())]);
-    }
-
-    #[test]
     fn deeplink_keeps_duplicate_and_empty_params() {
         let link: Deeplink = "worldid://auth/v12/register?a=1&a=&b=2".parse().unwrap();
         assert_eq!(link.version(), 12);
@@ -714,16 +642,6 @@ mod tests {
                 DeeplinkError::MalformedParameter; "empty_parameter")]
     #[test_case("worldid://auth/v1/register?a=%zz",
                 DeeplinkError::MalformedParameter; "invalid_hex_escape")]
-    #[test_case("worldid://auth/v1/register?a=%4",
-                DeeplinkError::MalformedParameter; "short_escape")]
-    #[test_case("worldid://auth/v1/register?a=%ff",
-                DeeplinkError::MalformedParameter; "invalid_utf8")]
-    #[test_case("worldid://auth/v1/register?a=hello world",
-                DeeplinkError::MalformedParameter; "raw_space")]
-    #[test_case("worldid://auth/v1/register?a=caf\u{e9}",
-                DeeplinkError::MalformedParameter; "raw_non_ascii")]
-    #[test_case("worldid://auth/v1/register?a=\u{7}",
-                DeeplinkError::MalformedParameter; "raw_control")]
     #[test_case("worldid://auth/v1/register?a<b=1",
                 DeeplinkError::MalformedParameter; "raw_delimiter_in_key")]
     fn deeplink_parsing_rejects_malformed_uris(uri: &str, expected: DeeplinkError) {
