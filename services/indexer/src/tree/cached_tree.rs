@@ -360,6 +360,7 @@ async fn replay_events(
         if leaf_index < tree.num_leaves() && tree.get_leaf(leaf_index) == *value {
             continue;
         }
+        // TODO: This function modifies the tree in-place. If a restart occurs mid apply the cache can end up with a root that doesn't match any of the RootRecorded events - which will cause a cache rebuild on the next start.
         set_arbitrary_leaf(&mut tree, leaf_index, *value);
     }
 

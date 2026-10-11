@@ -13,8 +13,10 @@ use std::str::FromStr as _;
 use ark_babyjubjub::Fq;
 use ark_ff::{AdditiveGroup as _, BigInt, PrimeField as _};
 use eddsa_babyjubjub::EdDSAPrivateKey;
+#[cfg(feature = "protocol")]
+use world_id_primitives::SessionId;
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, Credential, FieldElement, MAX_AUTHENTICATOR_KEYS, SessionId,
+    AuthenticatorPublicKeySet, Credential, FieldElement, MAX_AUTHENTICATOR_KEYS,
     authenticator::oprf_query_digest,
 };
 
@@ -44,6 +46,7 @@ fn oprf_query_digest_is_unchanged() {
     assert_eq!(actual, expected);
 }
 
+#[cfg(feature = "protocol")]
 #[test]
 fn session_id_commitment_is_unchanged() {
     let mut rng = rand::thread_rng();
