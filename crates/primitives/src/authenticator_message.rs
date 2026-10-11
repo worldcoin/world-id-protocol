@@ -49,28 +49,6 @@ pub struct Request<P> {
     pub params: Option<P>,
 }
 
-impl<P> Request<P> {
-    /// Creates a request invoking `method` with `params`.
-    pub const fn new(id: Option<Id>, method: MethodName, params: P) -> Self {
-        Self {
-            version: Version::V1,
-            id,
-            method,
-            params: Some(params),
-        }
-    }
-
-    /// Creates a request without an arguments field.
-    pub const fn without_params(id: Option<Id>, method: MethodName) -> Self {
-        Self {
-            version: Version::V1,
-            id,
-            method,
-            params: None,
-        }
-    }
-}
-
 /// A response containing exactly one result or error.
 ///
 /// A null ID (`None`) is reserved for uncorrelated errors and must never match a pending request.
