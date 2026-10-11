@@ -136,6 +136,7 @@ fn ignores_unknown_envelope_and_error_fields() {
 #[test_case(r#"{"version": "1.0", "id": null, "method": "worldid_ping"}"#; "null id")]
 #[test_case(r#"{"version": "1.0", "id": 1.0, "method": "worldid_ping"}"#; "float id")]
 #[test_case(r#"{"version": "2.0", "id": 1, "method": "worldid_ping"}"#; "unsupported version")]
+#[test_case(r#"{"version": "1.0", "id": 1, "method": "worldid_Ping"}"#; "invalid method")]
 #[test_case(
     r#"{"version": "1.0", "version": "1.0", "method": "worldid_ping"}"#;
     "duplicate field"

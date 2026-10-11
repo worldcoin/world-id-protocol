@@ -57,29 +57,8 @@ fn is_valid_query_component(component: &str) -> bool {
 
 /// Returns whether `byte` may appear unescaped in an RFC 3986 query: an unreserved character, a
 /// sub-delimiter, `:`, `@`, `/` or `?`.
-const fn is_query_char(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric()
-        || matches!(
-            byte,
-            b'-' | b'.'
-                | b'_'
-                | b'~'
-                | b'!'
-                | b'$'
-                | b'&'
-                | b'\''
-                | b'('
-                | b')'
-                | b'*'
-                | b'+'
-                | b','
-                | b';'
-                | b'='
-                | b':'
-                | b'@'
-                | b'/'
-                | b'?'
-        )
+fn is_query_char(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || b"-._~!$&'()*+,;=:@/?".contains(&byte)
 }
 
 #[cfg(test)]
