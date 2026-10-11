@@ -24,12 +24,14 @@ const METHOD_PREFIX: &str = "worldid";
 /// An absent ID represents a notification. Receivers must never reply to notifications, even
 /// when the method is unknown or execution fails. Session owners must prevent concurrent ID
 /// reuse. Callers are responsible for choosing a parameter type that enforces the method schema.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
 #[serde(bound(deserialize = "P: Deserialize<'de>"))]
 pub struct Request<P> {
     /// The message format version.
+    #[builder(default)]
     pub version: Version,
     /// The request ID, echoed back in the response, or `None` for a notification.
+    #[builder(into)]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -74,23 +76,27 @@ impl<P> Request<P> {
 /// A null ID (`None`) is reserved for uncorrelated errors and must never match a pending request.
 /// Callers must match other responses by ID and report invalid or unmatched responses locally,
 /// without replying. Use [`encode`] and [`decode`] at the transport boundary.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, bon::Builder)]
 pub struct Response<R, D = Value> {
     /// The message format version.
+    #[builder(default)]
     pub version: Version,
     /// The request ID, or `None` for an uncorrelated error.
+    #[builder(into)]
     pub id: Option<Id>,
     /// The method result, or the error that prevented it.
     pub outcome: Result<R, ErrorObject<D>>,
 }
 
 /// A method failure. Callers identify errors by their case-sensitive code, not message text.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
 #[serde(bound(deserialize = "D: Deserialize<'de>"))]
 pub struct ErrorObject<D = Value> {
     /// A shared WIP-105 or method-specific failure code.
+    #[builder(into)]
     pub code: String,
     /// A short human-readable explanation.
+    #[builder(into)]
     pub message: String,
     /// Optional method-specific details; a present null value is preserved.
     #[serde(

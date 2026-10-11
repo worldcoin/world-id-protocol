@@ -29,6 +29,7 @@ protocol = [
 openapi = ["dep:utoipa"]
 
 [dependencies]
+bon = { workspace = true }
 ciborium = { workspace = true }
 alloy = { workspace = true, optional = true, features = ["sol-types", "signer-local"] }
 alloy-primitives = { workspace = true, default-features = false, features = [
@@ -67,7 +68,6 @@ embed-doc-image = "0.1.4"
 getrandom = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
-bon = { workspace = true }
 cbor-diag = { workspace = true }
 test-case = { workspace = true }
 ark-ec = { workspace = true }

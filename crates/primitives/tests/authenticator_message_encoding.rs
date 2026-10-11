@@ -6,45 +6,10 @@ use std::collections::BTreeMap;
 use serde::de::DeserializeOwned;
 use test_case::test_case;
 use world_id_primitives::authenticator_message::{
-    ErrorObject, Id, MessageError, MethodName, Request, Response, Value, Version, cbor,
+    ErrorObject, Id, MessageError, MethodName, Request, Response, Value, cbor,
 };
 
-/// A `worldid_ping` request. Unset fields are absent on the wire.
-#[bon::builder(finish_fn = build)]
-fn ping(#[builder(into)] id: Option<Id>, params: Option<Value>) -> Request<Value> {
-    Request {
-        version: Version::V1,
-        id,
-        method: MethodName::from_static("worldid_ping"),
-        params,
-    }
-}
-
-/// A response with `outcome`. An unset ID is encoded as null.
-#[bon::builder(finish_fn = build)]
-fn response(
-    #[builder(start_fn)] outcome: Result<Value, ErrorObject>,
-    #[builder(into)] id: Option<Id>,
-) -> Response<Value> {
-    Response {
-        version: Version::V1,
-        id,
-        outcome,
-    }
-}
-
-#[bon::builder(finish_fn = build)]
-fn error(
-    #[builder(start_fn, into)] code: String,
-    #[builder(start_fn, into)] message: String,
-    data: Option<Value>,
-) -> ErrorObject {
-    ErrorObject {
-        code,
-        message,
-        data,
-    }
-}
+const PING: MethodName = MethodName::from_static("worldid_ping");
 
 /// Parses a fixture in CBOR diagnostic notation.
 fn fixture(diagnostic: &str) -> Vec<u8> {
@@ -58,35 +23,36 @@ fn decode<T: DeserializeOwned>(diagnostic: &str) -> Result<T, MessageError> {
 }
 
 #[test_case(
-    ping()
+    Request::builder()
         .id(1)
+        .method(PING)
         .params(Value::Map(vec![(Value::Text("nonce".into()), Value::Bytes(vec![0, 255]))]))
         .build(),
     r#"{"version": "1.0", "id": 1, "method": "worldid_ping", "params": {"nonce": h'00ff'}}"#;
     "request with binary payload"
 )]
 #[test_case(
-    ping().id("ping-1".to_owned()).build(),
+    Request::builder().id("ping-1".to_owned()).method(PING).build(),
     r#"{"version": "1.0", "id": "ping-1", "method": "worldid_ping"}"#;
     "request without params"
 )]
 #[test_case(
-    ping().id(1).params(Value::Null).build(),
+    Request::builder().id(1).method(PING).params(Value::Null).build(),
     r#"{"version": "1.0", "id": 1, "method": "worldid_ping", "params": null}"#;
     "request with present null params"
 )]
 #[test_case(
-    ping().params(Value::Array(vec![])).build(),
+    Request::builder().method(PING).params(Value::Array(vec![])).build(),
     r#"{"version": "1.0", "method": "worldid_ping", "params": []}"#;
     "notification"
 )]
 #[test_case(
-    ping().id(Id::Number(u64::MAX.into())).build(),
+    Request::builder().id(Id::Number(u64::MAX.into())).method(PING).build(),
     r#"{"version": "1.0", "id": 18446744073709551615, "method": "worldid_ping"}"#;
     "maximum integer id"
 )]
 #[test_case(
-    ping().id(Id::Number(-1 - i128::from(u64::MAX))).build(),
+    Request::builder().id(Id::Number(-1 - i128::from(u64::MAX))).method(PING).build(),
     r#"{"version": "1.0", "id": -18446744073709551616, "method": "worldid_ping"}"#;
     "minimum integer id"
 )]
@@ -96,22 +62,34 @@ fn request_wire_example(request: Request<Value>, diagnostic: &str) {
 }
 
 #[test_case(
-    response(Ok(Value::Bytes(vec![0, 255]))).id(1).build(),
+    Response::builder().id(1).outcome(Ok(Value::Bytes(vec![0, 255]))).build(),
     r#"{"version": "1.0", "id": 1, "result": h'00ff'}"#;
     "binary result"
 )]
 #[test_case(
-    response(Ok(Value::Null)).id("ping-1".to_owned()).build(),
+    Response::builder().id("ping-1".to_owned()).outcome(Ok(Value::Null)).build(),
     r#"{"version": "1.0", "id": "ping-1", "result": null}"#;
     "present null result"
 )]
 #[test_case(
-    response(Err(error("invalid_params", "Invalid params").build())).id(1).build(),
+    Response::builder()
+        .id(1)
+        .outcome(Err(ErrorObject::builder()
+            .code("invalid_params")
+            .message("Invalid params")
+            .build()))
+        .build(),
     r#"{"version": "1.0", "id": 1, "error": {"code": "invalid_params", "message": "Invalid params"}}"#;
     "correlated error without data"
 )]
 #[test_case(
-    response(Err(error("parse_error", "Invalid message").data(Value::Null).build())).build(),
+    Response::builder()
+        .outcome(Err(ErrorObject::builder()
+            .code("parse_error")
+            .message("Invalid message")
+            .data(Value::Null)
+            .build()))
+        .build(),
     r#"{"version": "1.0", "id": null, "error": {"code": "parse_error", "message": "Invalid message", "data": null}}"#;
     "uncorrelated error with present null data"
 )]
@@ -123,12 +101,19 @@ fn response_wire_example(response: Response<Value>, diagnostic: &str) {
 #[test_case(i128::from(u64::MAX) + 1; "above maximum")]
 #[test_case(-2 - i128::from(u64::MAX); "below minimum")]
 fn integer_ids_outside_the_cbor_range_fail_to_encode(number: i128) {
-    assert!(cbor::encode(&ping().id(Id::Number(number)).build()).is_err());
+    let request = Request::<Value>::builder()
+        .id(Id::Number(number))
+        .method(PING)
+        .build();
+    assert!(cbor::encode(&request).is_err());
 }
 
 #[test]
 fn success_without_id_fails_to_encode() {
-    assert!(cbor::encode(&response(Ok(Value::Null)).build()).is_err());
+    let response = Response::<Value>::builder()
+        .outcome(Ok(Value::Null))
+        .build();
+    assert!(cbor::encode(&response).is_err());
 }
 
 #[test]
@@ -139,7 +124,12 @@ fn ignores_unknown_envelope_and_error_fields() {
     );
     assert_eq!(
         decoded.unwrap(),
-        response(Err(error("parse_error", "bad").build())).build()
+        Response::builder()
+            .outcome(Err(ErrorObject::builder()
+                .code("parse_error")
+                .message("bad")
+                .build()))
+            .build()
     );
 }
 
