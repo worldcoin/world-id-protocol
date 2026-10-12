@@ -30,10 +30,10 @@ pub(crate) async fn handler(
         ));
     }
 
-    let authenticators = state
+    let account = state
         .db
         .accounts()
-        .get_authenticators_by_leaf_index(req.leaf_index)
+        .get_account(req.leaf_index)
         .await
         .map_err(|err| {
             tracing::error!(leaf_index = %req.leaf_index, "DB error fetching authenticators: {err}");
@@ -41,8 +41,8 @@ pub(crate) async fn handler(
         })?
         .ok_or(IndexerErrorResponse::not_found())?;
 
-    let addresses = &authenticators.authenticator_addresses;
-    let pubkeys = &authenticators.authenticator_pubkeys;
+    let addresses = &account.authenticator_addresses;
+    let pubkeys = &account.authenticator_pubkeys;
     if addresses.len() != pubkeys.len() {
         tracing::error!(
             leaf_index = %req.leaf_index,
@@ -66,9 +66,9 @@ pub(crate) async fn handler(
     }
 
     Ok(Json(IndexerAuthenticatorsResponse {
-        authenticator_pubkeys: authenticators.authenticator_pubkeys,
-        authenticator_addresses: authenticators.authenticator_addresses,
-        offchain_signer_commitment: authenticators.offchain_signer_commitment,
-        recovery_counter: authenticators.recovery_counter,
+        authenticator_pubkeys: account.authenticator_pubkeys,
+        authenticator_addresses: account.authenticator_addresses,
+        offchain_signer_commitment: account.offchain_signer_commitment,
+        recovery_counter: account.recovery_counter,
     }))
 }
