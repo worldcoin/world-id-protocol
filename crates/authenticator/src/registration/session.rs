@@ -13,12 +13,22 @@ use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
+use super::{MAX_REQUEST_SIZE, MAX_RESPONSE_SIZE};
+
 const REQUEST_ID_INFO: &[u8] = b"WORLD-ID/WIP-109/REQUESTID";
 const TRANSPORT_SECRET_INFO: &[u8] = b"WORLD-ID/WIP-109/TRANSPORTSECRET";
+const REQUEST_LABEL: &[u8] = b"WORLD-ID/WIP-109/REQUEST";
 const RESPONSE_INFO: &[u8] = b"WORLD-ID/WIP-109/RESPONSE";
 
 /// The length in bytes of an AES-256-GCM nonce.
 const NONCE_LEN: usize = 12;
+
+/// The length in bytes of an AES-256-GCM authentication tag.
+const TAG_LEN: usize = 16;
+
+/// The bytes a WIP-100 §3.9 seal adds to its plaintext: the header, the encapsulated key and the
+/// Poly1305 tag.
+const SEALED_OVERHEAD: usize = 1143;
 
 /// The length in bytes of an X-Wing encapsulation key.
 pub const RESPONSE_PUBLIC_KEY_LEN: usize = 1216;
@@ -180,24 +190,36 @@ pub struct TransportKey {
 
 impl TransportKey {
     /// Encrypts a request with a fresh nonce and request/session-bound associated data.
-    /// Returns an error if randomness or encryption fails.
+    /// Returns an error if the request exceeds 4 KiB, or randomness or encryption fails.
     pub fn encrypt_request(&self, plaintext: &[u8]) -> Result<EncryptedPayload, TransportError> {
-        self.encrypt(&self.request_id, b"WORLD-ID/WIP-109/REQUEST", plaintext)
+        if plaintext.len() > MAX_REQUEST_SIZE {
+            return Err(TransportError::TooLarge);
+        }
+        self.encrypt(&self.request_id, REQUEST_LABEL, plaintext)
     }
 
     /// Authenticates a request before returning its plaintext for parsing.
-    /// Returns an error for malformed encoding or failed authentication.
+    /// Returns an error for malformed encoding, an oversized payload or failed authentication.
     pub fn decrypt_request(&self, encrypted: &EncryptedPayload) -> Result<Vec<u8>, TransportError> {
-        self.decrypt(&self.request_id, b"WORLD-ID/WIP-109/REQUEST", encrypted)
+        self.decrypt(
+            &self.request_id,
+            REQUEST_LABEL,
+            encrypted,
+            MAX_REQUEST_SIZE + TAG_LEN,
+        )
     }
 
     /// Seals a response to its recipient, then authenticates the sealed bytes with the code-bound key.
-    /// Returns an error if randomness or either encryption layer fails.
+    /// Returns an error if the response exceeds 3.5 MiB plus 4 KiB, or randomness or either
+    /// encryption layer fails.
     pub fn encrypt_response(
         &self,
         recipient: &ResponsePublicKey,
         plaintext: &[u8],
     ) -> Result<EncryptedPayload, TransportError> {
+        if plaintext.len() > MAX_RESPONSE_SIZE {
+            return Err(TransportError::TooLarge);
+        }
         let sealed = quantum_box::PublicKey::seal(&recipient.0, plaintext, Some(RESPONSE_INFO))
             .map_err(|e| match e {
                 quantum_box::Error::Rng => TransportError::Rng,
@@ -208,13 +230,19 @@ impl TransportKey {
 
     /// Authenticates the outer envelope before opening the recipient's HPKE seal.
     /// The plaintext may carry the credential vault, so it is zeroized on drop.
-    /// Returns an error for malformed encoding or failed authentication at either layer.
+    /// Returns an error for malformed encoding, an oversized payload or failed authentication at
+    /// either layer.
     pub fn decrypt_response(
         &self,
         recipient: &ResponseSecretKey,
         encrypted: &EncryptedPayload,
     ) -> Result<Zeroizing<Vec<u8>>, TransportError> {
-        let sealed = self.decrypt(&self.request_id, RESPONSE_INFO, encrypted)?;
+        let sealed = self.decrypt(
+            &self.request_id,
+            RESPONSE_INFO,
+            encrypted,
+            MAX_RESPONSE_SIZE + SEALED_OVERHEAD + TAG_LEN,
+        )?;
         if !sealed.starts_with(&[0x02, 0x64, 0x7a, 0x00, 0x01, 0x00, 0x03]) {
             return Err(TransportError::Decrypt);
         }
@@ -254,6 +282,7 @@ impl TransportKey {
         id: &RequestId,
         label: &[u8],
         encrypted: &EncryptedPayload,
+        max_len: usize,
     ) -> Result<Vec<u8>, TransportError> {
         let nonce: [u8; NONCE_LEN] = STANDARD
             .decode(&encrypted.iv)
@@ -263,8 +292,11 @@ impl TransportKey {
         let ciphertext = STANDARD
             .decode(&encrypted.payload)
             .map_err(|_| TransportError::Encoding)?;
-        if ciphertext.len() < 16 {
+        if ciphertext.len() < TAG_LEN {
             return Err(TransportError::Encoding);
+        }
+        if ciphertext.len() > max_len {
+            return Err(TransportError::TooLarge);
         }
         let aad = [label, id.as_bytes()].concat();
         Aes256Gcm::new((&*self.key).into())
@@ -406,6 +438,9 @@ pub enum TransportError {
     /// ciphertext is shorter than the authentication tag.
     #[error("invalid base64, nonce length or ciphertext length in the encrypted payload")]
     Encoding,
+    /// The message or encrypted payload exceeds the WIP-109 size limit.
+    #[error("message exceeds the size limit")]
+    TooLarge,
     /// The response public key is not a valid X-Wing encapsulation key.
     #[error("invalid response public key")]
     InvalidPublicKey,
@@ -431,6 +466,57 @@ mod tests {
                 .as_str()
                 .bytes()
                 .all(|b| b.is_ascii_uppercase())
+        );
+    }
+
+    #[test]
+    fn transport_enforces_message_size_limits() {
+        let key = PairingSecret::from_bytes([7; 32])
+            .transport_key(&"QJTWPK".parse().unwrap())
+            .unwrap();
+        let recipient = ResponseSecretKey::from_seed(&[1; 32]);
+
+        let request = key.encrypt_request(&[0; MAX_REQUEST_SIZE]).unwrap();
+        assert_eq!(
+            key.decrypt_request(&request).unwrap().len(),
+            MAX_REQUEST_SIZE
+        );
+        assert_eq!(
+            key.encrypt_request(&[0; MAX_REQUEST_SIZE + 1]).unwrap_err(),
+            TransportError::TooLarge
+        );
+
+        let response = key
+            .encrypt_response(&recipient.public_key(), &vec![0; MAX_RESPONSE_SIZE])
+            .unwrap();
+        assert_eq!(
+            key.decrypt_response(&recipient, &response).unwrap().len(),
+            MAX_RESPONSE_SIZE
+        );
+        assert_eq!(
+            key.encrypt_response(&recipient.public_key(), &vec![0; MAX_RESPONSE_SIZE + 1])
+                .unwrap_err(),
+            TransportError::TooLarge
+        );
+
+        // The limit applies before decryption, so even an authentic oversized payload is rejected.
+        let oversized_request = key
+            .encrypt(&key.request_id, REQUEST_LABEL, &[0; MAX_REQUEST_SIZE + 1])
+            .unwrap();
+        assert_eq!(
+            key.decrypt_request(&oversized_request),
+            Err(TransportError::TooLarge)
+        );
+        let oversized_response = key
+            .encrypt(
+                &key.request_id,
+                RESPONSE_INFO,
+                &vec![0; MAX_RESPONSE_SIZE + SEALED_OVERHEAD + 1],
+            )
+            .unwrap();
+        assert_eq!(
+            key.decrypt_response(&recipient, &oversized_response),
+            Err(TransportError::TooLarge)
         );
     }
 
