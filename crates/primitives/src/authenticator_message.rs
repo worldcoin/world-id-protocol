@@ -24,28 +24,20 @@ const METHOD_PREFIX: &str = "worldid";
 /// An absent ID represents a notification. Receivers must never reply to notifications, even
 /// when the method is unknown or execution fails. Session owners must prevent concurrent ID
 /// reuse. Callers are responsible for choosing a parameter type that enforces the method schema.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
-#[serde(bound(deserialize = "P: Deserialize<'de>"))]
+/// Deserialization requires present parameters to be an array or map and rejects response fields.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, bon::Builder)]
 pub struct Request<P> {
     /// The message format version.
     #[builder(default)]
     pub version: Version,
     /// The request ID, echoed back in the response, or `None` for a notification.
     #[builder(into)]
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_present"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<Id>,
     /// The method being invoked.
     pub method: MethodName,
-    /// Arguments, or `None` when no arguments were supplied.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_present"
-    )]
+    /// Array or map arguments, or `None` when no arguments were supplied.
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<P>,
 }
 
@@ -399,6 +391,33 @@ pub enum DeeplinkError {
     MalformedParameter,
 }
 
+#[derive(Deserialize)]
+#[serde(bound(deserialize = "P: Deserialize<'de>"))]
+struct WireRequest<P> {
+    version: Version,
+    #[serde(default, deserialize_with = "deserialize_present")]
+    id: Option<Id>,
+    method: MethodName,
+    #[serde(default, deserialize_with = "deserialize_params")]
+    params: Option<P>,
+    #[serde(default, rename = "result", deserialize_with = "reject_envelope_field")]
+    _result: (),
+    #[serde(default, rename = "error", deserialize_with = "reject_envelope_field")]
+    _error: (),
+}
+
+impl<'de, P: Deserialize<'de>> Deserialize<'de> for Request<P> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = WireRequest::<P>::deserialize(deserializer)?;
+        Ok(Self {
+            version: wire.version,
+            id: wire.id,
+            method: wire.method,
+            params: wire.params,
+        })
+    }
+}
+
 #[derive(Serialize)]
 struct WireResponseRef<'a, R, D> {
     version: Version,
@@ -419,6 +438,10 @@ struct WireResponse<R, D> {
     result: Option<R>,
     #[serde(default, deserialize_with = "deserialize_present")]
     error: Option<ErrorObject<D>>,
+    #[serde(default, rename = "method", deserialize_with = "reject_envelope_field")]
+    _method: (),
+    #[serde(default, rename = "params", deserialize_with = "reject_envelope_field")]
+    _params: (),
 }
 
 impl<R: Serialize, D: Serialize> Serialize for Response<R, D> {
@@ -456,6 +479,38 @@ impl<'de, R: Deserialize<'de>, D: Deserialize<'de>> Deserialize<'de> for Respons
             outcome,
         })
     }
+}
+
+fn reject_envelope_field<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
+    Err(D::Error::custom("field is not allowed in this envelope"))
+}
+
+fn deserialize_params<'de, D, P>(deserializer: D) -> Result<Option<P>, D::Error>
+where
+    D: Deserializer<'de>,
+    P: Deserialize<'de>,
+{
+    struct ParamsVisitor<P>(std::marker::PhantomData<P>);
+
+    impl<'de, P: Deserialize<'de>> serde::de::Visitor<'de> for ParamsVisitor<P> {
+        type Value = P;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("an array or map of request parameters")
+        }
+
+        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, seq: A) -> Result<P, A::Error> {
+            P::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<P, A::Error> {
+            P::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+        }
+    }
+
+    deserializer
+        .deserialize_any(ParamsVisitor(std::marker::PhantomData))
+        .map(Some)
 }
 
 /// Preserves the distinction between an absent field and a present value, including null.
