@@ -120,7 +120,7 @@ fn registration_request_matches_vectors() {
         let uri = PairingUri {
             secret: secret.clone(),
             digest,
-            bridge: Some("bridge.example.org".parse().unwrap()),
+            bridge: "bridge.example.org".parse().unwrap(),
         };
         assert_eq!(uri.to_string(), vector.pairing_uri);
     }
