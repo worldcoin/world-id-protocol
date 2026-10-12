@@ -91,12 +91,13 @@ impl RegistrationRequester {
         })
     }
 
-    /// Returns the Pairing URI while the session is active and the code is still hidden.
-    /// Replace the URI screen with the code after retrieval. Never log either value.
+    /// Returns the Pairing URI once the request is published, while the session is active and the
+    /// code is still hidden. Replace the URI screen with the code after retrieval. Never log
+    /// either value.
     #[must_use]
     pub fn pairing_uri(&self) -> Option<PairingUri> {
         let secrets = self.secrets.as_ref()?;
-        if secrets.code_revealed || Instant::now() >= self.expires_at {
+        if !self.published || secrets.code_revealed || Instant::now() >= self.expires_at {
             return None;
         }
         Some(PairingUri {
@@ -128,7 +129,8 @@ impl RegistrationRequester {
     /// Encrypts and publishes the request on the bridge.
     ///
     /// Call it once per session: publishing again after the Approving Authenticator read the
-    /// request resets the session on the bridge.
+    /// request resets the session on the bridge. The Pairing URI is available only after this
+    /// succeeds, so retrying a call that was interrupted before then is safe (WIP-109 §3.8).
     ///
     /// # Errors
     ///
@@ -170,9 +172,9 @@ impl RegistrationRequester {
                 return Err(error);
             }
         };
-        self.published = true;
         match self.bridge.publish_request(&request_id, &encrypted).await {
             Ok(_) => {
+                self.published = true;
                 self.expires_at = Instant::now() + SESSION_TTL;
                 Ok(())
             }
@@ -437,6 +439,15 @@ mod tests {
         .unwrap()
     }
 
+    /// The Pairing URI of `session`, which `pairing_uri` returns only once it is published.
+    fn uri_of(session: &RegistrationRequester) -> PairingUri {
+        PairingUri {
+            secret: session.secrets.as_ref().unwrap().secret.clone(),
+            digest: session.digest,
+            bridge: session.bridge.domain().clone(),
+        }
+    }
+
     fn request_message(session: &RegistrationRequester, message_id: Option<Id>) -> Vec<u8> {
         authenticator_message::encode(
             &RegisterRequestMessage::builder()
@@ -472,20 +483,19 @@ mod tests {
             .expect(1)
             .create_async()
             .await;
-        let pending = PendingRegistration::receive(
-            &session.pairing_uri().unwrap(),
-            std::slice::from_ref(&session.bridge),
-        )
-        .await
-        .unwrap();
+        let pending =
+            PendingRegistration::receive(&uri_of(session), std::slice::from_ref(&session.bridge))
+                .await
+                .unwrap();
         mock.assert_async().await;
         pending
     }
 
     #[tokio::test]
-    async fn code_is_revealed_only_after_retrieval_and_cleared_on_cancel() {
+    async fn uri_follows_publishing_and_code_follows_retrieval() {
         let mut server = mockito::Server::new_async().await;
         let mut session = requester(&server);
+        assert!(session.pairing_uri().is_none());
         assert!(session.pairing_code().is_none());
         let _publish = server
             .mock("POST", "/request")
@@ -493,6 +503,7 @@ mod tests {
             .create_async()
             .await;
         session.publish().await.unwrap();
+        assert_eq!(session.pairing_uri(), Some(uri_of(&session)));
         assert!(session.pairing_code().is_none());
         let id = session.secrets.as_ref().unwrap().secret.request_id();
         let _retrieved = server
@@ -524,7 +535,7 @@ mod tests {
             server.url().parse().unwrap(),
         )
         .unwrap();
-        let uri = session.pairing_uri().unwrap();
+        let uri = uri_of(&session);
         assert!(matches!(
             PendingRegistration::receive(&uri, &[other]).await,
             Err(ApproverError::BridgeNotAllowed(domain)) if domain == uri.bridge
