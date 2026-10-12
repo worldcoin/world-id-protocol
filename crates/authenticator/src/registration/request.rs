@@ -452,7 +452,7 @@ mod tests {
         let (mut request, _, request_id) = signed_request(ADMIN);
         request.new_authenticator_address = zero;
         let message = RegisterRequestMessage::builder()
-            .id(request_id.to_string())
+            .id(request_id.message_id())
             .method(REGISTER_METHOD)
             .params(request)
             .build();
@@ -464,7 +464,7 @@ mod tests {
         for address in [ADMIN, PROVING] {
             let (request, _, request_id) = signed_request(address);
             let message = RegisterRequestMessage::builder()
-                .id(request_id.to_string())
+                .id(request_id.message_id())
                 .method(REGISTER_METHOD)
                 .params(request.clone())
                 .build();

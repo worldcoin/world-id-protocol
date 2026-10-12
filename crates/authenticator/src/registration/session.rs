@@ -11,6 +11,7 @@ use hkdf::Hkdf;
 use rand::{RngCore as _, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use world_id_primitives::authenticator_message::Id;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use super::{MAX_REQUEST_SIZE, MAX_RESPONSE_SIZE};
@@ -39,8 +40,10 @@ pub const RESPONSE_PUBLIC_KEY_LEN: usize = 1216;
 
 /// The bridge id of a registration session, derived from its [`PairingSecret`].
 ///
-/// It is displayed as 64 lowercase hex characters, which is also the message `id` of the
+/// It is displayed as 64 lowercase hex characters, which is also the [`message_id`] of the
 /// registration request and its response.
+///
+/// [`message_id`]: RequestId::message_id
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RequestId([u8; 32]);
 
@@ -50,6 +53,13 @@ impl RequestId {
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    /// Returns the message `id` of the registration request and its response: the text string of
+    /// this id in lowercase hex (WIP-109 §3.6.1).
+    #[must_use]
+    pub fn message_id(&self) -> Id {
+        Id::String(self.to_string())
     }
 }
 
