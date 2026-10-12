@@ -9,7 +9,7 @@ use crate::{
 use std::sync::Arc;
 
 use crate::{
-    account::{AccountAuthenticators, AuthenticatorClass},
+    account::AccountAuthenticators,
     api_types::{
         AccountInclusionProof, GatewayRequestState, IndexerAuthenticatorPubkeysResponse,
         IndexerAuthenticatorsResponse, IndexerErrorCode, IndexerPackedAccountRequest,
@@ -366,7 +366,7 @@ impl Authenticator {
                 // registry no longer knows was revoked, and a stale indexed key must not revive it.
                 let is_proving = authenticators
                     .find(&self.offchain_pubkey())
-                    .is_some_and(|(_, class)| class == AuthenticatorClass::Proving);
+                    .is_some_and(|(_, address)| address.is_zero());
                 if !is_proving {
                     return Err(AuthenticatorError::AccountDoesNotExist);
                 }
@@ -620,24 +620,21 @@ impl Authenticator {
             )
             .into());
         }
-        let classes = response
+        if response
             .authenticator_addresses
             .iter()
             .zip(&response.authenticator_pubkeys)
-            .map(|(address, pubkey)| match (address, pubkey) {
-                (Some(address), Some(_)) => {
-                    Ok(Some(AuthenticatorClass::from_onchain_address(*address)))
-                }
-                (None, None) => Ok(None),
-                _ => Err(PrimitiveError::Deserialization(
-                    "indexer returned an authenticator slot with only an address or a pubkey"
-                        .to_string(),
-                )),
-            })
-            .collect::<Result<_, _>>()?;
+            .any(|(address, pubkey)| address.is_some() != pubkey.is_some())
+        {
+            return Err(PrimitiveError::Deserialization(
+                "indexer returned an authenticator slot with only an address or a pubkey"
+                    .to_string(),
+            )
+            .into());
+        }
         Ok(AccountAuthenticators {
             key_set: Self::decode_indexer_pubkeys(response.authenticator_pubkeys)?,
-            classes,
+            addresses: response.authenticator_addresses,
             offchain_signer_commitment: response.offchain_signer_commitment,
             recovery_counter: response.recovery_counter,
         })
@@ -1119,7 +1116,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_fetch_authenticators_maps_classes_and_rejects_inconsistent_slots() {
+    async fn test_fetch_authenticators_maps_addresses_and_rejects_inconsistent_slots() {
         let mut server = mockito::Server::new_async().await;
         let config = config_with_indexer(server.url());
         let indexer_client = ServiceClient::new(
@@ -1145,16 +1142,13 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            authenticators.classes,
-            vec![
-                Some(AuthenticatorClass::Admin { address: admin }),
-                Some(AuthenticatorClass::Proving)
-            ]
+            authenticators.addresses,
+            vec![Some(admin), Some(Address::ZERO)]
         );
         assert_eq!(authenticators.offchain_signer_commitment, U256::from(5));
         assert_eq!(
             authenticators.find(&test_pubkey(2)),
-            Some((1, AuthenticatorClass::Proving))
+            Some((1, Address::ZERO))
         );
         assert_eq!(authenticators.find(&test_pubkey(3)), None);
         mock.remove_async().await;
@@ -1214,9 +1208,7 @@ mod tests {
             signature_nonce: U256::from(7),
             authenticators: AccountAuthenticators {
                 key_set,
-                classes: vec![Some(AuthenticatorClass::Admin {
-                    address: authenticator.signer.onchain_signer_address(),
-                })],
+                addresses: vec![Some(authenticator.signer.onchain_signer_address())],
                 offchain_signer_commitment: commitment ^ U256::from(1),
                 recovery_counter: 0,
             },
@@ -1229,37 +1221,15 @@ mod tests {
             .await;
         assert!(matches!(
             authenticator
-                .insert_authenticator_from_snapshot(
-                    &snapshot,
-                    test_pubkey(2),
-                    AuthenticatorClass::Proving
-                )
+                .insert_authenticator_from_snapshot(&snapshot, test_pubkey(2), Address::ZERO)
                 .await,
             Err(AuthenticatorError::InvalidAccountSnapshot(_))
-        ));
-        assert!(matches!(
-            authenticator
-                .insert_authenticator_from_snapshot(
-                    &snapshot,
-                    test_pubkey(2),
-                    AuthenticatorClass::Admin {
-                        address: Address::ZERO
-                    }
-                )
-                .await,
-            Err(AuthenticatorError::PrimitiveError(
-                PrimitiveError::InvalidInput { .. }
-            ))
         ));
         snapshot.authenticators.offchain_signer_commitment = commitment;
         snapshot.max_authenticators = Some(1);
         assert!(matches!(
             authenticator
-                .insert_authenticator_from_snapshot(
-                    &snapshot,
-                    test_pubkey(2),
-                    AuthenticatorClass::Proving
-                )
+                .insert_authenticator_from_snapshot(&snapshot, test_pubkey(2), Address::ZERO)
                 .await,
             Err(AuthenticatorError::MaxAuthenticatorsReached)
         ));
@@ -1286,11 +1256,7 @@ mod tests {
             .create_async()
             .await;
         let insertion = authenticator
-            .insert_authenticator_from_snapshot(
-                &snapshot,
-                test_pubkey(2),
-                AuthenticatorClass::Proving,
-            )
+            .insert_authenticator_from_snapshot(&snapshot, test_pubkey(2), Address::ZERO)
             .await
             .unwrap();
         assert_eq!(insertion.pubkey_id, 1);
@@ -1310,9 +1276,9 @@ mod tests {
                 signature_nonce: U256::ZERO,
                 authenticators: AccountAuthenticators {
                     key_set,
-                    classes: keys
+                    addresses: keys
                         .iter()
-                        .map(|key| key.as_ref().map(|_| AuthenticatorClass::Proving))
+                        .map(|key| key.as_ref().map(|_| Address::ZERO))
                         .collect(),
                     offchain_signer_commitment: U256::ZERO,
                     recovery_counter: 0,

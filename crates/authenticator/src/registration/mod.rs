@@ -18,11 +18,10 @@ mod request;
 mod response;
 mod session;
 
-pub use crate::account::AuthenticatorClass;
 pub use pairing_uri::{BridgeDomain, PairingUri, PairingUriError};
 pub use request::{
-    AuthenticatorName, MAX_NAME_LEN, NameTooLong, REGISTER_METHOD, RegisterRequestMessage,
-    RegistrationDigest, RegistrationRequest,
+    AuthenticatorClass, AuthenticatorName, MAX_NAME_LEN, NameTooLong, REGISTER_METHOD,
+    RegisterRequestMessage, RegistrationDigest, RegistrationRequest,
 };
 pub use response::{
     KnownAuthenticator, MAX_VAULT_SIZE, RegisterResponseMessage, RegistrationErrorData,

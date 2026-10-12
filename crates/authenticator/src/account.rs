@@ -4,7 +4,7 @@ use alloy::primitives::Address;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
 
-use world_id_primitives::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, PrimitiveError};
+use world_id_primitives::{AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS};
 
 use crate::{
     api_types::{
@@ -20,53 +20,15 @@ use world_id_registries::world_id::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
 
-/// The kind of an authenticator, as defined in WIP-104.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AuthenticatorClass {
-    /// An Admin Authenticator, which can manage the account with its management key.
-    Admin {
-        /// The non-zero address of the authenticator's management key.
-        address: Address,
-    },
-    /// A Proving Authenticator, which can generate proofs but cannot manage the account.
-    Proving,
-}
-
-impl AuthenticatorClass {
-    /// Returns the class of an authenticator registered with `address`: Proving for the zero
-    /// address, Admin otherwise.
-    #[must_use]
-    pub fn from_onchain_address(address: Address) -> Self {
-        if address.is_zero() {
-            Self::Proving
-        } else {
-            Self::Admin { address }
-        }
-    }
-
-    /// Returns the address registered on-chain for this class: the management key of an Admin
-    /// Authenticator, or the zero address for a Proving Authenticator.
-    #[must_use]
-    pub const fn onchain_address(&self) -> Address {
-        match self {
-            Self::Admin { address } => *address,
-            Self::Proving => Address::ZERO,
-        }
-    }
-
-    /// An Admin Authenticator with the zero address cannot be registered or encoded.
-    pub(crate) fn has_zero_management_address(&self) -> bool {
-        matches!(self, Self::Admin { address } if address.is_zero())
-    }
-}
-
 /// The registered authenticators of an account, read from one indexed account state.
 #[derive(Clone, Debug)]
 pub struct AccountAuthenticators {
     /// The public keys, by `pubkey_id`.
     pub key_set: AuthenticatorPublicKeySet,
-    /// The classes, by `pubkey_id`. A removed slot is `None`, as in `key_set`.
-    pub classes: Vec<Option<AuthenticatorClass>>,
+    /// The on-chain addresses, by `pubkey_id`. A removed slot is `None`, as in `key_set`. An
+    /// Admin Authenticator (WIP-104) has its management key's address, and a Proving
+    /// Authenticator has the zero address.
+    pub addresses: Vec<Option<Address>>,
     /// The commitment to `key_set` stored in the `WorldIDRegistry`.
     pub offchain_signer_commitment: U256,
     /// The number of recoveries of the account.
@@ -74,17 +36,18 @@ pub struct AccountAuthenticators {
 }
 
 impl AccountAuthenticators {
-    /// Returns the slot and class of `pubkey`, if it is registered.
+    /// Returns the slot and on-chain address of `pubkey`, if it is registered. The address is
+    /// zero for a Proving Authenticator.
     #[must_use]
-    pub fn find(&self, pubkey: &EdDSAPublicKey) -> Option<(u32, AuthenticatorClass)> {
+    pub fn find(&self, pubkey: &EdDSAPublicKey) -> Option<(u32, Address)> {
         let slot = self
             .key_set
             .iter()
             .position(|key| key.as_ref().is_some_and(|key| key.pk == pubkey.pk))?;
-        let class = self.classes.get(slot).copied().flatten()?;
+        let address = self.addresses.get(slot).copied().flatten()?;
         Some((
             u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"),
-            class,
+            address,
         ))
     }
 
@@ -222,14 +185,15 @@ impl Authenticator {
     /// Inserts a new authenticator into the lowest free slot of `snapshot`, signing the operation
     /// with the snapshot's nonce and off-chain signer commitment.
     ///
+    /// `new_authenticator_address` is the new authenticator's management key for an Admin
+    /// Authenticator, or the zero address for a Proving Authenticator (WIP-104).
+    ///
     /// Returns the gateway request to track and the slot the authenticator is inserted at once
     /// the request finalizes.
     ///
     /// # Errors
     /// - [`AuthenticatorError::InvalidAccountSnapshot`] if the snapshot belongs to another account
     ///   or its commitment does not match its public keys.
-    /// - [`AuthenticatorError::PrimitiveError`] if `class` is an Admin Authenticator with the zero
-    ///   address, which the registry would record as a Proving Authenticator.
     /// - [`AuthenticatorError::MaxAuthenticatorsReached`] if the snapshot has no free slot below
     ///   the registry's limit.
     /// - [`AuthenticatorError::GatewayError`] if the gateway rejects the operation, e.g. because
@@ -239,19 +203,12 @@ impl Authenticator {
         &self,
         snapshot: &AccountSnapshot,
         new_authenticator_pubkey: EdDSAPublicKey,
-        class: AuthenticatorClass,
+        new_authenticator_address: Address,
     ) -> Result<PendingInsertion, AuthenticatorError> {
         if snapshot.leaf_index != self.leaf_index() {
             return Err(AuthenticatorError::InvalidAccountSnapshot(
                 "snapshot belongs to a different account",
             ));
-        }
-        if class.has_zero_management_address() {
-            return Err(PrimitiveError::InvalidInput {
-                attribute: "class".to_string(),
-                reason: "management address must not be zero".to_string(),
-            }
-            .into());
         }
         let commitment: U256 = snapshot.authenticators.key_set.leaf_hash().into();
         if snapshot.authenticators.offchain_signer_commitment != commitment {
@@ -267,7 +224,7 @@ impl Authenticator {
             snapshot.authenticators.offchain_signer_commitment,
             snapshot.authenticators.key_set.clone(),
             new_authenticator_pubkey,
-            class.onchain_address(),
+            new_authenticator_address,
         )
         .await
     }
