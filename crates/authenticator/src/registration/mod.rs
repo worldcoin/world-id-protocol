@@ -20,8 +20,8 @@ mod session;
 
 pub use pairing_uri::{BridgeDomain, PairingUri, PairingUriError};
 pub use request::{
-    AuthenticatorClass, AuthenticatorName, MAX_NAME_LEN, NameTooLong, REGISTER_METHOD,
-    RegisterRequestMessage, RegistrationDigest, RegistrationRequest,
+    AuthenticatorName, MAX_NAME_LEN, NameTooLong, REGISTER_METHOD, RegisterRequestMessage,
+    RegistrationDigest, RegistrationRequest,
 };
 pub use response::{
     KnownAuthenticator, MAX_VAULT_SIZE, RegisterResponseMessage, RegistrationErrorData,

@@ -38,9 +38,9 @@ pub const MAX_NAME_LEN: usize = 64;
 pub struct RegistrationRequest {
     /// The signing key the Requesting Authenticator asks to register.
     pub new_authenticator_pubkey: EdDSAPublicKey,
-    /// The class the Requesting Authenticator asks for, with its management key if it is an
-    /// Admin Authenticator.
-    pub class: AuthenticatorClass,
+    /// The management key address of an Admin Authenticator, or `None` for a Proving
+    /// Authenticator (WIP-104). Never the zero address.
+    pub new_authenticator_address: Option<Address>,
     /// The key the response must be sealed to.
     pub response_pubkey: ResponsePublicKey,
     /// An optional, unauthenticated label for the new authenticator.
@@ -55,33 +55,33 @@ impl RegistrationRequest {
     ///
     /// # Errors
     ///
-    /// - [`PrimitiveError::InvalidInput`] if `class` is an Admin Authenticator with the zero
-    ///   management address.
+    /// - [`PrimitiveError::InvalidInput`] if `new_authenticator_address` is the zero address.
     /// - Another [`PrimitiveError`] if the public key fails to serialize.
     pub fn new_signed(
         signing_key: &EdDSAPrivateKey,
-        class: AuthenticatorClass,
+        new_authenticator_address: Option<Address>,
         response_pubkey: ResponsePublicKey,
         name: Option<AuthenticatorName>,
         request_id: &RequestId,
     ) -> Result<(Self, RegistrationDigest), PrimitiveError> {
-        if class.has_zero_management_address() {
-            return Err(PrimitiveError::InvalidInput {
-                attribute: "class".to_string(),
-                reason: ZERO_MANAGEMENT_ADDRESS.to_string(),
-            });
-        }
+        let new_authenticator_address = new_authenticator_address
+            .map(non_zero_address)
+            .transpose()
+            .map_err(|reason| PrimitiveError::InvalidInput {
+                attribute: "new_authenticator_address".to_string(),
+                reason: reason.to_string(),
+            })?;
         let new_authenticator_pubkey = signing_key.public();
         let digest = RegistrationDigest::compute(
             request_id,
             &new_authenticator_pubkey,
-            &class,
+            new_authenticator_address,
             &response_pubkey,
         )?;
         let registration_sig = signing_key.sign(*digest.signing_message());
         let request = Self {
             new_authenticator_pubkey,
-            class,
+            new_authenticator_address,
             response_pubkey,
             name,
             registration_sig,
@@ -98,7 +98,7 @@ impl RegistrationRequest {
         RegistrationDigest::compute(
             request_id,
             &self.new_authenticator_pubkey,
-            &self.class,
+            self.new_authenticator_address,
             &self.response_pubkey,
         )
     }
@@ -111,37 +111,6 @@ impl RegistrationRequest {
             .verify(*digest.signing_message(), &self.registration_sig)
     }
 }
-
-/// The kind of authenticator a Requesting Authenticator asks to become, as defined in WIP-104.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AuthenticatorClass {
-    /// An Admin Authenticator, which can manage the account with its management key.
-    Admin {
-        /// The non-zero address of the authenticator's management key.
-        address: Address,
-    },
-    /// A Proving Authenticator, which can generate proofs but cannot manage the account.
-    Proving,
-}
-
-impl AuthenticatorClass {
-    /// Returns the address registered on-chain for this class: the management key of an Admin
-    /// Authenticator, or the zero address for a Proving Authenticator.
-    #[must_use]
-    pub const fn onchain_address(&self) -> Address {
-        match self {
-            Self::Admin { address } => *address,
-            Self::Proving => Address::ZERO,
-        }
-    }
-
-    /// An Admin Authenticator with the zero address cannot be registered or encoded.
-    fn has_zero_management_address(&self) -> bool {
-        matches!(self, Self::Admin { address } if address.is_zero())
-    }
-}
-
-const ZERO_MANAGEMENT_ADDRESS: &str = "management address must not be zero";
 
 /// A self-reported, advisory label for an authenticator, at most [`MAX_NAME_LEN`] bytes of UTF-8.
 ///
@@ -190,12 +159,14 @@ pub struct NameTooLong;
 /// The SHA-256 commitment to the registration parameters, carried in the Pairing URI.
 ///
 /// It lets the Approving Authenticator detect a request that was substituted on the way. It
-/// covers the [`RequestId`], the new authenticator's keys and the response key, but not the name.
+/// covers the [`RequestId`], the new authenticator's signing key and address, and the response
+/// key, but not the name.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RegistrationDigest([u8; 32]);
 
 impl RegistrationDigest {
-    /// Computes the digest over the fixed-width encoding of the registration parameters.
+    /// Computes the digest over the fixed-width encoding of the registration parameters. A
+    /// Proving Authenticator, without `new_authenticator_address`, is encoded as the zero address.
     ///
     /// # Errors
     ///
@@ -203,7 +174,7 @@ impl RegistrationDigest {
     pub fn compute(
         request_id: &RequestId,
         new_authenticator_pubkey: &EdDSAPublicKey,
-        class: &AuthenticatorClass,
+        new_authenticator_address: Option<Address>,
         response_pubkey: &ResponsePublicKey,
     ) -> Result<Self, PrimitiveError> {
         let pubkey = new_authenticator_pubkey
@@ -213,7 +184,7 @@ impl RegistrationDigest {
             .chain_update(DIGEST_LABEL)
             .chain_update(request_id.as_bytes())
             .chain_update(pubkey)
-            .chain_update(class.onchain_address())
+            .chain_update(new_authenticator_address.unwrap_or(Address::ZERO))
             .chain_update(response_pubkey.to_bytes())
             .finalize();
         Ok(Self(digest.into()))
@@ -276,15 +247,12 @@ struct WireRegistrationRequest {
 
 impl Serialize for RegistrationRequest {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if self.class.has_zero_management_address() {
-            return Err(serde::ser::Error::custom(ZERO_MANAGEMENT_ADDRESS));
-        }
-        let address = match self.class {
-            AuthenticatorClass::Admin { address } => {
-                Some(bytes::AddressBytes(address.into_array()))
-            }
-            AuthenticatorClass::Proving => None,
-        };
+        let address = self
+            .new_authenticator_address
+            .map(non_zero_address)
+            .transpose()
+            .map_err(serde::ser::Error::custom)?
+            .map(|address| bytes::AddressBytes(address.into_array()));
         let response_pubkey =
             self.response_pubkey.to_bytes().try_into().map_err(|_| {
                 serde::ser::Error::custom("response public key has the wrong length")
@@ -312,28 +280,32 @@ impl<'de> Deserialize<'de> for RegistrationRequest {
         let new_authenticator_pubkey =
             EdDSAPublicKey::from_compressed_bytes(wire.new_authenticator_pubkey)
                 .map_err(|_| D::Error::custom("invalid new_authenticator_pubkey"))?;
-        let class = match wire.new_authenticator_address {
-            Some(address) => {
-                let address = Address::from(address.0);
-                if address.is_zero() {
-                    return Err(D::Error::custom(ZERO_MANAGEMENT_ADDRESS));
-                }
-                AuthenticatorClass::Admin { address }
-            }
-            None => AuthenticatorClass::Proving,
-        };
+        let new_authenticator_address = wire
+            .new_authenticator_address
+            .map(|address| non_zero_address(Address::from(address.0)))
+            .transpose()
+            .map_err(D::Error::custom)?;
         let response_pubkey = ResponsePublicKey::from_bytes(&wire.response_pubkey)
             .map_err(|_| D::Error::custom("invalid response_pubkey"))?;
         let registration_sig = EdDSASignature::from_compressed_bytes(wire.registration_sig)
             .map_err(|_| D::Error::custom("invalid registration_sig"))?;
         Ok(Self {
             new_authenticator_pubkey,
-            class,
+            new_authenticator_address,
             response_pubkey,
             name: wire.name,
             registration_sig,
         })
     }
+}
+
+/// Returns `address`, unless it is the zero address, which WIP-109 §3.6.1 forbids as
+/// `new_authenticator_address`: on-chain, the zero address marks a Proving Authenticator.
+fn non_zero_address(address: Address) -> Result<Address, &'static str> {
+    if address.is_zero() {
+        return Err("new_authenticator_address must not be the zero address");
+    }
+    Ok(address)
 }
 
 #[cfg(test)]
@@ -345,21 +317,18 @@ mod tests {
         EdDSAPrivateKey::from_bytes([seed; 32])
     }
 
-    fn admin() -> AuthenticatorClass {
-        AuthenticatorClass::Admin {
-            address: Address::repeat_byte(0x11),
-        }
-    }
+    const ADMIN: Option<Address> = Some(Address::repeat_byte(0x11));
+    const PROVING: Option<Address> = None;
 
     fn signed_request(
-        class: AuthenticatorClass,
+        new_authenticator_address: Option<Address>,
     ) -> (RegistrationRequest, RegistrationDigest, RequestId) {
         let request_id = PairingSecret::from_bytes([9; 32]).request_id();
         let response_pubkey = ResponseSecretKey::from_seed(&[4; 32]).public_key();
         let name = AuthenticatorName::try_from("Chrome on MacBook".to_string()).unwrap();
         let (request, digest) = RegistrationRequest::new_signed(
             &signing_key(1),
-            class,
+            new_authenticator_address,
             response_pubkey,
             Some(name),
             &request_id,
@@ -370,8 +339,8 @@ mod tests {
 
     #[test]
     fn signed_request_verifies_against_its_digest() {
-        for class in [admin(), AuthenticatorClass::Proving] {
-            let (request, digest, request_id) = signed_request(class);
+        for address in [ADMIN, PROVING] {
+            let (request, digest, request_id) = signed_request(address);
             assert_eq!(request.digest(&request_id).unwrap(), digest);
             assert!(request.verify_signature(&digest));
         }
@@ -379,14 +348,18 @@ mod tests {
 
     #[test]
     fn digest_binds_every_authenticated_parameter() {
-        let (request, digest, request_id) = signed_request(admin());
+        let (request, digest, request_id) = signed_request(ADMIN);
 
         let other_request_id = PairingSecret::from_bytes([10; 32]).request_id();
         assert_ne!(request.digest(&other_request_id).unwrap(), digest);
 
         let mut proving = request.clone();
-        proving.class = AuthenticatorClass::Proving;
+        proving.new_authenticator_address = PROVING;
         assert_ne!(proving.digest(&request_id).unwrap(), digest);
+
+        let mut other_address = request.clone();
+        other_address.new_authenticator_address = Some(Address::repeat_byte(0x22));
+        assert_ne!(other_address.digest(&request_id).unwrap(), digest);
 
         let mut other_key = request.clone();
         other_key.new_authenticator_pubkey = signing_key(2).public();
@@ -403,10 +376,8 @@ mod tests {
     }
 
     #[test]
-    fn zero_management_address_is_neither_signed_nor_encoded() {
-        let zero = AuthenticatorClass::Admin {
-            address: Address::ZERO,
-        };
+    fn zero_address_is_neither_signed_nor_encoded() {
+        let zero = Some(Address::ZERO);
         let request_id = PairingSecret::from_bytes([9; 32]).request_id();
         let response_pubkey = ResponseSecretKey::from_seed(&[4; 32]).public_key();
         assert!(
@@ -420,8 +391,8 @@ mod tests {
             .is_err()
         );
 
-        let (mut request, _, request_id) = signed_request(admin());
-        request.class = zero;
+        let (mut request, _, request_id) = signed_request(ADMIN);
+        request.new_authenticator_address = zero;
         let message = RegisterRequestMessage::builder()
             .id(request_id.to_string())
             .method(REGISTER_METHOD)
@@ -432,8 +403,8 @@ mod tests {
 
     #[test]
     fn request_round_trips_through_cbor() {
-        for class in [admin(), AuthenticatorClass::Proving] {
-            let (request, _, request_id) = signed_request(class);
+        for address in [ADMIN, PROVING] {
+            let (request, _, request_id) = signed_request(address);
             let message = RegisterRequestMessage::builder()
                 .id(request_id.to_string())
                 .method(REGISTER_METHOD)
@@ -448,7 +419,7 @@ mod tests {
 
     #[test]
     fn wire_rejects_wrong_byte_lengths_types_and_zero_address() {
-        let (request, _, _) = signed_request(admin());
+        let (request, _, _) = signed_request(ADMIN);
         let mut encoded = Vec::new();
         ciborium::into_writer(&request, &mut encoded).unwrap();
         let original: ciborium::Value = ciborium::from_reader(encoded.as_slice()).unwrap();
