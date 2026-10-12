@@ -21,11 +21,15 @@ use world_id_registries::world_id::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
 
+/// The `WorldIDRegistry`'s `MAX_AUTHENTICATORS_HARD_LIMIT`: no account has a slot at or above it.
+const MAX_AUTHENTICATORS_HARD_LIMIT: usize = 96;
+
 /// The registered authenticators of an account, read from one indexed account state.
 ///
 /// Parsed from the indexer's `/authenticators` response with [`TryFrom`]: every slot has both a
 /// public key and an address, or neither, the off-chain signer commitment is the commitment to the
-/// public keys, and the recovery counter fits the registry's 32 bits.
+/// public keys, and the recovery counter fits the registry's 32 bits. Removed slots after the last
+/// registered one are dropped, so the addresses are as many as the public keys.
 #[derive(Clone, Debug)]
 pub struct AccountAuthenticators {
     key_set: AuthenticatorPublicKeySet,
@@ -101,9 +105,10 @@ impl TryFrom<IndexerAuthenticatorsResponse> for AccountAuthenticators {
     ///
     /// # Errors
     /// - [`AuthenticatorError::PrimitiveError`] if the response has different numbers of
-    ///   addresses and public keys, a slot with only one of them, a recovery counter above 32
-    ///   bits, an invalid public key, or a commitment that does not match the public keys. Such
-    ///   an account state cannot be signed from or proven with.
+    ///   addresses and public keys, more slots than the registry allows, a slot with only an
+    ///   address or only a public key, a recovery counter above 32 bits, an invalid public key,
+    ///   or a commitment that does not match the public keys. Such an account state cannot be
+    ///   signed from or proven with.
     /// - [`AuthenticatorError::InvalidIndexerPubkeySlot`] if a public key is registered at a
     ///   slot beyond [`MAX_AUTHENTICATOR_KEYS`].
     fn try_from(response: IndexerAuthenticatorsResponse) -> Result<Self, Self::Error> {
@@ -116,6 +121,11 @@ impl TryFrom<IndexerAuthenticatorsResponse> for AccountAuthenticators {
         if authenticator_addresses.len() != authenticator_pubkeys.len() {
             return Err(invalid_response(
                 "different numbers of authenticator addresses and pubkeys",
+            ));
+        }
+        if authenticator_pubkeys.len() > MAX_AUTHENTICATORS_HARD_LIMIT {
+            return Err(invalid_response(
+                "more authenticator slots than the registry allows",
             ));
         }
         if authenticator_addresses
@@ -136,9 +146,11 @@ impl TryFrom<IndexerAuthenticatorsResponse> for AccountAuthenticators {
                 "an off-chain signer commitment that does not match the pubkeys",
             ));
         }
+        let mut addresses = authenticator_addresses;
+        addresses.truncate(key_set.len());
         Ok(Self {
             key_set,
-            addresses: authenticator_addresses,
+            addresses,
             offchain_signer_commitment,
             recovery_counter,
         })
@@ -590,6 +602,24 @@ mod tests {
             recovery_counter,
             ..response(&[Some((1, ADMIN))])
         };
+
+        AccountAuthenticators::try_from(response).is_ok()
+    }
+
+    #[test]
+    fn drops_removed_slots_after_the_last_key() {
+        let authenticators = authenticators(&[Some((1, ADMIN)), None, None]);
+
+        assert_eq!(authenticators.key_set().len(), 1);
+        assert_eq!(authenticators.addresses(), [Some(ADMIN)]);
+    }
+
+    #[test_case(MAX_AUTHENTICATORS_HARD_LIMIT => true; "as many slots as the registry allows")]
+    #[test_case(MAX_AUTHENTICATORS_HARD_LIMIT + 1 => false; "more slots than the registry allows")]
+    fn accepts_at_most_the_registrys_slots(slots: usize) -> bool {
+        let mut response = response(&[Some((1, ADMIN))]);
+        response.authenticator_pubkeys.resize(slots, None);
+        response.authenticator_addresses.resize(slots, None);
 
         AccountAuthenticators::try_from(response).is_ok()
     }
