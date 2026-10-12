@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
     authenticator_message::{self, ErrorObject, MessageError, Response, Value},
@@ -87,7 +87,7 @@ pub struct RegistrationResult {
 /// The `data` member of a registration error.
 ///
 /// WIP-109 §3.6.3 lets `error.data` be a map with a `detail` text string. Any other `data`
-/// decodes too, as no detail, so that an unexpected `data` never hides the error itself.
+/// decodes too, as no detail. Repeated `detail` keys are rejected (WIP-105 §3.1.1).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RegistrationErrorData {
     /// Optional implementation-specific detail, e.g. a gateway error code.
@@ -98,10 +98,23 @@ pub struct RegistrationErrorData {
 impl<'de> Deserialize<'de> for RegistrationErrorData {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let detail = match Value::deserialize(deserializer)? {
-            Value::Map(entries) => entries.into_iter().find_map(|entry| match entry {
-                (Value::Text(key), Value::Text(detail)) if key == "detail" => Some(detail),
-                _ => None,
-            }),
+            Value::Map(entries) => {
+                let mut detail = None;
+                let mut detail_seen = false;
+                for (key, value) in entries {
+                    if key.as_text() != Some("detail") {
+                        continue;
+                    }
+                    if detail_seen {
+                        return Err(D::Error::duplicate_field("detail"));
+                    }
+                    detail_seen = true;
+                    if let Value::Text(text) = value {
+                        detail = Some(text);
+                    }
+                }
+                detail
+            }
             _ => None,
         };
         Ok(Self { detail })
@@ -222,7 +235,8 @@ pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErro
 ///
 /// The plaintext must hold a single WIP-105 response of at most 3.5 MiB plus 4 KiB (WIP-109
 /// §3.5). Its `result` must be a [`RegistrationResult`] without CBOR tags at any depth. An
-/// error's `data` is read as [`RegistrationErrorData`], which accepts any value. Matching the `id`
+/// error's `data` is read as [`RegistrationErrorData`], which rejects duplicate `detail` keys.
+/// Matching the `id`
 /// against the request is up to the caller.
 ///
 /// # Errors
@@ -542,6 +556,29 @@ mod tests {
         let error = decode_error_with_data(data);
         assert_eq!(error.code, "operation_failed");
         assert_eq!(error.data.unwrap().detail.as_deref(), detail);
+    }
+
+    #[test_case("first".into(), "second".into(); "two text details")]
+    #[test_case(Value::Null, "second".into(); "null then text")]
+    #[test_case("first".into(), Value::Null; "text then null")]
+    #[test_case(7.into(), Value::Null; "two nontext details")]
+    fn decode_response_rejects_duplicate_detail(first: Value, second: Value) {
+        let error = ErrorObject::builder()
+            .code("operation_failed")
+            .message("InsertAuthenticator operation failed")
+            .data(Value::Map(vec![
+                ("detail".into(), first),
+                ("detail".into(), second),
+            ]))
+            .build();
+        let response = Response::<Value, Value>::builder()
+            .id("request".to_string())
+            .outcome(Err(error))
+            .build();
+        let error = decode_response(&encode(&response).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("duplicate field `detail`"), "{error}");
     }
 
     #[test_case(1, 0, 6; "lowest leaf index")]
