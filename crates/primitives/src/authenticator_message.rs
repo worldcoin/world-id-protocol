@@ -1,17 +1,17 @@
 //! The message and deeplink formats that World ID authenticators use to talk to each other, as
 //! defined in [WIP-105](https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-105.md).
 //!
-//! Use [`encode`] and [`decode`] for CBOR at transport boundaries. Decoding enforces message
-//! size, nesting and framing limits; typed requests and responses validate their own fields.
+//! Use [`Request::encode`]/[`Request::decode`] and [`Response::encode`]/[`Response::decode`]
+//! for CBOR at transport boundaries. Decoding enforces message size, nesting and framing limits; typed requests and responses validate their own fields.
 //! Deeplinks are `worldid://` URIs represented by [`Deeplink`].
 
 use std::{borrow::Cow, fmt, str::FromStr};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
-pub mod cbor;
+mod cbor;
 mod uri;
-pub use cbor::{MessageError, decode, encode};
+pub use cbor::MessageError;
 pub use ciborium::Value;
 
 /// The URI scheme of World ID deeplinks.
@@ -24,14 +24,12 @@ const METHOD_PREFIX: &str = "worldid";
 /// An absent ID represents a notification. Receivers must never reply to notifications, even
 /// when the method is unknown or execution fails. Session owners must prevent concurrent ID
 /// reuse. Callers are responsible for choosing a parameter type that enforces the method schema.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, bound(deserialize = "P: Deserialize<'de>"))]
 pub struct Request<P> {
     /// The message format version.
-    #[builder(default)]
     pub version: Version,
     /// The request ID, echoed back in the response, or `None` for a notification.
-    #[builder(into)]
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
@@ -49,23 +47,98 @@ pub struct Request<P> {
     pub params: Option<P>,
 }
 
+impl<P> Request<P> {
+    /// Creates a version 1 request; omit `id` for a notification and `params` for no arguments.
+    #[must_use]
+    pub const fn new(id: Option<Id>, method: MethodName, params: Option<P>) -> Self {
+        Self {
+            version: Version::V1,
+            id,
+            method,
+            params,
+        }
+    }
+
+    /// Encodes this message as CBOR. The transport must enforce its encoded size limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a payload cannot be serialized.
+    pub fn encode(&self) -> Result<Vec<u8>, MessageError>
+    where
+        P: Serialize,
+    {
+        cbor::encode(self)
+    }
+
+    /// Decodes one message, rejecting input above `max_size`, nesting beyond 32 and trailing bytes.
+    /// The payload types determine field validation and nullable values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a bound is exceeded or the message does not match its schema.
+    pub fn decode(bytes: &[u8], max_size: usize) -> Result<Self, MessageError>
+    where
+        P: serde::de::DeserializeOwned,
+    {
+        cbor::decode(bytes, max_size)
+    }
+}
+
 /// A response containing exactly one success or error outcome.
 ///
 /// Callers must match responses by the outcome's ID and report invalid or unmatched responses
 /// locally, without replying. A null error ID is uncorrelated and must never match a pending
-/// request. Use [`encode`] and [`decode`] at the transport boundary.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
+/// request. Use [`Response::encode`] and [`Response::decode`] at the transport boundary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     deny_unknown_fields,
     bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>")
 )]
 pub struct Response<R, D = Value> {
     /// The message format version.
-    #[builder(default)]
     pub version: Version,
     /// The successful result or the error that prevented it.
     #[serde(deserialize_with = "deserialize_outcome")]
     pub outcome: Outcome<R, D>,
+}
+
+impl<R, D> Response<R, D> {
+    /// Creates a version 1 response with exactly one outcome.
+    #[must_use]
+    pub const fn new(outcome: Outcome<R, D>) -> Self {
+        Self {
+            version: Version::V1,
+            outcome,
+        }
+    }
+
+    /// Encodes this message as CBOR. The transport must enforce its encoded size limit.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a payload cannot be serialized.
+    pub fn encode(&self) -> Result<Vec<u8>, MessageError>
+    where
+        R: Serialize,
+        D: Serialize,
+    {
+        cbor::encode(self)
+    }
+
+    /// Decodes one message, rejecting input above `max_size`, nesting beyond 32 and trailing bytes.
+    /// The payload types determine field validation and nullable values.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if a bound is exceeded or the message does not match its schema.
+    pub fn decode(bytes: &[u8], max_size: usize) -> Result<Self, MessageError>
+    where
+        R: serde::de::DeserializeOwned,
+        D: serde::de::DeserializeOwned,
+    {
+        cbor::decode(bytes, max_size)
+    }
 }
 
 /// The mutually exclusive outcomes of a method invocation.
@@ -100,14 +173,12 @@ pub enum Outcome<R, D = Value> {
 }
 
 /// A method failure. Callers identify errors by their case-sensitive code, not message text.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(bound(deserialize = "D: Deserialize<'de>"))]
 pub struct ErrorObject<D = Value> {
     /// A shared WIP-105 or method-specific failure code.
-    #[builder(into)]
     pub code: String,
     /// A short human-readable explanation.
-    #[builder(into)]
     pub message: String,
     /// Optional method-specific details; a present null value is preserved.
     #[serde(
@@ -116,6 +187,18 @@ pub struct ErrorObject<D = Value> {
         deserialize_with = "deserialize_present"
     )]
     pub data: Option<D>,
+}
+
+impl<D> ErrorObject<D> {
+    /// Creates a method failure, preserving present null data when `D` accepts null.
+    #[must_use]
+    pub fn new(code: impl Into<String>, message: impl Into<String>, data: Option<D>) -> Self {
+        Self {
+            code: code.into(),
+            message: message.into(),
+            data,
+        }
+    }
 }
 
 /// The envelope version defined by WIP-105.
@@ -127,49 +210,8 @@ pub enum Version {
     V1,
 }
 
-/// A request ID. Integer and text IDs are distinct; null is never a request ID.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub enum Id {
-    /// A CBOR integer, in the range -2^64 through 2^64 - 1.
-    Number(i128),
-    /// A text ID.
-    String(String),
-}
-
-impl Serialize for Id {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Number(number) => {
-                let integer = ciborium::value::Integer::try_from(*number)
-                    .map_err(serde::ser::Error::custom)?;
-                Value::Integer(integer).serialize(serializer)
-            }
-            Self::String(text) => serializer.serialize_str(text),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for Id {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        match Value::deserialize(deserializer)? {
-            Value::Integer(number) => Ok(Self::Number(number.into())),
-            Value::Text(text) => Ok(Self::String(text)),
-            _ => Err(D::Error::custom("request ID must be text or integer")),
-        }
-    }
-}
-
-impl From<String> for Id {
-    fn from(id: String) -> Self {
-        Self::String(id)
-    }
-}
-
-impl From<i64> for Id {
-    fn from(id: i64) -> Self {
-        Self::Number(id.into())
-    }
-}
+/// A text request ID; null is never a request ID.
+pub type Id = String;
 
 /// The name of a WIP-105 method, e.g. `worldid_auth_v1_register`.
 ///
