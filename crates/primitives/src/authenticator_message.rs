@@ -24,38 +24,73 @@ const METHOD_PREFIX: &str = "worldid";
 /// An absent ID represents a notification. Receivers must never reply to notifications, even
 /// when the method is unknown or execution fails. Session owners must prevent concurrent ID
 /// reuse. Callers are responsible for choosing a parameter type that enforces the method schema.
-/// Deserialization requires present parameters to be an array or map and rejects response fields.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, bon::Builder)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields, bound(deserialize = "P: Deserialize<'de>"))]
 pub struct Request<P> {
     /// The message format version.
     #[builder(default)]
     pub version: Version,
     /// The request ID, echoed back in the response, or `None` for a notification.
     #[builder(into)]
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
     pub id: Option<Id>,
     /// The method being invoked.
     pub method: MethodName,
-    /// Array or map arguments, or `None` when no arguments were supplied.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Method-defined arguments, or `None` when no arguments were supplied.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
     pub params: Option<P>,
 }
 
-/// A response containing exactly one result or error.
+/// A response containing exactly one success or error outcome.
 ///
-/// A null ID (`None`) is reserved for uncorrelated errors and must never match a pending request.
-/// Callers must match other responses by ID and report invalid or unmatched responses locally,
-/// without replying. Use [`encode`] and [`decode`] at the transport boundary.
-#[derive(Clone, Debug, PartialEq, Eq, bon::Builder)]
+/// Callers must match responses by the outcome's ID and report invalid or unmatched responses
+/// locally, without replying. A null error ID is uncorrelated and must never match a pending
+/// request. Use [`encode`] and [`decode`] at the transport boundary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
+#[serde(deny_unknown_fields)]
 pub struct Response<R, D = Value> {
     /// The message format version.
     #[builder(default)]
     pub version: Version,
-    /// The request ID, or `None` for an uncorrelated error.
-    #[builder(into)]
-    pub id: Option<Id>,
-    /// The method result, or the error that prevented it.
-    pub outcome: Result<R, ErrorObject<D>>,
+    /// The successful result or the error that prevented it.
+    pub outcome: Outcome<R, D>,
+}
+
+/// The mutually exclusive outcomes of a method invocation.
+///
+/// On the wire this is a definite-length, single-entry map keyed by `success` or `error`.
+/// Successful responses always have a request ID; only errors can be uncorrelated.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    rename_all = "snake_case",
+    deny_unknown_fields,
+    bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>")
+)]
+pub enum Outcome<R, D = Value> {
+    /// A successful invocation with a required result, including when that result is null.
+    Success {
+        /// The ID of the request that succeeded.
+        id: Id,
+        /// The method-defined result.
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        result: R,
+    },
+    /// A failed invocation, optionally correlated with a request.
+    Error {
+        /// The request ID, or null when the failure cannot be correlated.
+        #[serde(deserialize_with = "Deserialize::deserialize")]
+        id: Option<Id>,
+        /// The method failure.
+        error: ErrorObject<D>,
+    },
 }
 
 /// A method failure. Callers identify errors by their case-sensitive code, not message text.
@@ -391,131 +426,9 @@ pub enum DeeplinkError {
     MalformedParameter,
 }
 
-#[derive(Deserialize)]
-#[serde(bound(deserialize = "P: Deserialize<'de>"))]
-struct WireRequest<P> {
-    version: Version,
-    #[serde(default, deserialize_with = "deserialize_present")]
-    id: Option<Id>,
-    method: MethodName,
-    #[serde(default, deserialize_with = "deserialize_params")]
-    params: Option<P>,
-    #[serde(default, rename = "result", deserialize_with = "reject_envelope_field")]
-    _result: (),
-    #[serde(default, rename = "error", deserialize_with = "reject_envelope_field")]
-    _error: (),
-}
-
-impl<'de, P: Deserialize<'de>> Deserialize<'de> for Request<P> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wire = WireRequest::<P>::deserialize(deserializer)?;
-        Ok(Self {
-            version: wire.version,
-            id: wire.id,
-            method: wire.method,
-            params: wire.params,
-        })
-    }
-}
-
-#[derive(Serialize)]
-struct WireResponseRef<'a, R, D> {
-    version: Version,
-    id: &'a Option<Id>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    result: Option<&'a R>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<&'a ErrorObject<D>>,
-}
-
-#[derive(Deserialize)]
-#[serde(bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>"))]
-struct WireResponse<R, D> {
-    version: Version,
-    #[serde(deserialize_with = "Deserialize::deserialize")]
-    id: Option<Id>,
-    #[serde(default, deserialize_with = "deserialize_present")]
-    result: Option<R>,
-    #[serde(default, deserialize_with = "deserialize_present")]
-    error: Option<ErrorObject<D>>,
-    #[serde(default, rename = "method", deserialize_with = "reject_envelope_field")]
-    _method: (),
-    #[serde(default, rename = "params", deserialize_with = "reject_envelope_field")]
-    _params: (),
-}
-
-impl<R: Serialize, D: Serialize> Serialize for Response<R, D> {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        if self.id.is_none() && self.outcome.is_ok() {
-            return Err(serde::ser::Error::custom(
-                "successful response requires a non-null ID",
-            ));
-        }
-        WireResponseRef {
-            version: self.version,
-            id: &self.id,
-            result: self.outcome.as_ref().ok(),
-            error: self.outcome.as_ref().err(),
-        }
-        .serialize(serializer)
-    }
-}
-
-impl<'de, R: Deserialize<'de>, D: Deserialize<'de>> Deserialize<'de> for Response<R, D> {
-    fn deserialize<De: Deserializer<'de>>(deserializer: De) -> Result<Self, De::Error> {
-        let wire = WireResponse::<R, D>::deserialize(deserializer)?;
-        let outcome = match (wire.result, wire.error) {
-            (Some(result), None) if wire.id.is_some() => Ok(result),
-            (None, Some(error)) => Err(error),
-            _ => {
-                return Err(De::Error::custom(
-                    "response requires exactly one outcome and successes require a non-null ID",
-                ));
-            }
-        };
-        Ok(Self {
-            version: wire.version,
-            id: wire.id,
-            outcome,
-        })
-    }
-}
-
-fn reject_envelope_field<'de, D: Deserializer<'de>>(_: D) -> Result<(), D::Error> {
-    Err(D::Error::custom("field is not allowed in this envelope"))
-}
-
-fn deserialize_params<'de, D, P>(deserializer: D) -> Result<Option<P>, D::Error>
-where
-    D: Deserializer<'de>,
-    P: Deserialize<'de>,
-{
-    struct ParamsVisitor<P>(std::marker::PhantomData<P>);
-
-    impl<'de, P: Deserialize<'de>> serde::de::Visitor<'de> for ParamsVisitor<P> {
-        type Value = P;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("an array or map of request parameters")
-        }
-
-        fn visit_seq<A: serde::de::SeqAccess<'de>>(self, seq: A) -> Result<P, A::Error> {
-            P::deserialize(serde::de::value::SeqAccessDeserializer::new(seq))
-        }
-
-        fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<P, A::Error> {
-            P::deserialize(serde::de::value::MapAccessDeserializer::new(map))
-        }
-    }
-
-    deserializer
-        .deserialize_any(ParamsVisitor(std::marker::PhantomData))
-        .map(Some)
-}
-
 /// Preserves the distinction between an absent field and a present value, including null.
 /// With `serde(default)`, absence becomes `None`; a present value is parsed as `T` and wrapped in
-/// `Some`. This preserves nullable results and error data, while rejecting a null request ID
+/// `Some`. This preserves nullable parameters and error data, while rejecting a null request ID
 /// because `Id` itself does not accept null. Deserializing `Option<T>` would treat both as absent.
 fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where

@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use serde::de::DeserializeOwned;
 use test_case::test_case;
 use world_id_primitives::authenticator_message::{
-    ErrorObject, Id, MessageError, MethodName, Request, Response, Value, cbor,
+    ErrorObject, Id, MessageError, MethodName, Outcome, Request, Response, Value, cbor,
 };
 
 const PING: MethodName = MethodName::from_static("worldid_ping");
@@ -57,38 +57,27 @@ fn request_wire_example(request: Request<Value>, diagnostic: &str) {
 }
 
 #[test_case(
-    Response::builder().id(1).outcome(Ok(Value::Bytes(vec![0, 255]))).build(),
-    r#"{"version": "1.0", "id": 1, "result": h'00ff'}"#;
+    Outcome::Success { id: Id::Number(1), result: Value::Bytes(vec![0, 255]) },
+    r#"{"version": "1.0", "outcome": {"success": {"id": 1, "result": h'00ff'}}}"#;
     "binary result"
 )]
 #[test_case(
-    Response::builder().id("ping-1".to_owned()).outcome(Ok(Value::Null)).build(),
-    r#"{"version": "1.0", "id": "ping-1", "result": null}"#;
+    Outcome::Success { id: Id::String("ping-1".into()), result: Value::Null },
+    r#"{"version": "1.0", "outcome": {"success": {"id": "ping-1", "result": null}}}"#;
     "present null result"
 )]
 #[test_case(
-    Response::builder()
-        .id(1)
-        .outcome(Err(ErrorObject::builder()
-            .code("invalid_params")
-            .message("Invalid params")
-            .build()))
-        .build(),
-    r#"{"version": "1.0", "id": 1, "error": {"code": "invalid_params", "message": "Invalid params"}}"#;
+    Outcome::Error { id: Some(Id::Number(1)), error: ErrorObject::builder().code("invalid_params").message("Invalid params").build() },
+    r#"{"version": "1.0", "outcome": {"error": {"id": 1, "error": {"code": "invalid_params", "message": "Invalid params"}}}}"#;
     "correlated error without data"
 )]
 #[test_case(
-    Response::builder()
-        .outcome(Err(ErrorObject::builder()
-            .code("parse_error")
-            .message("Invalid message")
-            .data(Value::Null)
-            .build()))
-        .build(),
-    r#"{"version": "1.0", "id": null, "error": {"code": "parse_error", "message": "Invalid message", "data": null}}"#;
+    Outcome::Error { id: None, error: ErrorObject::builder().code("parse_error").message("Invalid message").data(Value::Null).build() },
+    r#"{"version": "1.0", "outcome": {"error": {"id": null, "error": {"code": "parse_error", "message": "Invalid message", "data": null}}}}"#;
     "uncorrelated error with present null data"
 )]
-fn response_wire_example(response: Response<Value>, diagnostic: &str) {
+fn response_wire_example(outcome: Outcome<Value>, diagnostic: &str) {
+    let response = Response::builder().outcome(outcome).build();
     assert_eq!(cbor::encode(&response).unwrap(), fixture(diagnostic));
     assert_eq!(decode::<Response<Value>>(diagnostic).unwrap(), response);
 }
@@ -104,27 +93,21 @@ fn integer_ids_outside_the_cbor_range_fail_to_encode(number: i128) {
 }
 
 #[test]
-fn success_without_id_fails_to_encode() {
-    let response = Response::<Value>::builder()
-        .outcome(Ok(Value::Null))
-        .build();
-    assert!(cbor::encode(&response).is_err());
-}
-
-#[test]
-fn ignores_unknown_envelope_and_error_fields() {
-    let decoded = decode::<Response<Value>>(
-        r#"{"version": "1.0", "id": null, "extra": h'01',
-            "error": {"code": "parse_error", "message": "bad", "extra": true}}"#,
-    );
+fn ignores_unknown_error_fields() {
+    let response = decode::<Response<Value>>(
+        r#"{"version": "1.0", "outcome": {"error": {"id": null,
+            "error": {"code": "parse_error", "message": "bad", "extra": true}}}}"#,
+    )
+    .unwrap();
     assert_eq!(
-        decoded.unwrap(),
-        Response::builder()
-            .outcome(Err(ErrorObject::builder()
+        response.outcome,
+        Outcome::Error {
+            id: None,
+            error: ErrorObject::builder()
                 .code("parse_error")
                 .message("bad")
-                .build()))
-            .build()
+                .build(),
+        }
     );
 }
 
@@ -138,12 +121,9 @@ fn ignores_unknown_envelope_and_error_fields() {
 )]
 #[test_case(r#"{"version": "1.0", "method": "worldid_ping", "result": null}"#; "result field")]
 #[test_case(r#"{"version": "1.0", "method": "worldid_ping", "error": null}"#; "error field")]
-#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": null}"#; "null params")]
-#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": 1}"#; "integer params")]
-#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": "text"}"#; "text params")]
-#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": h'01'}"#; "byte string params")]
-#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": true}"#; "boolean params")]
-#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": 1.5}"#; "float params")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "extra": null}"#; "unknown field")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "id": 1, "id": 2}"#; "duplicate id")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": null, "params": null}"#; "duplicate params")]
 fn rejects_invalid_request(diagnostic: &str) {
     assert!(matches!(
         decode::<Request<Value>>(diagnostic),
@@ -159,24 +139,31 @@ fn typed_params_reject_null() {
     assert!(matches!(decoded, Err(MessageError::Deserialize(_))));
 }
 
-#[test_case(r#"{"version": "1.0", "id": 1}"#; "missing outcome")]
-#[test_case(r#"{"version": "1.0", "result": null}"#; "missing id")]
-#[test_case(r#"{"version": "1.0", "id": null, "result": null}"#; "success with null id")]
-#[test_case(
-    r#"{"version": "1.0", "id": 1, "result": null,
-        "error": {"code": "failed", "message": "failed"}}"#;
-    "both outcomes"
-)]
-#[test_case(r#"{"version": "1.0", "id": 1, "result": null, "method": null}"#; "method field")]
-#[test_case(r#"{"version": "1.0", "id": 1, "result": null, "params": null}"#; "params field")]
-#[test_case(
-    r#"{"version": "1.0", "id": null, "error": {"code": "parse_error", "message": "bad"}, "method": "worldid_ping"}"#;
-    "error response with method"
-)]
-#[test_case(
-    r#"{"version": "1.0", "id": null, "error": {"code": "parse_error", "message": "bad"}, "params": {}}"#;
-    "error response with params"
-)]
+#[test_case(r#"{"version": "1.0"}"#; "missing outcome")]
+#[test_case(r#"{"version": "1.0", "outcome": {}}"#; "empty outcome")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"result": null}}}"#; "missing success id")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": null, "result": null}}}"#; "null success id")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": 1}}}"#; "missing result")]
+#[test_case(r#"{"version": "1.0", "outcome": {"error": {"error": {"code": "failed", "message": "bad"}}}}"#; "missing error id")]
+#[test_case(r#"{"version": "1.0", "outcome": {"error": {"id": null}}}"#; "missing error payload")]
+#[test_case(r#"{"version": "1.0", "outcome": {"error": {"id": null, "error": null}}}"#; "null error payload")]
+#[test_case(r#"{"version": "1.0", "outcome": {"other": null}}"#; "unknown outcome")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": 1, "result": null}, "error": {"id": null, "error": {"code": "failed", "message": "bad"}}}}"#; "both outcomes")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": 1, "result": null}, "success": {"id": 1, "result": null}}}"#; "duplicate variant")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": 1, "result": null}}, "outcome": {"success": {"id": 1, "result": null}}}"#; "duplicate outcome")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": 1, "id": 2, "result": null}}}"#; "duplicate success id")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": 1, "result": null, "result": null}}}"#; "duplicate result")]
+#[test_case(r#"{"version": "1.0", "outcome": {"error": {"id": null, "id": 1, "error": {"code": "failed", "message": "bad"}}}}"#; "duplicate error id")]
+#[test_case(r#"{"version": "1.0", "outcome": {"error": {"id": null, "error": {}, "error": {}}}}"#; "duplicate error payload")]
+#[test_case(r#"{"version": "1.0", "outcome": {"error": {"id": null, "error": {"code": "failed", "code": "failed", "message": "bad"}}}}"#; "duplicate error code")]
+#[test_case(r#"{"version": "1.0", "extra": true, "outcome": {"success": {"id": 1, "result": null}}}"#; "unknown envelope")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": 1, "result": null, "extra": true}}}"#; "unknown success field")]
+#[test_case(r#"{"version": "1.0", "outcome": {"error": {"id": null, "error": {"code": "failed", "message": "bad"}, "extra": true}}}"#; "unknown error field")]
+#[test_case(r#"{"version": "1.0", "id": 1, "outcome": {"success": {"id": 1, "result": null}}}"#; "legacy top level id")]
+#[test_case(r#"{"version": "1.0", "outcome": {_ "success": {"id": 1, "result": null}}}"#; "indefinite outcome wrapper")]
+#[test_case(r#"{"version": "2.0", "outcome": {"success": {"id": 1, "result": null}}}"#; "unsupported response version")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": 1, "result": null}}, "method": "worldid_ping"}"#; "response method")]
+#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": 1, "result": null}}, "params": {}}"#; "response params")]
 fn rejects_invalid_response(diagnostic: &str) {
     assert!(matches!(
         decode::<Response<Value>>(diagnostic),
@@ -185,17 +172,75 @@ fn rejects_invalid_response(diagnostic: &str) {
 }
 
 #[test]
-fn request_ignores_unknown_envelope_fields() {
-    let request = decode::<Request<Value>>(
-        r#"{"extra": null, "version": "1.0", "method": "worldid_ping", "params": {}}"#,
+fn nullable_result_is_required_and_preserved() {
+    let response = decode::<Response<Option<u64>>>(
+        r#"{"version": "1.0", "outcome": {"success": {"id": 1, "result": null}}}"#,
     )
     .unwrap();
     assert_eq!(
+        response.outcome,
+        Outcome::Success {
+            id: Id::Number(1),
+            result: None
+        }
+    );
+    assert!(
+        decode::<Response<Option<u64>>>(r#"{"version": "1.0", "outcome": {"success": {"id": 1}}}"#)
+            .is_err()
+    );
+}
+
+#[test]
+fn nullable_error_data_distinguishes_absent_and_null() {
+    let absent =
+        decode::<ErrorObject<Option<u64>>>(r#"{"code": "failed", "message": "bad"}"#).unwrap();
+    let present =
+        decode::<ErrorObject<Option<u64>>>(r#"{"code": "failed", "message": "bad", "data": null}"#)
+            .unwrap();
+    assert_eq!(absent.data, None);
+    assert_eq!(present.data, Some(None));
+}
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct StrictPayload {
+    #[serde(rename = "nonce")]
+    _nonce: u64,
+}
+
+#[test_case(r#"{"nonce": 1, "extra": true}"#; "unknown field")]
+#[test_case(r#"{"nonce": 1, "nonce": 2}"#; "duplicate field")]
+#[test_case("null"; "null")]
+fn typed_payloads_enforce_their_schema(payload: &str) {
+    assert!(
+        decode::<Request<StrictPayload>>(&format!(
+            r#"{{"version": "1.0", "method": "worldid_ping", "params": {payload}}}"#
+        ))
+        .is_err()
+    );
+    assert!(
+        decode::<Response<StrictPayload>>(&format!(
+            r#"{{"version": "1.0", "outcome": {{"success": {{"id": 1, "result": {payload}}}}}}}"#
+        ))
+        .is_err()
+    );
+    assert!(decode::<Response<Value, StrictPayload>>(&format!(r#"{{"version": "1.0", "outcome": {{"error": {{"id": null, "error": {{"code": "failed", "message": "bad", "data": {payload}}}}}}}}}"#)).is_err());
+}
+
+#[test_case("null", Value::Null; "null")]
+#[test_case("1", 1.into(); "integer")]
+#[test_case("\"text\"", "text".into(); "text")]
+#[test_case("h'01'", Value::Bytes(vec![1]); "bytes")]
+#[test_case("true", true.into(); "boolean")]
+#[test_case("1.5", Value::Float(1.5); "float")]
+fn request_parameters_are_defined_by_the_method(wire: &str, params: Value) {
+    let request = decode::<Request<Value>>(&format!(
+        r#"{{"version": "1.0", "method": "worldid_ping", "params": {wire}}}"#
+    ))
+    .unwrap();
+    assert_eq!(
         request,
-        Request::builder()
-            .method(PING)
-            .params(Value::Map(vec![]))
-            .build()
+        Request::builder().method(PING).params(params).build()
     );
 }
 
@@ -227,4 +272,31 @@ fn typed_params_reject_duplicate_schema_fields() {
         ),
         Err(MessageError::Deserialize(_))
     ));
+}
+
+#[test]
+fn nullable_params_distinguish_absent_and_null() {
+    let absent =
+        decode::<Request<Option<u64>>>(r#"{"version": "1.0", "method": "worldid_ping"}"#).unwrap();
+    let present = decode::<Request<Option<u64>>>(
+        r#"{"version": "1.0", "method": "worldid_ping", "params": null}"#,
+    )
+    .unwrap();
+    assert_eq!(absent.params, None);
+    assert_eq!(present.params, Some(None));
+}
+
+#[test]
+fn response_accepts_reordered_and_indefinite_maps_outside_the_outcome_wrapper() {
+    let response = decode::<Response<Value>>(
+        r#"{_ "outcome": {"success": {_ "result": null, "id": 1}}, "version": "1.0"}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        response.outcome,
+        Outcome::Success {
+            id: Id::Number(1),
+            result: Value::Null
+        }
+    );
 }
