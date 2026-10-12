@@ -47,6 +47,23 @@ static MASK_PUBKEY_ID: U256 =
 static MASK_LEAF_INDEX: U256 =
     uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
 
+/// Packs account data as the `WorldIDRegistry`'s `PackedAccountData.pack` does: the recovery
+/// counter in bits 224 to 255, the `pubkey_id` in bits 192 to 223 and the leaf index in bits 0 to
+/// 63.
+pub(crate) fn pack_account_data(recovery_counter: u32, pubkey_id: u32, leaf_index: u64) -> U256 {
+    (U256::from(recovery_counter) << 224) | (U256::from(pubkey_id) << 192) | U256::from(leaf_index)
+}
+
+/// Returns the leaf index in packed account data.
+pub(crate) fn leaf_index_of(packed_account_data: U256) -> u64 {
+    (packed_account_data & MASK_LEAF_INDEX).to::<u64>()
+}
+
+/// Returns the recovery counter in packed account data.
+fn recovery_counter_of(packed_account_data: U256) -> U256 {
+    (packed_account_data & MASK_RECOVERY_COUNTER) >> 224
+}
+
 /// Input for a single credential proof within a proof request.
 pub struct CredentialInput {
     /// The credential to prove.
@@ -86,7 +103,7 @@ pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
     /// The packed account data for the holder's World ID is a `uint256` defined in the `WorldIDRegistry` contract as:
-    /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `leaf_index` (192 bits)
+    /// `recovery_counter` (32 bits) | `pubkey_id`, this authenticator's slot (32 bits) | reserved (128 bits) | `leaf_index` (64 bits)
     pub packed_account_data: U256,
     pub(crate) signer: Signer,
     pub(crate) registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
@@ -336,13 +353,9 @@ impl Authenticator {
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
     pub async fn fetch_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
-        let by_address = Self::fetch_packed_account_data_for(
-            self.onchain_address(),
-            self.registry().as_deref(),
-            &self.config,
-            &self.indexer_client,
-        )
-        .await;
+        let by_address = self
+            .fetch_packed_account_data_of(self.onchain_address())
+            .await;
         match by_address {
             // An authenticator never changes accounts or slots, so only accept data for its own
             // leaf and slot. The recovery counter may change.
@@ -399,10 +412,28 @@ impl Authenticator {
         Ok(packed_account_data)
     }
 
-    /// Returns the packed account data for the holder's World ID.
+    /// Fetches the packed account data registered for the management key `address`, from the
+    /// registry when an RPC URL is configured and from the indexer otherwise.
     ///
-    /// The packed account data is a 256 bit integer which includes the World ID's leaf index, their recovery counter,
-    /// and their pubkey id/commitment.
+    /// # Errors
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if no account has `address` registered, or
+    ///   a recovery revoked it.
+    /// - Other errors if a network call fails.
+    pub(crate) async fn fetch_packed_account_data_of(
+        &self,
+        address: Address,
+    ) -> Result<U256, AuthenticatorError> {
+        Self::fetch_packed_account_data_for(
+            address,
+            self.registry().as_deref(),
+            &self.config,
+            &self.indexer_client,
+        )
+        .await
+    }
+
+    /// Returns the packed account data registered for `onchain_signer_address`: the leaf index of
+    /// its account, the account's recovery counter, and the address's `pubkey_id`.
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
@@ -423,11 +454,11 @@ impl Authenticator {
             // The registry keeps stale packed data for authenticators revoked by a recovery,
             // so compare the embedded recovery counter against the account's current one.
             if packed_account_data != U256::ZERO {
-                let leaf_index = (packed_account_data & MASK_LEAF_INDEX).to::<u64>();
-                let packed_recovery_counter = (packed_account_data & MASK_RECOVERY_COUNTER) >> 224;
-                let current_recovery_counter =
-                    registry.getRecoveryCounter(leaf_index).call().await?;
-                if current_recovery_counter > packed_recovery_counter {
+                let current_recovery_counter = registry
+                    .getRecoveryCounter(leaf_index_of(packed_account_data))
+                    .call()
+                    .await?;
+                if current_recovery_counter > recovery_counter_of(packed_account_data) {
                     return Err(AuthenticatorError::AccountDoesNotExist);
                 }
             }
@@ -523,7 +554,7 @@ impl Authenticator {
     /// - The `leaf_index` is stored as a `uint64` inside packed account data.
     #[must_use]
     pub fn leaf_index(&self) -> u64 {
-        (self.packed_account_data & MASK_LEAF_INDEX).to::<u64>()
+        leaf_index_of(self.packed_account_data)
     }
 
     /// Returns the recovery counter for the holder's World ID.
@@ -531,13 +562,11 @@ impl Authenticator {
     /// The recovery counter is used to efficiently invalidate all the old keys when an account is recovered.
     #[must_use]
     pub fn recovery_counter(&self) -> U256 {
-        let recovery_counter = self.packed_account_data & MASK_RECOVERY_COUNTER;
-        recovery_counter >> 224
+        recovery_counter_of(self.packed_account_data)
     }
 
-    /// Returns the pubkey id (or commitment) for the holder's World ID.
-    ///
-    /// This is a commitment to all the off-chain public keys that are authorized to act on behalf of the holder.
+    /// Returns this authenticator's `pubkey_id`: the slot of its off-chain public key in the
+    /// account's key set.
     #[must_use]
     pub fn pubkey_id(&self) -> U256 {
         let pubkey_id = self.packed_account_data & MASK_PUBKEY_ID;
@@ -792,6 +821,18 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn packs_account_data_as_the_registry_does() {
+        let packed = pack_account_data(3, 1, 42);
+
+        assert_eq!(
+            packed,
+            uint!(0x000000030000000100000000000000000000000000000000000000000000002A_U256)
+        );
+        assert_eq!(leaf_index_of(packed), 42);
+        assert_eq!(recovery_counter_of(packed), U256::from(3));
+    }
+
     const LEAF_INDEX: u64 = 42;
     const SEED: [u8; 32] = [7; 32];
     const ADMIN: Address = address!("0x0000000000000000000000000000000000000011");
@@ -961,7 +1002,7 @@ mod tests {
 
         let packed = authenticator.refresh_packed_account_data().await.unwrap();
 
-        let expected = (U256::from(3) << 224) | (U256::from(1) << 192) | U256::from(LEAF_INDEX);
+        let expected = pack_account_data(3, 1, LEAF_INDEX);
         assert_eq!(packed, expected);
         assert_eq!(authenticator.packed_account_data, expected);
     }

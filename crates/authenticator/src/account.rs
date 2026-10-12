@@ -12,7 +12,7 @@ use crate::{
         IndexerAuthenticatorsResponse, InsertAuthenticatorRequest, RemoveAuthenticatorRequest,
         UpdateAuthenticatorRequest,
     },
-    authenticator::Authenticator,
+    authenticator::{Authenticator, pack_account_data},
     error::AuthenticatorError,
     traits::OnchainKeyRepresentable,
 };
@@ -90,11 +90,11 @@ impl AccountAuthenticators {
         pubkey: &EdDSAPublicKey,
     ) -> Option<U256> {
         let (pubkey_id, _) = self.find(pubkey)?;
-        Some(
-            (U256::from(self.recovery_counter) << 224)
-                | (U256::from(pubkey_id) << 192)
-                | U256::from(leaf_index),
-        )
+        Some(pack_account_data(
+            self.recovery_counter,
+            pubkey_id,
+            leaf_index,
+        ))
     }
 }
 
