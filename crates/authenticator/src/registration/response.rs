@@ -5,7 +5,7 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
-    authenticator_message::{ErrorObject, MessageError, Outcome, Response, Value},
+    authenticator_message::{ErrorObject, MessageError, Response, Value},
     serde_utils::deserialize_present,
 };
 use zeroize::Zeroizing;
@@ -246,14 +246,14 @@ pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErro
 pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, MessageError> {
     let response: RegisterResponseMessage =
         RegisterResponseMessage::decode(plaintext, MAX_RESPONSE_SIZE)?;
-    if matches!(response.outcome, Outcome::Error { .. }) {
+    if matches!(response, Response::Error { .. }) {
         return Ok(response);
     }
     // Neither pass suffices alone: typed decoding skips tags, and a `Value` turns bignums into
     // plain integers, which only the typed `deserialize_unsigned` rejects. The `Value` copy may
     // hold the vault, so it is wiped before the tag check can return.
     let mut raw: Response<Value, Value> = Response::decode(plaintext, MAX_RESPONSE_SIZE)?;
-    if let Outcome::Success { result, .. } = &mut raw.outcome {
+    if let Response::Success { result, .. } = &mut raw {
         wipe_byte_strings(result);
         reject_tags(result)?;
     }
@@ -369,12 +369,13 @@ mod tests {
 
     /// Decodes the result of a response whose CBOR `result` is `result`.
     fn decode_result(result: Value) -> Result<RegistrationResult, MessageError> {
-        let response = Response::<Value, Value>::new(Outcome::Success {
+        let response = Response::<Value, Value>::Success {
+            version: Version::V1,
             id: "request".into(),
             result,
-        });
+        };
         let decoded = decode_response(&response.encode().unwrap())?;
-        let Outcome::Success { result, .. } = decoded.outcome else {
+        let Response::Success { result, .. } = decoded else {
             panic!("expected a successful response");
         };
         Ok(result)
@@ -387,12 +388,13 @@ mod tests {
             "InsertAuthenticator operation failed",
             Some(data),
         );
-        let response = Response::<Value, Value>::new(Outcome::Error {
+        let response = Response::<Value, Value>::Error {
+            version: Version::V1,
             id: Some("request".into()),
             error,
-        });
+        };
         let decoded = decode_response(&response.encode().unwrap()).unwrap();
-        let Outcome::Error { error, .. } = decoded.outcome else {
+        let Response::Error { error, .. } = decoded else {
             panic!("expected an error response");
         };
         error
@@ -490,13 +492,7 @@ mod tests {
         assert_eq!(Value::serialized(&result).unwrap(), wire);
         assert_eq!(decode_result(wire).unwrap(), result);
 
-        let response = RegisterResponseMessage {
-            version: Version::V1,
-            outcome: Outcome::Success {
-                id: "request".into(),
-                result,
-            },
-        };
+        let response = RegisterResponseMessage::success("request".into(), result);
         assert_eq!(
             decode_response(&response.encode().unwrap()).unwrap(),
             response
@@ -558,6 +554,7 @@ mod tests {
     #[test_case(Value::Tag(0, Box::new(Value::Map(vec![("detail".into(), "x".into())]))),
                 None; "tagged map")]
     #[test_case(Value::Null, None; "null")]
+    #[test_case(Value::Tag(2, Box::new(Value::Bytes(vec![7]))), None; "bignum data")]
     #[test_case("transaction_reverted".into(), None; "text")]
     fn error_data_never_hides_the_error(data: Value, detail: Option<&str>) {
         let error = decode_error_with_data(data);
@@ -569,23 +566,15 @@ mod tests {
     fn decode_response_rejects_duplicate_error_data() {
         let response = Value::Map(vec![
             ("version".into(), "1.0".into()),
+            ("id".into(), "request".into()),
             (
-                "outcome".into(),
-                Value::Map(vec![(
-                    "error".into(),
-                    Value::Map(vec![
-                        ("id".into(), "request".into()),
-                        (
-                            "error".into(),
-                            Value::Map(vec![
-                                ("code".into(), "operation_failed".into()),
-                                ("message".into(), "Registration failed".into()),
-                                ("data".into(), Value::Null),
-                                ("data".into(), Value::Null),
-                            ]),
-                        ),
-                    ]),
-                )]),
+                "error".into(),
+                Value::Map(vec![
+                    ("code".into(), "operation_failed".into()),
+                    ("message".into(), "Registration failed".into()),
+                    ("data".into(), Value::Null),
+                    ("data".into(), Value::Null),
+                ]),
             ),
         ]);
         let mut encoded = Vec::new();
@@ -607,10 +596,11 @@ mod tests {
                 ("detail".into(), second),
             ])),
         );
-        let response = Response::<Value, Value>::new(Outcome::Error {
+        let response = Response::<Value, Value>::Error {
+            version: Version::V1,
             id: Some("request".into()),
             error,
-        });
+        };
         let error = decode_response(&response.encode().unwrap())
             .unwrap_err()
             .to_string();

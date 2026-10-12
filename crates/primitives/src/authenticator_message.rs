@@ -12,6 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use crate::serde_utils::deserialize_present;
 
 mod cbor;
+mod response;
 mod uri;
 pub use cbor::MessageError;
 pub use ciborium::Value;
@@ -87,31 +88,52 @@ impl<P> Request<P> {
     }
 }
 
-/// A response containing exactly one success or error outcome.
+/// A response containing exactly one successful result or error.
 ///
-/// Callers must match responses by the outcome's ID and report invalid or unmatched responses
-/// locally, without replying. A null error ID is uncorrelated and must never match a pending
-/// request. Use [`Response::encode`] and [`Response::decode`] at the transport boundary.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    deny_unknown_fields,
-    bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>")
-)]
-pub struct Response<R, D = Value> {
-    /// The message format version.
-    pub version: Version,
-    /// The successful result or the error that prevented it.
-    #[serde(deserialize_with = "deserialize_outcome")]
-    pub outcome: Outcome<R, D>,
+/// Callers must match responses by ID and report invalid or unmatched responses locally,
+/// without replying. A null error ID is uncorrelated and must never match a pending request.
+/// Use [`Response::encode`] and [`Response::decode`] at the transport boundary.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum Response<R, D = Value> {
+    /// A successful invocation with a required result, including when that result is null.
+    Success {
+        /// The message format version.
+        version: Version,
+        /// The ID of the request that succeeded.
+        id: Id,
+        /// The method-defined result.
+        result: R,
+    },
+    /// A failed invocation, optionally correlated with a request.
+    Error {
+        /// The message format version.
+        version: Version,
+        /// The request ID, or null when the failure cannot be correlated.
+        id: Option<Id>,
+        /// The method failure.
+        error: ErrorObject<D>,
+    },
 }
 
 impl<R, D> Response<R, D> {
-    /// Creates a version 1 response with exactly one outcome.
+    /// Creates a version 1 response to a successful invocation.
     #[must_use]
-    pub const fn new(outcome: Outcome<R, D>) -> Self {
-        Self {
+    pub const fn success(id: Id, result: R) -> Self {
+        Self::Success {
             version: Version::V1,
-            outcome,
+            id,
+            result,
+        }
+    }
+
+    /// Creates a version 1 error response; use a null ID for an uncorrelated error.
+    #[must_use]
+    pub const fn error(id: Option<Id>, error: ErrorObject<D>) -> Self {
+        Self::Error {
+            version: Version::V1,
+            id,
+            error,
         }
     }
 
@@ -141,37 +163,6 @@ impl<R, D> Response<R, D> {
     {
         cbor::decode(bytes, max_size)
     }
-}
-
-/// The mutually exclusive outcomes of a method invocation.
-///
-/// On the wire this is a definite-length, single-entry map keyed by `success` or `error`.
-/// Successful responses always have a request ID; only errors can be uncorrelated.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(
-    rename_all = "snake_case",
-    deny_unknown_fields,
-    bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>")
-)]
-pub enum Outcome<R, D = Value> {
-    /// A successful invocation with a required result, including when that result is null.
-    Success {
-        /// The ID of the request that succeeded.
-        id: Id,
-        /// The method-defined result.
-        // Keep the field required even when R is nullable; serde otherwise defaults it.
-        #[serde(deserialize_with = "Deserialize::deserialize")]
-        result: R,
-    },
-    /// A failed invocation, optionally correlated with a request.
-    Error {
-        /// The request ID, or null when the failure cannot be correlated.
-        // Keep the field required even though Option would otherwise default it to None.
-        #[serde(deserialize_with = "Deserialize::deserialize")]
-        id: Option<Id>,
-        /// The method failure.
-        error: ErrorObject<D>,
-    },
 }
 
 /// A method failure. Callers identify errors by their case-sensitive code, not message text.
@@ -474,35 +465,6 @@ pub enum DeeplinkError {
     /// A parameter is not `key=value`, has an empty key, or is not valid percent-encoded UTF-8.
     #[error("deeplink parameters must be percent-encoded `key=value` pairs")]
     MalformedParameter,
-}
-
-/// Dispatches [`Outcome`] through a single-entry map so Ciborium cannot read a bare discriminator's
-/// body from another CBOR item. Serde's map dispatcher also requires struct-variant map bodies.
-fn deserialize_outcome<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    struct OutcomeVisitor<T>(std::marker::PhantomData<T>);
-
-    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for OutcomeVisitor<T> {
-        type Value = T;
-
-        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("a definite-length, single-entry outcome map")
-        }
-
-        fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
-            if map.size_hint() != Some(1) {
-                return Err(A::Error::custom(
-                    "outcome must be a definite-length map with one entry",
-                ));
-            }
-            T::deserialize(serde::de::value::MapAccessDeserializer::new(map))
-        }
-    }
-
-    deserializer.deserialize_map(OutcomeVisitor(std::marker::PhantomData))
 }
 
 const fn is_valid_method_name(name: &str) -> bool {
