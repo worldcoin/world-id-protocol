@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use web_time::Instant;
 
 use super::{BridgeDomain, EncryptedPayload, RequestId, deadline::before};
-use crate::service_client::default_http_client;
+use crate::service_client::http_client_builder;
 
 /// The message-bridge's body limit, which the largest WIP-109 response fits within.
 const MAX_BODY_SIZE: usize = 5 * 1024 * 1024;
@@ -32,6 +32,11 @@ const MAX_RETRIES: usize = 3;
 ///
 /// Each operation, including retries and response decoding, has a 30-second budget on native
 /// and browser clients. Callers must also enforce the bridge session expiry.
+///
+/// The client reaches only its own deployment: a redirect fails the operation. Native clients
+/// do not follow it and report [`BridgeError::UnexpectedStatus`]. Browsers follow redirects
+/// before the client sees the response, so there the request may reach the redirect target,
+/// and the client rejects its response with [`BridgeError::Redirected`].
 #[derive(Clone, Debug)]
 pub struct BridgeClient {
     http: reqwest::Client,
@@ -87,6 +92,9 @@ pub enum BridgeError {
         /// Minimum retry delay requested by the bridge.
         retry_after: Option<Duration>,
     },
+    /// The browser followed a redirect away from the bridge. The response is not used.
+    #[error("the bridge redirected the request")]
+    Redirected,
     /// The bridge returned malformed JSON, or a body that contradicts its status.
     #[error("invalid bridge JSON: {0}")]
     Json(#[from] serde_json::Error),
@@ -151,7 +159,7 @@ impl BridgeClient {
             return Err(BridgeError::InvalidUrl(base_url.to_string()));
         }
         Ok(Self {
-            http: default_http_client(),
+            http: http_client(),
             domain,
             base_url,
         })
@@ -184,7 +192,7 @@ impl BridgeClient {
             request,
         };
         with_retries(|| async {
-            let response = self.http.post(url.clone()).json(&body).send().await?;
+            let response = self.send(self.http.post(url.clone()).json(&body)).await?;
             match response.status() {
                 StatusCode::OK | StatusCode::CREATED => Ok(PublishOutcome::Published),
                 StatusCode::CONFLICT => Ok(PublishOutcome::AlreadyPublished),
@@ -245,7 +253,7 @@ impl BridgeClient {
         let maybe_stored = AtomicBool::new(false);
         with_retries(|| async {
             let attempt = async {
-                let reply = self.http.put(url.clone()).json(response).send().await?;
+                let reply = self.send(self.http.put(url.clone()).json(response)).await?;
                 match reply.status() {
                     StatusCode::CREATED | StatusCode::OK => Ok(DeliveryOutcome::Delivered),
                     StatusCode::BAD_REQUEST | StatusCode::CONFLICT
@@ -271,7 +279,7 @@ impl BridgeClient {
 
     async fn read<T: DeserializeOwned>(&self, url: Url) -> Result<Option<T>, BridgeError> {
         with_retries(|| async {
-            let response = self.http.get(url.clone()).send().await?;
+            let response = self.send(self.http.get(url.clone())).await?;
             match response.status() {
                 StatusCode::OK => read_json(response).await.map(Some),
                 StatusCode::NOT_FOUND => Ok(None),
@@ -279,6 +287,20 @@ impl BridgeClient {
             }
         })
         .await
+    }
+
+    /// Sends `request`, rejecting a response that a browser fetched from a redirect target.
+    async fn send(
+        &self,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response, BridgeError> {
+        let request = request.build()?;
+        let url = request.url().clone();
+        let response = self.http.execute(request).await?;
+        if *response.url() != url {
+            return Err(BridgeError::Redirected);
+        }
+        Ok(response)
     }
 
     fn url(&self, segments: &[&str]) -> Url {
@@ -305,11 +327,15 @@ impl BridgeError {
 
     fn is_retryable(&self) -> bool {
         match self {
-            Self::Transport(error) => !error.is_decode(),
+            Self::Transport(error) => !(error.is_builder() || error.is_decode()),
             Self::UnexpectedStatus { status, .. } => {
                 status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS
             }
-            Self::InvalidUrl(_) | Self::Timeout | Self::Json(_) | Self::TooLarge => false,
+            Self::Redirected
+            | Self::InvalidUrl(_)
+            | Self::Timeout
+            | Self::Json(_)
+            | Self::TooLarge => false,
         }
     }
 
@@ -338,6 +364,15 @@ impl BridgeError {
             _ => Some(backoff),
         }
     }
+}
+
+/// Builds the HTTP client for the bridge, which does not follow redirects where the platform
+/// lets it decide.
+fn http_client() -> reqwest::Client {
+    let builder = http_client_builder();
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = builder.redirect(reqwest::redirect::Policy::none());
+    builder.build().expect("the TLS backend initializes")
 }
 
 /// Runs `attempt`, retrying transient failures with bounded backoff, within
@@ -457,6 +492,29 @@ mod tests {
             .await;
         assert_eq!(status_of(result), expected);
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn redirects_are_not_followed() {
+        let mut server = mockito::Server::new_async().await;
+        let redirect = server
+            .mock("POST", "/request")
+            .with_status(307)
+            .with_header("location", "/elsewhere")
+            .expect(1)
+            .create_async()
+            .await;
+        let target = server
+            .mock("POST", "/elsewhere")
+            .expect(0)
+            .create_async()
+            .await;
+        let result = client(&server)
+            .publish_request(&request_id(), &payload())
+            .await;
+        assert_eq!(status_of(result), Err(StatusCode::TEMPORARY_REDIRECT));
+        redirect.assert_async().await;
+        target.assert_async().await;
     }
 
     #[test_case(200, r#"{"iv":"aXY=","payload":"cGF5bG9hZA=="}"#, Some(payload()); "taken")]
