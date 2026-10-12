@@ -15,6 +15,7 @@ use std::{future::Future, time::Duration};
 
 use alloy::primitives::Address;
 use backon::BackoffBuilder as _;
+use eddsa_babyjubjub::EdDSAPublicKey;
 use web_time::Instant;
 use world_id_primitives::{
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
@@ -428,7 +429,12 @@ impl IncomingRegistration {
             .before_deadline(approver.fetch_account_snapshot())
             .await?
             .map_err(Refusal::internal_error)?;
-        let plan = plan_registration(&snapshot, approver, &self.request)?;
+        let plan = plan_registration(
+            &snapshot,
+            &approver.offchain_pubkey(),
+            approver.onchain_address(),
+            &self.request,
+        )?;
         // Step 4: a new Admin address must not be registered to any account yet.
         if let (RegistrationPlan::Insert { .. }, Some(address)) =
             (plan, self.request.new_authenticator_address)
@@ -970,18 +976,20 @@ fn check_pairing(
     Ok(())
 }
 
-/// Decides how to register the requested authenticator on the account `snapshot` shows
-/// (WIP-109 §3.7.2 steps 1, 3 and 5).
+/// Decides how to register the requested authenticator on the account `snapshot` shows, for
+/// the approver with `approver_pubkey` and management key `approver_address` (WIP-109 §3.7.2
+/// steps 1, 3 and 5).
 fn plan_registration(
     snapshot: &AccountSnapshot,
-    approver: &Authenticator,
+    approver_pubkey: &EdDSAPublicKey,
+    approver_address: Address,
     request: &RegistrationRequest,
 ) -> Result<RegistrationPlan, RegistrationErrorReason> {
     let authenticators = &snapshot.authenticators;
     if authenticators
-        .find(&approver.offchain_pubkey())
+        .find(approver_pubkey)
         .map(|(_, address)| address)
-        != Some(approver.onchain_address())
+        != Some(approver_address)
     {
         return Err(RegistrationErrorReason::NotAuthorized);
     }
@@ -1088,13 +1096,15 @@ fn log_tag(request_id: &RequestId) -> String {
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use alloy::primitives::U256;
     use secrecy::ExposeSecret as _;
     use test_case::test_case;
     use world_id_primitives::Signer;
 
     use super::*;
     use crate::registration::{
-        PairingSecret, RegisterRequestMessage, ResponseSecretKey, decode_response,
+        PairingSecret, RegisterRequestMessage, RequestedClass, ResponseSecretKey, decode_response,
+        fixtures::indexed_account,
     };
 
     /// The Requesting Authenticator's side of a session, built from the protocol primitives.
@@ -1400,6 +1410,91 @@ mod tests {
             check_pairing(&request, &requester.request_id(), &requester.uri.digest).unwrap_err();
         assert_eq!(rejected.reason, RegistrationErrorReason::InvalidParams);
         assert_eq!(rejected.problem, "invalid registration_sig");
+    }
+
+    /// A slot of an account in a planning test.
+    #[derive(Clone, Copy, Debug)]
+    enum Slot {
+        /// The approver's key, registered with its management key or as a Proving Authenticator.
+        Approver(RequestedClass),
+        /// The requested key, registered with the requested address or as a Proving
+        /// Authenticator.
+        Requested(RequestedClass),
+        /// Another key, registered with the requested address.
+        RequestedAddress,
+        /// Another Admin Authenticator.
+        Other,
+        Removed,
+    }
+
+    const APPROVER_SEED: [u8; 32] = [1; 32];
+    const OTHER_SEED: [u8; 32] = [3; 32];
+    const REQUESTED_ADDRESS: Address = Address::repeat_byte(0x22);
+
+    /// The on-chain address of an authenticator of `class` with management key `admin_address`.
+    fn address_of(class: RequestedClass, admin_address: Address) -> Address {
+        match class {
+            RequestedClass::Admin => admin_address,
+            RequestedClass::Proving => Address::ZERO,
+        }
+    }
+
+    #[test_case(&[Slot::Other], 7, RequestedClass::Proving, Err(RegistrationErrorReason::NotAuthorized); "an approver not on the account")]
+    #[test_case(&[Slot::Approver(RequestedClass::Proving)], 7, RequestedClass::Proving, Err(RegistrationErrorReason::NotAuthorized); "a Proving approver")]
+    #[test_case(&[Slot::Approver(RequestedClass::Admin), Slot::Requested(RequestedClass::Proving)], 7, RequestedClass::Proving, Ok(RegistrationPlan::AlreadyRegistered { pubkey_id: 1 }); "the key already registered as requested")]
+    #[test_case(&[Slot::Approver(RequestedClass::Admin), Slot::Requested(RequestedClass::Admin)], 7, RequestedClass::Proving, Err(RegistrationErrorReason::AuthenticatorConflict); "the key registered as another class")]
+    #[test_case(&[Slot::Approver(RequestedClass::Admin), Slot::RequestedAddress], 7, RequestedClass::Admin, Err(RegistrationErrorReason::AuthenticatorConflict); "the address registered for another key")]
+    #[test_case(&[Slot::Approver(RequestedClass::Admin), Slot::Removed, Slot::Other], 7, RequestedClass::Admin, Ok(RegistrationPlan::Insert { pubkey_id: 1 }); "the lowest free slot")]
+    #[test_case(&[Slot::Approver(RequestedClass::Admin), Slot::Other], 2, RequestedClass::Proving, Err(RegistrationErrorReason::MaxAuthenticatorsReached); "no free slot below the registry maximum")]
+    fn plan_registration_follows_the_account_state(
+        slots: &[Slot],
+        max_authenticators: usize,
+        requested: RequestedClass,
+        expected: Result<RegistrationPlan, RegistrationErrorReason>,
+    ) {
+        let approver = Signer::from_seed_bytes(&APPROVER_SEED).unwrap();
+        let other = Signer::from_seed_bytes(&OTHER_SEED).unwrap();
+        let requester = Requester::new();
+        let indexed: Vec<_> = slots
+            .iter()
+            .map(|slot| match *slot {
+                Slot::Approver(class) => Some((
+                    approver.offchain_signer_pubkey(),
+                    address_of(class, approver.onchain_signer_address()),
+                )),
+                Slot::Requested(class) => Some((
+                    requester.request.new_authenticator_pubkey.clone(),
+                    address_of(class, REQUESTED_ADDRESS),
+                )),
+                Slot::RequestedAddress => Some((other.offchain_signer_pubkey(), REQUESTED_ADDRESS)),
+                Slot::Other => Some((
+                    other.offchain_signer_pubkey(),
+                    other.onchain_signer_address(),
+                )),
+                Slot::Removed => None,
+            })
+            .collect();
+        let snapshot = AccountSnapshot {
+            leaf_index: 42,
+            signature_nonce: U256::ZERO,
+            authenticators: indexed_account(&indexed).try_into().unwrap(),
+            max_authenticators: Some(max_authenticators),
+        };
+        let request = RegistrationRequest {
+            new_authenticator_address: match requested {
+                RequestedClass::Admin => Some(REQUESTED_ADDRESS),
+                RequestedClass::Proving => None,
+            },
+            ..requester.request
+        };
+
+        let plan = plan_registration(
+            &snapshot,
+            &approver.offchain_signer_pubkey(),
+            approver.onchain_signer_address(),
+            &request,
+        );
+        assert_eq!(plan, expected);
     }
 
     #[test_case(201, DeliveryOutcome::Delivered; "delivered")]

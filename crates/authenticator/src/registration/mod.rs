@@ -80,4 +80,6 @@ fn contains_tag(value: &Value) -> bool {
 }
 
 #[cfg(test)]
+mod fixtures;
+#[cfg(test)]
 mod vectors;

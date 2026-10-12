@@ -457,20 +457,17 @@ fn is_transient(error: &AuthenticatorError) -> bool {
 mod tests {
     use std::sync::Mutex;
 
+    use alloy::primitives::U256;
     use test_case::test_case;
     use tokio::sync::Notify;
-    use world_id_primitives::authenticator_message::{Id, Version};
-
-    use alloy::primitives::U256;
-    use eddsa_babyjubjub::EdDSAPublicKey;
     use world_id_primitives::{
-        AuthenticatorPublicKeySet, ServiceEndpoint, api_types::IndexerAuthenticatorsResponse,
+        ServiceEndpoint,
+        authenticator_message::{Id, Version},
     };
     use world_id_proof::artifacts::dummy::DummyZkArtifactSource;
 
-    use crate::{OnchainKeyRepresentable as _, registration::RegisterResponseMessage};
-
     use super::*;
+    use crate::registration::{RegisterResponseMessage, fixtures::indexed_account};
 
     const SEED: [u8; 32] = [77; 32];
 
@@ -585,29 +582,6 @@ mod tests {
         assert!(session.pairing_uri().is_some());
     }
 
-    /// An `/authenticators` body with each slot's key and address, and the commitment to the keys.
-    fn authenticators_body(slots: &[Option<(EdDSAPublicKey, Address)>]) -> String {
-        let pubkeys: Vec<_> = slots
-            .iter()
-            .map(|slot| {
-                slot.as_ref()
-                    .map(|(pubkey, _)| pubkey.to_ethereum_representation().unwrap())
-            })
-            .collect();
-        let key_set =
-            AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(pubkeys.clone()).unwrap();
-        serde_json::to_string(&IndexerAuthenticatorsResponse {
-            authenticator_pubkeys: pubkeys,
-            authenticator_addresses: slots
-                .iter()
-                .map(|slot| slot.as_ref().map(|(_, address)| *address))
-                .collect(),
-            offchain_signer_commitment: key_set.leaf_hash().into(),
-            recovery_counter: 0,
-        })
-        .unwrap()
-    }
-
     #[test_case(1, Address::ZERO, Some(1); "the requested slot and class")]
     #[test_case(2, Address::ZERO, None; "another slot")]
     #[test_case(1, Address::repeat_byte(0x11), None; "another class")]
@@ -634,7 +608,7 @@ mod tests {
             .mock("POST", "/authenticators")
             .with_status(200)
             .with_header("content-type", "application/json")
-            .with_body(authenticators_body(&slots))
+            .with_body(serde_json::to_string(&indexed_account(&slots)).unwrap())
             .expect(1)
             .create_async()
             .await;
