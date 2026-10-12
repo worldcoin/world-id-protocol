@@ -463,10 +463,7 @@ mod tests {
     use alloy::primitives::U256;
     use test_case::test_case;
     use tokio::sync::Notify;
-    use world_id_primitives::{
-        ServiceEndpoint,
-        authenticator_message::Id,
-    };
+    use world_id_primitives::{ServiceEndpoint, authenticator_message::Id};
     use world_id_proof::artifacts::dummy::DummyZkArtifactSource;
     use zeroize::Zeroizing;
 
