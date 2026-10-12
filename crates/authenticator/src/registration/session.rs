@@ -24,6 +24,9 @@ const RESPONSE_INFO: &[u8] = b"WORLD-ID/WIP-109/RESPONSE";
 /// The length in bytes of an AES-256-GCM nonce.
 const NONCE_LEN: usize = 12;
 
+/// The length of a nonce in standard padded base64.
+const ENCODED_NONCE_LEN: usize = base64::encoded_len(NONCE_LEN, true).unwrap();
+
 /// The length in bytes of an AES-256-GCM authentication tag.
 const TAG_LEN: usize = 16;
 
@@ -324,6 +327,14 @@ impl TransportKey {
         encrypted: &EncryptedPayload,
         max_len: usize,
     ) -> Result<Vec<u8>, TransportError> {
+        if encrypted.iv.len() != ENCODED_NONCE_LEN {
+            return Err(TransportError::Encoding);
+        }
+        let max_encoded_len = base64::encoded_len(max_len, true)
+            .expect("message size limits are far below usize::MAX");
+        if encrypted.payload.len() > max_encoded_len {
+            return Err(TransportError::TooLarge);
+        }
         let nonce: [u8; NONCE_LEN] = STANDARD
             .decode(&encrypted.iv)
             .map_err(|_| TransportError::Encoding)?
@@ -648,6 +659,17 @@ mod tests {
         assert_eq!(
             SESSION_KEY.decrypt_request(&request),
             Err(TransportError::Encoding)
+        );
+    }
+
+    #[test]
+    fn oversized_payload_is_rejected_before_decoding() {
+        let mut request = SESSION_KEY.encrypt_request(b"request").unwrap();
+        let max_encoded_len = base64::encoded_len(MAX_REQUEST_SIZE + TAG_LEN, true).unwrap();
+        request.payload = "*".repeat(max_encoded_len + 1);
+        assert_eq!(
+            SESSION_KEY.decrypt_request(&request),
+            Err(TransportError::TooLarge)
         );
     }
 
