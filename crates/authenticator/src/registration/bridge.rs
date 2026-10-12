@@ -19,7 +19,8 @@ use crate::service_client::default_http_client;
 
 /// Maximum retries after a transient failure.
 const MAX_RETRIES: usize = 3;
-const MAX_BODY_SIZE: usize = 24 * 1024 * 1024;
+/// The message-bridge's body limit, which the largest WIP-109 response fits within.
+const MAX_BODY_SIZE: usize = 5 * 1024 * 1024;
 const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A client for one bridge deployment.

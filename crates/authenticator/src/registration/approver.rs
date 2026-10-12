@@ -24,9 +24,9 @@ use zeroize::Zeroizing;
 
 use super::{
     BridgeDomain, EncryptedPayload, KnownAuthenticator, MAX_REQUEST_SIZE, MAX_RESPONSE_SIZE,
-    PairingCode, PairingUri, REGISTER_METHOD, RegisterResponseMessage, RegistrationErrorData,
-    RegistrationErrorReason, RegistrationRequest, RegistrationResult, RequestId, ResponsePublicKey,
-    TransportError, TransportKey, Vault,
+    MAX_VAULT_SIZE, PairingCode, PairingUri, REGISTER_METHOD, RegisterResponseMessage,
+    RegistrationErrorData, RegistrationErrorReason, RegistrationRequest, RegistrationResult,
+    RequestId, ResponsePublicKey, TransportError, TransportKey, Vault,
     bridge::{BridgeClient, BridgeError, DeliveryOutcome},
 };
 use crate::{AccountSnapshot, Authenticator, AuthenticatorClass, AuthenticatorError};
@@ -437,6 +437,9 @@ impl CheckedRegistration {
     ///
     /// If less than [`MIN_TRACKING_TIME`] is left before the deadline, nothing is submitted and
     /// the response is `internal_error`, so the user can start over with a new link.
+    ///
+    /// A vault over [`MAX_VAULT_SIZE`] is left out and the registration proceeds without it;
+    /// [`ApprovalOutcome::vault_omitted`] tells the host to tell the user (WIP-109 §3.6.2).
     #[must_use = "the outcome tells whether the authenticator was registered"]
     pub async fn approve(
         self,
@@ -446,6 +449,18 @@ impl CheckedRegistration {
     ) -> ApprovalOutcome {
         let UserVerification(()) = verified;
         let request_id = self.incoming.channel.request_id;
+        let vault_omitted = approval
+            .vault
+            .as_ref()
+            .is_some_and(|vault| vault.data.len() > MAX_VAULT_SIZE);
+        let approval = if vault_omitted {
+            Approval {
+                vault: None,
+                ..approval
+            }
+        } else {
+            approval
+        };
         let result = match self.plan {
             _ if !self.response_fits(&approval) => Err((
                 RegistrationErrorReason::InternalError,
@@ -482,12 +497,16 @@ impl CheckedRegistration {
             }
         };
         let delivery = self.incoming.channel.send(outcome).await;
-        ApprovalOutcome { result, delivery }
+        ApprovalOutcome {
+            result,
+            vault_omitted,
+            delivery,
+        }
     }
 
     /// Whether a successful response carrying `approval` stays within the size the Requesting
-    /// Authenticator accepts. Checked before submitting anything, so that an oversized vault does
-    /// not leave a registered authenticator that never learns its result.
+    /// Authenticator accepts. Checked before submitting anything, so that an oversized response
+    /// does not leave a registered authenticator that never learns its result.
     fn response_fits(&self, approval: &Approval) -> bool {
         let response = RegisterResponseMessage {
             version: Version::V1,
@@ -645,7 +664,8 @@ impl UserVerification {
 /// What the Approving Authenticator shares with an approved authenticator.
 #[derive(Clone, Debug, Default)]
 pub struct Approval {
-    /// The credential vault. The user or policy may exclude it.
+    /// The credential vault, only if the user chose to share it in a separate, explicit approval
+    /// that was not pre-selected (WIP-109 §3.7.3). Policy may still exclude it.
     pub vault: Option<Vault>,
     /// Names of the account's other authenticators.
     pub authenticators: Vec<KnownAuthenticator>,
@@ -657,6 +677,9 @@ pub struct ApprovalOutcome {
     /// The registration result, or the reason it failed. A successful result means the
     /// authenticator is registered on-chain, even if the response was not delivered.
     pub result: Result<RegistrationResult, RegistrationErrorReason>,
+    /// Whether the vault was left out because it exceeds [`MAX_VAULT_SIZE`]. The host must tell
+    /// the user that the vault was not shared.
+    pub vault_omitted: bool,
     /// Whether the response reached the bridge.
     pub delivery: Result<DeliveryOutcome, ApproverError>,
 }

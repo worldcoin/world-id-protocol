@@ -12,9 +12,9 @@ use world_id_core::{
     registration::{
         Approval, ApprovalOutcome, ApproverError, AuthenticatorName, BridgeClient,
         CheckedRegistration, DeliveryOutcome, IncomingRegistration, KnownAuthenticator,
-        PendingRegistration, RegistrationDigest, RegistrationErrorReason, RegistrationPlan,
-        RegistrationRequester, RequestedClass, RequesterStatus, UserVerification, Vault,
-        VaultFormat,
+        MAX_VAULT_SIZE, PendingRegistration, RegistrationDigest, RegistrationErrorReason,
+        RegistrationPlan, RegistrationRequester, RequestedClass, RequesterStatus, UserVerification,
+        Vault, VaultFormat,
     },
 };
 use world_id_gateway::{
@@ -308,8 +308,42 @@ async fn e2e_authenticator_registration() {
     };
     assert_eq!(error.code, RegistrationErrorReason::InternalError.code());
 
-    // A vault too large for the requester to accept is refused before anything is submitted.
-    let mut session = requester(&[47u8; 32], RequestedClass::Proving, &bridge);
+    // A vault over 3.5 MiB is left out, and the registration proceeds without it.
+    let oversized_vault_seed = [47u8; 32];
+    let mut session = requester(&oversized_vault_seed, RequestedClass::Proving, &bridge);
+    session.publish().await.unwrap();
+    let checked = receive(&mut session, &bridge)
+        .await
+        .unwrap()
+        .check(&primary)
+        .await
+        .unwrap();
+    assert_eq!(checked.plan(), RegistrationPlan::Insert { pubkey_id: 3 });
+    let outcome = approve_and_sync(
+        checked,
+        &primary,
+        &mut account,
+        (oversized_vault_seed, Address::ZERO),
+        &indexer,
+        Approval {
+            vault: Some(Vault {
+                format: VaultFormat::WalletkitPlaintextV1,
+                data: vec![0; MAX_VAULT_SIZE + 1],
+            }),
+            ..Approval::default()
+        },
+    )
+    .await;
+    assert!(outcome.vault_omitted);
+    assert_eq!(outcome.delivery.unwrap(), DeliveryOutcome::Delivered);
+    let RequesterStatus::Completed(Ok(result)) = completed(&mut session).await else {
+        panic!("registration without the vault failed");
+    };
+    assert_eq!((result.pubkey_id, result.vault), (3, None));
+
+    // A response too large for the requester to accept is refused before anything is submitted.
+    let nonce = primary.signing_nonce().await.unwrap();
+    let mut session = requester(&[49u8; 32], RequestedClass::Proving, &bridge);
     session.publish().await.unwrap();
     let checked = receive(&mut session, &bridge)
         .await
@@ -318,10 +352,10 @@ async fn e2e_authenticator_registration() {
         .await
         .unwrap();
     let oversized = Approval {
-        vault: Some(Vault {
-            format: VaultFormat::WalletkitPlaintextV1,
-            data: vec![0; 16 * 1024 * 1024],
-        }),
+        authenticators: vec![KnownAuthenticator {
+            pubkey_id: 0,
+            name: "x".repeat(4 * 1024 * 1024),
+        }],
         ..Approval::default()
     };
     let outcome = checked.approve(&primary, oversized, verified()).await;
