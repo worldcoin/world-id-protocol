@@ -9,6 +9,8 @@ use std::{borrow::Cow, fmt, str::FromStr};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
+use crate::serde_utils::deserialize_present;
+
 pub mod cbor;
 mod uri;
 pub use cbor::{MessageError, decode, encode};
@@ -456,18 +458,6 @@ impl<'de, R: Deserialize<'de>, D: Deserialize<'de>> Deserialize<'de> for Respons
             outcome,
         })
     }
-}
-
-/// Preserves the distinction between an absent field and a present value, including null.
-/// With `serde(default)`, absence becomes `None`; a present value is parsed as `T` and wrapped in
-/// `Some`. This preserves nullable results and error data, while rejecting a null request ID
-/// because `Id` itself does not accept null. Deserializing `Option<T>` would treat both as absent.
-fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    T::deserialize(deserializer).map(Some)
 }
 
 const fn is_valid_method_name(name: &str) -> bool {

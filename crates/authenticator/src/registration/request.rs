@@ -10,6 +10,7 @@ use world_id_primitives::{
     FieldElement, PrimitiveError,
     authenticator_message::{MethodName, Request},
     poseidon::{self, ds},
+    serde_utils::deserialize_present,
 };
 
 use super::{
@@ -258,7 +259,7 @@ struct WireRegistrationRequest {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "super::deserialize_present"
+        deserialize_with = "deserialize_present"
     )]
     new_authenticator_address: Option<bytes::AddressBytes>,
     #[serde(with = "bytes")]
@@ -266,7 +267,7 @@ struct WireRegistrationRequest {
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
-        deserialize_with = "super::deserialize_present"
+        deserialize_with = "deserialize_present"
     )]
     name: Option<AuthenticatorName>,
     #[serde(with = "bytes")]

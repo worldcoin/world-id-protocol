@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
     authenticator_message::{ErrorObject, Response},
+    serde_utils::deserialize_present,
 };
 
 /// The registration response as sent over the bridge.
@@ -222,7 +223,7 @@ pub struct RegistrationErrorData {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct WireRegistrationErrorData {
-    #[serde(default, deserialize_with = "super::deserialize_present")]
+    #[serde(default, deserialize_with = "deserialize_present")]
     detail: Option<String>,
 }
 
@@ -244,7 +245,7 @@ struct WireRegistrationResult {
     pubkey_id: u32,
     #[serde(default)]
     authenticators: Vec<KnownAuthenticator>,
-    #[serde(default, deserialize_with = "super::deserialize_present")]
+    #[serde(default, deserialize_with = "deserialize_present")]
     vault: Option<Vault>,
 }
 

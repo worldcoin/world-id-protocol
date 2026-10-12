@@ -38,14 +38,6 @@ const MAX_REQUEST_SIZE: usize = 4 * 1024;
 /// The largest encoded response: a full vault plus 4 KiB for the other fields (WIP-109 §3.5).
 const MAX_RESPONSE_SIZE: usize = MAX_VAULT_SIZE + 4 * 1024;
 
-fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: serde::Deserialize<'de>,
-{
-    T::deserialize(deserializer).map(Some)
-}
-
 fn deserialize_payload<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
     D: serde::Deserializer<'de>,

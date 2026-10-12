@@ -1,8 +1,10 @@
-//! Serialization utilities for numeric API values across the protocol.
+//! Serde helpers shared across the protocol.
 //!
-//! Convention used by helpers in this module:
+//! The `hex_*` modules encode numeric API values as strings:
 //! - serialization always emits `0x`-prefixed hex strings;
 //! - deserialization accepts either decimal (no prefix) or hex (`0x`/`0X` prefix).
+//!
+//! [`deserialize_present`] tells an absent field apart from an explicit null.
 
 #![allow(clippy::missing_errors_doc)]
 
@@ -314,6 +316,39 @@ pub mod hex_bytes_opt {
             Option::<Vec<u8>>::deserialize(deserializer)
         }
     }
+}
+
+/// Deserializes an optional field that, when present, must hold a `T`.
+///
+/// Use it on an `Option<T>` field together with `#[serde(default)]`: an absent field becomes
+/// `None`, and a present value is parsed as `T` and wrapped in `Some`. Unlike the plain
+/// `Option<T>` impl, an explicit null is not read as `None`; it is passed to `T`, which rejects it
+/// unless `T` itself accepts null, as a dynamic value type does.
+///
+/// # Examples
+///
+/// ```
+/// use serde::Deserialize;
+/// use world_id_primitives::serde_utils::deserialize_present;
+///
+/// #[derive(Debug, PartialEq, Deserialize)]
+/// struct Params {
+///     #[serde(default, deserialize_with = "deserialize_present")]
+///     name: Option<String>,
+/// }
+///
+/// let absent: Params = serde_json::from_str("{}").unwrap();
+/// assert_eq!(absent.name, None);
+/// let present: Params = serde_json::from_str(r#"{"name": "phone"}"#).unwrap();
+/// assert_eq!(present.name.as_deref(), Some("phone"));
+/// assert!(serde_json::from_str::<Params>(r#"{"name": null}"#).is_err());
+/// ```
+pub fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
 }
 
 #[cfg(test)]
