@@ -33,8 +33,8 @@ pub use response::{
     RegistrationErrorReason, RegistrationResult, Vault, VaultFormat, decode_response,
 };
 pub use session::{
-    EncryptedPayload, PairingCode, PairingSecret, RESPONSE_PUBLIC_KEY_LEN, RequestId,
-    ResponsePublicKey, ResponseSecretKey, TransportError, TransportKey,
+    EncryptedPayload, PairingCode, PairingSecret, RequestId, ResponsePublicKey, ResponseSecretKey,
+    TransportError, TransportKey,
 };
 
 /// The largest encoded request (WIP-109 §3.5).

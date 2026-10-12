@@ -35,9 +35,6 @@ const SEALED_HEADER: [u8; 7] = [0x02, 0x64, 0x7a, 0x00, 0x01, 0x00, 0x03];
 /// Poly1305 tag.
 const SEALED_OVERHEAD: usize = 1143;
 
-/// The length in bytes of an X-Wing encapsulation key.
-pub const RESPONSE_PUBLIC_KEY_LEN: usize = 1216;
-
 /// The bridge id of a registration session, derived from its [`PairingSecret`].
 ///
 /// It is displayed as 64 lowercase hex characters, which is also the [`message_id`] of the
@@ -212,11 +209,16 @@ pub struct EncryptedPayload {
 
 /// The code-bound AES-256-GCM key authenticating both directions of a pairing session.
 pub struct TransportKey {
-    pub(super) key: Zeroizing<[u8; 32]>,
+    key: Zeroizing<[u8; 32]>,
     request_id: RequestId,
 }
 
 impl TransportKey {
+    #[cfg(test)]
+    pub(super) fn key(&self) -> &[u8; 32] {
+        &self.key
+    }
+
     /// Encrypts a request under a fresh nonce, bound to this session and to the request direction.
     ///
     /// # Errors

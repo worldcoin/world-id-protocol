@@ -72,8 +72,7 @@ fn session_derivations_match_vectors() {
             secret
                 .transport_key(&"QJTWPK".parse().unwrap())
                 .unwrap()
-                .key
-                .as_ref()
+                .key()
         ),
         "d54c3095e7243461690e9589eb9c39ebdeafa3f585b0a8586958b5bdb067dc7c"
     );

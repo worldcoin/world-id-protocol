@@ -81,11 +81,7 @@ pub struct RegistrationDigest([u8; 32]);
 impl RegistrationDigest {
     /// Computes the digest over the fixed-width encoding of the registration parameters. A
     /// Proving Authenticator, without `new_authenticator_address`, is encoded as the zero address.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `new_authenticator_pubkey` fails to serialize.
-    pub fn compute(
+    fn compute(
         request_id: &RequestId,
         new_authenticator_pubkey: &EdDSAPublicKey,
         new_authenticator_address: Option<Address>,
@@ -346,7 +342,7 @@ mod xwing_pubkey {
     use serde::{Deserializer, Serializer, de::Error as _};
     use world_id_primitives::serde_utils::cbor;
 
-    use super::super::session::{RESPONSE_PUBLIC_KEY_LEN, ResponsePublicKey};
+    use super::ResponsePublicKey;
 
     pub(super) fn serialize<S: Serializer>(
         key: &ResponsePublicKey,
@@ -358,8 +354,7 @@ mod xwing_pubkey {
     pub(super) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<ResponsePublicKey, D::Error> {
-        let bytes: [u8; RESPONSE_PUBLIC_KEY_LEN] = cbor::deserialize_byte_array(deserializer)?;
-        ResponsePublicKey::from_bytes(&bytes)
+        ResponsePublicKey::from_bytes(&cbor::deserialize_byte_string(deserializer)?)
             .map_err(|_| D::Error::custom("invalid X-Wing encapsulation key"))
     }
 }
