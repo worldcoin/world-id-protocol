@@ -570,6 +570,35 @@ mod tests {
         assert_eq!(error.data.unwrap().detail.as_deref(), detail);
     }
 
+    #[test]
+    fn decode_response_rejects_duplicate_error_data() {
+        let response = Value::Map(vec![
+            ("version".into(), "1.0".into()),
+            (
+                "outcome".into(),
+                Value::Map(vec![(
+                    "error".into(),
+                    Value::Map(vec![
+                        ("id".into(), "request".into()),
+                        (
+                            "error".into(),
+                            Value::Map(vec![
+                                ("code".into(), "operation_failed".into()),
+                                ("message".into(), "Registration failed".into()),
+                                ("data".into(), Value::Null),
+                                ("data".into(), Value::Null),
+                            ]),
+                        ),
+                    ]),
+                )]),
+            ),
+        ]);
+        let error = decode_response(&encode(&response).unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("duplicate field `data`"), "{error}");
+    }
+
     #[test_case("first".into(), "second".into(); "two text details")]
     #[test_case(Value::Null, "second".into(); "null then text")]
     #[test_case("first".into(), Value::Null; "text then null")]
