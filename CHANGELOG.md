@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.1...world-id-primitives-v0.15.1) - 2026-10-12
+
+### Added
+
+- gate world-id-primitives' protocol dependencies behind a default feature ([#1075](https://github.com/worldcoin/world-id-protocol/pull/1075))
+- replace the WIP-106 circuit lib with the provider-signed token ([#1028](https://github.com/worldcoin/world-id-protocol/pull/1028))
+- bump provekit to 1.0.1 and noir to beta.26 ([#978](https://github.com/worldcoin/world-id-protocol/pull/978))
+- WIP-100 Cryptographic Primitives for the Protocol ([#888](https://github.com/worldcoin/world-id-protocol/pull/888))
+- decouple the TAKT from the AAT and gate verification behind one entrypoint ([#884](https://github.com/worldcoin/world-id-protocol/pull/884))
+
+### Fixed
+
+- [**breaking**] reject undecodable authenticator pubkeys ([#1086](https://github.com/worldcoin/world-id-protocol/pull/1086))
+
+### Other
+
+- bump OHTTP to. 0.8 and remove getrandom 0.3 from WASM ([#1036](https://github.com/worldcoin/world-id-protocol/pull/1036))
+- move the WIP-106 authenticator_assertion module to world-id-primitives ([#1073](https://github.com/worldcoin/world-id-protocol/pull/1073))
+- *(deps)* [**breaking**] update taceo crates to newer versions, update arkworks to 0.6 everywhere ([#1038](https://github.com/worldcoin/world-id-protocol/pull/1038))
+- update Cargo.toml dependencies
+- publish wip-103 audit ([#1053](https://github.com/worldcoin/world-id-protocol/pull/1053))
+
 ## [0.15.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.1...world-id-primitives-v0.15.0) - 2026-10-06
 
 ### Added
