@@ -355,11 +355,16 @@ where
 /// Strict deserializers for CBOR fields that a protocol defines by their major type.
 ///
 /// Serde's own impls accept other CBOR encodings of the same value: `Vec<u8>` and byte arrays also
-/// read an array of integers, and most impls skip CBOR tags. These deserializers accept only the
-/// defined major type, without a tag.
+/// read an array of integers, integers also read bignums (tags 2 and 3), and most impls skip CBOR
+/// tags. These deserializers accept only the defined major type, without a tag.
 pub mod cbor {
+    use std::fmt;
+
     use ciborium::Value;
-    use serde::{Deserialize, Deserializer, de::Error as _};
+    use serde::{
+        Deserialize, Deserializer,
+        de::{Error as _, Visitor},
+    };
 
     /// Deserializes a CBOR byte string.
     ///
@@ -398,18 +403,29 @@ pub mod cbor {
     ///
     /// # Errors
     ///
-    /// Fails for any other CBOR data item, including negative integers, floats and tagged
-    /// integers, and if the integer does not fit in `T`.
+    /// Fails for any other CBOR data item, including negative integers, floats, bignums and
+    /// other tagged integers, and if the integer does not fit in `T`.
     pub fn deserialize_unsigned<'de, D, T>(deserializer: D) -> Result<T, D::Error>
     where
         D: Deserializer<'de>,
         T: TryFrom<u64>,
     {
-        let Value::Integer(integer) = Value::deserialize(deserializer)? else {
-            return Err(D::Error::custom("expected a CBOR unsigned integer"));
-        };
-        let value =
-            u64::try_from(integer).map_err(|_| D::Error::custom("expected an unsigned integer"))?;
+        // Ciborium reads a bignum into a `Value` as a plain integer, but visits it as a `u128`.
+        struct UnsignedVisitor;
+
+        impl Visitor<'_> for UnsignedVisitor {
+            type Value = u64;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a CBOR unsigned integer")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<u64, E> {
+                Ok(value)
+            }
+        }
+
+        let value = deserializer.deserialize_any(UnsignedVisitor)?;
         T::try_from(value).map_err(|_| D::Error::custom("unsigned integer exceeds the field width"))
     }
 }
@@ -563,6 +579,7 @@ mod tests {
             Value::Float(1.0),
             Value::Text("1".into()),
             Value::Tag(0, Box::new(Value::Integer(1.into()))),
+            Value::Tag(2, Box::new(Value::Bytes(vec![1]))),
         ] {
             assert!(from_cbor::<Unsigned>(&invalid).is_err(), "{invalid:?}");
         }

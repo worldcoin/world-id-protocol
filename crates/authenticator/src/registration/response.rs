@@ -533,6 +533,7 @@ mod tests {
             result_with_indexes((-1).into(), 1.into()),
             result_with_indexes(42.into(), Value::Float(1.0)),
             result_with_indexes(42.into(), Value::Tag(0, Box::new(1.into()))),
+            result_with_indexes(Value::Tag(2, Box::new(Value::Bytes(vec![42]))), 1.into()),
             result_with_indexes(42.into(), (u64::from(u32::MAX) + 1).into()),
             result_with(
                 "authenticators",
