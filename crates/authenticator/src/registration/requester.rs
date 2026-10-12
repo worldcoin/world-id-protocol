@@ -99,9 +99,11 @@ struct SessionSecrets {
 /// Where a session is (WIP-109 §3.8). A live session holds its secrets and its estimated expiry.
 #[derive(Debug)]
 enum SessionState {
-    /// The request is not yet published.
+    /// The request is encrypted but not yet published. A publish that was interrupted resends
+    /// this exact ciphertext (WIP-109 §3.5).
     Created {
         secrets: SessionSecrets,
+        encrypted_request: EncryptedPayload,
         expires_at: Instant,
     },
     /// The request is on the bridge; the Pairing URI may be shown.
@@ -136,13 +138,14 @@ pub struct RegistrationRequester {
 }
 
 impl RegistrationRequester {
-    /// Starts a session for the authenticator derived from `seed`.
+    /// Starts a session for the authenticator derived from `seed`, and encrypts its request.
     ///
     /// `bridge` is the bridge the session uses. Its domain is written into the Pairing URI.
     ///
     /// # Errors
     ///
-    /// Returns an error if the seed is invalid or the operating system CSPRNG is unavailable.
+    /// Returns an error if the seed is invalid, the operating system CSPRNG is unavailable, or
+    /// the request cannot be encoded or encrypted.
     pub fn new(
         seed: &[u8],
         class: RequestedClass,
@@ -173,12 +176,21 @@ impl RegistrationRequester {
             &request_id,
         )
         .map_err(AuthenticatorError::from)?;
+        let message = RegisterRequestMessage::builder()
+            .id(request_id.message_id())
+            .method(REGISTER_METHOD)
+            .params(request.clone())
+            .build();
+        let plaintext =
+            authenticator_message::encode(&message).map_err(RequesterError::Encoding)?;
+        let encrypted_request = secrets.transport_key.encrypt_request(&plaintext)?;
         Ok(Self {
             request,
             digest,
             bridge,
             state: SessionState::Created {
                 secrets,
+                encrypted_request,
                 expires_at: Instant::now() + SESSION_TTL,
             },
         })
@@ -228,46 +240,38 @@ impl RegistrationRequester {
         self.state = SessionState::Ended;
     }
 
-    /// Encrypts and publishes the request on the bridge.
+    /// Publishes the encrypted request on the bridge.
     ///
     /// Call it once per session: publishing again after the Approving Authenticator read the
     /// request would reset the session on the bridge. The Pairing URI is available only after
-    /// this succeeds, so calling it again after an interrupted call is safe (WIP-109 §3.8).
+    /// this succeeds, so calling it again after an interrupted call is safe; it resends the same
+    /// ciphertext (WIP-109 §3.8).
     ///
     /// # Errors
     ///
     /// Returns [`RequesterError::AlreadyPublished`] after a successful publish,
-    /// [`RequesterError::SessionEnded`] once the session ended, or the error that ended it.
+    /// [`RequesterError::SessionEnded`] once the session ended, or the bridge error that ended
+    /// it.
     pub async fn publish(&mut self) -> Result<(), RequesterError> {
         self.end_if_expired();
-        let secrets = match &self.state {
-            SessionState::Created { secrets, .. } => secrets,
+        let (request_id, encrypted_request) = match &self.state {
+            SessionState::Created {
+                secrets,
+                encrypted_request,
+                ..
+            } => (secrets.pairing_secret.request_id(), encrypted_request),
             SessionState::Published { .. } | SessionState::Retrieved { .. } => {
                 return Err(RequesterError::AlreadyPublished);
             }
             SessionState::Ended => return Err(RequesterError::SessionEnded),
         };
-        let request_id = secrets.pairing_secret.request_id();
-        let message = RegisterRequestMessage::builder()
-            .id(request_id.message_id())
-            .method(REGISTER_METHOD)
-            .params(self.request.clone())
-            .build();
-        let encrypted = authenticator_message::encode(&message)
-            .map_err(RequesterError::Encoding)
-            .and_then(|plaintext| Ok(secrets.transport_key.encrypt_request(&plaintext)?));
-        let published = match encrypted {
-            Ok(encrypted) => self
-                .bridge
-                .publish_request(&request_id, &encrypted)
-                .await
-                .map_err(RequesterError::from),
-            Err(error) => Err(error),
-        };
-        // A retry needs a new session, so a failure ends this one and discards its keys.
-        if let Err(error) = published {
+        if let Err(error) = self
+            .bridge
+            .publish_request(&request_id, encrypted_request)
+            .await
+        {
             self.cancel();
-            return Err(error);
+            return Err(error.into());
         }
         self.state = match std::mem::replace(&mut self.state, SessionState::Ended) {
             SessionState::Created { secrets, .. } => SessionState::Published {
@@ -454,7 +458,10 @@ fn is_transient(error: &AuthenticatorError) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use test_case::test_case;
+    use tokio::sync::Notify;
     use world_id_primitives::authenticator_message::{Id, Version};
 
     use super::*;
@@ -531,6 +538,43 @@ mod tests {
             session.publish().await,
             Err(RequesterError::SessionEnded)
         ));
+    }
+
+    #[tokio::test]
+    async fn an_interrupted_publish_resends_the_same_ciphertext() {
+        let mut server = mockito::Server::new_async().await;
+        let mut session = requester(&server);
+        let bodies = Arc::new(Mutex::new(Vec::<serde_json::Value>::new()));
+        let received = Arc::new(Notify::new());
+        let (sink, signal) = (Arc::clone(&bodies), Arc::clone(&received));
+        let _slow_bridge = server
+            .mock("POST", "/request")
+            .match_request(move |request| {
+                sink.lock()
+                    .unwrap()
+                    .push(serde_json::from_slice(request.body().unwrap()).unwrap());
+                signal.notify_one();
+                // Holds the reply back, so that the first publish is interrupted before it.
+                std::thread::sleep(Duration::from_millis(300));
+                true
+            })
+            .with_status(200)
+            .create_async()
+            .await;
+
+        tokio::select! {
+            _ = session.publish() => panic!("the publish was not interrupted"),
+            () = received.notified() => {}
+        }
+        assert_eq!(session.pairing_uri(), None);
+        session.publish().await.unwrap();
+
+        let bodies = bodies.lock().unwrap();
+        let [interrupted, retried] = bodies.as_slice() else {
+            panic!("expected two publish attempts, got {}", bodies.len());
+        };
+        assert_eq!(interrupted, retried);
+        assert!(session.pairing_uri().is_some());
     }
 
     /// The `id` of a response in a test.
