@@ -145,7 +145,7 @@ impl<R, D> Response<R, D> {
 
 /// The mutually exclusive outcomes of a method invocation.
 ///
-/// On the wire this is a definite-length, single-entry map keyed by `success` or `error`.
+/// On the wire this is a single-entry map keyed by `success` or `error`.
 /// Successful responses always have a request ID; only errors can be uncorrelated.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
@@ -489,16 +489,15 @@ where
         type Value = T;
 
         fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-            formatter.write_str("a definite-length, single-entry outcome map")
+            formatter.write_str("a single-entry outcome map")
         }
 
-        fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
-            if map.size_hint() != Some(1) {
-                return Err(A::Error::custom(
-                    "outcome must be a definite-length map with one entry",
-                ));
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, mut map: A) -> Result<T, A::Error> {
+            let outcome = T::deserialize(serde::de::value::MapAccessDeserializer::new(&mut map))?;
+            if map.next_key::<serde::de::IgnoredAny>()?.is_some() {
+                return Err(A::Error::custom("outcome must be a map with one entry"));
             }
-            T::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+            Ok(outcome)
         }
     }
 

@@ -142,7 +142,6 @@ fn typed_params_reject_null() {
 #[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": "ping-1", "result": null, "extra": true}}}"#; "unknown success field")]
 #[test_case(r#"{"version": "1.0", "outcome": {"error": {"id": null, "error": {"code": "failed", "message": "bad"}, "extra": true}}}"#; "unknown error field")]
 #[test_case(r#"{"version": "1.0", "id": "ping-1", "outcome": {"success": {"id": "ping-1", "result": null}}}"#; "legacy top level id")]
-#[test_case(r#"{"version": "1.0", "outcome": {_ "success": {"id": "ping-1", "result": null}}}"#; "indefinite outcome wrapper")]
 #[test_case(r#"{"version": "2.0", "outcome": {"success": {"id": "ping-1", "result": null}}}"#; "unsupported response version")]
 #[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": "ping-1", "result": null}}, "method": "worldid_ping"}"#; "response method")]
 #[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": "ping-1", "result": null}}, "params": {}}"#; "response params")]
@@ -299,7 +298,7 @@ fn nullable_params_distinguish_absent_and_null() {
 }
 
 #[test]
-fn response_accepts_reordered_and_indefinite_maps_outside_the_outcome_wrapper() {
+fn response_accepts_reordered_and_indefinite_maps() {
     let response = decode_response::<Value, Value>(
         r#"{_ "outcome": {"success": {_ "result": null, "id": "ping-1"}}, "version": "1.0"}"#,
     )
@@ -380,4 +379,30 @@ fn typed_codecs_enforce_bounds_and_framing() {
             ciborium::de::Error::RecursionLimitExceeded
         ))
     ));
+}
+
+#[test_case(r#"{"success": {"id": "ping-1", "result": null}}"#; "definite success")]
+#[test_case(r#"{_ "success": {"id": "ping-1", "result": null}}"#; "indefinite success")]
+#[test_case(r#"{"error": {"id": null, "error": {"code": "failed", "message": "bad"}}}"#; "definite error")]
+#[test_case(r#"{_ "error": {"id": null, "error": {"code": "failed", "message": "bad"}}}"#; "indefinite error")]
+fn outcome_maps_accept_both_length_encodings(outcome: &str) {
+    let response =
+        decode_response::<Value, Value>(&format!(r#"{{"version": "1.0", "outcome": {outcome}}}"#))
+            .unwrap();
+    assert_eq!(
+        Response::<Value>::decode(&response.encode().unwrap(), 1024).unwrap(),
+        response
+    );
+}
+
+#[test_case(r#"{_}"#; "empty map")]
+#[test_case(r#"{_ "other": null}"#; "unknown variant")]
+#[test_case(r#"{_ "success": {"id": "ping-1", "result": null}, "error": {"id": null, "error": {"code": "failed", "message": "bad"}}}"#; "both variants")]
+#[test_case(r#"{_ "success": {"id": "ping-1", "result": null}, "success": {"id": "ping-1", "result": null}}"#; "duplicate success")]
+#[test_case(r#"{_ "error": {"id": null, "error": {"code": "failed", "message": "bad"}}, "error": {"id": null, "error": {"code": "failed", "message": "bad"}}}"#; "duplicate error")]
+fn indefinite_outcome_rejects_invalid_entries(outcome: &str) {
+    assert!(
+        decode_response::<Value, Value>(&format!(r#"{{"version": "1.0", "outcome": {outcome}}}"#))
+            .is_err()
+    );
 }
