@@ -11,7 +11,7 @@
 //! This module holds the protocol values and their encodings. Every value derived from the
 //! pairing secret is deterministic. Transport encryption additionally requires the independently
 //! transferred [`PairingCode`]. Messages are encoded with
-//! [`authenticator_message::encode`](world_id_primitives::authenticator_message::encode). A
+//! [`Request::encode`](world_id_primitives::authenticator_message::Request::encode). A
 //! received request's params are decoded with [`RegistrationRequest::from_params`] and a received
 //! response with [`decode_response`], which add the WIP-109 payload rules to the WIP-105
 //! envelope.

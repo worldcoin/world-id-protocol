@@ -5,7 +5,7 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
-    authenticator_message::{self, ErrorObject, MessageError, Outcome, Response, Value},
+    authenticator_message::{ErrorObject, MessageError, Outcome, Response, Value},
     serde_utils::deserialize_present,
 };
 use zeroize::Zeroizing;
@@ -230,15 +230,14 @@ pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErro
 /// not match the response schema.
 pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, MessageError> {
     let response: RegisterResponseMessage =
-        authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
+        RegisterResponseMessage::decode(plaintext, MAX_RESPONSE_SIZE)?;
     if matches!(response.outcome, Outcome::Error { .. }) {
         return Ok(response);
     }
     // Neither pass suffices alone: typed decoding skips tags, and a `Value` turns bignums into
     // plain integers, which only the typed `deserialize_unsigned` rejects. The `Value` copy may
     // hold the vault, so it is wiped before the tag check can return.
-    let mut raw: Response<Value, Value> =
-        authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
+    let mut raw: Response<Value, Value> = Response::decode(plaintext, MAX_RESPONSE_SIZE)?;
     if let Outcome::Success { result, .. } = &mut raw.outcome {
         wipe_byte_strings(result);
         reject_tags(result)?;
@@ -349,19 +348,17 @@ mod vault_data {
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
-    use world_id_primitives::authenticator_message::{Id, Version, encode};
+    use world_id_primitives::authenticator_message::Version;
 
     use super::{RegistrationErrorReason::*, *};
 
     /// Decodes the result of a response whose CBOR `result` is `result`.
     fn decode_result(result: Value) -> Result<RegistrationResult, MessageError> {
-        let response = Response::<Value, Value>::builder()
-            .outcome(Outcome::Success {
-                id: Id::String("request".into()),
-                result,
-            })
-            .build();
-        let decoded = decode_response(&encode(&response).unwrap())?;
+        let response = Response::<Value, Value>::new(Outcome::Success {
+            id: "request".into(),
+            result,
+        });
+        let decoded = decode_response(&response.encode().unwrap())?;
         let Outcome::Success { result, .. } = decoded.outcome else {
             panic!("expected a successful response");
         };
@@ -370,18 +367,16 @@ mod tests {
 
     /// Decodes an `operation_failed` error response whose CBOR `error.data` is `data`.
     fn decode_error_with_data(data: Value) -> ErrorObject<RegistrationErrorData> {
-        let error = ErrorObject::builder()
-            .code("operation_failed")
-            .message("InsertAuthenticator operation failed")
-            .data(data)
-            .build();
-        let response = Response::<Value, Value>::builder()
-            .outcome(Outcome::Error {
-                id: Some(Id::String("request".into())),
-                error,
-            })
-            .build();
-        let decoded = decode_response(&encode(&response).unwrap()).unwrap();
+        let error = ErrorObject::new(
+            "operation_failed",
+            "InsertAuthenticator operation failed",
+            Some(data),
+        );
+        let response = Response::<Value, Value>::new(Outcome::Error {
+            id: Some("request".into()),
+            error,
+        });
+        let decoded = decode_response(&response.encode().unwrap()).unwrap();
         let Outcome::Error { error, .. } = decoded.outcome else {
             panic!("expected an error response");
         };
@@ -483,12 +478,12 @@ mod tests {
         let response = RegisterResponseMessage {
             version: Version::V1,
             outcome: Outcome::Success {
-                id: Id::String("request".into()),
+                id: "request".into(),
                 result,
             },
         };
         assert_eq!(
-            decode_response(&encode(&response).unwrap()).unwrap(),
+            decode_response(&response.encode().unwrap()).unwrap(),
             response
         );
     }
@@ -575,9 +570,9 @@ mod tests {
                 )]),
             ),
         ]);
-        let error = decode_response(&encode(&response).unwrap())
-            .unwrap_err()
-            .to_string();
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&response, &mut encoded).unwrap();
+        let error = decode_response(&encoded).unwrap_err().to_string();
         assert!(error.contains("duplicate field `data`"), "{error}");
     }
 
@@ -586,21 +581,19 @@ mod tests {
     #[test_case("first".into(), Value::Null; "text then null")]
     #[test_case(7.into(), Value::Null; "two nontext details")]
     fn decode_response_rejects_duplicate_detail(first: Value, second: Value) {
-        let error = ErrorObject::builder()
-            .code("operation_failed")
-            .message("InsertAuthenticator operation failed")
-            .data(Value::Map(vec![
+        let error = ErrorObject::new(
+            "operation_failed",
+            "InsertAuthenticator operation failed",
+            Some(Value::Map(vec![
                 ("detail".into(), first),
                 ("detail".into(), second),
-            ]))
-            .build();
-        let response = Response::<Value, Value>::builder()
-            .outcome(Outcome::Error {
-                id: Some(Id::String("request".into())),
-                error,
-            })
-            .build();
-        let error = decode_response(&encode(&response).unwrap())
+            ])),
+        );
+        let response = Response::<Value, Value>::new(Outcome::Error {
+            id: Some("request".into()),
+            error,
+        });
+        let error = decode_response(&response.encode().unwrap())
             .unwrap_err()
             .to_string();
         assert!(error.contains("duplicate field `detail`"), "{error}");

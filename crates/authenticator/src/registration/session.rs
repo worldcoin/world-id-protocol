@@ -61,7 +61,7 @@ impl RequestId {
     /// this id in lowercase hex (WIP-109 §3.6.1).
     #[must_use]
     pub fn message_id(&self) -> Id {
-        Id::String(self.to_string())
+        self.to_string()
     }
 }
 
