@@ -40,14 +40,14 @@ pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, Mess
     // them.
     let mut raw: Response<Value, Value> =
         authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
-    let tags = match &raw.outcome {
+    let tag_check = match &raw.outcome {
         Ok(result) => reject_tags(result),
         Err(error) => error.data.as_ref().map_or(Ok(()), reject_tags),
     };
     if let Ok(result) = &mut raw.outcome {
         wipe_byte_strings(result);
     }
-    tags.map(|()| response)
+    tag_check.map(|()| response)
 }
 
 /// The result of a successful registration: where the new authenticator was inserted, and the

@@ -1,4 +1,5 @@
-//! Registration commitments from WIP-109 Appendix A and an independent pairing-key vector.
+//! Regression vectors for the registration commitments, and an independently computed
+//! pairing-key vector.
 //!
 //! Inputs: the pairing secret is the bytes `00..1f`, the EdDSA signing key is 32 bytes of `0x42`,
 //! the X-Wing response key is derived from the seed of 32 bytes of `0x24`, and the Admin

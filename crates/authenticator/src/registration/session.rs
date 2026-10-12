@@ -149,8 +149,7 @@ impl PairingCode {
                 OsRng
                     .try_fill_bytes(&mut byte)
                     .map_err(|_| TransportError::Rng)?;
-                // 234 is the largest multiple of 26 a byte holds. Redrawing the bytes above it
-                // keeps every letter equally likely.
+                // Bytes from 234 = 9 × 26 up are redrawn, so every letter has exactly nine bytes.
                 if byte[0] < 234 {
                     *letter = b'A' + byte[0] % 26;
                     break;
