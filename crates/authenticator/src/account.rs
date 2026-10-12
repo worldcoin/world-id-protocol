@@ -186,10 +186,11 @@ impl AccountSnapshot {
 }
 
 impl Authenticator {
-    /// Inserts a new authenticator to the account.
+    /// Inserts a new authenticator to the account, at the lowest free slot of its current key set.
     ///
     /// # Errors
-    /// Will error if the provided RPC URL is not valid or if there are HTTP call failures.
+    /// - [`AuthenticatorError::MaxAuthenticatorsReached`] if the key set has no free slot.
+    /// - Other errors if the provided RPC URL is not valid or if there are HTTP call failures.
     ///
     /// # Note
     /// Inserting another authenticator changes the account's off-chain signer commitment, but does
