@@ -1,5 +1,7 @@
 //! The response to a `worldid_auth_v1_register` request (WIP-109 §3.6.2 and §3.6.3).
 
+use std::fmt;
+
 use serde::{Deserialize, Serialize};
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
@@ -9,6 +11,10 @@ use world_id_primitives::{
 use zeroize::Zeroizing;
 
 use super::{MAX_RESPONSE_SIZE, reject_tags};
+
+/// The largest [`Vault::data`] a registration response carries: 3.5 MiB, so that the encrypted
+/// response fits the message-bridge's 5 MiB body limit (WIP-109 §3.6.2).
+pub const MAX_VAULT_SIZE: usize = 3_670_016;
 
 /// The registration response as sent over the bridge.
 ///
@@ -80,10 +86,6 @@ pub struct KnownAuthenticator {
     pub name: String,
 }
 
-/// The largest [`Vault::data`] a registration response carries: 3.5 MiB, so that the encrypted
-/// response fits the message-bridge's 5 MiB body limit (WIP-109 §3.6.2).
-pub const MAX_VAULT_SIZE: usize = 3_670_016;
-
 /// A credential vault export.
 ///
 /// The vault holds the account's credentials and the associated data from their issuers, which
@@ -98,8 +100,8 @@ pub struct Vault {
     pub data: Zeroizing<Vec<u8>>,
 }
 
-impl std::fmt::Debug for Vault {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl fmt::Debug for Vault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Vault")
             .field("format", &self.format)
             .field("len", &self.data.len())
