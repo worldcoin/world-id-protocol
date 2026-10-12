@@ -335,6 +335,52 @@ async fn test_insert_authenticator_at_sparse_index() {
     assert_eq!(account.authenticator_pubkeys[5], Some(new_pubkey));
 }
 
+/// A `pubkey_id` beyond the JSON array index range is refused instead of padding the arrays.
+#[tokio::test]
+async fn test_insert_authenticator_rejects_a_pubkey_id_beyond_the_array_index_range() {
+    let test_db = create_unique_test_db().await;
+    let db = &test_db.db;
+
+    let leaf_index = 1u64;
+    db.accounts()
+        .insert(
+            leaf_index,
+            &Address::ZERO,
+            &[Address::from([1u8; 20])],
+            &[U256::from(123)],
+            &U256::from(456),
+            100,
+            0,
+        )
+        .await
+        .unwrap();
+
+    let result = db
+        .accounts()
+        .insert_authenticator_at_index(
+            leaf_index,
+            u32::MAX,
+            &Address::from([2u8; 20]),
+            &U256::from(789),
+            &U256::from(999),
+            100,
+            2,
+        )
+        .await;
+
+    assert!(matches!(
+        result,
+        Err(DBError::InvalidEventField { field, .. }) if field == "pubkey_id"
+    ));
+    let account = db
+        .accounts()
+        .get_account(leaf_index)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(account.authenticator_pubkeys, vec![Some(U256::from(123))]);
+}
+
 /// Test removing authenticator at index
 #[tokio::test]
 async fn test_remove_authenticator_at_index() {

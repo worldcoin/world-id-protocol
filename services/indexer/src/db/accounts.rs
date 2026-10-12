@@ -310,6 +310,8 @@ where
     ) -> DBResult<()> {
         // `jsonb_set` appends when the index is past the end, so pad both arrays with nulls up
         // to `pubkey_id` first. Otherwise a sparse insertion would land at the wrong slot.
+        let padded_len = i32::try_from(pubkey_id)
+            .map_err(|_| invalid_field!("pubkey_id", "exceeds the JSON array index range"))?;
         sqlx::query(
             r#"
                 UPDATE accounts SET
@@ -333,7 +335,7 @@ where
             .bind(new_commitment)
             .bind(latest_block_number as i64)
             .bind(latest_log_index as i64)
-            .bind(i32::try_from(pubkey_id).unwrap_or(i32::MAX))
+            .bind(padded_len)
             .execute(self.executor)
             .await?;
         Ok(())
