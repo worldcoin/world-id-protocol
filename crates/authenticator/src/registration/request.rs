@@ -259,7 +259,7 @@ pub type RegisterRequestMessage = Request<RegistrationRequest>;
 /// `new_authenticator_address`: on-chain, the zero address marks a Proving Authenticator.
 fn non_zero_address(address: Address) -> Result<Address, &'static str> {
     if address.is_zero() {
-        return Err("new_authenticator_address must not be the zero address");
+        return Err("must not be the zero address");
     }
     Ok(address)
 }
@@ -323,7 +323,9 @@ mod authenticator_address {
         let Some(address) = address else {
             return serializer.serialize_none();
         };
-        let address = non_zero_address(*address).map_err(S::Error::custom)?;
+        let address = non_zero_address(*address).map_err(|reason| {
+            S::Error::custom(format_args!("new_authenticator_address {reason}"))
+        })?;
         serializer.serialize_bytes(address.as_slice())
     }
 
@@ -333,7 +335,7 @@ mod authenticator_address {
         let address = Address::from(cbor::deserialize_byte_array(deserializer)?);
         non_zero_address(address)
             .map(Some)
-            .map_err(D::Error::custom)
+            .map_err(|reason| D::Error::custom(format_args!("new_authenticator_address {reason}")))
     }
 }
 
@@ -448,15 +450,16 @@ mod tests {
         let zero = Some(Address::ZERO);
         let request_id = PairingSecret::from_bytes([9; 32]).request_id();
         let response_pubkey = ResponseSecretKey::from_seed(&[4; 32]).public_key();
-        assert!(
-            RegistrationRequest::new_signed(
-                &signing_key(1),
-                zero,
-                response_pubkey,
-                None,
-                &request_id
-            )
-            .is_err()
+        let signing = RegistrationRequest::new_signed(
+            &signing_key(1),
+            zero,
+            response_pubkey,
+            None,
+            &request_id,
+        );
+        assert_eq!(
+            signing.unwrap_err().to_string(),
+            "Invalid input at new_authenticator_address: must not be the zero address"
         );
 
         let (mut request, _, request_id) = signed_request(ADMIN);
@@ -466,7 +469,13 @@ mod tests {
             .method(REGISTER_METHOD)
             .params(request)
             .build();
-        assert!(authenticator_message::encode(&message).is_err());
+        let encoding = authenticator_message::encode(&message).unwrap_err();
+        assert!(
+            encoding
+                .to_string()
+                .contains("new_authenticator_address must not be the zero address"),
+            "{encoding}"
+        );
     }
 
     #[test]
