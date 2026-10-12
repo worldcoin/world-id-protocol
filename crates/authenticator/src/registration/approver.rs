@@ -1101,9 +1101,355 @@ fn log_tag(request_id: &RequestId) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
+    use secrecy::ExposeSecret as _;
     use test_case::test_case;
+    use world_id_primitives::Signer;
 
     use super::*;
+    use crate::registration::{PairingSecret, RegisterRequestMessage, ResponseSecretKey};
+
+    /// The Requesting Authenticator's side of a session, built from the protocol primitives.
+    struct Requester {
+        uri: PairingUri,
+        code: PairingCode,
+        response_key: ResponseSecretKey,
+        request: RegistrationRequest,
+    }
+
+    /// A change to the valid request message.
+    #[derive(Debug)]
+    enum Tamper {
+        Nothing,
+        /// Replaces the whole message.
+        Bytes(Vec<u8>),
+        /// Removes a top-level field.
+        Remove(&'static str),
+        /// Sets the field at a dot-separated path.
+        Set(&'static str, Value),
+    }
+
+    /// How a rejected request is answered.
+    #[derive(Debug)]
+    enum ExpectedReply {
+        NoAnswer,
+        RequestId,
+        OtherId(&'static str),
+        NullId,
+    }
+
+    impl Requester {
+        fn new() -> Self {
+            let pairing_secret = PairingSecret::from_bytes([7; 32]);
+            let response_key = ResponseSecretKey::from_seed(&[8; 32]);
+            let signer = Signer::from_seed_bytes(&[9; 32]).unwrap();
+            let (request, digest) = RegistrationRequest::new_signed(
+                signer.offchain_signer_private_key().expose_secret(),
+                AuthenticatorClass::Proving,
+                response_key.public_key(),
+                None,
+                &pairing_secret.request_id(),
+            )
+            .unwrap();
+            Self {
+                uri: PairingUri {
+                    secret: pairing_secret,
+                    digest,
+                    bridge: "bridge.example.org".parse().unwrap(),
+                },
+                code: "QJTWPK".parse().unwrap(),
+                response_key,
+                request,
+            }
+        }
+
+        fn request_id(&self) -> RequestId {
+            self.uri.secret.request_id()
+        }
+
+        fn transport_key(&self) -> TransportKey {
+            self.uri.secret.transport_key(&self.code).unwrap()
+        }
+
+        /// The encoded request message, changed by `tamper`.
+        fn message(&self, tamper: Tamper) -> Vec<u8> {
+            let valid = RegisterRequestMessage::builder()
+                .id(self.request_id().message_id())
+                .method(REGISTER_METHOD)
+                .params(self.request.clone())
+                .build();
+            let valid = authenticator_message::encode(&valid).unwrap();
+            let mut message: Value =
+                authenticator_message::decode(&valid, MAX_REQUEST_SIZE).unwrap();
+            match tamper {
+                Tamper::Nothing => {}
+                Tamper::Bytes(bytes) => return bytes,
+                Tamper::Remove(key) => message
+                    .as_map_mut()
+                    .unwrap()
+                    .retain(|(k, _)| k.as_text() != Some(key)),
+                Tamper::Set(path, value) => set_field(&mut message, path, value),
+            }
+            authenticator_message::encode(&message).unwrap()
+        }
+
+        /// Serves `plaintext`, encrypted, as the request of this session on `server`, and receives
+        /// it. The returned mock fails its assertion if the request is fetched again.
+        async fn serve(
+            &self,
+            server: &mut mockito::ServerGuard,
+            plaintext: &[u8],
+        ) -> (PendingRegistration, mockito::Mock) {
+            let encrypted = self.transport_key().encrypt_request(plaintext).unwrap();
+            let fetch = server
+                .mock("GET", format!("/request/{}", self.request_id()).as_str())
+                .with_status(200)
+                .with_body(serde_json::to_vec(&encrypted).unwrap())
+                .expect(1)
+                .create_async()
+                .await;
+            let pending = PendingRegistration::receive(&self.uri, &[bridge(server)])
+                .await
+                .unwrap();
+            (pending, fetch)
+        }
+
+        fn open(&self, sealed: &EncryptedPayload) -> RegisterResponseMessage {
+            let plaintext = self
+                .transport_key()
+                .decrypt_response(&self.response_key, sealed)
+                .unwrap();
+            authenticator_message::decode(&plaintext, MAX_RESPONSE_SIZE).unwrap()
+        }
+    }
+
+    fn bridge(server: &mockito::ServerGuard) -> BridgeClient {
+        BridgeClient::with_base_url(
+            "bridge.example.org".parse().unwrap(),
+            server.url().parse().unwrap(),
+        )
+        .unwrap()
+    }
+
+    /// Replaces the value at the dot-separated `path` of a CBOR map.
+    fn set_field(map: &mut Value, path: &str, new: Value) {
+        let (key, rest) = path
+            .split_once('.')
+            .map_or((path, None), |(key, rest)| (key, Some(rest)));
+        let value = map
+            .as_map_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|(k, _)| k.as_text() == Some(key))
+            .map(|(_, value)| value)
+            .unwrap();
+        match rest {
+            Some(rest) => set_field(value, rest, new),
+            None => *value = new,
+        }
+    }
+
+    /// Records the body of every `PUT /response` of `requester`'s session, answered with `status`.
+    async fn capture_answers(
+        requester: &Requester,
+        server: &mut mockito::ServerGuard,
+        status: usize,
+    ) -> Arc<Mutex<Vec<EncryptedPayload>>> {
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&captured);
+        server
+            .mock(
+                "PUT",
+                format!("/response/{}", requester.request_id()).as_str(),
+            )
+            .match_request(move |request| {
+                let payload = serde_json::from_slice(request.body().unwrap()).unwrap();
+                sink.lock().unwrap().push(payload);
+                true
+            })
+            .with_status(status)
+            .create_async()
+            .await;
+        captured
+    }
+
+    #[tokio::test]
+    async fn receive_contacts_only_an_allowed_bridge() {
+        let mut server = mockito::Server::new_async().await;
+        let untouched = server
+            .mock("GET", mockito::Matcher::Any)
+            .expect(0)
+            .create_async()
+            .await;
+        let requester = Requester::new();
+        let other = BridgeClient::with_base_url(
+            "other.example.org".parse().unwrap(),
+            server.url().parse().unwrap(),
+        )
+        .unwrap();
+        assert!(matches!(
+            PendingRegistration::receive(&requester.uri, &[other]).await,
+            Err(ApproverError::BridgeNotAllowed(domain)) if domain == requester.uri.bridge
+        ));
+        untouched.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn a_mistyped_code_is_retried_against_the_retained_request() {
+        let mut server = mockito::Server::new_async().await;
+        let requester = Requester::new();
+        let (mut pending, fetch) = requester
+            .serve(&mut server, &requester.message(Tamper::Nothing))
+            .await;
+        let wrong = "AAAAAA".parse().unwrap();
+
+        assert!(matches!(
+            pending.authenticate(&wrong).await,
+            Err(ApproverError::IncorrectCode {
+                attempts_remaining: 2
+            })
+        ));
+        let incoming = pending.authenticate(&requester.code).await.unwrap();
+        assert_eq!(incoming.request(), &requester.request);
+        assert!(matches!(
+            pending.authenticate(&requester.code).await,
+            Err(ApproverError::Expired)
+        ));
+        fetch.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn the_last_wrong_code_ends_the_session() {
+        let mut server = mockito::Server::new_async().await;
+        let requester = Requester::new();
+        let (mut pending, fetch) = requester
+            .serve(&mut server, &requester.message(Tamper::Nothing))
+            .await;
+        let wrong = "AAAAAA".parse().unwrap();
+
+        for remaining in (0..MAX_CODE_ATTEMPTS).rev() {
+            assert!(matches!(
+                pending.authenticate(&wrong).await,
+                Err(ApproverError::IncorrectCode { attempts_remaining }) if attempts_remaining == remaining
+            ));
+        }
+        assert!(matches!(
+            pending.authenticate(&requester.code).await,
+            Err(ApproverError::Expired)
+        ));
+        fetch.assert_async().await;
+    }
+
+    #[test]
+    fn parse_request_accepts_the_committed_request() {
+        let requester = Requester::new();
+        let request =
+            parse_request(&requester.message(Tamper::Nothing), &requester.request_id()).unwrap();
+        assert_eq!(request, requester.request);
+        check_pairing(&request, &requester.request_id(), &requester.uri.digest).unwrap();
+    }
+
+    #[test_case(Tamper::Bytes(vec![0xff]), RegistrationErrorReason::ParseError, ExpectedReply::NoAnswer; "not CBOR")]
+    #[test_case(Tamper::Remove("id"), RegistrationErrorReason::InvalidRequest, ExpectedReply::NoAnswer; "a notification")]
+    #[test_case(Tamper::Remove("params"), RegistrationErrorReason::InvalidParams, ExpectedReply::NoAnswer; "no response key to seal to")]
+    #[test_case(Tamper::Set("id", Value::Bool(true)), RegistrationErrorReason::InvalidRequest, ExpectedReply::NullId; "an unreadable id")]
+    #[test_case(Tamper::Set("version", "2.0".into()), RegistrationErrorReason::InvalidRequest, ExpectedReply::RequestId; "an unsupported version")]
+    #[test_case(Tamper::Set("id", "other".into()), RegistrationErrorReason::InvalidRequest, ExpectedReply::OtherId("other"); "another id")]
+    #[test_case(Tamper::Set("method", "worldid_auth_v1_other".into()), RegistrationErrorReason::MethodNotFound, ExpectedReply::RequestId; "another method")]
+    #[test_case(Tamper::Set("params.registration_sig", Value::Bytes(vec![0; 63])), RegistrationErrorReason::InvalidParams, ExpectedReply::RequestId; "malformed params")]
+    fn parse_request_answers_an_invalid_request_only_when_it_may_and_can(
+        tamper: Tamper,
+        reason: RegistrationErrorReason,
+        expected_reply: ExpectedReply,
+    ) {
+        let requester = Requester::new();
+        let rejected =
+            parse_request(&requester.message(tamper), &requester.request_id()).unwrap_err();
+        assert_eq!(rejected.reason, reason);
+        let expected_id = match expected_reply {
+            ExpectedReply::NoAnswer => None,
+            ExpectedReply::RequestId => Some(Some(requester.request_id().message_id())),
+            ExpectedReply::OtherId(id) => Some(Some(Id::String(id.to_string()))),
+            ExpectedReply::NullId => Some(None),
+        };
+        let reply_id = rejected.reply.map(|reply| {
+            assert_eq!(reply.response_pubkey, requester.response_key.public_key());
+            reply.id
+        });
+        assert_eq!(reply_id, expected_id);
+    }
+
+    #[test]
+    fn check_pairing_rejects_a_request_the_link_does_not_commit_to() {
+        let requester = Requester::new();
+        let other_digest = RegistrationDigest::from_bytes([0; 32]);
+        let rejected =
+            check_pairing(&requester.request, &requester.request_id(), &other_digest).unwrap_err();
+        assert_eq!(rejected.reason, RegistrationErrorReason::InvalidParams);
+        assert_eq!(
+            rejected.problem,
+            "the request does not match the pairing link"
+        );
+    }
+
+    #[test]
+    fn check_pairing_rejects_a_signature_over_another_session() {
+        let requester = Requester::new();
+        let signer = Signer::from_seed_bytes(&[9; 32]).unwrap();
+        let (other_session, _) = RegistrationRequest::new_signed(
+            signer.offchain_signer_private_key().expose_secret(),
+            AuthenticatorClass::Proving,
+            requester.response_key.public_key(),
+            None,
+            &PairingSecret::from_bytes([10; 32]).request_id(),
+        )
+        .unwrap();
+        let request = RegistrationRequest {
+            registration_sig: other_session.registration_sig,
+            ..requester.request.clone()
+        };
+        let rejected =
+            check_pairing(&request, &requester.request_id(), &requester.uri.digest).unwrap_err();
+        assert_eq!(rejected.reason, RegistrationErrorReason::InvalidParams);
+        assert_eq!(rejected.problem, "invalid registration_sig");
+    }
+
+    #[test_case(201, DeliveryOutcome::Delivered; "delivered")]
+    #[test_case(409, DeliveryOutcome::Rejected; "rejected by the bridge")]
+    #[tokio::test]
+    async fn an_authenticated_invalid_request_is_answered_with_a_sealed_error(
+        status: usize,
+        expected_delivery: DeliveryOutcome,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let requester = Requester::new();
+        let other_method = Tamper::Set("method", "worldid_auth_v1_other".into());
+        let (mut pending, _) = requester
+            .serve(&mut server, &requester.message(other_method))
+            .await;
+        let answers = capture_answers(&requester, &mut server, status).await;
+
+        let error = pending.authenticate(&requester.code).await.unwrap_err();
+        assert!(matches!(
+            error,
+            ApproverError::InvalidRequest {
+                delivery: Some(Ok(delivery)),
+                ..
+            } if delivery == expected_delivery
+        ));
+        let answers = std::mem::take(&mut *answers.lock().unwrap());
+        let [answer] = answers.as_slice() else {
+            panic!("expected one answer, got {}", answers.len());
+        };
+        let response = requester.open(answer);
+        assert_eq!(response.id, Some(requester.request_id().message_id()));
+        assert_eq!(response.outcome.unwrap_err().code, "method_not_found");
+        assert!(matches!(
+            pending.authenticate(&requester.code).await,
+            Err(ApproverError::Expired)
+        ));
+    }
 
     #[test_case(Some(GatewayErrorCode::TransactionReverted), false, RegistrationErrorReason::OperationFailed; "a revert before submission")]
     #[test_case(Some(GatewayErrorCode::TransactionReverted), true, RegistrationErrorReason::OperationFailed; "a revert after submission")]
