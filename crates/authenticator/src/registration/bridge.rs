@@ -4,24 +4,29 @@
 //! single-use: a retry after a lost reply may report that the message expired or was consumed.
 //! Transient failures use bounded exponential backoff and jitter.
 
-use std::{future::Future, time::Duration};
-
-use backon::{ExponentialBuilder, Retryable as _, Sleeper as _};
-use futures_util::{
-    StreamExt as _,
-    future::{Either, select},
+use std::{
+    future::Future,
+    sync::atomic::{AtomicBool, Ordering},
+    time::Duration,
 };
+
+use backon::{ExponentialBuilder, Retryable as _};
+use futures_util::StreamExt as _;
 use reqwest::{StatusCode, Url};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
+use web_time::Instant;
 
-use super::{BridgeDomain, EncryptedPayload, RequestId};
+use super::{BridgeDomain, EncryptedPayload, RequestId, deadline::before};
 use crate::service_client::default_http_client;
+
+/// The message-bridge's body limit, which the largest WIP-109 response fits within.
+const MAX_BODY_SIZE: usize = 5 * 1024 * 1024;
+
+/// The time budget of one operation, including its retries and reading the response.
+const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Maximum retries after a transient failure.
 const MAX_RETRIES: usize = 3;
-/// The message-bridge's body limit, which the largest WIP-109 response fits within.
-const MAX_BODY_SIZE: usize = 5 * 1024 * 1024;
-const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// A client for one bridge deployment.
 ///
@@ -32,6 +37,95 @@ pub struct BridgeClient {
     http: reqwest::Client,
     domain: BridgeDomain,
     base_url: Url,
+}
+
+/// The outcome of [`BridgeClient::publish_request`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublishOutcome {
+    /// The request was stored.
+    Published,
+    /// A request with this id already exists, e.g. stored by an attempt whose reply was lost.
+    AlreadyPublished,
+}
+
+/// The state of a response on the bridge, as seen by [`BridgeClient::fetch_response`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ResponseState {
+    /// The request has not been read yet.
+    Initialized,
+    /// The request was read; the response has not arrived yet.
+    Retrieved,
+    /// The response, which this call consumed.
+    Completed(EncryptedPayload),
+    /// The session expired, or its response was already consumed.
+    NotFound,
+}
+
+/// The outcome of [`BridgeClient::put_response`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DeliveryOutcome {
+    /// The response was stored.
+    Delivered,
+    /// A retry was rejected after an earlier attempt failed in transit. The bridge forgets the
+    /// session once it stores a response, so the earlier attempt may have been delivered.
+    PossiblyDelivered,
+    /// The bridge rejected the response because the session expired or already has a response.
+    Rejected,
+}
+
+/// Errors from talking to the bridge.
+#[derive(Debug, thiserror::Error)]
+pub enum BridgeError {
+    /// The request could not be sent or its response could not be read, e.g. on a timeout.
+    #[error("bridge request failed: {0}")]
+    Transport(#[from] reqwest::Error),
+    /// The bridge answered with a status this operation does not expect.
+    #[error("bridge returned unexpected status {status}")]
+    UnexpectedStatus {
+        /// The HTTP status code.
+        status: StatusCode,
+        /// Minimum retry delay requested by the bridge.
+        retry_after: Option<Duration>,
+    },
+    /// The bridge returned malformed JSON, or a body that contradicts its status.
+    #[error("invalid bridge JSON: {0}")]
+    Json(#[from] serde_json::Error),
+    /// The bridge response exceeded the transport body limit.
+    #[error("bridge response exceeds the 5 MiB body limit")]
+    TooLarge,
+    /// The operation exhausted its overall time budget.
+    #[error("bridge operation timed out")]
+    Timeout,
+    /// The bridge URL could not be built from the configured base URL.
+    #[error("invalid bridge URL: {0}")]
+    InvalidUrl(String),
+}
+
+/// The body of `POST /request`.
+#[derive(Serialize)]
+struct PublishRequestBody<'a> {
+    request_id: String,
+    #[serde(flatten)]
+    request: &'a EncryptedPayload,
+}
+
+/// The body of `GET /response/:id`.
+#[derive(Deserialize)]
+#[serde(tag = "status", content = "response", rename_all = "snake_case")]
+enum ResponseBody {
+    Initialized,
+    Retrieved,
+    Completed(EncryptedPayload),
+}
+
+impl From<ResponseBody> for ResponseState {
+    fn from(body: ResponseBody) -> Self {
+        match body {
+            ResponseBody::Initialized => Self::Initialized,
+            ResponseBody::Retrieved => Self::Retrieved,
+            ResponseBody::Completed(response) => Self::Completed(response),
+        }
+    }
 }
 
 impl BridgeClient {
@@ -84,25 +178,19 @@ impl BridgeClient {
         request_id: &RequestId,
         request: &EncryptedPayload,
     ) -> Result<PublishOutcome, BridgeError> {
-        let url = self.url(&["request"])?;
+        let url = self.url(&["request"]);
         let body = PublishRequestBody {
             request_id: request_id.to_string(),
-            iv: &request.iv,
-            payload: &request.payload,
+            request,
         };
-        let send = || async {
+        with_retries(|| async {
             let response = self.http.post(url.clone()).json(&body).send().await?;
             match response.status() {
                 StatusCode::OK | StatusCode::CREATED => Ok(PublishOutcome::Published),
                 StatusCode::CONFLICT => Ok(PublishOutcome::AlreadyPublished),
-                _ => Err(BridgeError::from_response(&response)),
+                _ => Err(BridgeError::unexpected_status(&response)),
             }
-        };
-        bounded(
-            send.retry(backoff())
-                .when(BridgeError::is_retryable)
-                .adjust(BridgeError::retry_delay),
-        )
+        })
         .await
     }
 
@@ -118,7 +206,7 @@ impl BridgeClient {
         &self,
         request_id: &RequestId,
     ) -> Result<Option<EncryptedPayload>, BridgeError> {
-        self.read(self.url(&["request", &request_id.to_string()])?)
+        self.read(self.url(&["request", &request_id.to_string()]))
             .await
     }
 
@@ -135,26 +223,9 @@ impl BridgeClient {
         request_id: &RequestId,
     ) -> Result<ResponseState, BridgeError> {
         let body: Option<ResponseBody> = self
-            .read(self.url(&["response", &request_id.to_string()])?)
+            .read(self.url(&["response", &request_id.to_string()]))
             .await?;
-        match body {
-            None => Ok(ResponseState::NotFound),
-            Some(ResponseBody {
-                status: WireStatus::Completed,
-                response: Some(payload),
-            }) => Ok(ResponseState::Completed(payload)),
-            Some(ResponseBody {
-                status: WireStatus::Initialized,
-                response: None,
-            }) => Ok(ResponseState::Initialized),
-            Some(ResponseBody {
-                status: WireStatus::Retrieved,
-                response: None,
-            }) => Ok(ResponseState::Retrieved),
-            Some(_) => Err(BridgeError::InvalidResponse(
-                "payload does not match response status",
-            )),
-        }
+        Ok(body.map_or(ResponseState::NotFound, ResponseState::from))
     }
 
     /// Stores the encrypted response to `request_id` (`PUT /response/:id`).
@@ -169,148 +240,59 @@ impl BridgeClient {
         request_id: &RequestId,
         response: &EncryptedPayload,
     ) -> Result<DeliveryOutcome, BridgeError> {
-        let url = self.url(&["response", &request_id.to_string()])?;
+        let url = self.url(&["response", &request_id.to_string()]);
         // Set once an attempt failed in a way that may have stored the response anyway.
-        let maybe_stored = std::sync::atomic::AtomicBool::new(false);
-        let send = || async {
+        let maybe_stored = AtomicBool::new(false);
+        with_retries(|| async {
             let attempt = async {
                 let reply = self.http.put(url.clone()).json(response).send().await?;
                 match reply.status() {
                     StatusCode::CREATED | StatusCode::OK => Ok(DeliveryOutcome::Delivered),
                     StatusCode::BAD_REQUEST | StatusCode::CONFLICT
-                        if maybe_stored.load(std::sync::atomic::Ordering::Relaxed) =>
+                        if maybe_stored.load(Ordering::Relaxed) =>
                     {
                         Ok(DeliveryOutcome::PossiblyDelivered)
                     }
                     StatusCode::BAD_REQUEST | StatusCode::CONFLICT => Ok(DeliveryOutcome::Rejected),
-                    _ => Err(BridgeError::from_response(&reply)),
+                    _ => Err(BridgeError::unexpected_status(&reply)),
                 }
-            };
-            let outcome = attempt.await;
-            if outcome
+            }
+            .await;
+            if attempt
                 .as_ref()
                 .is_err_and(BridgeError::may_have_been_stored)
             {
-                maybe_stored.store(true, std::sync::atomic::Ordering::Relaxed);
+                maybe_stored.store(true, Ordering::Relaxed);
             }
-            outcome
-        };
-        bounded(
-            send.retry(backoff())
-                .when(BridgeError::is_retryable)
-                .adjust(BridgeError::retry_delay),
-        )
+            attempt
+        })
         .await
     }
 
     async fn read<T: DeserializeOwned>(&self, url: Url) -> Result<Option<T>, BridgeError> {
-        let send = || async {
+        with_retries(|| async {
             let response = self.http.get(url.clone()).send().await?;
             match response.status() {
-                StatusCode::OK => Ok(Some(read_json(response).await?)),
+                StatusCode::OK => read_json(response).await.map(Some),
                 StatusCode::NOT_FOUND => Ok(None),
-                _ => Err(BridgeError::from_response(&response)),
+                _ => Err(BridgeError::unexpected_status(&response)),
             }
-        };
-        bounded(
-            send.retry(backoff())
-                .when(BridgeError::is_retryable)
-                .adjust(BridgeError::retry_delay),
-        )
+        })
         .await
     }
 
-    fn url(&self, segments: &[&str]) -> Result<Url, BridgeError> {
+    fn url(&self, segments: &[&str]) -> Url {
         let mut url = self.base_url.clone();
         url.path_segments_mut()
-            .map_err(|()| BridgeError::InvalidUrl(self.base_url.to_string()))?
+            .expect("`with_base_url` accepts only URLs that can be a base")
             .pop_if_empty()
             .extend(segments);
-        Ok(url)
+        url
     }
-}
-
-/// The outcome of [`BridgeClient::publish_request`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum PublishOutcome {
-    /// The request was stored.
-    Published,
-    /// A request with this id already exists, e.g. stored by an attempt whose reply was lost.
-    AlreadyPublished,
-}
-
-/// The state of a response on the bridge, as seen by [`BridgeClient::fetch_response`].
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ResponseState {
-    /// The request has not been read yet.
-    Initialized,
-    /// The request was read; the response has not arrived yet.
-    Retrieved,
-    /// The response, which this call consumed.
-    Completed(EncryptedPayload),
-    /// The session expired, or its response was already consumed.
-    NotFound,
-}
-
-/// The outcome of [`BridgeClient::put_response`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DeliveryOutcome {
-    /// The response was stored.
-    Delivered,
-    /// A retry was rejected after an earlier attempt failed in transit. The bridge forgets the
-    /// session once it stores a response, so the earlier attempt may have been delivered.
-    PossiblyDelivered,
-    /// The bridge rejected the response because the session expired or already has a response.
-    Rejected,
-}
-
-/// Errors from talking to the bridge.
-#[derive(Debug, thiserror::Error)]
-pub enum BridgeError {
-    /// The request could not be sent or its response could not be read, e.g. on a timeout.
-    #[error("bridge request failed: {0}")]
-    Transport(#[from] reqwest::Error),
-    /// The bridge answered with a status this operation does not expect.
-    #[error("bridge returned unexpected status {status}")]
-    UnexpectedStatus {
-        /// The HTTP status code.
-        status: StatusCode,
-        /// Minimum retry delay requested by the bridge.
-        retry_after: Option<Duration>,
-    },
-    /// The bridge returned a response that contradicts its status.
-    #[error("invalid bridge response: {0}")]
-    InvalidResponse(&'static str),
-    /// The bridge returned malformed JSON.
-    #[error("invalid bridge JSON: {0}")]
-    Json(#[from] serde_json::Error),
-    /// The bridge response exceeded the transport body limit.
-    #[error("bridge response exceeds the 24 MiB body limit")]
-    TooLarge,
-    /// The operation exhausted its overall time budget.
-    #[error("bridge operation timed out")]
-    Timeout,
-    /// The bridge URL could not be built from the configured base URL.
-    #[error("invalid bridge URL: {0}")]
-    InvalidUrl(String),
 }
 
 impl BridgeError {
-    fn is_retryable(&self) -> bool {
-        match self {
-            Self::Transport(error) => !error.is_decode(),
-            Self::UnexpectedStatus { status, .. } => {
-                status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS
-            }
-            Self::InvalidUrl(_)
-            | Self::InvalidResponse(_)
-            | Self::Timeout
-            | Self::Json(_)
-            | Self::TooLarge => false,
-        }
-    }
-
-    fn from_response(response: &reqwest::Response) -> Self {
+    fn unexpected_status(response: &reqwest::Response) -> Self {
         Self::UnexpectedStatus {
             status: response.status(),
             retry_after: response
@@ -318,6 +300,16 @@ impl BridgeError {
                 .get(reqwest::header::RETRY_AFTER)
                 .and_then(|value| value.to_str().ok())
                 .and_then(retry_after),
+        }
+    }
+
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::Transport(error) => !error.is_decode(),
+            Self::UnexpectedStatus { status, .. } => {
+                status.is_server_error() || *status == StatusCode::TOO_MANY_REQUESTS
+            }
+            Self::InvalidUrl(_) | Self::Timeout | Self::Json(_) | Self::TooLarge => false,
         }
     }
 
@@ -331,59 +323,45 @@ impl BridgeError {
         }
     }
 
-    fn retry_delay(&self, delay: Option<Duration>) -> Option<Duration> {
-        let delay = delay?;
+    /// The delay before retrying after this error, given the next `backoff` delay.
+    ///
+    /// A `Retry-After` from the bridge raises the delay to at least the requested one. Returns
+    /// `None`, which stops retrying, once the backoff is exhausted or when the bridge asks to wait
+    /// longer than the whole operation may take.
+    fn retry_delay(&self, backoff: Option<Duration>) -> Option<Duration> {
+        let backoff = backoff?;
         match self {
             Self::UnexpectedStatus {
                 retry_after: Some(minimum),
                 ..
-            } => (*minimum < OPERATION_TIMEOUT).then_some(delay.max(*minimum)),
-            _ => Some(delay),
+            } => (*minimum < OPERATION_TIMEOUT).then_some(backoff.max(*minimum)),
+            _ => Some(backoff),
         }
     }
 }
 
-fn retry_after(value: &str) -> Option<Duration> {
-    if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return value.parse().ok().map(Duration::from_secs);
-    }
-    let date = httpdate::parse_http_date(value).ok()?;
-    let now = std::time::UNIX_EPOCH
-        + web_time::SystemTime::now()
-            .duration_since(web_time::UNIX_EPOCH)
-            .ok()?;
-    Some(date.duration_since(now).unwrap_or_default())
+/// Runs `attempt`, retrying transient failures with bounded backoff, within
+/// [`OPERATION_TIMEOUT`].
+async fn with_retries<T, A, F>(attempt: A) -> Result<T, BridgeError>
+where
+    A: FnMut() -> F,
+    F: Future<Output = Result<T, BridgeError>>,
+{
+    let retried = attempt
+        .retry(retry_backoff())
+        .when(BridgeError::is_retryable)
+        .adjust(BridgeError::retry_delay);
+    before(Instant::now() + OPERATION_TIMEOUT, retried)
+        .await
+        .unwrap_or(Err(BridgeError::Timeout))
 }
 
-async fn bounded<T>(
-    future: impl Future<Output = Result<T, BridgeError>>,
-) -> Result<T, BridgeError> {
-    let timeout = backon::DefaultSleeper::default().sleep(OPERATION_TIMEOUT);
-    match select(std::pin::pin!(future), std::pin::pin!(timeout)).await {
-        Either::Left((result, _)) => result,
-        Either::Right(_) => Err(BridgeError::Timeout),
-    }
-}
-
-#[derive(Serialize)]
-struct PublishRequestBody<'a> {
-    request_id: String,
-    iv: &'a str,
-    payload: &'a str,
-}
-
-#[derive(Deserialize)]
-struct ResponseBody {
-    status: WireStatus,
-    response: Option<EncryptedPayload>,
-}
-
-#[derive(Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum WireStatus {
-    Initialized,
-    Retrieved,
-    Completed,
+fn retry_backoff() -> ExponentialBuilder {
+    ExponentialBuilder::default()
+        .with_min_delay(Duration::from_millis(500))
+        .with_max_delay(Duration::from_secs(5))
+        .with_max_times(MAX_RETRIES)
+        .with_jitter()
 }
 
 async fn read_json<T: DeserializeOwned>(response: reqwest::Response) -> Result<T, BridgeError> {
@@ -406,16 +384,23 @@ async fn read_json<T: DeserializeOwned>(response: reqwest::Response) -> Result<T
     Ok(serde_json::from_slice(&bytes)?)
 }
 
-fn backoff() -> ExponentialBuilder {
-    ExponentialBuilder::default()
-        .with_min_delay(Duration::from_millis(500))
-        .with_max_delay(Duration::from_secs(5))
-        .with_max_times(MAX_RETRIES)
-        .with_jitter()
+/// Parses a `Retry-After` header: delay seconds or an HTTP date.
+fn retry_after(value: &str) -> Option<Duration> {
+    if !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return value.parse().ok().map(Duration::from_secs);
+    }
+    let date = httpdate::parse_http_date(value).ok()?;
+    let now = std::time::UNIX_EPOCH
+        + web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
+            .ok()?;
+    Some(date.duration_since(now).unwrap_or_default())
 }
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
     use crate::registration::PairingSecret;
 
@@ -438,12 +423,68 @@ mod tests {
         .unwrap()
     }
 
+    /// The status of an [`BridgeError::UnexpectedStatus`], to compare results in tables.
+    fn status_of<T>(result: Result<T, BridgeError>) -> Result<T, StatusCode> {
+        result.map_err(|error| match error {
+            BridgeError::UnexpectedStatus { status, .. } => status,
+            other => panic!("expected an unexpected status, got {other}"),
+        })
+    }
+
+    #[test_case(200, Ok(PublishOutcome::Published); "stored")]
+    #[test_case(201, Ok(PublishOutcome::Published); "created")]
+    #[test_case(409, Ok(PublishOutcome::AlreadyPublished); "stored by an earlier attempt")]
+    #[test_case(400, Err(StatusCode::BAD_REQUEST); "rejected")]
     #[tokio::test]
-    async fn rejects_oversized_chunked_bodies_without_retry() {
+    async fn publish_request_reports_the_bridge_verdict(
+        status: usize,
+        expected: Result<PublishOutcome, StatusCode>,
+    ) {
         let mut server = mockito::Server::new_async().await;
-        let path = format!("/request/{}", request_id());
         let mock = server
-            .mock("GET", path.as_str())
+            .mock("POST", "/request")
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "request_id": request_id().to_string(),
+                "iv": "aXY=",
+                "payload": "cGF5bG9hZA==",
+            })))
+            .with_status(status)
+            .expect(1)
+            .create_async()
+            .await;
+        let result = client(&server)
+            .publish_request(&request_id(), &payload())
+            .await;
+        assert_eq!(status_of(result), expected);
+        mock.assert_async().await;
+    }
+
+    #[test_case(200, r#"{"iv":"aXY=","payload":"cGF5bG9hZA=="}"#, Some(payload()); "taken")]
+    #[test_case(404, "", None; "expired or taken before")]
+    #[tokio::test]
+    async fn take_request_returns_the_stored_request_once(
+        status: usize,
+        body: &str,
+        expected: Option<EncryptedPayload>,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("GET", format!("/request/{}", request_id()).as_str())
+            .with_status(status)
+            .with_body(body)
+            .create_async()
+            .await;
+        assert_eq!(
+            client(&server).take_request(&request_id()).await.unwrap(),
+            expected
+        );
+    }
+
+    #[tokio::test]
+    async fn take_request_rejects_an_oversized_chunked_body_without_retry() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", format!("/request/{}", request_id()).as_str())
             .with_status(200)
             .with_chunked_body(|writer| {
                 let chunk = [b' '; 64 * 1024];
@@ -462,76 +503,127 @@ mod tests {
         mock.assert_async().await;
     }
 
+    #[test_case(200, r#"{"status":"initialized","response":null}"#, ResponseState::Initialized; "initialized")]
+    #[test_case(200, r#"{"status":"retrieved","response":null}"#, ResponseState::Retrieved; "retrieved")]
+    #[test_case(200, r#"{"status":"completed","response":{"iv":"aXY=","payload":"cGF5bG9hZA=="}}"#, ResponseState::Completed(payload()); "completed")]
+    #[test_case(404, "", ResponseState::NotFound; "expired or consumed")]
     #[tokio::test]
-    async fn publish_treats_conflict_as_already_published() {
+    async fn fetch_response_reports_the_session_state(
+        status: usize,
+        body: &str,
+        expected: ResponseState,
+    ) {
         let mut server = mockito::Server::new_async().await;
-        let mock = server
-            .mock("POST", "/request")
-            .match_body(mockito::Matcher::PartialJsonString(
-                serde_json::json!({ "request_id": request_id().to_string() }).to_string(),
-            ))
-            .with_status(409)
+        let _mock = server
+            .mock("GET", format!("/response/{}", request_id()).as_str())
+            .with_status(status)
+            .with_body(body)
             .create_async()
             .await;
         assert_eq!(
-            client(&server)
-                .publish_request(&request_id(), &payload())
-                .await
-                .unwrap(),
-            PublishOutcome::AlreadyPublished
+            client(&server).fetch_response(&request_id()).await.unwrap(),
+            expected
         );
-        mock.assert_async().await;
     }
 
+    #[test_case(r#"{"status":"completed","response":null}"#; "completed without a response")]
+    #[test_case(r#"{"status":"retrieved","response":{"iv":"aXY=","payload":"cGF5bG9hZA=="}}"#; "a response before completion")]
+    #[test_case(r#"{"status":"expired","response":null}"#; "an unknown status")]
+    #[test_case("not json"; "not json")]
     #[tokio::test]
-    async fn publish_retries_server_errors_a_bounded_number_of_times() {
+    async fn fetch_response_rejects_a_malformed_body_without_retry(body: &str) {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("POST", "/request")
-            .with_status(503)
-            .expect(MAX_RETRIES + 1)
+            .mock("GET", format!("/response/{}", request_id()).as_str())
+            .with_status(200)
+            .with_body(body)
+            .expect(1)
             .create_async()
             .await;
-        let result = client(&server)
-            .publish_request(&request_id(), &payload())
-            .await;
         assert!(matches!(
-            result,
-            Err(BridgeError::UnexpectedStatus { status, .. }) if status == StatusCode::SERVICE_UNAVAILABLE
+            client(&server).fetch_response(&request_id()).await,
+            Err(BridgeError::Json(_))
         ));
         mock.assert_async().await;
     }
 
+    #[test_case(201, Ok(DeliveryOutcome::Delivered); "stored")]
+    #[test_case(400, Ok(DeliveryOutcome::Rejected); "session gone")]
+    #[test_case(409, Ok(DeliveryOutcome::Rejected); "response already stored")]
+    #[test_case(403, Err(StatusCode::FORBIDDEN); "forbidden")]
     #[tokio::test]
-    async fn single_use_reads_retry_transient_failures_with_a_bound() {
+    async fn put_response_reports_the_bridge_verdict(
+        status: usize,
+        expected: Result<DeliveryOutcome, StatusCode>,
+    ) {
         let mut server = mockito::Server::new_async().await;
-        let path = format!("/request/{}", request_id());
         let mock = server
-            .mock("GET", path.as_str())
-            .with_status(500)
-            .expect(MAX_RETRIES + 1)
+            .mock("PUT", format!("/response/{}", request_id()).as_str())
+            .match_body(mockito::Matcher::Json(serde_json::json!({
+                "iv": "aXY=",
+                "payload": "cGF5bG9hZA==",
+            })))
+            .with_status(status)
+            .expect(1)
             .create_async()
             .await;
-        assert!(client(&server).take_request(&request_id()).await.is_err());
+        let result = client(&server)
+            .put_response(&request_id(), &payload())
+            .await;
+        assert_eq!(status_of(result), expected);
         mock.assert_async().await;
     }
 
-    #[test]
-    fn retry_after_supports_seconds_and_http_dates() {
-        assert_eq!(retry_after("120"), Some(Duration::from_secs(120)));
+    #[test_case(502, 400, DeliveryOutcome::PossiblyDelivered; "rejection after a failure in transit")]
+    #[test_case(429, 409, DeliveryOutcome::Rejected; "rejection after a rate limit")]
+    #[tokio::test]
+    async fn put_response_retries_and_reports_whether_the_first_attempt_may_have_landed(
+        first: usize,
+        retried: usize,
+        expected: DeliveryOutcome,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let path = format!("/response/{}", request_id());
+        let failed = server
+            .mock("PUT", path.as_str())
+            .with_status(first)
+            .with_header("retry-after", "0")
+            .expect(1)
+            .create_async()
+            .await;
+        let _retried = server
+            .mock("PUT", path.as_str())
+            .with_status(retried)
+            .create_async()
+            .await;
         assert_eq!(
-            retry_after("Wed, 21 Oct 2015 07:28:00 GMT"),
-            Some(Duration::ZERO)
+            client(&server)
+                .put_response(&request_id(), &payload())
+                .await
+                .unwrap(),
+            expected
         );
-        let future = std::time::SystemTime::now() + Duration::from_secs(120);
-        let delay = retry_after(&httpdate::fmt_http_date(future)).unwrap();
-        assert!(delay > Duration::from_secs(118) && delay <= Duration::from_secs(120));
-        assert_eq!(retry_after("invalid"), None);
-        assert_eq!(retry_after("-1"), None);
+        failed.assert_async().await;
     }
 
     #[tokio::test]
-    async fn read_retries_rate_limit_then_reports_consumed_request() {
+    async fn server_errors_are_retried_a_bounded_number_of_times() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", format!("/request/{}", request_id()).as_str())
+            .with_status(503)
+            .expect(MAX_RETRIES + 1)
+            .create_async()
+            .await;
+        assert_eq!(
+            status_of(client(&server).take_request(&request_id()).await),
+            Err(StatusCode::SERVICE_UNAVAILABLE)
+        );
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn a_rate_limited_read_is_retried() {
         let mut server = mockito::Server::new_async().await;
         let path = format!("/request/{}", request_id());
         let limited = server
@@ -556,180 +648,35 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retry_after_beyond_operation_budget_does_not_retry_early() {
+    async fn a_retry_after_beyond_the_operation_budget_stops_retrying() {
         let mut server = mockito::Server::new_async().await;
-        let path = format!("/request/{}", request_id());
         let limited = server
-            .mock("GET", path.as_str())
+            .mock("GET", format!("/request/{}", request_id()).as_str())
             .with_status(429)
             .with_header("retry-after", "18446744073709551615")
             .expect(1)
             .create_async()
             .await;
-        assert!(matches!(
-            client(&server).take_request(&request_id()).await,
-            Err(BridgeError::UnexpectedStatus {
-                status: StatusCode::TOO_MANY_REQUESTS,
-                ..
-            })
-        ));
-        limited.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn malformed_completed_response_is_an_error_without_retry() {
-        let mut server = mockito::Server::new_async().await;
-        let path = format!("/response/{}", request_id());
-        let malformed = server
-            .mock("GET", path.as_str())
-            .with_status(200)
-            .with_body(r#"{"status":"completed","response":null}"#)
-            .expect(1)
-            .create_async()
-            .await;
-        assert!(matches!(
-            client(&server).fetch_response(&request_id()).await,
-            Err(BridgeError::InvalidResponse(_))
-        ));
-        malformed.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn malformed_json_is_not_retried_after_consuming_request() {
-        let mut server = mockito::Server::new_async().await;
-        let path = format!("/request/{}", request_id());
-        let malformed = server
-            .mock("GET", path.as_str())
-            .with_status(200)
-            .with_body("not json")
-            .expect(1)
-            .create_async()
-            .await;
-        assert!(matches!(
-            client(&server).take_request(&request_id()).await,
-            Err(BridgeError::Json(_))
-        ));
-        malformed.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn take_request_maps_missing_to_none() {
-        let mut server = mockito::Server::new_async().await;
-        let path = format!("/request/{}", request_id());
-        let _mock = server
-            .mock("GET", path.as_str())
-            .with_status(404)
-            .create_async()
-            .await;
         assert_eq!(
-            client(&server).take_request(&request_id()).await.unwrap(),
-            None
-        );
-    }
-
-    #[tokio::test]
-    async fn fetch_response_maps_bridge_states() {
-        let mut server = mockito::Server::new_async().await;
-        let path = format!("/response/{}", request_id());
-        let cases = [
-            (
-                200,
-                r#"{"status":"initialized","response":null}"#,
-                ResponseState::Initialized,
-            ),
-            (
-                200,
-                r#"{"status":"retrieved","response":null}"#,
-                ResponseState::Retrieved,
-            ),
-            (
-                200,
-                r#"{"status":"completed","response":{"iv":"aXY=","payload":"cGF5bG9hZA=="}}"#,
-                ResponseState::Completed(payload()),
-            ),
-            (404, "", ResponseState::NotFound),
-        ];
-        for (status, body, expected) in cases {
-            let mock = server
-                .mock("GET", path.as_str())
-                .with_status(status)
-                .with_body(body)
-                .create_async()
-                .await;
-            assert_eq!(
-                client(&server).fetch_response(&request_id()).await.unwrap(),
-                expected
-            );
-            mock.remove_async().await;
-        }
-    }
-
-    #[tokio::test]
-    async fn put_response_reports_first_rejection_as_rejected() {
-        let mut server = mockito::Server::new_async().await;
-        let path = format!("/response/{}", request_id());
-        let _mock = server
-            .mock("PUT", path.as_str())
-            .with_status(400)
-            .create_async()
-            .await;
-        assert_eq!(
-            client(&server)
-                .put_response(&request_id(), &payload())
-                .await
-                .unwrap(),
-            DeliveryOutcome::Rejected
-        );
-    }
-
-    #[tokio::test]
-    async fn put_response_reports_rejection_after_a_failed_attempt_as_possibly_delivered() {
-        let mut server = mockito::Server::new_async().await;
-        let path = format!("/response/{}", request_id());
-        let failed = server
-            .mock("PUT", path.as_str())
-            .with_status(502)
-            .expect(1)
-            .create_async()
-            .await;
-        let _rejected = server
-            .mock("PUT", path.as_str())
-            .with_status(400)
-            .create_async()
-            .await;
-        assert_eq!(
-            client(&server)
-                .put_response(&request_id(), &payload())
-                .await
-                .unwrap(),
-            DeliveryOutcome::PossiblyDelivered
-        );
-        failed.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn put_response_retries_rate_limit_and_keeps_a_later_rejection_definite() {
-        let mut server = mockito::Server::new_async().await;
-        let path = format!("/response/{}", request_id());
-        let limited = server
-            .mock("PUT", path.as_str())
-            .with_status(429)
-            .with_header("retry-after", "0")
-            .expect(1)
-            .create_async()
-            .await;
-        let _rejected = server
-            .mock("PUT", path.as_str())
-            .with_status(409)
-            .create_async()
-            .await;
-        assert_eq!(
-            client(&server)
-                .put_response(&request_id(), &payload())
-                .await
-                .unwrap(),
-            DeliveryOutcome::Rejected
+            status_of(client(&server).take_request(&request_id()).await),
+            Err(StatusCode::TOO_MANY_REQUESTS)
         );
         limited.assert_async().await;
+    }
+
+    #[test_case("120", Some(Duration::from_secs(120)); "seconds")]
+    #[test_case("Wed, 21 Oct 2015 07:28:00 GMT", Some(Duration::ZERO); "a past date")]
+    #[test_case("invalid", None; "garbage")]
+    #[test_case("-1", None; "negative seconds")]
+    #[test_case("", None; "empty")]
+    fn retry_after_parses_seconds_and_http_dates(value: &str, expected: Option<Duration>) {
+        assert_eq!(retry_after(value), expected);
+    }
+
+    #[test]
+    fn retry_after_measures_a_future_date_from_now() {
+        let date = std::time::SystemTime::now() + Duration::from_secs(120);
+        let delay = retry_after(&httpdate::fmt_http_date(date)).unwrap();
+        assert!(delay > Duration::from_secs(118) && delay <= Duration::from_secs(120));
     }
 }
