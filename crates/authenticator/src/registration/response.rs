@@ -580,6 +580,10 @@ mod tests {
     #[test_case(result_with("vault", Value::Null), "invalid type: null"; "null vault")]
     #[test_case(result_with_vault_data("U1FMaXRl".into()),
                 "expected a CBOR byte string"; "text vault data")]
+    #[test_case(result_with_vault_data(Value::Tag(64, Box::new(Value::Bytes(b"SQLite".to_vec())))),
+                "expected a CBOR byte string"; "tagged vault data")]
+    #[test_case(result_with_vault_data(Value::Array(vec![0x53.into(), 0x51.into()])),
+                "expected a CBOR byte string"; "vault data as integers")]
     #[test_case(result_with("unknown", true.into()), "unknown field `unknown`"; "unknown field")]
     fn result_rejects_other_cbor_types_and_tags(result: Value, error: &str) {
         let rejection = decode_result(result).unwrap_err().to_string();

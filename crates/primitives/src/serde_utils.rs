@@ -360,13 +360,16 @@ where
 pub mod cbor {
     use std::fmt;
 
-    use ciborium::Value;
     use serde::{
-        Deserialize, Deserializer,
+        Deserializer,
         de::{Error as _, Visitor},
     };
 
     /// Deserializes a CBOR byte string.
+    ///
+    /// A rejected data item is never collected into a buffer of this function, so a caller that
+    /// moves the result straight into a zeroizing container keeps no other copy of a secret.
+    /// The deserializer's own read buffers are outside its control.
     ///
     /// # Errors
     ///
@@ -375,10 +378,27 @@ pub mod cbor {
     pub fn deserialize_byte_string<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Vec<u8>, D::Error> {
-        match Value::deserialize(deserializer)? {
-            Value::Bytes(bytes) => Ok(bytes),
-            _ => Err(D::Error::custom("expected a CBOR byte string")),
+        struct ByteStringVisitor;
+
+        impl Visitor<'_> for ByteStringVisitor {
+            type Value = Vec<u8>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a CBOR byte string")
+            }
+
+            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Vec<u8>, E> {
+                Ok(bytes.to_vec())
+            }
+
+            fn visit_byte_buf<E>(self, bytes: Vec<u8>) -> Result<Vec<u8>, E> {
+                Ok(bytes)
+            }
         }
+
+        // Ciborium skips tags when asked for bytes, but `deserialize_any` passes a tag to
+        // `visit_enum`, which rejects it.
+        deserializer.deserialize_any(ByteStringVisitor)
     }
 
     /// Deserializes a CBOR byte string of exactly `N` bytes.
