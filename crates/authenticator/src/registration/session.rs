@@ -8,7 +8,7 @@ use aes_gcm::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use hkdf::Hkdf;
-use rand::{RngCore as _, rngs::OsRng as RandOsRng};
+use rand::{RngCore as _, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
@@ -25,6 +25,10 @@ const NONCE_LEN: usize = 12;
 
 /// The length in bytes of an AES-256-GCM authentication tag.
 const TAG_LEN: usize = 16;
+
+/// The header of a WIP-100 §3.9 sealed message: format version 2, X-Wing, HKDF-SHA-256 and
+/// ChaCha20-Poly1305.
+const SEALED_HEADER: [u8; 7] = [0x02, 0x64, 0x7a, 0x00, 0x01, 0x00, 0x03];
 
 /// The bytes a WIP-100 §3.9 seal adds to its plaintext: the header, the encapsulated key and the
 /// Poly1305 tag.
@@ -49,7 +53,7 @@ impl PairingSecret {
     /// Returns [`TransportError::Rng`] if randomness is unavailable.
     pub fn generate() -> Result<Self, TransportError> {
         let mut secret = Self([0u8; 32]);
-        RandOsRng
+        OsRng
             .try_fill_bytes(&mut secret.0)
             .map_err(|_| TransportError::Rng)?;
         Ok(secret)
@@ -75,32 +79,35 @@ impl PairingSecret {
 
     /// Derives the transport key from this secret and the independently transferred code.
     ///
-    /// Performs Argon2id with 64 MiB of memory; callers should derive once per code attempt.
+    /// This runs Argon2id with 64 MiB of memory, so derive the key once per code attempt.
+    ///
+    /// # Errors
+    ///
     /// Returns [`TransportError::KeyDerivation`] if Argon2id fails.
     pub fn transport_key(&self, code: &PairingCode) -> Result<TransportKey, TransportError> {
         let params = argon2::Params::new(65536, 3, 4, Some(32))
             .expect("WIP-109 Argon2 parameters are valid");
         let argon =
             argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
-        // Argon2id password `pairing_secret || code`, salted with the raw request id.
+        let request_id = self.request_id();
         let mut password = Zeroizing::new([0u8; 38]);
         password[..32].copy_from_slice(&self.0);
         password[32..].copy_from_slice(&code.0);
-        let request_id = self.request_id();
-        let mut input = Zeroizing::new([0u8; 64]);
-        input[..32].copy_from_slice(&self.0);
+        // `pairing_secret || code_key`, with Argon2id writing `code_key` into the second half.
+        let mut transport_ikm = Zeroizing::new([0u8; 64]);
+        transport_ikm[..32].copy_from_slice(&self.0);
         let mut memory =
             Zeroizing::new(vec![argon2::Block::default(); argon.params().block_count()]);
         argon
             .hash_password_into_with_memory(
                 password.as_ref(),
                 request_id.as_bytes(),
-                &mut input[32..],
+                &mut transport_ikm[32..],
                 &mut *memory,
             )
             .map_err(|_| TransportError::KeyDerivation)?;
         let mut key = Zeroizing::new([0u8; 32]);
-        Hkdf::<Sha256>::new(None, input.as_ref())
+        Hkdf::<Sha256>::new(None, transport_ikm.as_ref())
             .expand(TRANSPORT_SECRET_INFO, key.as_mut())
             .expect("32 bytes is a valid HKDF-SHA256 output length");
         Ok(TransportKey { key, request_id })
@@ -129,17 +136,21 @@ impl fmt::Debug for PairingSecret {
 pub struct PairingCode([u8; 6]);
 
 impl PairingCode {
-    /// Generates an independent code using rejection sampling from the OS CSPRNG.
+    /// Generates a code from the operating system CSPRNG, independently of the pairing secret.
     ///
-    /// Returns [`TransportError::Rng`] if randomness is unavailable.
+    /// # Errors
+    ///
+    /// Returns [`TransportError::Rng`] if the operating system CSPRNG is unavailable.
     pub fn generate() -> Result<Self, TransportError> {
         let mut code = Zeroizing::new([0; 6]);
         for letter in code.iter_mut() {
             loop {
                 let mut byte = [0];
-                RandOsRng
+                OsRng
                     .try_fill_bytes(&mut byte)
                     .map_err(|_| TransportError::Rng)?;
+                // 234 is the largest multiple of 26 a byte holds. Redrawing the bytes above it
+                // keeps every letter equally likely.
                 if byte[0] < 234 {
                     *letter = b'A' + byte[0] % 26;
                     break;
@@ -189,29 +200,39 @@ pub struct TransportKey {
 }
 
 impl TransportKey {
-    /// Encrypts a request with a fresh nonce and request/session-bound associated data.
-    /// Returns an error if the request exceeds 4 KiB, or randomness or encryption fails.
+    /// Encrypts a request under a fresh nonce, bound to this session and to the request direction.
+    ///
+    /// # Errors
+    ///
+    /// - [`TransportError::TooLarge`] if `plaintext` exceeds 4 KiB.
+    /// - [`TransportError::Rng`] if the operating system CSPRNG is unavailable.
+    /// - [`TransportError::Encrypt`] if encryption fails.
     pub fn encrypt_request(&self, plaintext: &[u8]) -> Result<EncryptedPayload, TransportError> {
         if plaintext.len() > MAX_REQUEST_SIZE {
             return Err(TransportError::TooLarge);
         }
-        self.encrypt(&self.request_id, REQUEST_LABEL, plaintext)
+        self.encrypt(REQUEST_LABEL, plaintext)
     }
 
-    /// Authenticates a request before returning its plaintext for parsing.
-    /// Returns an error for malformed encoding, an oversized payload or failed authentication.
+    /// Authenticates and decrypts a request, returning its plaintext for parsing.
+    ///
+    /// # Errors
+    ///
+    /// - [`TransportError::Encoding`] if `iv` or `payload` is malformed.
+    /// - [`TransportError::TooLarge`] if the payload exceeds the 4 KiB request limit.
+    /// - [`TransportError::Decrypt`] if authentication fails.
     pub fn decrypt_request(&self, encrypted: &EncryptedPayload) -> Result<Vec<u8>, TransportError> {
-        self.decrypt(
-            &self.request_id,
-            REQUEST_LABEL,
-            encrypted,
-            MAX_REQUEST_SIZE + TAG_LEN,
-        )
+        self.decrypt(REQUEST_LABEL, encrypted, MAX_REQUEST_SIZE + TAG_LEN)
     }
 
-    /// Seals a response to its recipient, then authenticates the sealed bytes with the code-bound key.
-    /// Returns an error if the response exceeds 3.5 MiB plus 4 KiB, or randomness or either
-    /// encryption layer fails.
+    /// Seals a response to `recipient` (WIP-100 §3.9), then encrypts the sealed bytes under a
+    /// fresh nonce, bound to this session and to the response direction.
+    ///
+    /// # Errors
+    ///
+    /// - [`TransportError::TooLarge`] if `plaintext` exceeds 3.5 MiB plus 4 KiB.
+    /// - [`TransportError::Rng`] if the operating system CSPRNG is unavailable.
+    /// - [`TransportError::Encrypt`] if either layer fails.
     pub fn encrypt_response(
         &self,
         recipient: &ResponsePublicKey,
@@ -225,25 +246,31 @@ impl TransportKey {
                 quantum_box::Error::Rng => TransportError::Rng,
                 _ => TransportError::Encrypt,
             })?;
-        self.encrypt(&self.request_id, RESPONSE_INFO, &sealed)
+        self.encrypt(RESPONSE_INFO, &sealed)
     }
 
-    /// Authenticates the outer envelope before opening the recipient's HPKE seal.
+    /// Authenticates and decrypts the outer layer of a response, then opens the sealed response
+    /// with `recipient`.
+    ///
     /// The plaintext may carry the credential vault, so it is zeroized on drop.
-    /// Returns an error for malformed encoding, an oversized payload or failed authentication at
-    /// either layer.
+    ///
+    /// # Errors
+    ///
+    /// - [`TransportError::Encoding`] if `iv` or `payload` is malformed.
+    /// - [`TransportError::TooLarge`] if the payload exceeds the response limit.
+    /// - [`TransportError::Decrypt`] if either layer fails to authenticate, or the sealed message
+    ///   has another header than WIP-100 §3.9 defines.
     pub fn decrypt_response(
         &self,
         recipient: &ResponseSecretKey,
         encrypted: &EncryptedPayload,
     ) -> Result<Zeroizing<Vec<u8>>, TransportError> {
         let sealed = self.decrypt(
-            &self.request_id,
             RESPONSE_INFO,
             encrypted,
             MAX_RESPONSE_SIZE + SEALED_OVERHEAD + TAG_LEN,
         )?;
-        if !sealed.starts_with(&[0x02, 0x64, 0x7a, 0x00, 0x01, 0x00, 0x03]) {
+        if !sealed.starts_with(&SEALED_HEADER) {
             return Err(TransportError::Decrypt);
         }
         quantum_box::SecretKey::unseal(&recipient.0, &sealed, Some(RESPONSE_INFO))
@@ -251,17 +278,12 @@ impl TransportKey {
             .map_err(|_| TransportError::Decrypt)
     }
 
-    fn encrypt(
-        &self,
-        id: &RequestId,
-        label: &[u8],
-        plaintext: &[u8],
-    ) -> Result<EncryptedPayload, TransportError> {
+    fn encrypt(&self, label: &[u8], plaintext: &[u8]) -> Result<EncryptedPayload, TransportError> {
         let mut nonce = [0u8; NONCE_LEN];
-        RandOsRng
+        OsRng
             .try_fill_bytes(&mut nonce)
             .map_err(|_| TransportError::Rng)?;
-        let aad = [label, id.as_bytes()].concat();
+        let aad = [label, self.request_id.as_bytes()].concat();
         let ciphertext = Aes256Gcm::new((&*self.key).into())
             .encrypt(
                 &Nonce::from(nonce),
@@ -279,7 +301,6 @@ impl TransportKey {
 
     fn decrypt(
         &self,
-        id: &RequestId,
         label: &[u8],
         encrypted: &EncryptedPayload,
         max_len: usize,
@@ -298,7 +319,7 @@ impl TransportKey {
         if ciphertext.len() > max_len {
             return Err(TransportError::TooLarge);
         }
-        let aad = [label, id.as_bytes()].concat();
+        let aad = [label, self.request_id.as_bytes()].concat();
         Aes256Gcm::new((&*self.key).into())
             .decrypt(
                 &Nonce::from(nonce),
@@ -501,7 +522,7 @@ mod tests {
 
         // The limit applies before decryption, so even an authentic oversized payload is rejected.
         let oversized_request = key
-            .encrypt(&key.request_id, REQUEST_LABEL, &[0; MAX_REQUEST_SIZE + 1])
+            .encrypt(REQUEST_LABEL, &[0; MAX_REQUEST_SIZE + 1])
             .unwrap();
         assert_eq!(
             key.decrypt_request(&oversized_request),
@@ -509,7 +530,6 @@ mod tests {
         );
         let oversized_response = key
             .encrypt(
-                &key.request_id,
                 RESPONSE_INFO,
                 &vec![0; MAX_RESPONSE_SIZE + SEALED_OVERHEAD + 1],
             )
@@ -594,9 +614,7 @@ mod tests {
             key.decrypt_response(&recipient, &malformed),
             Err(TransportError::Encoding)
         );
-        let wrong_header = key
-            .encrypt(&secret.request_id(), RESPONSE_INFO, &[0; 32])
-            .unwrap();
+        let wrong_header = key.encrypt(RESPONSE_INFO, &[0; 32]).unwrap();
         assert_eq!(
             key.decrypt_response(&recipient, &wrong_header),
             Err(TransportError::Decrypt)
