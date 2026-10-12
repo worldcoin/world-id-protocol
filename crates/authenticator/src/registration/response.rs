@@ -472,14 +472,9 @@ mod tests {
     #[test_case(InternalError, "internal_error"; "internal_error")]
     #[test_case(UserRejected, "user_rejected"; "user_rejected")]
     #[test_case(NotAuthorized, "not_authorized"; "not_authorized")]
-    #[test_case(
-        RegistrationErrorReason::AuthenticatorConflict,
-        "authenticator_conflict"
-    )]
-    #[test_case(
-        RegistrationErrorReason::MaxAuthenticatorsReached,
-        "max_authenticators_reached"
-    )]
+    #[test_case(AuthenticatorConflict, "authenticator_conflict"; "authenticator_conflict")]
+    #[test_case(MaxAuthenticatorsReached, "max_authenticators_reached";
+                "max_authenticators_reached")]
     #[test_case(OperationFailed, "operation_failed"; "operation_failed")]
     #[test_case(OutcomeUnknown, "outcome_unknown"; "outcome_unknown")]
     fn error_reasons_use_the_wip_109_codes(reason: RegistrationErrorReason, code: &str) {
@@ -591,7 +586,8 @@ mod tests {
                     ("name".into(), Value::Tag(0, Box::new("phone".into()))),
                 ])])),
                 "must not contain CBOR tags"; "tagged known name")]
-    #[test_case(result_with("authenticators", Value::Null), "invalid type: null"; "null authenticators")]
+    #[test_case(result_with("authenticators", Value::Null),
+                "invalid type: null"; "null authenticators")]
     #[test_case(result_with("vault", Value::Null), "invalid type: null"; "null vault")]
     #[test_case(result_with_vault_data("U1FMaXRl".into()),
                 "expected a CBOR byte string"; "text vault data")]
