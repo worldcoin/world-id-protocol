@@ -8,13 +8,13 @@ use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sha2::{Digest as _, Sha256};
 use world_id_primitives::{
     FieldElement, PrimitiveError,
-    authenticator_message::{self, MessageError, MethodName, Request, Value},
+    authenticator_message::{MessageError, MethodName, Request, Value},
     poseidon::{self, ds},
     serde_utils::deserialize_present,
 };
 
 use super::{
-    MAX_REQUEST_SIZE, reject_tags,
+    reject_tags,
     session::{RequestId, ResponsePublicKey},
 };
 
@@ -24,40 +24,122 @@ pub const REGISTER_METHOD: MethodName = MethodName::from_static("worldid_auth_v1
 /// The maximum length in bytes of an [`AuthenticatorName`].
 pub const MAX_NAME_LEN: usize = 64;
 
+/// A self-reported, advisory label for an authenticator, at most [`MAX_NAME_LEN`] bytes of UTF-8.
+///
+/// The name is not authenticated. Approving Authenticators decide which names they accept and
+/// display them as untrusted text.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct AuthenticatorName(String);
+
+impl AuthenticatorName {
+    /// Returns the name as a string slice.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for AuthenticatorName {
+    type Error = NameTooLong;
+
+    fn try_from(name: String) -> Result<Self, Self::Error> {
+        if name.len() > MAX_NAME_LEN {
+            return Err(NameTooLong);
+        }
+        Ok(Self(name))
+    }
+}
+
+impl<'de> Deserialize<'de> for AuthenticatorName {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        Self::try_from(String::deserialize(deserializer)?).map_err(D::Error::custom)
+    }
+}
+
+impl fmt::Display for AuthenticatorName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// The error returned when an [`AuthenticatorName`] is longer than [`MAX_NAME_LEN`] bytes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("authenticator name must be at most {MAX_NAME_LEN} bytes")]
+pub struct NameTooLong;
+
 const DIGEST_LABEL: &[u8] = b"WORLD-ID/WIP-109/REGISTER";
 
-/// The registration request as sent over the bridge.
+/// The SHA-256 commitment to the registration parameters, carried in the Pairing URI.
 ///
-/// Decode it with [`decode_request`], which also rejects the CBOR tags that deserializing the
-/// message directly would skip.
-pub type RegisterRequestMessage = Request<RegistrationRequest>;
+/// It lets the Approving Authenticator detect a request that was substituted on the way. It
+/// covers the [`RequestId`], the new authenticator's signing key and address, and the response
+/// key, but not the name.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RegistrationDigest([u8; 32]);
 
-/// Decodes a registration request from the plaintext of
-/// [`TransportKey::decrypt_request`](super::TransportKey::decrypt_request).
-///
-/// The plaintext must hold a single WIP-105 request of at most 4 KiB (WIP-109 §3.5). Its
-/// `params`, when present, must be a [`RegistrationRequest`] without CBOR tags at any depth.
-/// Checking the method, the `id`, the registration digest and the signature is up to the caller.
-///
-/// # Errors
-///
-/// Returns a [`MessageError`] if the plaintext is too large, is not a single CBOR value, or does
-/// not match the request schema.
-pub fn decode_request(plaintext: &[u8]) -> Result<RegisterRequestMessage, MessageError> {
-    let request = authenticator_message::decode(plaintext, MAX_REQUEST_SIZE)?;
-    // Typed decoding skips CBOR tags, so `params` is decoded once more as a `Value` to find them.
-    let raw: Request<Value> = authenticator_message::decode(plaintext, MAX_REQUEST_SIZE)?;
-    if let Some(params) = &raw.params {
-        reject_tags(params)?;
+impl RegistrationDigest {
+    /// Computes the digest over the fixed-width encoding of the registration parameters. A
+    /// Proving Authenticator, without `new_authenticator_address`, is encoded as the zero address.
+    fn compute(
+        request_id: &RequestId,
+        new_authenticator_pubkey: &EdDSAPublicKey,
+        new_authenticator_address: Option<Address>,
+        response_pubkey: &ResponsePublicKey,
+    ) -> Result<Self, PrimitiveError> {
+        let pubkey = new_authenticator_pubkey
+            .to_compressed_bytes()
+            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
+        let digest = Sha256::new()
+            .chain_update(DIGEST_LABEL)
+            .chain_update(request_id.as_bytes())
+            .chain_update(pubkey)
+            .chain_update(new_authenticator_address.unwrap_or(Address::ZERO))
+            .chain_update(response_pubkey.to_bytes())
+            .finalize();
+        Ok(Self(digest.into()))
     }
-    Ok(request)
+
+    /// Wraps raw digest bytes, e.g. ones parsed from a Pairing URI.
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the raw digest bytes.
+    #[must_use]
+    pub const fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+
+    /// Lowers the digest into the field element signed by the registration signature: the
+    /// Poseidon2 hash of its big-endian halves.
+    #[must_use]
+    pub fn signing_message(&self) -> FieldElement {
+        let (hi, lo) = self.0.split_at(16);
+        let half = |bytes: &[u8]| {
+            FieldElement::from(u128::from_be_bytes(
+                bytes.try_into().expect("a digest half is 16 bytes"),
+            ))
+        };
+        poseidon::hash(ds::AUTHENTICATOR_REGISTRATION, [half(hi), half(lo)])
+    }
+}
+
+impl fmt::Debug for RegistrationDigest {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "RegistrationDigest({})", hex::encode(self.0))
+    }
 }
 
 /// The `params` of a `worldid_auth_v1_register` request.
 ///
-/// Deserialization only checks encodings and bounds. The Approving Authenticator still has to
-/// compare [`RegistrationRequest::digest`] with the digest from the Pairing URI and verify the
-/// signature with [`RegistrationRequest::verify_signature`].
+/// Decode received params with [`RegistrationRequest::from_params`]. The `Deserialize` impl alone
+/// skips CBOR tags, which WIP-109 payloads must not contain.
+///
+/// Decoding only checks encodings and bounds. The Approving Authenticator still has to compare
+/// [`RegistrationRequest::digest`] with the digest from the Pairing URI and verify the signature
+/// with [`RegistrationRequest::verify_signature`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegistrationRequest {
@@ -127,6 +209,23 @@ impl RegistrationRequest {
         Ok((request, digest))
     }
 
+    /// Decodes the `params` of a received registration request.
+    ///
+    /// The Approving Authenticator decodes the request envelope as a [`Request<Value>`] first, so
+    /// that it can answer an invalid request with its `id`, and passes the `params` here once the
+    /// `id` and `method` are checked.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MessageError::Deserialize`] if `params` contains a CBOR tag at any depth or does
+    /// not match the request schema.
+    pub fn from_params(params: &Value) -> Result<Self, MessageError> {
+        reject_tags(params)?;
+        params
+            .deserialized()
+            .map_err(|error| MessageError::Deserialize(serde::de::Error::custom(error)))
+    }
+
     /// Recomputes the digest of this request for the session identified by `request_id`.
     ///
     /// # Errors
@@ -150,121 +249,17 @@ impl RegistrationRequest {
     }
 }
 
-/// The SHA-256 commitment to the registration parameters, carried in the Pairing URI.
+/// The registration request as sent over the bridge.
 ///
-/// It lets the Approving Authenticator detect a request that was substituted on the way. It
-/// covers the [`RequestId`], the new authenticator's signing key and address, and the response
-/// key, but not the name.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RegistrationDigest([u8; 32]);
-
-impl RegistrationDigest {
-    /// Computes the digest over the fixed-width encoding of the registration parameters. A
-    /// Proving Authenticator, without `new_authenticator_address`, is encoded as the zero address.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if `new_authenticator_pubkey` fails to serialize.
-    pub fn compute(
-        request_id: &RequestId,
-        new_authenticator_pubkey: &EdDSAPublicKey,
-        new_authenticator_address: Option<Address>,
-        response_pubkey: &ResponsePublicKey,
-    ) -> Result<Self, PrimitiveError> {
-        let pubkey = new_authenticator_pubkey
-            .to_compressed_bytes()
-            .map_err(|e| PrimitiveError::Serialization(e.to_string()))?;
-        let digest = Sha256::new()
-            .chain_update(DIGEST_LABEL)
-            .chain_update(request_id.as_bytes())
-            .chain_update(pubkey)
-            .chain_update(new_authenticator_address.unwrap_or(Address::ZERO))
-            .chain_update(response_pubkey.to_bytes())
-            .finalize();
-        Ok(Self(digest.into()))
-    }
-
-    /// Wraps raw digest bytes, e.g. ones parsed from a Pairing URI.
-    #[must_use]
-    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    /// Returns the raw digest bytes.
-    #[must_use]
-    pub const fn as_bytes(&self) -> &[u8; 32] {
-        &self.0
-    }
-
-    /// Lowers the digest into the field element signed by the registration signature: the
-    /// Poseidon2 hash of its big-endian halves.
-    #[must_use]
-    pub fn signing_message(&self) -> FieldElement {
-        let (hi, lo) = self.0.split_at(16);
-        let half = |bytes: &[u8]| {
-            FieldElement::from(u128::from_be_bytes(
-                bytes.try_into().expect("a digest half is 16 bytes"),
-            ))
-        };
-        poseidon::hash(ds::AUTHENTICATOR_REGISTRATION, [half(hi), half(lo)])
-    }
-}
-
-impl fmt::Debug for RegistrationDigest {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RegistrationDigest({})", hex::encode(self.0))
-    }
-}
-
-/// A self-reported, advisory label for an authenticator, at most [`MAX_NAME_LEN`] bytes of UTF-8.
-///
-/// The name is not authenticated. Approving Authenticators decide which names they accept and
-/// display them as untrusted text.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize)]
-#[serde(transparent)]
-pub struct AuthenticatorName(String);
-
-impl AuthenticatorName {
-    /// Returns the name as a string slice.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl TryFrom<String> for AuthenticatorName {
-    type Error = NameTooLong;
-
-    fn try_from(name: String) -> Result<Self, Self::Error> {
-        if name.len() > MAX_NAME_LEN {
-            return Err(NameTooLong);
-        }
-        Ok(Self(name))
-    }
-}
-
-impl<'de> Deserialize<'de> for AuthenticatorName {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        Self::try_from(String::deserialize(deserializer)?).map_err(D::Error::custom)
-    }
-}
-
-impl fmt::Display for AuthenticatorName {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-/// The error returned when an [`AuthenticatorName`] is longer than [`MAX_NAME_LEN`] bytes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-#[error("authenticator name must be at most {MAX_NAME_LEN} bytes")]
-pub struct NameTooLong;
+/// The Requesting Authenticator builds and encodes it. A received request is decoded in two
+/// steps, as described on [`RegistrationRequest::from_params`].
+pub type RegisterRequestMessage = Request<RegistrationRequest>;
 
 /// Returns `address`, unless it is the zero address, which WIP-109 §3.6.1 forbids as
 /// `new_authenticator_address`: on-chain, the zero address marks a Proving Authenticator.
 fn non_zero_address(address: Address) -> Result<Address, &'static str> {
     if address.is_zero() {
-        return Err("new_authenticator_address must not be the zero address");
+        return Err("must not be the zero address");
     }
     Ok(address)
 }
@@ -328,7 +323,9 @@ mod authenticator_address {
         let Some(address) = address else {
             return serializer.serialize_none();
         };
-        let address = non_zero_address(*address).map_err(S::Error::custom)?;
+        let address = non_zero_address(*address).map_err(|reason| {
+            S::Error::custom(format_args!("new_authenticator_address {reason}"))
+        })?;
         serializer.serialize_bytes(address.as_slice())
     }
 
@@ -338,7 +335,7 @@ mod authenticator_address {
         let address = Address::from(cbor::deserialize_byte_array(deserializer)?);
         non_zero_address(address)
             .map(Some)
-            .map_err(D::Error::custom)
+            .map_err(|reason| D::Error::custom(format_args!("new_authenticator_address {reason}")))
     }
 }
 
@@ -347,7 +344,7 @@ mod xwing_pubkey {
     use serde::{Deserializer, Serializer, de::Error as _};
     use world_id_primitives::serde_utils::cbor;
 
-    use super::super::session::{RESPONSE_PUBLIC_KEY_LEN, ResponsePublicKey};
+    use super::ResponsePublicKey;
 
     pub(super) fn serialize<S: Serializer>(
         key: &ResponsePublicKey,
@@ -359,16 +356,18 @@ mod xwing_pubkey {
     pub(super) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<ResponsePublicKey, D::Error> {
-        let bytes: [u8; RESPONSE_PUBLIC_KEY_LEN] = cbor::deserialize_byte_array(deserializer)?;
-        ResponsePublicKey::from_bytes(&bytes)
+        ResponsePublicKey::from_bytes(&cbor::deserialize_byte_string(deserializer)?)
             .map_err(|_| D::Error::custom("invalid X-Wing encapsulation key"))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+    use world_id_primitives::authenticator_message;
+
     use super::*;
-    use crate::registration::{PairingSecret, ResponseSecretKey};
+    use crate::registration::{MAX_REQUEST_SIZE, PairingSecret, ResponseSecretKey};
 
     const ADMIN: Option<Address> = Some(Address::repeat_byte(0x11));
     const PROVING: Option<Address> = None;
@@ -394,13 +393,27 @@ mod tests {
         (request, digest, request_id)
     }
 
-    #[test]
-    fn signed_request_verifies_against_its_digest() {
-        for address in [ADMIN, PROVING] {
-            let (request, digest, request_id) = signed_request(address);
-            assert_eq!(request.digest(&request_id).unwrap(), digest);
-            assert!(request.verify_signature(&digest));
-        }
+    /// The params of an Admin Authenticator's [`signed_request`].
+    fn admin_params() -> Value {
+        Value::serialized(&signed_request(ADMIN).0).unwrap()
+    }
+
+    /// [`admin_params`] with `field` set to `value`, or removed if `value` is `None`.
+    fn params_with(field: &str, value: Option<Value>) -> Value {
+        let Value::Map(mut entries) = admin_params() else {
+            unreachable!("params serialize as a map")
+        };
+        entries.retain(|(key, _)| key.as_text() != Some(field));
+        entries.extend(value.map(|value| (Value::from(field), value)));
+        Value::Map(entries)
+    }
+
+    #[test_case(ADMIN; "admin")]
+    #[test_case(PROVING; "proving")]
+    fn signed_request_verifies_against_its_digest(new_authenticator_address: Option<Address>) {
+        let (request, digest, request_id) = signed_request(new_authenticator_address);
+        assert_eq!(request.digest(&request_id).unwrap(), digest);
+        assert!(request.verify_signature(&digest));
     }
 
     #[test]
@@ -437,103 +450,111 @@ mod tests {
         let zero = Some(Address::ZERO);
         let request_id = PairingSecret::from_bytes([9; 32]).request_id();
         let response_pubkey = ResponseSecretKey::from_seed(&[4; 32]).public_key();
-        assert!(
-            RegistrationRequest::new_signed(
-                &signing_key(1),
-                zero,
-                response_pubkey,
-                None,
-                &request_id
-            )
-            .is_err()
+        let signing = RegistrationRequest::new_signed(
+            &signing_key(1),
+            zero,
+            response_pubkey,
+            None,
+            &request_id,
+        );
+        assert_eq!(
+            signing.unwrap_err().to_string(),
+            "Invalid input at new_authenticator_address: must not be the zero address"
         );
 
         let (mut request, _, request_id) = signed_request(ADMIN);
         request.new_authenticator_address = zero;
         let message = RegisterRequestMessage::builder()
-            .id(request_id.to_string())
+            .id(request_id.message_id())
             .method(REGISTER_METHOD)
             .params(request)
             .build();
-        assert!(authenticator_message::encode(&message).is_err());
+        let encoding = authenticator_message::encode(&message).unwrap_err();
+        assert!(
+            encoding
+                .to_string()
+                .contains("new_authenticator_address must not be the zero address"),
+            "{encoding}"
+        );
     }
 
     #[test]
-    fn request_round_trips_through_cbor() {
-        for address in [ADMIN, PROVING] {
-            let (request, _, request_id) = signed_request(address);
-            let message = RegisterRequestMessage::builder()
-                .id(request_id.to_string())
-                .method(REGISTER_METHOD)
-                .params(request)
-                .build();
-            let encoded = authenticator_message::encode(&message).unwrap();
-            assert_eq!(decode_request(&encoded).unwrap(), message);
-        }
-    }
-
-    #[test]
-    fn decode_rejects_malformed_params() {
+    fn params_use_the_wip_109_field_names_and_byte_strings() {
         let (request, _, _) = signed_request(ADMIN);
-        let params = Value::serialized(&request).unwrap();
-        let with_field = |field: &str, value: Option<Value>| {
-            let Value::Map(mut entries) = params.clone() else {
-                unreachable!("params serialize as a map")
-            };
-            entries.retain(|(key, _)| key.as_text() != Some(field));
-            entries.extend(value.map(|value| (Value::from(field), value)));
-            Value::Map(entries)
-        };
-        let encode = |params: Value| {
-            let message = Request::builder()
-                .id("request".to_string())
-                .method(REGISTER_METHOD)
-                .params(params)
-                .build();
-            authenticator_message::encode(&message).unwrap()
-        };
+        let pubkey = request
+            .new_authenticator_pubkey
+            .to_compressed_bytes()
+            .unwrap();
+        let signature = request.registration_sig.to_compressed_bytes().unwrap();
+        let params = Value::Map(vec![
+            (
+                "new_authenticator_pubkey".into(),
+                Value::Bytes(pubkey.to_vec()),
+            ),
+            (
+                "new_authenticator_address".into(),
+                Value::Bytes(vec![0x11; 20]),
+            ),
+            (
+                "response_pubkey".into(),
+                Value::Bytes(request.response_pubkey.to_bytes()),
+            ),
+            ("name".into(), "Chrome on MacBook".into()),
+            ("registration_sig".into(), Value::Bytes(signature.to_vec())),
+        ]);
+        assert_eq!(Value::serialized(&request).unwrap(), params);
+        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+    }
 
-        assert!(decode_request(&encode(params.clone())).is_ok());
-        for (case, invalid) in [
-            ("tagged params", Value::Tag(55799, Box::new(params.clone()))),
-            (
-                "tagged name",
-                with_field("name", Some(Value::Tag(0, Box::new("phone".into())))),
-            ),
-            ("null name", with_field("name", Some(Value::Null))),
-            ("long name", with_field("name", Some("x".repeat(65).into()))),
-            (
-                "null address",
-                with_field("new_authenticator_address", Some(Value::Null)),
-            ),
-            (
-                "zero address",
-                with_field("new_authenticator_address", Some(Value::Bytes(vec![0; 20]))),
-            ),
-            (
-                "short address",
-                with_field("new_authenticator_address", Some(Value::Bytes(vec![1; 19]))),
-            ),
-            (
-                "short pubkey",
-                with_field("new_authenticator_pubkey", Some(Value::Bytes(vec![0; 31]))),
-            ),
-            (
-                "text pubkey",
-                with_field("new_authenticator_pubkey", Some("0x12".into())),
-            ),
-            (
-                "short response key",
-                with_field("response_pubkey", Some(Value::Bytes(vec![1; 1215]))),
-            ),
-            (
-                "short signature",
-                with_field("registration_sig", Some(Value::Bytes(vec![1; 63]))),
-            ),
-            ("missing signature", with_field("registration_sig", None)),
-            ("unknown field", with_field("class", Some("admin".into()))),
-        ] {
-            assert!(decode_request(&encode(invalid)).is_err(), "{case}");
-        }
+    #[test_case(ADMIN; "admin")]
+    #[test_case(PROVING; "proving")]
+    fn request_round_trips_through_cbor(new_authenticator_address: Option<Address>) {
+        let (request, _, request_id) = signed_request(new_authenticator_address);
+        let message = RegisterRequestMessage::builder()
+            .id(request_id.message_id())
+            .method(REGISTER_METHOD)
+            .params(request.clone())
+            .build();
+        let encoded = authenticator_message::encode(&message).unwrap();
+        let received: Request<Value> =
+            authenticator_message::decode(&encoded, MAX_REQUEST_SIZE).unwrap();
+        let params = received.params.unwrap();
+        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+    }
+
+    #[test]
+    fn from_params_rejects_tagged_params() {
+        let tagged = Value::Tag(55799, Box::new(admin_params()));
+        let rejection = RegistrationRequest::from_params(&tagged).unwrap_err();
+        assert!(rejection.to_string().contains("must not contain CBOR tags"));
+    }
+
+    #[test_case("name", Some(Value::Tag(0, Box::new("phone".into()))),
+                "must not contain CBOR tags"; "tagged name")]
+    #[test_case("name", Some(Value::Null), "invalid type: null"; "null name")]
+    #[test_case("name", Some("x".repeat(65).into()), "at most 64 bytes"; "long name")]
+    #[test_case("new_authenticator_address", Some(Value::Null),
+                "expected a CBOR byte string"; "null address")]
+    #[test_case("new_authenticator_address", Some(Value::Bytes(vec![0; 20])),
+                "must not be the zero address"; "zero address")]
+    #[test_case("new_authenticator_address", Some(Value::Bytes(vec![1; 19])),
+                "of 20 bytes, got 19"; "short address")]
+    #[test_case("new_authenticator_pubkey", Some(Value::Bytes(vec![0; 31])),
+                "of 32 bytes, got 31"; "short pubkey")]
+    #[test_case("new_authenticator_pubkey", Some("0x12".into()),
+                "expected a CBOR byte string"; "text pubkey")]
+    #[test_case("response_pubkey", Some(Value::Bytes(vec![1; 1215])),
+                "invalid X-Wing encapsulation key"; "short response key")]
+    #[test_case("response_pubkey", Some(Value::Bytes(vec![1; 1217])),
+                "invalid X-Wing encapsulation key"; "long response key")]
+    #[test_case("registration_sig", Some(Value::Bytes(vec![1; 63])),
+                "of 64 bytes, got 63"; "short signature")]
+    #[test_case("registration_sig", None, "missing field `registration_sig`"; "missing signature")]
+    #[test_case("class", Some("admin".into()), "unknown field `class`"; "unknown field")]
+    fn from_params_rejects_a_malformed_field(field: &str, value: Option<Value>, error: &str) {
+        let rejection = RegistrationRequest::from_params(&params_with(field, value))
+            .unwrap_err()
+            .to_string();
+        assert!(rejection.contains(error), "{rejection}");
     }
 }

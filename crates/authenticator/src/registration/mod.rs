@@ -11,9 +11,10 @@
 //! This module holds the protocol values and their encodings. Every value derived from the
 //! pairing secret is deterministic. Transport encryption additionally requires the independently
 //! transferred [`PairingCode`]. Messages are encoded with
-//! [`authenticator_message::encode`](world_id_primitives::authenticator_message::encode) and
-//! decoded with [`decode_request`] and [`decode_response`], which add the WIP-109 size limits and
-//! payload rules to the WIP-105 envelope.
+//! [`authenticator_message::encode`](world_id_primitives::authenticator_message::encode). A
+//! received request's params are decoded with [`RegistrationRequest::from_params`] and a received
+//! response with [`decode_response`], which add the WIP-109 payload rules to the WIP-105
+//! envelope.
 
 use world_id_primitives::authenticator_message::{MessageError, Value};
 
@@ -22,18 +23,18 @@ mod request;
 mod response;
 mod session;
 
-pub use pairing_uri::{BridgeDomain, PairingUri, PairingUriError};
+pub use pairing_uri::{BridgeDomain, InvalidBridgeDomain, PairingUri, PairingUriError};
 pub use request::{
     AuthenticatorName, MAX_NAME_LEN, NameTooLong, REGISTER_METHOD, RegisterRequestMessage,
-    RegistrationDigest, RegistrationRequest, decode_request,
+    RegistrationDigest, RegistrationRequest,
 };
 pub use response::{
     KnownAuthenticator, MAX_VAULT_SIZE, RegisterResponseMessage, RegistrationErrorData,
     RegistrationErrorReason, RegistrationResult, Vault, VaultFormat, decode_response,
 };
 pub use session::{
-    EncryptedPayload, PairingCode, PairingSecret, RESPONSE_PUBLIC_KEY_LEN, RequestId,
-    ResponsePublicKey, ResponseSecretKey, TransportError, TransportKey,
+    EncryptedPayload, PairingCode, PairingSecret, RequestId, ResponsePublicKey, ResponseSecretKey,
+    TransportError, TransportKey,
 };
 
 /// The largest encoded request (WIP-109 §3.5).
@@ -45,6 +46,8 @@ const MAX_RESPONSE_SIZE: usize = MAX_VAULT_SIZE + 4 * 1024;
 /// Rejects a registration payload that contains a CBOR tag at any depth.
 ///
 /// WIP-109 §3.6 defines every payload field by its CBOR major type, which a tag would wrap.
+/// Bignums are the exception this cannot see: Ciborium reads them into a [`Value`] as plain
+/// integers, so integer fields need their typed check as well.
 fn reject_tags(payload: &Value) -> Result<(), MessageError> {
     if contains_tag(payload) {
         return Err(MessageError::Deserialize(serde::de::Error::custom(
