@@ -406,3 +406,40 @@ fn generic_payloads_decode_directly(diagnostic: &str) {
     let expected: Value = ciborium::from_reader(fixture(diagnostic).as_slice()).unwrap();
     assert_eq!(result, expected);
 }
+
+#[test]
+fn large_byte_string_reaches_payload_as_owned_bytes() {
+    struct OwnedBytes(Vec<u8>);
+
+    impl<'de> serde::Deserialize<'de> for OwnedBytes {
+        fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+            struct OwnedBytesVisitor;
+
+            impl<'de> serde::de::Visitor<'de> for OwnedBytesVisitor {
+                type Value = OwnedBytes;
+
+                fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    formatter.write_str("an owned byte string")
+                }
+
+                fn visit_byte_buf<E: serde::de::Error>(
+                    self,
+                    bytes: Vec<u8>,
+                ) -> Result<Self::Value, E> {
+                    Ok(OwnedBytes(bytes))
+                }
+            }
+
+            deserializer.deserialize_any(OwnedBytesVisitor)
+        }
+    }
+
+    let bytes = vec![7; 8192];
+    let response = Response::<Value>::success("ping-1".into(), Value::Bytes(bytes.clone()));
+    let encoded = response.encode().unwrap();
+    let decoded = Response::<OwnedBytes>::decode(&encoded, encoded.len()).unwrap();
+    let Response::Success { result, .. } = decoded else {
+        panic!("expected success");
+    };
+    assert_eq!(result.0, bytes);
+}
