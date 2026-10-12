@@ -265,7 +265,9 @@ impl<'de> Deserialize<'de> for RegistrationResult {
 mod leaf_index {
     use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
 
-    use super::{TREE_DEPTH, deserialize_unsigned};
+    use world_id_primitives::serde_utils::cbor::deserialize_unsigned;
+
+    use super::TREE_DEPTH;
 
     const fn is_valid(index: u64) -> bool {
         index != 0 && index < 1 << TREE_DEPTH
@@ -293,7 +295,9 @@ mod leaf_index {
 mod pubkey_id {
     use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
 
-    use super::{MAX_AUTHENTICATOR_KEYS, deserialize_unsigned};
+    use world_id_primitives::serde_utils::cbor::deserialize_unsigned;
+
+    use super::MAX_AUTHENTICATOR_KEYS;
 
     fn is_valid(slot: u32) -> bool {
         usize::try_from(slot).is_ok_and(|slot| slot < MAX_AUTHENTICATOR_KEYS)
@@ -313,20 +317,6 @@ mod pubkey_id {
         }
         Ok(slot)
     }
-}
-
-fn deserialize_unsigned<'de, D, T>(deserializer: D) -> Result<T, D::Error>
-where
-    D: serde::Deserializer<'de>,
-    T: TryFrom<u64>,
-{
-    use serde::de::Error as _;
-    let ciborium::Value::Integer(integer) = ciborium::Value::deserialize(deserializer)? else {
-        return Err(D::Error::custom("expected CBOR unsigned integer"));
-    };
-    let value =
-        u64::try_from(integer).map_err(|_| D::Error::custom("expected unsigned integer"))?;
-    T::try_from(value).map_err(|_| D::Error::custom("unsigned integer exceeds field width"))
 }
 
 #[cfg(test)]

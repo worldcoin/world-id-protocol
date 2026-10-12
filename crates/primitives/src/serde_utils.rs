@@ -4,7 +4,8 @@
 //! - serialization always emits `0x`-prefixed hex strings;
 //! - deserialization accepts either decimal (no prefix) or hex (`0x`/`0X` prefix).
 //!
-//! [`deserialize_present`] tells an absent field apart from an explicit null.
+//! [`deserialize_present`] tells an absent field apart from an explicit null, and [`cbor`] holds
+//! strict deserializers for fields of CBOR messages.
 
 #![allow(clippy::missing_errors_doc)]
 
@@ -351,6 +352,68 @@ where
     T::deserialize(deserializer).map(Some)
 }
 
+/// Strict deserializers for CBOR fields that a protocol defines by their major type.
+///
+/// Serde's own impls accept other CBOR encodings of the same value: `Vec<u8>` and byte arrays also
+/// read an array of integers, and most impls skip CBOR tags. These deserializers accept only the
+/// defined major type, without a tag.
+pub mod cbor {
+    use ciborium::Value;
+    use serde::{Deserialize, Deserializer, de::Error as _};
+
+    /// Deserializes a CBOR byte string.
+    ///
+    /// # Errors
+    ///
+    /// Fails for any other CBOR data item, including an array of integers and a tagged byte
+    /// string.
+    pub fn deserialize_byte_string<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<u8>, D::Error> {
+        match Value::deserialize(deserializer)? {
+            Value::Bytes(bytes) => Ok(bytes),
+            _ => Err(D::Error::custom("expected a CBOR byte string")),
+        }
+    }
+
+    /// Deserializes a CBOR byte string of exactly `N` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Fails like [`deserialize_byte_string`], and if the byte string has another length.
+    pub fn deserialize_byte_array<'de, D: Deserializer<'de>, const N: usize>(
+        deserializer: D,
+    ) -> Result<[u8; N], D::Error> {
+        deserialize_byte_string(deserializer)?
+            .try_into()
+            .map_err(|bytes: Vec<u8>| {
+                D::Error::custom(format!(
+                    "expected a CBOR byte string of {N} bytes, got {}",
+                    bytes.len()
+                ))
+            })
+    }
+
+    /// Deserializes a CBOR unsigned integer that fits in `T`.
+    ///
+    /// # Errors
+    ///
+    /// Fails for any other CBOR data item, including negative integers, floats and tagged
+    /// integers, and if the integer does not fit in `T`.
+    pub fn deserialize_unsigned<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: TryFrom<u64>,
+    {
+        let Value::Integer(integer) = Value::deserialize(deserializer)? else {
+            return Err(D::Error::custom("expected a CBOR unsigned integer"));
+        };
+        let value =
+            u64::try_from(integer).map_err(|_| D::Error::custom("expected an unsigned integer"))?;
+        T::try_from(value).map_err(|_| D::Error::custom("unsigned integer exceeds the field width"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -446,5 +509,62 @@ mod tests {
 
         let parsed: S = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, s);
+    }
+
+    /// Decodes `T` from the CBOR encoding of `value`.
+    fn from_cbor<T: serde::de::DeserializeOwned>(
+        value: &ciborium::Value,
+    ) -> Result<T, ciborium::de::Error<std::io::Error>> {
+        let mut encoded = Vec::new();
+        ciborium::into_writer(value, &mut encoded).unwrap();
+        ciborium::from_reader(encoded.as_slice())
+    }
+
+    #[test]
+    fn cbor_byte_strings_reject_other_encodings() {
+        use ciborium::Value;
+
+        #[derive(Debug, Deserialize)]
+        struct ByteString(#[serde(deserialize_with = "cbor::deserialize_byte_string")] Vec<u8>);
+
+        #[derive(Debug, Deserialize)]
+        struct ByteArray(#[serde(deserialize_with = "cbor::deserialize_byte_array")] [u8; 2]);
+
+        let bytes = Value::Bytes(vec![1, 2]);
+        assert_eq!(from_cbor::<ByteString>(&bytes).unwrap().0, [1, 2]);
+        assert_eq!(from_cbor::<ByteArray>(&bytes).unwrap().0, [1, 2]);
+        for invalid in [
+            Value::Array(vec![1.into(), 2.into()]),
+            Value::Tag(64, Box::new(bytes)),
+            Value::Text("0102".into()),
+        ] {
+            assert!(from_cbor::<ByteString>(&invalid).is_err(), "{invalid:?}");
+            assert!(from_cbor::<ByteArray>(&invalid).is_err(), "{invalid:?}");
+        }
+        assert!(from_cbor::<ByteArray>(&Value::Bytes(vec![1, 2, 3])).is_err());
+    }
+
+    #[test]
+    fn cbor_unsigned_rejects_other_encodings() {
+        use ciborium::Value;
+
+        #[derive(Debug, Deserialize)]
+        struct Unsigned(#[serde(deserialize_with = "cbor::deserialize_unsigned")] u8);
+
+        assert_eq!(
+            from_cbor::<Unsigned>(&Value::Integer(255.into()))
+                .unwrap()
+                .0,
+            255
+        );
+        for invalid in [
+            Value::Integer(256.into()),
+            Value::Integer((-1).into()),
+            Value::Float(1.0),
+            Value::Text("1".into()),
+            Value::Tag(0, Box::new(Value::Integer(1.into()))),
+        ] {
+            assert!(from_cbor::<Unsigned>(&invalid).is_err(), "{invalid:?}");
+        }
     }
 }
