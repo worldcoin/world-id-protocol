@@ -7,7 +7,7 @@ use secrecy::ExposeSecret as _;
 use web_time::Instant;
 use world_id_primitives::{
     Config, Signer,
-    authenticator_message::{self, ErrorObject, Id},
+    authenticator_message::{self, ErrorObject, Id, MessageError},
 };
 use world_id_proof::artifacts::ZkArtifactSource;
 
@@ -152,11 +152,7 @@ impl RegistrationRequester {
             .build();
         // A retry needs a new requester, so a local failure ends the session and wipes its keys.
         let encrypted = authenticator_message::encode(&message)
-            .map_err(|e| {
-                RequesterError::from(AuthenticatorError::Generic(format!(
-                    "failed to encode request: {e}"
-                )))
-            })
+            .map_err(RequesterError::Encoding)
             .and_then(|plaintext| {
                 secrets
                     .transport_key
@@ -233,7 +229,7 @@ impl RegistrationRequester {
             .decrypt_response(&secrets.response_key, &sealed)?;
         let response: RegisterResponseMessage =
             authenticator_message::decode(&plaintext, MAX_RESPONSE_SIZE)
-                .map_err(|e| RequesterError::MalformedResponse(e.to_string()))?;
+                .map_err(RequesterError::MalformedResponse)?;
         // The outer envelope binds the response to this session, so an uncorrelated error, with a
         // null ID, is accepted too. A success always has an ID.
         if response
@@ -241,9 +237,7 @@ impl RegistrationRequester {
             .as_ref()
             .is_some_and(|id| *id != Id::String(request_id.to_string()))
         {
-            return Err(RequesterError::MalformedResponse(
-                "response id does not match the request".to_string(),
-            ));
+            return Err(RequesterError::ResponseIdMismatch);
         }
         Ok(RequesterStatus::Completed(response.outcome))
     }
@@ -261,6 +255,7 @@ impl RegistrationRequester {
     ///
     /// # Errors
     ///
+    /// - [`RequesterError::SeedMismatch`] if `seed` is not the one this session registers.
     /// - [`RequesterError::RegistrationMismatch`] if the key is registered at another slot or
     ///   with another class.
     /// - [`RequesterError::VerificationTimeout`] if the key is still not found on the account, or
@@ -278,10 +273,7 @@ impl RegistrationRequester {
         let verification = async {
             let signer = Signer::from_seed_bytes(seed).map_err(AuthenticatorError::from)?;
             if signer.offchain_signer_pubkey().pk != self.request.new_authenticator_pubkey.pk {
-                return Err(AuthenticatorError::Generic(
-                    "seed does not belong to this registration session".to_string(),
-                )
-                .into());
+                return Err(RequesterError::SeedMismatch);
             }
             let attempt = || async {
                 let authenticator = Authenticator::init_with_leaf_index(
@@ -378,12 +370,22 @@ pub enum RequesterError {
     /// Encrypting the request or opening the response failed.
     #[error(transparent)]
     Transport(#[from] TransportError),
-    /// The seed or a key could not be used, or verifying the registration failed.
+    /// The seed or a key could not be used, or reading the account state failed.
     #[error(transparent)]
     Authenticator(#[from] AuthenticatorError),
-    /// The response is not a valid registration response for this session.
+    /// The request could not be encoded.
+    #[error("failed to encode the registration request: {0}")]
+    Encoding(#[source] MessageError),
+    /// The response is not a valid registration response.
     #[error("malformed registration response: {0}")]
-    MalformedResponse(String),
+    MalformedResponse(#[source] MessageError),
+    /// The response answers another request.
+    #[error("the registration response answers another request")]
+    ResponseIdMismatch,
+    /// The seed passed to [`RegistrationRequester::verify`] is not the one this session asked to
+    /// register.
+    #[error("the seed does not belong to this registration session")]
+    SeedMismatch,
     /// The registry does not show the new authenticator where the response says it is.
     #[error("the registration result does not match the registry")]
     RegistrationMismatch,
@@ -543,7 +545,7 @@ mod tests {
             };
             assert_eq!(error.code, "invalid_request");
         } else {
-            assert!(matches!(status, Err(RequesterError::MalformedResponse(_))));
+            assert!(matches!(status, Err(RequesterError::ResponseIdMismatch)));
         }
         assert!(session.secrets.is_none());
     }
