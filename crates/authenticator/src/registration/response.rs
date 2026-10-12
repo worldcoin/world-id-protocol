@@ -3,30 +3,68 @@
 use serde::{Deserialize, Serialize};
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
-    authenticator_message::{ErrorObject, Response},
+    authenticator_message::{self, ErrorObject, MessageError, Response, Value},
     serde_utils::deserialize_present,
 };
+use zeroize::Zeroizing;
+
+use super::{MAX_RESPONSE_SIZE, reject_tags};
 
 /// The registration response as sent over the bridge.
+///
+/// Decode it with [`decode_response`], which also rejects the CBOR tags that deserializing the
+/// message directly would skip.
 pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErrorData>;
+
+/// Decodes a registration response from the plaintext of
+/// [`TransportKey::decrypt_response`](super::TransportKey::decrypt_response).
+///
+/// The plaintext must hold a single WIP-105 response of at most 3.5 MiB plus 4 KiB (WIP-109
+/// §3.5). Its `result` must be a [`RegistrationResult`] and its `error.data`, when present, a
+/// [`RegistrationErrorData`], neither with CBOR tags at any depth. Matching the `id` against the
+/// request is up to the caller.
+///
+/// # Errors
+///
+/// Returns a [`MessageError`] if the plaintext is too large, is not a single CBOR value, or does
+/// not match the response schema.
+pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, MessageError> {
+    let response = authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
+    // Typed decoding skips CBOR tags, so the payload is decoded once more as a `Value` to find
+    // them.
+    let mut raw: Response<Value, Value> =
+        authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
+    let tags = match &raw.outcome {
+        Ok(result) => reject_tags(result),
+        Err(error) => error.data.as_ref().map_or(Ok(()), reject_tags),
+    };
+    if let Ok(result) = &mut raw.outcome {
+        wipe_byte_strings(result);
+    }
+    tags.map(|()| response)
+}
 
 /// The result of a successful registration: where the new authenticator was inserted, and the
 /// credentials it needs to generate proofs.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegistrationResult {
     /// The index of the account the authenticator was registered on, from 1 to 2^30 − 1.
-    #[serde(serialize_with = "leaf_index::serialize")]
+    #[serde(with = "leaf_index")]
     pub leaf_index: u64,
     /// The slot the authenticator was inserted at, below [`MAX_AUTHENTICATOR_KEYS`].
-    #[serde(serialize_with = "pubkey_id::serialize")]
+    #[serde(with = "pubkey_id")]
     pub pubkey_id: u32,
     /// Names of the account's other authenticators known to the Approving Authenticator.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub authenticators: Vec<KnownAuthenticator>,
     /// The account's credential vault, unless the user or Approving Authenticator policy
     /// excluded it.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
     pub vault: Option<Vault>,
 }
 
@@ -50,62 +88,14 @@ pub const MAX_VAULT_SIZE: usize = 3_670_016;
 ///
 /// The vault holds the account's credentials and the associated data from their issuers, which
 /// may include biometric data. Its bytes are zeroized on drop.
-#[derive(Clone, PartialEq, Eq, Serialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Vault {
     /// The format of `data`.
     pub format: VaultFormat,
     /// The vault bytes, a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes on the wire.
-    #[serde(serialize_with = "serialize_vault_data")]
-    pub data: Vec<u8>,
-}
-
-/// The wire form of [`Vault`]. Its bytes are zeroized even when decoding fails after `data` was
-/// read, e.g. on a later unknown field.
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WireVault {
-    format: VaultFormat,
-    #[serde(deserialize_with = "deserialize_vault_data")]
-    data: zeroize::Zeroizing<Vec<u8>>,
-}
-
-fn serialize_vault_data<S: serde::Serializer>(
-    data: &[u8],
-    serializer: S,
-) -> Result<S::Ok, S::Error> {
-    use serde::ser::Error as _;
-    if data.len() > MAX_VAULT_SIZE {
-        return Err(S::Error::custom("vault data exceeds 3.5 MiB"));
-    }
-    super::bytes::vec::serialize(data, serializer)
-}
-
-fn deserialize_vault_data<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<zeroize::Zeroizing<Vec<u8>>, D::Error> {
-    use serde::de::Error as _;
-    let data = zeroize::Zeroizing::new(super::bytes::vec::deserialize(deserializer)?);
-    if data.len() > MAX_VAULT_SIZE {
-        return Err(D::Error::custom("vault data exceeds 3.5 MiB"));
-    }
-    Ok(data)
-}
-
-impl<'de> Deserialize<'de> for Vault {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let mut wire = WireVault::deserialize(deserializer)?;
-        Ok(Self {
-            format: wire.format,
-            data: std::mem::take(&mut *wire.data),
-        })
-    }
-}
-
-impl Drop for Vault {
-    /// The vault may hold biometric data, so its bytes are wiped when dropped.
-    fn drop(&mut self) {
-        zeroize::Zeroize::zeroize(&mut self.data);
-    }
+    #[serde(with = "vault_data")]
+    pub data: Zeroizing<Vec<u8>>,
 }
 
 impl std::fmt::Debug for Vault {
@@ -213,51 +203,29 @@ impl RegistrationErrorReason {
 }
 
 /// The `data` member of a registration error.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RegistrationErrorData {
     /// Optional implementation-specific detail, e.g. a gateway error code.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
     pub detail: Option<String>,
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WireRegistrationErrorData {
-    #[serde(default, deserialize_with = "deserialize_present")]
-    detail: Option<String>,
-}
-
-impl<'de> Deserialize<'de> for RegistrationErrorData {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wire: WireRegistrationErrorData = super::deserialize_payload(deserializer)?;
-        Ok(Self {
-            detail: wire.detail,
-        })
-    }
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct WireRegistrationResult {
-    #[serde(deserialize_with = "leaf_index::deserialize")]
-    leaf_index: u64,
-    #[serde(deserialize_with = "pubkey_id::deserialize")]
-    pubkey_id: u32,
-    #[serde(default)]
-    authenticators: Vec<KnownAuthenticator>,
-    #[serde(default, deserialize_with = "deserialize_present")]
-    vault: Option<Vault>,
-}
-
-impl<'de> Deserialize<'de> for RegistrationResult {
-    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let wire: WireRegistrationResult = super::deserialize_payload(deserializer)?;
-        Ok(Self {
-            leaf_index: wire.leaf_index,
-            pubkey_id: wire.pubkey_id,
-            authenticators: wire.authenticators,
-            vault: wire.vault,
-        })
+/// Wipes every byte string in `value`, which may hold a copy of the vault.
+fn wipe_byte_strings(value: &mut Value) {
+    match value {
+        Value::Bytes(bytes) => zeroize::Zeroize::zeroize(bytes),
+        Value::Tag(_, value) => wipe_byte_strings(value),
+        Value::Array(values) => values.iter_mut().for_each(wipe_byte_strings),
+        Value::Map(entries) => entries.iter_mut().for_each(|(key, value)| {
+            wipe_byte_strings(key);
+            wipe_byte_strings(value);
+        }),
+        _ => {}
     }
 }
 
@@ -319,66 +287,125 @@ mod pubkey_id {
     }
 }
 
+/// The vault bytes as a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes (WIP-109 §3.6.2).
+mod vault_data {
+    use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
+    use world_id_primitives::serde_utils::cbor;
+    use zeroize::Zeroizing;
+
+    use super::MAX_VAULT_SIZE;
+
+    const TOO_LARGE: &str = "vault data exceeds 3.5 MiB";
+
+    pub(super) fn serialize<S: Serializer>(data: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        if data.len() > MAX_VAULT_SIZE {
+            return Err(S::Error::custom(TOO_LARGE));
+        }
+        serializer.serialize_bytes(data)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Zeroizing<Vec<u8>>, D::Error> {
+        let data = Zeroizing::new(cbor::deserialize_byte_string(deserializer)?);
+        if data.len() > MAX_VAULT_SIZE {
+            return Err(D::Error::custom(TOO_LARGE));
+        }
+        Ok(data)
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use world_id_primitives::authenticator_message::{Id, Version, encode};
+
     use super::*;
-    use world_id_primitives::authenticator_message::{Id, Version, decode, encode};
+
+    /// Decodes the result of a response whose CBOR `result` is `result`.
+    fn decode_result(result: Value) -> Result<RegistrationResult, MessageError> {
+        let response = Response::<Value, Value>::builder()
+            .id("request".to_string())
+            .outcome(Ok(result))
+            .build();
+        let decoded = decode_response(&encode(&response).unwrap())?;
+        Ok(decoded.outcome.expect("a successful response"))
+    }
+
+    /// Decodes the error data of an error response whose CBOR `error.data` is `data`.
+    fn decode_error_data(data: Value) -> Result<Option<RegistrationErrorData>, MessageError> {
+        let error = ErrorObject::builder()
+            .code("operation_failed")
+            .message("InsertAuthenticator operation failed")
+            .data(data)
+            .build();
+        let response = Response::<Value, Value>::builder()
+            .id("request".to_string())
+            .outcome(Err(error))
+            .build();
+        let decoded = decode_response(&encode(&response).unwrap())?;
+        Ok(decoded.outcome.expect_err("an error response").data)
+    }
+
+    /// A CBOR `result` with the given indexes and no other fields.
+    fn result_with_indexes(leaf_index: Value, pubkey_id: Value) -> Value {
+        Value::Map(vec![
+            ("leaf_index".into(), leaf_index),
+            ("pubkey_id".into(), pubkey_id),
+        ])
+    }
+
+    /// A CBOR `result` with a valid `leaf_index` and `pubkey_id` and `field` set to `value`.
+    fn result_with(field: &str, value: Value) -> Value {
+        let Value::Map(mut entries) = result_with_indexes(42.into(), 1.into()) else {
+            unreachable!("the result is a map")
+        };
+        entries.push((field.into(), value));
+        Value::Map(entries)
+    }
 
     #[test]
-    fn success_uses_unsigned_indexes_and_raw_vault_bytes() {
+    fn result_uses_unsigned_indexes_and_raw_vault_bytes() {
+        let result = RegistrationResult {
+            leaf_index: 42,
+            pubkey_id: 1,
+            authenticators: vec![KnownAuthenticator {
+                pubkey_id: 0,
+                name: "phone".to_string(),
+            }],
+            vault: Some(Vault {
+                format: VaultFormat::WalletkitPlaintextV1,
+                data: b"SQLite".to_vec().into(),
+            }),
+        };
+        let wire = Value::Map(vec![
+            ("leaf_index".into(), 42.into()),
+            ("pubkey_id".into(), 1.into()),
+            (
+                "authenticators".into(),
+                Value::Array(vec![Value::Map(vec![
+                    ("pubkey_id".into(), 0.into()),
+                    ("name".into(), "phone".into()),
+                ])]),
+            ),
+            (
+                "vault".into(),
+                Value::Map(vec![
+                    ("format".into(), "walletkit_plaintext_v1".into()),
+                    ("data".into(), Value::Bytes(b"SQLite".to_vec())),
+                ]),
+            ),
+        ]);
+        assert_eq!(Value::serialized(&result).unwrap(), wire);
+        assert_eq!(decode_result(wire).unwrap(), result);
+
         let response = RegisterResponseMessage {
             version: Version::V1,
             id: Some(Id::String("request".into())),
-            outcome: Ok(RegistrationResult {
-                leaf_index: 42,
-                pubkey_id: 1,
-                authenticators: vec![KnownAuthenticator {
-                    pubkey_id: 0,
-                    name: "phone".to_string(),
-                }],
-                vault: Some(Vault {
-                    format: VaultFormat::WalletkitPlaintextV1,
-                    data: b"SQLite".to_vec(),
-                }),
-            }),
+            outcome: Ok(result),
         };
-        let encoded = encode(&response).unwrap();
         assert_eq!(
-            decode::<RegisterResponseMessage>(&encoded, 4096).unwrap(),
+            decode_response(&encode(&response).unwrap()).unwrap(),
             response
-        );
-        let value: ciborium::Value = ciborium::from_reader(encoded.as_slice()).unwrap();
-        let result = value
-            .as_map()
-            .unwrap()
-            .iter()
-            .find(|(k, _)| k.as_text() == Some("result"))
-            .unwrap()
-            .1
-            .as_map()
-            .unwrap();
-        assert!(
-            result
-                .iter()
-                .find(|(k, _)| k.as_text() == Some("leaf_index"))
-                .unwrap()
-                .1
-                .is_integer()
-        );
-        let vault = &result
-            .iter()
-            .find(|(k, _)| k.as_text() == Some("vault"))
-            .unwrap()
-            .1;
-        assert!(
-            vault
-                .as_map()
-                .unwrap()
-                .iter()
-                .find(|(k, _)| k.as_text() == Some("data"))
-                .unwrap()
-                .1
-                .is_bytes()
         );
     }
 
@@ -406,13 +433,12 @@ mod tests {
 
     #[test]
     fn error_data_must_be_an_untagged_map_without_unknown_fields() {
-        use ciborium::Value;
         let data = Value::Map(vec![("detail".into(), "transaction_reverted".into())]);
         assert_eq!(
-            data.deserialized::<RegistrationErrorData>().unwrap(),
-            RegistrationErrorData {
+            decode_error_data(data.clone()).unwrap(),
+            Some(RegistrationErrorData {
                 detail: Some("transaction_reverted".into())
-            }
+            })
         );
         for invalid in [
             Value::Tag(0, Box::new(data)),
@@ -421,62 +447,32 @@ mod tests {
             Value::Map(vec![("detail".into(), Value::Null)]),
             Value::Null,
         ] {
-            assert!(
-                invalid.deserialized::<RegistrationErrorData>().is_err(),
-                "{invalid:?}"
-            );
+            assert!(decode_error_data(invalid.clone()).is_err(), "{invalid:?}");
         }
     }
 
     #[test]
-    fn result_rejects_tagged_maps_and_nested_text() {
-        use ciborium::Value;
-        let result = Value::Map(vec![
-            ("leaf_index".into(), 42.into()),
-            ("pubkey_id".into(), 1.into()),
-        ]);
-        assert!(
-            Value::Tag(0, Box::new(result))
-                .deserialized::<RegistrationResult>()
-                .is_err()
-        );
-        let result = Value::Map(vec![
-            ("leaf_index".into(), 42.into()),
-            ("pubkey_id".into(), 1.into()),
-            (
+    fn indexes_are_bounded_to_the_protocol_ranges() {
+        let max_leaf_index = (1 << 30) - 1;
+        let with_known = |leaf_index: u64, pubkey_id: u64, known: u64| {
+            let Value::Map(mut entries) = result_with_indexes(leaf_index.into(), pubkey_id.into())
+            else {
+                unreachable!("the result is a map")
+            };
+            entries.push((
                 "authenticators".into(),
                 Value::Array(vec![Value::Map(vec![
-                    ("pubkey_id".into(), 0.into()),
-                    ("name".into(), Value::Tag(0, Box::new("phone".into()))),
+                    ("pubkey_id".into(), known.into()),
+                    ("name".into(), "phone".into()),
                 ])]),
-            ),
-        ]);
-        assert!(result.deserialized::<RegistrationResult>().is_err());
-    }
-
-    #[test]
-    fn indexes_are_bounded_to_the_protocol_ranges() {
-        use ciborium::Value;
-        let result = |leaf_index: u64, pubkey_id: u64, known: u64| {
-            Value::Map(vec![
-                ("leaf_index".into(), leaf_index.into()),
-                ("pubkey_id".into(), pubkey_id.into()),
-                (
-                    "authenticators".into(),
-                    Value::Array(vec![Value::Map(vec![
-                        ("pubkey_id".into(), known.into()),
-                        ("name".into(), "phone".into()),
-                    ])]),
-                ),
-            ])
-            .deserialized::<RegistrationResult>()
+            ));
+            Value::Map(entries)
         };
-        let max_leaf = (1 << 30) - 1;
-        assert!(result(1, 0, 6).is_ok());
-        assert!(result(max_leaf, 6, 0).is_ok());
+        assert!(decode_result(with_known(1, 0, 6)).is_ok());
+        assert!(decode_result(with_known(max_leaf_index, 6, 0)).is_ok());
         for (leaf_index, pubkey_id, known) in [(0, 1, 0), (1 << 30, 1, 0), (42, 7, 0), (42, 1, 7)] {
             assert!(
-                result(leaf_index, pubkey_id, known).is_err(),
+                decode_result(with_known(leaf_index, pubkey_id, known)).is_err(),
                 "{leaf_index} {pubkey_id} {known}"
             );
         }
@@ -487,11 +483,7 @@ mod tests {
             authenticators: Vec::new(),
             vault: None,
         };
-        let encode_result = |result: &RegistrationResult| {
-            let mut out = Vec::new();
-            ciborium::into_writer(result, &mut out)
-        };
-        assert!(encode_result(&valid).is_ok());
+        assert!(Value::serialized(&valid).is_ok());
         for invalid in [
             RegistrationResult {
                 leaf_index: 0,
@@ -509,45 +501,52 @@ mod tests {
                 ..valid.clone()
             },
         ] {
-            assert!(encode_result(&invalid).is_err(), "{invalid:?}");
+            assert!(Value::serialized(&invalid).is_err(), "{invalid:?}");
         }
     }
 
     #[test]
     fn known_authenticator_names_have_no_length_limit() {
-        use ciborium::Value;
         let name = "n".repeat(200);
-        let result = Value::Map(vec![
-            ("leaf_index".into(), 42.into()),
-            ("pubkey_id".into(), 1.into()),
-            (
-                "authenticators".into(),
-                Value::Array(vec![Value::Map(vec![
-                    ("pubkey_id".into(), 0.into()),
-                    ("name".into(), name.clone().into()),
-                ])]),
-            ),
-        ])
-        .deserialized::<RegistrationResult>()
+        let result = decode_result(result_with(
+            "authenticators",
+            Value::Array(vec![Value::Map(vec![
+                ("pubkey_id".into(), 0.into()),
+                ("name".into(), name.clone().into()),
+            ])]),
+        ))
         .unwrap();
         assert_eq!(result.authenticators[0].name, name);
     }
 
     #[test]
-    fn indexes_reject_tags_floats_and_overflow() {
-        use ciborium::Value;
+    fn result_rejects_other_cbor_types_and_tags() {
+        let vault = |data: Value| {
+            Value::Map(vec![
+                ("format".into(), "walletkit_plaintext_v1".into()),
+                ("data".into(), data),
+            ])
+        };
         for invalid in [
-            Value::Tag(2, Box::new(Value::Bytes(vec![42]))),
-            Value::Tag(0, Box::new(Value::Integer(42.into()))),
-            Value::Float(42.0),
-            Value::Integer((-1).into()),
-            Value::Integer((u64::from(u32::MAX) + 1).into()),
+            Value::Tag(0, result_with_indexes(42.into(), 1.into()).into()),
+            result_with_indexes("0x2a".into(), 1.into()),
+            result_with_indexes((-1).into(), 1.into()),
+            result_with_indexes(42.into(), Value::Float(1.0)),
+            result_with_indexes(42.into(), Value::Tag(0, Box::new(1.into()))),
+            result_with_indexes(42.into(), (u64::from(u32::MAX) + 1).into()),
+            result_with(
+                "authenticators",
+                Value::Array(vec![Value::Map(vec![
+                    ("pubkey_id".into(), 0.into()),
+                    ("name".into(), Value::Tag(0, Box::new("phone".into()))),
+                ])]),
+            ),
+            result_with("authenticators", Value::Null),
+            result_with("vault", Value::Null),
+            result_with("vault", vault("U1FMaXRl".into())),
+            result_with("unknown", true.into()),
         ] {
-            let result = Value::Map(vec![
-                ("leaf_index".into(), 42.into()),
-                ("pubkey_id".into(), invalid),
-            ]);
-            assert!(result.deserialized::<RegistrationResult>().is_err());
+            assert!(decode_result(invalid.clone()).is_err(), "{invalid:?}");
         }
     }
 
@@ -559,61 +558,24 @@ mod tests {
             authenticators: Vec::new(),
             vault: Some(Vault {
                 format: VaultFormat::WalletkitPlaintextV1,
-                data: vec![0; size],
+                data: vec![0; size].into(),
             }),
         };
         let wire = |size| {
-            ciborium::Value::Map(vec![
-                ("leaf_index".into(), 42.into()),
-                ("pubkey_id".into(), 1.into()),
-                (
-                    "vault".into(),
-                    ciborium::Value::Map(vec![
-                        ("format".into(), "walletkit_plaintext_v1".into()),
-                        ("data".into(), ciborium::Value::Bytes(vec![0; size])),
-                    ]),
-                ),
-            ])
+            result_with(
+                "vault",
+                Value::Map(vec![
+                    ("format".into(), "walletkit_plaintext_v1".into()),
+                    ("data".into(), Value::Bytes(vec![0; size])),
+                ]),
+            )
         };
         assert_eq!(
-            wire(MAX_VAULT_SIZE)
-                .deserialized::<RegistrationResult>()
-                .unwrap(),
+            decode_result(wire(MAX_VAULT_SIZE)).unwrap(),
             result(MAX_VAULT_SIZE)
         );
-        assert!(
-            wire(MAX_VAULT_SIZE + 1)
-                .deserialized::<RegistrationResult>()
-                .is_err()
-        );
-        assert!(ciborium::Value::serialized(&result(MAX_VAULT_SIZE)).is_ok());
-        assert!(ciborium::Value::serialized(&result(MAX_VAULT_SIZE + 1)).is_err());
-    }
-
-    #[test]
-    fn rejects_hex_indexes_and_text_vault() {
-        for value in [
-            ciborium::Value::Map(vec![
-                ("leaf_index".into(), "0x2a".into()),
-                ("pubkey_id".into(), 1.into()),
-            ]),
-            ciborium::Value::Map(vec![
-                ("leaf_index".into(), (-1).into()),
-                ("pubkey_id".into(), 1.into()),
-            ]),
-            ciborium::Value::Map(vec![
-                ("leaf_index".into(), 42.into()),
-                ("pubkey_id".into(), 1.into()),
-                (
-                    "vault".into(),
-                    ciborium::Value::Map(vec![
-                        ("format".into(), "walletkit_plaintext_v1".into()),
-                        ("data".into(), "U1FMaXRl".into()),
-                    ]),
-                ),
-            ]),
-        ] {
-            assert!(value.deserialized::<RegistrationResult>().is_err());
-        }
+        assert!(decode_result(wire(MAX_VAULT_SIZE + 1)).is_err());
+        assert!(Value::serialized(&result(MAX_VAULT_SIZE)).is_ok());
+        assert!(Value::serialized(&result(MAX_VAULT_SIZE + 1)).is_err());
     }
 }
