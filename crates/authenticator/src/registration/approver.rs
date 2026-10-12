@@ -260,16 +260,16 @@ impl IncomingRegistration {
         })
     }
 
-    /// Refuses the request, e.g. with `invalid_name` for a name the host does not accept.
+    /// Refuses a request whose `name` the host does not accept, with `invalid_name`
+    /// (WIP-109 §3.7.1 step 4).
     ///
     /// # Errors
     ///
-    /// Returns an error if the response cannot be sealed or delivered.
-    pub async fn reject(
-        self,
-        reason: RegistrationErrorReason,
-    ) -> Result<DeliveryOutcome, ApproverError> {
-        self.channel.send(Err(reason.into_error(None))).await
+    /// Returns an error if the answer cannot be sealed or sent.
+    pub async fn reject_name(self) -> Result<DeliveryOutcome, ApproverError> {
+        self.channel
+            .send(Err(RegistrationErrorReason::InvalidName.into_error(None)))
+            .await
     }
 
     async fn from_authenticated(
@@ -291,7 +291,10 @@ impl IncomingRegistration {
                 let delivery = match rejection.reply_to {
                     Some(response_pubkey) => Some(
                         channel(response_pubkey)
-                            .reply(rejection.id, Err(rejection.reason.into_error(None)))
+                            .reply(
+                                rejection.id,
+                                Err(rejection.reason.into_error(Some(rejection.detail.clone()))),
+                            )
                             .await
                             .map_err(Box::new),
                     ),
@@ -312,43 +315,35 @@ impl IncomingRegistration {
         };
         let digest = match incoming.request.digest(&request_id) {
             Ok(digest) => digest,
-            Err(error) => {
-                let delivery = incoming
-                    .refuse_invalid_params("invalid registration params")
-                    .await;
-                return Err(ApproverError::InvalidRequest {
-                    reason: error.to_string(),
-                    delivery: Some(delivery),
-                });
-            }
+            Err(error) => return Err(incoming.refuse_invalid_params(error.to_string()).await),
         };
         if digest != attempt.uri.digest {
-            let delivery = incoming
-                .refuse_invalid_params("registration request does not match the pairing link")
-                .await;
-            return Err(ApproverError::DigestMismatch { delivery });
+            return Err(incoming
+                .refuse_invalid_params("the request does not match the pairing link".to_string())
+                .await);
         }
         if !incoming.request.verify_signature(&digest) {
-            let delivery = incoming
-                .refuse_invalid_params("invalid registration_sig")
-                .await;
-            return Err(ApproverError::InvalidRequest {
-                reason: "invalid registration signature".to_string(),
-                delivery: Some(delivery),
-            });
+            return Err(incoming
+                .refuse_invalid_params("invalid registration_sig".to_string())
+                .await);
         }
         Ok(incoming)
     }
 
     /// Answers `invalid_params` to a request that decoded but failed validation.
-    async fn refuse_invalid_params(&self, detail: &str) -> Delivery {
-        tracing::warn!(request = %log_tag(&self.channel.request_id), detail, "invalid registration params");
-        self.channel
+    async fn refuse_invalid_params(&self, problem: String) -> ApproverError {
+        tracing::warn!(request = %log_tag(&self.channel.request_id), problem, "invalid registration params");
+        let delivery = self
+            .channel
             .send(Err(
-                RegistrationErrorReason::InvalidParams.into_error(Some(detail.to_string()))
+                RegistrationErrorReason::InvalidParams.into_error(Some(problem.clone()))
             ))
             .await
-            .map_err(Box::new)
+            .map_err(Box::new);
+        ApproverError::InvalidRequest {
+            reason: problem,
+            delivery: Some(delivery),
+        }
     }
 
     async fn refuse(
@@ -410,19 +405,22 @@ impl CheckedRegistration {
     /// Returns an error if the response cannot be sealed or delivered.
     pub async fn reject(self) -> Result<DeliveryOutcome, ApproverError> {
         self.incoming
-            .reject(RegistrationErrorReason::UserRejected)
+            .channel
+            .send(Err(RegistrationErrorReason::UserRejected.into_error(None)))
             .await
     }
 
-    /// Ends the registration with `internal_error` because device verification failed or is
-    /// unavailable (WIP-109 §3.7.3). Nothing is registered and the vault is not shared.
+    /// Ends the registration with `internal_error` because the platform's user verification
+    /// failed or is unavailable (WIP-109 §3.7.3). Nothing is registered and the vault is not
+    /// shared.
     ///
     /// # Errors
     ///
-    /// Returns an error if the response cannot be sealed or delivered.
-    pub async fn verification_failed(self) -> Result<DeliveryOutcome, ApproverError> {
+    /// Returns an error if the answer cannot be sealed or sent.
+    pub async fn user_verification_failed(self) -> Result<DeliveryOutcome, ApproverError> {
         self.incoming
-            .reject(RegistrationErrorReason::InternalError)
+            .channel
+            .send(Err(RegistrationErrorReason::InternalError.into_error(None)))
             .await
     }
 
@@ -639,8 +637,8 @@ pub enum RegistrationPlan {
 ///
 /// Entering the pairing code or having an unlocked device does not count. Create it only right
 /// after the check succeeds, and pass it to [`CheckedRegistration::approve`]. If the check fails
-/// or is unavailable, call [`CheckedRegistration::verification_failed`]; if the user cancels it,
-/// call [`CheckedRegistration::reject`].
+/// or is unavailable, call [`CheckedRegistration::user_verification_failed`]; if the user cancels
+/// it, call [`CheckedRegistration::reject`].
 #[derive(Debug)]
 pub struct UserVerification(());
 
@@ -693,14 +691,8 @@ pub enum ApproverError {
         /// Number of remaining code attempts; zero means a new pairing is required.
         attempts_remaining: u8,
     },
-    /// The request does not match the digest in the Pairing URI. It was answered with
-    /// `invalid_params`.
-    #[error("the registration request does not match the pairing link")]
-    DigestMismatch {
-        /// The delivery of the answer.
-        delivery: Delivery,
-    },
-    /// The request is malformed.
+    /// The authenticated request is invalid, or is not the one the Pairing URI commits to
+    /// (WIP-109 §3.7.1 step 4).
     #[error("invalid registration request: {reason}")]
     InvalidRequest {
         /// What is wrong with the request.
@@ -844,7 +836,7 @@ fn parse_request(
     let Some(id) = envelope.id else {
         return Err(Box::new(Rejection {
             reason: RegistrationErrorReason::InvalidRequest,
-            detail: "registration request is a notification".to_string(),
+            detail: "the request is a notification".to_string(),
             id: None,
             reply_to: None,
         }));
@@ -860,13 +852,13 @@ fn parse_request(
     if id != Id::String(request_id.to_string()) {
         return Err(reject(
             RegistrationErrorReason::InvalidRequest,
-            "request id does not match the pairing link",
+            "the request id does not match the pairing link",
         ));
     }
     if envelope.method != REGISTER_METHOD {
         return Err(reject(
             RegistrationErrorReason::MethodNotFound,
-            "unexpected registration method",
+            &format!("unexpected method {}", envelope.method.as_str()),
         ));
     }
     envelope

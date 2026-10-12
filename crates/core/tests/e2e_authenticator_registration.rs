@@ -301,7 +301,7 @@ async fn e2e_authenticator_registration() {
         .check(&primary)
         .await
         .unwrap();
-    checked.verification_failed().await.unwrap();
+    checked.user_verification_failed().await.unwrap();
     assert_eq!(primary.signing_nonce().await.unwrap(), nonce);
     let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
         panic!("expected an internal error");
@@ -378,8 +378,9 @@ async fn e2e_authenticator_registration() {
     let refused = pending.authenticate(session.pairing_code().unwrap()).await;
     assert!(matches!(
         refused,
-        Err(ApproverError::DigestMismatch {
-            delivery: Ok(DeliveryOutcome::Delivered)
+        Err(ApproverError::InvalidRequest {
+            delivery: Some(Ok(DeliveryOutcome::Delivered)),
+            ..
         })
     ));
     let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
