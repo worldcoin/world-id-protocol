@@ -471,6 +471,14 @@ mod tests {
 
     const SEED: [u8; 32] = [77; 32];
 
+    /// The `id` of a response in a test.
+    #[derive(Clone, Copy, Debug)]
+    enum ResponseId {
+        ThisRequest,
+        Null,
+        Other(&'static str),
+    }
+
     fn requester(server: &mockito::ServerGuard) -> RegistrationRequester {
         RegistrationRequester::new(
             &SEED,
@@ -641,14 +649,6 @@ mod tests {
             (verified, _) => panic!("unexpected verification result: {:?}", verified.err()),
         }
         lookup.assert_async().await;
-    }
-
-    /// The `id` of a response in a test.
-    #[derive(Clone, Copy, Debug)]
-    enum ResponseId {
-        ThisRequest,
-        Null,
-        Other(&'static str),
     }
 
     /// An error response to `session` with `id`, sealed as the Approving Authenticator would.
