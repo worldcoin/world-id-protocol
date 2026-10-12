@@ -196,25 +196,33 @@ impl MutableIndexerStub {
     }
 }
 
-/// The authenticators of one account served by an [`AccountIndexerStub`], by `pubkey_id`.
+/// One authenticator of a [`StubAccount`].
+#[derive(Clone, Debug)]
+pub struct StubAuthenticator {
+    /// The signing key.
+    pub pubkey: EdDSAPublicKey,
+    /// The management address; the zero address for a Proving Authenticator.
+    pub address: Address,
+}
+
+/// The state of one account served by an [`AccountIndexerStub`].
 #[derive(Clone, Debug, Default)]
 pub struct StubAccount {
-    /// The public keys; `None` for removed slots.
-    pub pubkeys: Vec<Option<EdDSAPublicKey>>,
-    /// The addresses, the zero address for Proving Authenticators; `None` for removed slots.
-    pub addresses: Vec<Option<Address>>,
+    /// The authenticators by `pubkey_id`; `None` for a removed slot.
+    pub authenticators: Vec<Option<StubAuthenticator>>,
     /// The number of recoveries of the account.
     pub recovery_counter: u64,
 }
 
 impl StubAccount {
     fn encoded_pubkeys(&self) -> Vec<Option<U256>> {
-        self.pubkeys
+        self.authenticators
             .iter()
-            .map(|pubkey| {
-                pubkey.as_ref().map(|pubkey| {
+            .map(|slot| {
+                slot.as_ref().map(|authenticator| {
                     let mut compressed = Vec::new();
-                    pubkey
+                    authenticator
+                        .pubkey
                         .pk
                         .serialize_compressed(&mut compressed)
                         .expect("failed to serialize compressed authenticator pubkey");
@@ -224,10 +232,20 @@ impl StubAccount {
             .collect()
     }
 
+    fn addresses(&self) -> Vec<Option<Address>> {
+        self.authenticators
+            .iter()
+            .map(|slot| slot.as_ref().map(|authenticator| authenticator.address))
+            .collect()
+    }
+
     fn offchain_signer_commitment(&self) -> U256 {
         let mut key_set = AuthenticatorPublicKeySet::default();
-        for pubkey in &self.pubkeys {
-            key_set.push(pubkey.clone());
+        for slot in &self.authenticators {
+            key_set.push(
+                slot.as_ref()
+                    .map(|authenticator| authenticator.pubkey.clone()),
+            );
         }
         key_set.leaf_hash().into()
     }
@@ -257,47 +275,10 @@ impl AccountIndexerStub {
             .local_addr()
             .wrap_err("failed to read listener address")?;
         let accounts = Accounts::default();
-        let app =
-            Router::new()
-                .route(
-                    "/authenticators",
-                    post(
-                        |State(accounts): State<Accounts>,
-                         Json(body): Json<IndexerQueryRequest>| async move {
-                            let accounts = accounts
-                                .read()
-                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                            let account = accounts
-                                .get(&body.leaf_index)
-                                .ok_or(StatusCode::NOT_FOUND)?;
-                            Ok::<_, StatusCode>(Json(IndexerAuthenticatorsResponse {
-                                authenticator_pubkeys: account.encoded_pubkeys(),
-                                authenticator_addresses: account.addresses.clone(),
-                                offchain_signer_commitment: account.offchain_signer_commitment(),
-                                recovery_counter: account.recovery_counter,
-                            }))
-                        },
-                    ),
-                )
-                .route(
-                    "/authenticator-pubkeys",
-                    post(
-                        |State(accounts): State<Accounts>,
-                         Json(body): Json<IndexerQueryRequest>| async move {
-                            let accounts = accounts
-                                .read()
-                                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                            let account = accounts
-                                .get(&body.leaf_index)
-                                .ok_or(StatusCode::NOT_FOUND)?;
-                            Ok::<_, StatusCode>(Json(IndexerAuthenticatorPubkeysResponse {
-                                authenticator_pubkeys: account.encoded_pubkeys(),
-                                offchain_signer_commitment: account.offchain_signer_commitment(),
-                            }))
-                        },
-                    ),
-                )
-                .with_state(Arc::clone(&accounts));
+        let app = Router::new()
+            .route("/authenticators", post(authenticators))
+            .route("/authenticator-pubkeys", post(authenticator_pubkeys))
+            .with_state(Arc::clone(&accounts));
         let handle = tokio::spawn(async move {
             axum::serve(listener, app)
                 .await
@@ -325,6 +306,39 @@ impl AccountIndexerStub {
     pub fn abort(self) {
         self.handle.abort();
     }
+}
+
+async fn authenticators(
+    State(accounts): State<Accounts>,
+    Json(query): Json<IndexerQueryRequest>,
+) -> Result<Json<IndexerAuthenticatorsResponse>, StatusCode> {
+    let account = stub_account(&accounts, query.leaf_index)?;
+    Ok(Json(IndexerAuthenticatorsResponse {
+        authenticator_pubkeys: account.encoded_pubkeys(),
+        authenticator_addresses: account.addresses(),
+        offchain_signer_commitment: account.offchain_signer_commitment(),
+        recovery_counter: account.recovery_counter,
+    }))
+}
+
+async fn authenticator_pubkeys(
+    State(accounts): State<Accounts>,
+    Json(query): Json<IndexerQueryRequest>,
+) -> Result<Json<IndexerAuthenticatorPubkeysResponse>, StatusCode> {
+    let account = stub_account(&accounts, query.leaf_index)?;
+    Ok(Json(IndexerAuthenticatorPubkeysResponse {
+        authenticator_pubkeys: account.encoded_pubkeys(),
+        offchain_signer_commitment: account.offchain_signer_commitment(),
+    }))
+}
+
+fn stub_account(accounts: &Accounts, leaf_index: u64) -> Result<StubAccount, StatusCode> {
+    accounts
+        .read()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .get(&leaf_index)
+        .cloned()
+        .ok_or(StatusCode::NOT_FOUND)
 }
 
 async fn spawn_orpf_node(

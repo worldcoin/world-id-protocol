@@ -1,6 +1,6 @@
-//! An in-memory stand-in for the wallet-bridge (message-bridge), with the same request and
-//! response semantics: single-use reads, `409` on a second write and a session that ends once
-//! its response is stored. Entries never expire.
+//! An in-memory stand-in for the message-bridge, with its request and response semantics:
+//! single-use reads, `409` on a second write and a session that ends once its response is
+//! fetched. Sessions never expire.
 
 use std::{
     collections::HashMap,
@@ -17,6 +17,33 @@ use eyre::{Context as _, Result};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::{net::TcpListener, task::JoinHandle};
+
+/// An encrypted message, opaque to the bridge.
+#[derive(Clone, Serialize, Deserialize)]
+struct Payload {
+    iv: String,
+    payload: String,
+}
+
+/// The body of `POST /request`.
+#[derive(Deserialize)]
+struct PublishBody {
+    request_id: String,
+    #[serde(flatten)]
+    request: Payload,
+}
+
+/// One session, keyed by its lowercase request id.
+enum Session {
+    /// The request waits to be taken.
+    Initialized(Payload),
+    /// The request was taken; the response has not arrived.
+    Retrieved,
+    /// The response waits to be fetched.
+    Completed(Payload),
+}
+
+type Sessions = Arc<Mutex<HashMap<String, Session>>>;
 
 /// A running bridge stub. Dropping it does not stop the server; call [`BridgeStub::abort`].
 pub struct BridgeStub {
@@ -44,7 +71,7 @@ impl BridgeStub {
             .route("/request", post(publish_request))
             .route("/request/{id}", get(take_request))
             .route("/response/{id}", get(fetch_response).put(put_response))
-            .with_state(Shared::default());
+            .with_state(Sessions::default());
         let handle = tokio::spawn(async move {
             axum::serve(listener, app)
                 .await
@@ -59,95 +86,77 @@ impl BridgeStub {
     }
 }
 
-#[derive(Clone, Serialize, Deserialize)]
-struct Payload {
-    iv: String,
-    payload: String,
-}
-
-#[derive(Deserialize)]
-struct PublishBody {
-    request_id: String,
-    iv: String,
-    payload: String,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum Status {
-    Initialized,
-    Retrieved,
-}
-
-#[derive(Default)]
-struct Sessions {
-    requests: HashMap<String, Payload>,
-    statuses: HashMap<String, Status>,
-    responses: HashMap<String, Payload>,
-}
-
-type Shared = Arc<Mutex<Sessions>>;
-
+/// Stores a request, unless one is already waiting under its id.
 async fn publish_request(
-    State(state): State<Shared>,
+    State(sessions): State<Sessions>,
     Json(body): Json<PublishBody>,
 ) -> Result<Json<Value>, StatusCode> {
     let id = body.request_id.to_lowercase();
-    let mut sessions = state.lock().expect("bridge stub lock poisoned");
-    if sessions.requests.contains_key(&id) {
+    let mut sessions = sessions.lock().expect("bridge stub lock poisoned");
+    if let Some(Session::Initialized(_)) = sessions.get(&id) {
         return Err(StatusCode::CONFLICT);
     }
-    sessions.requests.insert(
-        id.clone(),
-        Payload {
-            iv: body.iv,
-            payload: body.payload,
-        },
-    );
-    sessions.statuses.insert(id.clone(), Status::Initialized);
+    sessions.insert(id.clone(), Session::Initialized(body.request));
     Ok(Json(json!({ "request_id": id })))
 }
 
+/// Hands out a waiting request once.
 async fn take_request(
-    State(state): State<Shared>,
+    State(sessions): State<Sessions>,
     Path(id): Path<String>,
 ) -> Result<Json<Payload>, StatusCode> {
     let id = id.to_lowercase();
-    let mut sessions = state.lock().expect("bridge stub lock poisoned");
-    let request = sessions.requests.remove(&id).ok_or(StatusCode::NOT_FOUND)?;
-    sessions.statuses.insert(id, Status::Retrieved);
-    Ok(Json(request))
-}
-
-async fn fetch_response(
-    State(state): State<Shared>,
-    Path(id): Path<String>,
-) -> Result<Json<Value>, StatusCode> {
-    let id = id.to_lowercase();
-    let mut sessions = state.lock().expect("bridge stub lock poisoned");
-    if let Some(response) = sessions.responses.remove(&id) {
-        return Ok(Json(json!({ "status": "completed", "response": response })));
-    }
-    match sessions.statuses.get(&id) {
-        Some(Status::Initialized) => Ok(Json(json!({ "status": "initialized", "response": null }))),
-        Some(Status::Retrieved) => Ok(Json(json!({ "status": "retrieved", "response": null }))),
+    let mut sessions = sessions.lock().expect("bridge stub lock poisoned");
+    match sessions.remove(&id) {
+        Some(Session::Initialized(request)) => {
+            sessions.insert(id, Session::Retrieved);
+            Ok(Json(request))
+        }
+        Some(session) => {
+            sessions.insert(id, session);
+            Err(StatusCode::NOT_FOUND)
+        }
         None => Err(StatusCode::NOT_FOUND),
     }
 }
 
-async fn put_response(
-    State(state): State<Shared>,
+/// Reports the session status, handing out a stored response once and ending the session.
+async fn fetch_response(
+    State(sessions): State<Sessions>,
     Path(id): Path<String>,
-    Json(body): Json<Payload>,
+) -> Result<Json<Value>, StatusCode> {
+    let id = id.to_lowercase();
+    let mut sessions = sessions.lock().expect("bridge stub lock poisoned");
+    match sessions.remove(&id) {
+        Some(Session::Completed(response)) => {
+            Ok(Json(json!({ "status": "completed", "response": response })))
+        }
+        Some(waiting) => {
+            let status = match waiting {
+                Session::Initialized(_) => "initialized",
+                _ => "retrieved",
+            };
+            sessions.insert(id, waiting);
+            Ok(Json(json!({ "status": status, "response": null })))
+        }
+        None => Err(StatusCode::NOT_FOUND),
+    }
+}
+
+/// Stores the response of a live session that has none yet.
+async fn put_response(
+    State(sessions): State<Sessions>,
+    Path(id): Path<String>,
+    Json(response): Json<Payload>,
 ) -> StatusCode {
     let id = id.to_lowercase();
-    let mut sessions = state.lock().expect("bridge stub lock poisoned");
-    if !sessions.statuses.contains_key(&id) {
-        return StatusCode::BAD_REQUEST;
+    let mut sessions = sessions.lock().expect("bridge stub lock poisoned");
+    match sessions.get(&id) {
+        Some(Session::Initialized(_) | Session::Retrieved) => {
+            sessions.insert(id, Session::Completed(response));
+            StatusCode::CREATED
+        }
+        Some(Session::Completed(_)) => StatusCode::CONFLICT,
+        None => StatusCode::BAD_REQUEST,
     }
-    if sessions.responses.contains_key(&id) {
-        return StatusCode::CONFLICT;
-    }
-    sessions.responses.insert(id.clone(), body);
-    sessions.statuses.remove(&id);
-    StatusCode::CREATED
 }
