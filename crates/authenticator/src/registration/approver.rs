@@ -36,6 +36,9 @@ use crate::{AccountSnapshot, Authenticator, AuthenticatorError, authenticator::l
 /// How many times the user may enter the pairing code for one request (WIP-109 §3.7.1 step 3).
 const MAX_CODE_ATTEMPTS: u8 = 3;
 
+/// Matches the nesting limit of the WIP-105 message decoder.
+const RECURSION_LIMIT: usize = 32;
+
 /// How long before the estimated session expiry the response is due (WIP-109 §3.5).
 const RESPONSE_MARGIN: Duration = Duration::from_secs(60);
 
@@ -864,7 +867,7 @@ fn decode_request_value(plaintext: &[u8]) -> Result<Value, MessageError> {
         return Err(MessageError::TooLarge);
     }
     let mut remaining = plaintext;
-    let value = ciborium::de::from_reader_with_recursion_limit(&mut remaining, 32)?;
+    let value = ciborium::de::from_reader_with_recursion_limit(&mut remaining, RECURSION_LIMIT)?;
     if !remaining.is_empty() {
         return Err(MessageError::TrailingData);
     }
@@ -1374,7 +1377,7 @@ mod tests {
             decode_request_value(&[0xa0, 0]),
             Err(MessageError::TrailingData)
         ));
-        let mut nested = vec![0x81; 34];
+        let mut nested = vec![0x81; RECURSION_LIMIT + 2];
         nested.push(0);
         assert!(matches!(
             decode_request_value(&nested),

@@ -465,7 +465,7 @@ mod tests {
     use tokio::sync::Notify;
     use world_id_primitives::{
         ServiceEndpoint,
-        authenticator_message::{Id, Version},
+        authenticator_message::Id,
     };
     use world_id_proof::artifacts::dummy::DummyZkArtifactSource;
     use zeroize::Zeroizing;
@@ -681,11 +681,10 @@ mod tests {
         };
         let sealed = sealed_response(
             &session,
-            Response::Success {
-                version: Version::V1,
-                id: id.value(&session).expect("a success has a non-null ID"),
-                result: result.clone(),
-            },
+            Response::success(
+                id.value(&session).expect("a success has a non-null ID"),
+                result.clone(),
+            ),
         );
         let request_id = secrets(&session).pairing_secret.request_id();
         let _completed = server
@@ -730,15 +729,10 @@ mod tests {
         let mut session = published(&mut server).await;
         let sealed = sealed_response(
             &session,
-            Response::Error {
-                version: Version::V1,
-                id: id.value(&session),
-                error: ErrorObject {
-                    code: code.into(),
-                    message: "Registration failed".into(),
-                    data: None,
-                },
-            },
+            Response::error(
+                id.value(&session),
+                ErrorObject::new(code, "Registration failed", None),
+            ),
         );
         let request_id = secrets(&session).pairing_secret.request_id();
         let _completed = server
