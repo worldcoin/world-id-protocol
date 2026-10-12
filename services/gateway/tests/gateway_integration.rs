@@ -15,7 +15,7 @@ use world_id_registries::world_id::{
     sign_remove_authenticator, sign_update_authenticator,
 };
 
-use crate::common::{spawn_test_gateway, wait_for_finalized};
+use crate::common::{authenticator_pubkey, spawn_test_gateway, wait_for_finalized};
 
 mod common;
 
@@ -36,7 +36,7 @@ async fn e2e_gateway_full_flow() {
     let body_create = serde_json::json!({
         "recovery_address": wallet_addr.to_string(),
         "authenticator_addresses": [wallet_addr.to_string()],
-        "authenticator_pubkeys": ["0x64"],
+        "authenticator_pubkeys": [authenticator_pubkey(100).to_string()],
         "offchain_signer_commitment": "0x1",
     });
     let resp = gw
@@ -107,7 +107,7 @@ async fn e2e_gateway_full_flow() {
         1,
         new_auth2,
         1,
-        U256::from(200),
+        authenticator_pubkey(200),
         U256::from(2),
         nonce,
         &domain,
@@ -121,7 +121,7 @@ async fn e2e_gateway_full_flow() {
         signature: sig_ins,
         nonce,
         pubkey_id: 1,
-        new_authenticator_pubkey: U256::from(200),
+        new_authenticator_pubkey: authenticator_pubkey(200),
     };
     // Issue request to gateway
     let resp = gw
@@ -171,7 +171,7 @@ async fn e2e_gateway_full_flow() {
         1,
         new_auth2,
         1,
-        U256::from(200),
+        authenticator_pubkey(200),
         U256::from(3),
         nonce,
         &domain,
@@ -185,7 +185,7 @@ async fn e2e_gateway_full_flow() {
         signature: sig_rem,
         nonce,
         pubkey_id: Some(1),
-        authenticator_pubkey: Some(U256::from(200)),
+        authenticator_pubkey: Some(authenticator_pubkey(200)),
     };
     let resp = gw
         .client
@@ -232,7 +232,7 @@ async fn e2e_gateway_full_flow() {
         &signer,
         1,
         wallet_addr_new,
-        U256::from(300),
+        authenticator_pubkey(300),
         U256::from(4),
         nonce,
         &domain,
@@ -247,7 +247,7 @@ async fn e2e_gateway_full_flow() {
         new_offchain_signer_commitment: U256::from(4),
         signature: sig_rec,
         nonce,
-        new_authenticator_pubkey: Some(U256::from(300)),
+        new_authenticator_pubkey: Some(authenticator_pubkey(300)),
     };
     let resp = gw
         .client
@@ -298,7 +298,7 @@ async fn e2e_gateway_full_flow() {
         wallet_addr_new,
         new_auth4,
         0,
-        U256::from(400),
+        authenticator_pubkey(400),
         U256::from(5),
         nonce,
         &domain,
@@ -313,7 +313,7 @@ async fn e2e_gateway_full_flow() {
         signature: sig_upd,
         nonce,
         pubkey_id: 0,
-        new_authenticator_pubkey: U256::from(400),
+        new_authenticator_pubkey: authenticator_pubkey(400),
     };
     let resp = gw
         .client
@@ -375,7 +375,7 @@ async fn test_authenticator_already_exists_error_code() {
     let body_create = serde_json::json!({
         "recovery_address": wallet_addr.to_string(),
         "authenticator_addresses": [wallet_addr.to_string()],
-        "authenticator_pubkeys": ["100"],
+        "authenticator_pubkeys": [authenticator_pubkey(100).to_string()],
         "offchain_signer_commitment": "1",
     });
     let resp = gw
@@ -417,7 +417,7 @@ async fn test_authenticator_already_exists_error_code() {
         1,
         wallet_addr, // Same address that's already an authenticator for account 1
         0,
-        U256::from(100),
+        authenticator_pubkey(100),
         U256::from(2),
         nonce,
         &domain,
@@ -431,7 +431,7 @@ async fn test_authenticator_already_exists_error_code() {
         signature: sig_ins,
         nonce,
         pubkey_id: 0,
-        new_authenticator_pubkey: U256::from(100),
+        new_authenticator_pubkey: authenticator_pubkey(100),
     };
 
     let resp = gw
@@ -472,7 +472,7 @@ async fn test_same_authenticator_different_accounts() {
     let body_create1 = serde_json::json!({
         "recovery_address": wallet_addr.to_string(),
         "authenticator_addresses": [wallet_addr.to_string()],
-        "authenticator_pubkeys": ["100"],
+        "authenticator_pubkeys": [authenticator_pubkey(100).to_string()],
         "offchain_signer_commitment": "1",
     });
     let resp = gw
@@ -491,7 +491,7 @@ async fn test_same_authenticator_different_accounts() {
     let body_create2 = serde_json::json!({
         "recovery_address": address!("0x0000000000000000000000000000000000000002").to_string(),
         "authenticator_addresses": [wallet_addr.to_string()], // Same authenticator!
-        "authenticator_pubkeys": ["200"],
+        "authenticator_pubkeys": [authenticator_pubkey(200).to_string()],
         "offchain_signer_commitment": "2",
     });
     let resp = gw

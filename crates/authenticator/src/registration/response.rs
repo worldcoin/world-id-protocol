@@ -41,6 +41,10 @@ pub struct KnownAuthenticator {
     pub name: String,
 }
 
+/// The largest [`Vault::data`] a registration response carries: 3.5 MiB, so that the encrypted
+/// response fits the message-bridge's 5 MiB body limit (WIP-109 §3.6.2).
+pub const MAX_VAULT_SIZE: usize = 3_670_016;
+
 /// A credential vault export.
 ///
 /// The vault holds the account's credentials and the associated data from their issuers, which
@@ -49,8 +53,8 @@ pub struct KnownAuthenticator {
 pub struct Vault {
     /// The format of `data`.
     pub format: VaultFormat,
-    /// The vault bytes, a CBOR byte string on the wire.
-    #[serde(serialize_with = "super::bytes::vec::serialize")]
+    /// The vault bytes, a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes on the wire.
+    #[serde(serialize_with = "serialize_vault_data")]
     pub data: Vec<u8>,
 }
 
@@ -60,14 +64,30 @@ pub struct Vault {
 #[serde(deny_unknown_fields)]
 struct WireVault {
     format: VaultFormat,
-    #[serde(deserialize_with = "deserialize_zeroizing")]
+    #[serde(deserialize_with = "deserialize_vault_data")]
     data: zeroize::Zeroizing<Vec<u8>>,
 }
 
-fn deserialize_zeroizing<'de, D: serde::Deserializer<'de>>(
+fn serialize_vault_data<S: serde::Serializer>(
+    data: &[u8],
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    use serde::ser::Error as _;
+    if data.len() > MAX_VAULT_SIZE {
+        return Err(S::Error::custom("vault data exceeds 3.5 MiB"));
+    }
+    super::bytes::vec::serialize(data, serializer)
+}
+
+fn deserialize_vault_data<'de, D: serde::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<zeroize::Zeroizing<Vec<u8>>, D::Error> {
-    super::bytes::vec::deserialize(deserializer).map(zeroize::Zeroizing::new)
+    use serde::de::Error as _;
+    let data = zeroize::Zeroizing::new(super::bytes::vec::deserialize(deserializer)?);
+    if data.len() > MAX_VAULT_SIZE {
+        return Err(D::Error::custom("vault data exceeds 3.5 MiB"));
+    }
+    Ok(data)
 }
 
 impl<'de> Deserialize<'de> for Vault {
@@ -266,7 +286,9 @@ mod leaf_index {
     }
 }
 
-/// Authenticator slots are below `NUM_KEYS` (WIP-100 §3.8).
+/// Authenticator slots are below the registry's `getMaxAuthenticators()` (WIP-109 §3.6.2). Decoding
+/// checks [`MAX_AUTHENTICATOR_KEYS`], the most slots an account's key set holds; the Requesting
+/// Authenticator checks the actual slot against the registry.
 mod pubkey_id {
     use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
 
@@ -536,6 +558,45 @@ mod tests {
             ]);
             assert!(result.deserialized::<RegistrationResult>().is_err());
         }
+    }
+
+    #[test]
+    fn vault_data_is_limited_to_3_5_mib() {
+        let result = |size| RegistrationResult {
+            leaf_index: 42,
+            pubkey_id: 1,
+            authenticators: Vec::new(),
+            vault: Some(Vault {
+                format: VaultFormat::WalletkitPlaintextV1,
+                data: vec![0; size],
+            }),
+        };
+        let wire = |size| {
+            ciborium::Value::Map(vec![
+                ("leaf_index".into(), 42.into()),
+                ("pubkey_id".into(), 1.into()),
+                (
+                    "vault".into(),
+                    ciborium::Value::Map(vec![
+                        ("format".into(), "walletkit_plaintext_v1".into()),
+                        ("data".into(), ciborium::Value::Bytes(vec![0; size])),
+                    ]),
+                ),
+            ])
+        };
+        assert_eq!(
+            wire(MAX_VAULT_SIZE)
+                .deserialized::<RegistrationResult>()
+                .unwrap(),
+            result(MAX_VAULT_SIZE)
+        );
+        assert!(
+            wire(MAX_VAULT_SIZE + 1)
+                .deserialized::<RegistrationResult>()
+                .is_err()
+        );
+        assert!(ciborium::Value::serialized(&result(MAX_VAULT_SIZE)).is_ok());
+        assert!(ciborium::Value::serialized(&result(MAX_VAULT_SIZE + 1)).is_err());
     }
 
     #[test]
