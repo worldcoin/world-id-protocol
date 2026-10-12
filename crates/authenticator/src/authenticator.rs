@@ -40,30 +40,6 @@ use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::{Nullifier, SessionId};
 
-static MASK_RECOVERY_COUNTER: U256 =
-    uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
-static MASK_PUBKEY_ID: U256 =
-    uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
-static MASK_LEAF_INDEX: U256 =
-    uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
-
-/// Packs account data as the `WorldIDRegistry`'s `PackedAccountData.pack` does: the recovery
-/// counter in bits 224 to 255, the `pubkey_id` in bits 192 to 223 and the leaf index in bits 0 to
-/// 63.
-pub(crate) fn pack_account_data(recovery_counter: u32, pubkey_id: u32, leaf_index: u64) -> U256 {
-    (U256::from(recovery_counter) << 224) | (U256::from(pubkey_id) << 192) | U256::from(leaf_index)
-}
-
-/// Returns the leaf index in packed account data.
-pub(crate) fn leaf_index_of(packed_account_data: U256) -> u64 {
-    (packed_account_data & MASK_LEAF_INDEX).to::<u64>()
-}
-
-/// Returns the recovery counter in packed account data.
-fn recovery_counter_of(packed_account_data: U256) -> U256 {
-    (packed_account_data & MASK_RECOVERY_COUNTER) >> 224
-}
-
 /// Input for a single credential proof within a proof request.
 pub struct CredentialInput {
     /// The credential to prove.
@@ -172,15 +148,16 @@ impl Authenticator {
         )
         .await?;
 
-        Ok(Self::from_parts(
+        Ok(Self {
             config,
             packed_account_data,
             signer,
             registry,
             indexer_client,
             gateway_client,
+            ws_connector: ws_connector(),
             zk_artifact_source,
-        ))
+        })
     }
 
     /// Initializes an Authenticator for the account at `leaf_index` from a seed, without looking
@@ -209,29 +186,56 @@ impl Authenticator {
         config: Config,
         zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> Result<Self, AuthenticatorError> {
-        let signer = Signer::from_seed_bytes(seed)?;
-        let http_client = default_http_client()?;
-        let registry = Self::registry_for(&config, http_client.clone());
-        let indexer_client =
-            ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
-        let gateway_client =
-            ServiceClient::new(http_client, ServiceKind::Gateway, config.gateway())?;
+        let authenticators = Self::fetch_account_authenticators(leaf_index, &config).await?;
+        Self::from_account_authenticators(
+            seed,
+            leaf_index,
+            &authenticators,
+            config,
+            zk_artifact_source,
+        )
+    }
 
-        let authenticators =
-            Self::fetch_authenticators_for(leaf_index, &config, &indexer_client).await?;
+    /// Builds the Authenticator for `seed` on the account at `leaf_index` from the account's
+    /// `authenticators`, without a network call.
+    ///
+    /// The off-chain public key derived from `seed` must be registered in `authenticators`. Its
+    /// slot becomes [`Authenticator::pubkey_id`] and the account's recovery counter becomes
+    /// [`Authenticator::recovery_counter`].
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::PublicKeyNotFound`] if the public key is not in `authenticators`.
+    /// - Other errors if the seed is invalid or the HTTP client cannot be built.
+    pub(crate) fn from_account_authenticators(
+        seed: &[u8],
+        leaf_index: u64,
+        authenticators: &AccountAuthenticators,
+        config: Config,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
+    ) -> Result<Self, AuthenticatorError> {
+        let signer = Signer::from_seed_bytes(seed)?;
         let packed_account_data = authenticators
             .packed_account_data(leaf_index, &signer.offchain_signer_pubkey())
             .ok_or(AuthenticatorError::PublicKeyNotFound)?;
-
-        Ok(Self::from_parts(
+        let http_client = default_http_client()?;
+        Ok(Self {
+            registry: Self::registry_for(&config, http_client.clone()),
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer(),
+            )?,
+            gateway_client: ServiceClient::new(
+                http_client,
+                ServiceKind::Gateway,
+                config.gateway(),
+            )?,
             config,
             packed_account_data,
             signer,
-            registry,
-            indexer_client,
-            gateway_client,
+            ws_connector: ws_connector(),
             zk_artifact_source,
-        ))
+        })
     }
 
     /// Registers a new World ID in the `WorldIDRegistry`.
@@ -613,6 +617,25 @@ impl Authenticator {
     }
 
     /// Fetches the registered authenticators of the account at `leaf_index` from the indexer's
+    /// `/authenticators` endpoint, with clients built from `config`. Use it to read an account
+    /// without an [`Authenticator`] for it.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if the indexer does not know the account.
+    /// - Other errors if a network call fails or the indexer returns an invalid account state.
+    pub(crate) async fn fetch_account_authenticators(
+        leaf_index: u64,
+        config: &Config,
+    ) -> Result<AccountAuthenticators, AuthenticatorError> {
+        let indexer_client = ServiceClient::new(
+            default_http_client()?,
+            ServiceKind::Indexer,
+            config.indexer(),
+        )?;
+        Self::fetch_authenticators_for(leaf_index, config, &indexer_client).await
+    }
+
+    /// Fetches the registered authenticators of the account at `leaf_index` from the indexer's
     /// `/authenticators` endpoint.
     pub(crate) async fn fetch_authenticators_for(
         leaf_index: u64,
@@ -713,40 +736,46 @@ impl Authenticator {
             ))
         })
     }
+}
 
-    fn from_parts(
-        config: Config,
-        packed_account_data: U256,
-        signer: Signer,
-        registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
-        indexer_client: ServiceClient,
-        gateway_client: ServiceClient,
-        zk_artifact_source: Arc<dyn ZkArtifactSource>,
-    ) -> Self {
-        #[cfg(not(target_arch = "wasm32"))]
-        let ws_connector = {
-            let mut root_store = rustls::RootCertStore::empty();
-            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            let rustls_config = rustls::ClientConfig::builder()
-                .with_root_certificates(root_store)
-                .with_no_client_auth();
-            Connector::Rustls(Arc::new(rustls_config))
-        };
+static MASK_RECOVERY_COUNTER: U256 =
+    uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
+static MASK_PUBKEY_ID: U256 =
+    uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
+static MASK_LEAF_INDEX: U256 =
+    uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
 
-        #[cfg(target_arch = "wasm32")]
-        let ws_connector = Connector;
+/// Packs account data as the `WorldIDRegistry`'s `PackedAccountData.pack` does: the recovery
+/// counter in bits 224 to 255, the `pubkey_id` in bits 192 to 223 and the leaf index in bits 0 to
+/// 63.
+pub(crate) fn pack_account_data(recovery_counter: u32, pubkey_id: u32, leaf_index: u64) -> U256 {
+    (U256::from(recovery_counter) << 224) | (U256::from(pubkey_id) << 192) | U256::from(leaf_index)
+}
 
-        Self {
-            packed_account_data,
-            signer,
-            config,
-            registry,
-            indexer_client,
-            gateway_client,
-            ws_connector,
-            zk_artifact_source,
-        }
+/// Returns the leaf index in packed account data.
+pub(crate) fn leaf_index_of(packed_account_data: U256) -> u64 {
+    (packed_account_data & MASK_LEAF_INDEX).to::<u64>()
+}
+
+/// Returns the recovery counter in packed account data.
+fn recovery_counter_of(packed_account_data: U256) -> U256 {
+    (packed_account_data & MASK_RECOVERY_COUNTER) >> 224
+}
+
+/// Returns the connector for WebSocket connections to OPRF nodes: TLS with the web PKI roots on
+/// native targets, and the browser's own TLS in a browser.
+fn ws_connector() -> Connector {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let rustls_config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        Connector::Rustls(Arc::new(rustls_config))
     }
+    #[cfg(target_arch = "wasm32")]
+    Connector
 }
 
 #[cfg(test)]
@@ -896,12 +925,12 @@ mod tests {
             .offchain_signer_pubkey()
     }
 
-    /// An `/authenticators` response body with each slot's public key and address, and the
-    /// commitment to the keys.
-    fn authenticators_body(
+    /// An `/authenticators` response with each slot's public key and address, and the commitment
+    /// to the keys.
+    fn authenticators_response(
         slots: &[Option<(EdDSAPublicKey, Address)>],
         recovery_counter: u64,
-    ) -> serde_json::Value {
+    ) -> IndexerAuthenticatorsResponse {
         let authenticator_pubkeys: Vec<_> = slots
             .iter()
             .map(|slot| {
@@ -910,7 +939,7 @@ mod tests {
             })
             .collect();
         let key_set = Authenticator::decode_indexer_pubkeys(authenticator_pubkeys.clone()).unwrap();
-        serde_json::to_value(IndexerAuthenticatorsResponse {
+        IndexerAuthenticatorsResponse {
             authenticator_pubkeys,
             authenticator_addresses: slots
                 .iter()
@@ -918,8 +947,14 @@ mod tests {
                 .collect(),
             offchain_signer_commitment: key_set.leaf_hash().into(),
             recovery_counter,
-        })
-        .unwrap()
+        }
+    }
+
+    fn authenticators_body(
+        slots: &[Option<(EdDSAPublicKey, Address)>],
+        recovery_counter: u64,
+    ) -> serde_json::Value {
+        serde_json::to_value(authenticators_response(slots, recovery_counter)).unwrap()
     }
 
     async fn mock_authenticators(
@@ -973,13 +1008,21 @@ mod tests {
         mock.assert_async().await;
     }
 
-    #[tokio::test]
-    async fn init_with_leaf_index_requires_a_registered_key() {
-        let mut server = mockito::Server::new_async().await;
-        let body = authenticators_body(&[Some((test_pubkey(1), ADMIN))], 0);
-        let _mock = mock_authenticators(&mut server, 200, &body).await;
+    #[test]
+    fn an_authenticator_needs_its_key_in_the_account_authenticators() {
+        let authenticators = AccountAuthenticators::try_from(authenticators_response(
+            &[Some((test_pubkey(1), ADMIN))],
+            0,
+        ))
+        .unwrap();
 
-        let result = init_with_leaf_index(&server).await;
+        let result = Authenticator::from_account_authenticators(
+            &SEED,
+            LEAF_INDEX,
+            &authenticators,
+            config_with_indexer("http://indexer.example.com".to_string()),
+            dummy_zk_artifact_source(),
+        );
 
         assert!(matches!(result, Err(AuthenticatorError::PublicKeyNotFound)));
     }
