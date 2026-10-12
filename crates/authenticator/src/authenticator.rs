@@ -1220,6 +1220,7 @@ mod tests {
                 offchain_signer_commitment: commitment ^ U256::from(1),
                 recovery_counter: 0,
             },
+            max_authenticators: None,
         };
         let no_submission = server
             .mock("POST", "/insert-authenticator")
@@ -1250,10 +1251,22 @@ mod tests {
                 PrimitiveError::InvalidInput { .. }
             ))
         ));
+        snapshot.authenticators.offchain_signer_commitment = commitment;
+        snapshot.max_authenticators = Some(1);
+        assert!(matches!(
+            authenticator
+                .insert_authenticator_from_snapshot(
+                    &snapshot,
+                    test_pubkey(2),
+                    AuthenticatorClass::Proving
+                )
+                .await,
+            Err(AuthenticatorError::MaxAuthenticatorsReached)
+        ));
         no_submission.assert_async().await;
         no_submission.remove_async().await;
 
-        snapshot.authenticators.offchain_signer_commitment = commitment;
+        snapshot.max_authenticators = None;
         let submission = server
             .mock("POST", "/insert-authenticator")
             .match_body(mockito::Matcher::PartialJson(serde_json::json!({
@@ -1287,33 +1300,42 @@ mod tests {
 
     #[test]
     fn test_lowest_free_pubkey_id() {
-        let authenticators = |keys: Vec<Option<EdDSAPublicKey>>| {
+        let snapshot = |keys: Vec<Option<EdDSAPublicKey>>, max_authenticators| {
             let mut key_set = AuthenticatorPublicKeySet::default();
             for key in &keys {
                 key_set.push(key.clone());
             }
-            AccountAuthenticators {
-                key_set,
-                classes: keys
-                    .iter()
-                    .map(|key| key.as_ref().map(|_| AuthenticatorClass::Proving))
-                    .collect(),
-                offchain_signer_commitment: U256::ZERO,
-                recovery_counter: 0,
+            crate::AccountSnapshot {
+                leaf_index: 42,
+                signature_nonce: U256::ZERO,
+                authenticators: AccountAuthenticators {
+                    key_set,
+                    classes: keys
+                        .iter()
+                        .map(|key| key.as_ref().map(|_| AuthenticatorClass::Proving))
+                        .collect(),
+                    offchain_signer_commitment: U256::ZERO,
+                    recovery_counter: 0,
+                },
+                max_authenticators,
             }
         };
-        assert_eq!(authenticators(vec![]).lowest_free_pubkey_id(), Some(0));
+        let one = || vec![Some(test_pubkey(1))];
+        let full = || (1..=7).map(|seed| Some(test_pubkey(seed))).collect();
+        assert_eq!(snapshot(vec![], None).lowest_free_pubkey_id(), Some(0));
         assert_eq!(
-            authenticators(vec![Some(test_pubkey(1)), None, Some(test_pubkey(2))])
-                .lowest_free_pubkey_id(),
+            snapshot(
+                vec![Some(test_pubkey(1)), None, Some(test_pubkey(2))],
+                Some(2)
+            )
+            .lowest_free_pubkey_id(),
             Some(1)
         );
-        assert_eq!(
-            authenticators(vec![Some(test_pubkey(1))]).lowest_free_pubkey_id(),
-            Some(1)
-        );
-        let full = (1..=7).map(|seed| Some(test_pubkey(seed))).collect();
-        assert_eq!(authenticators(full).lowest_free_pubkey_id(), None);
+        assert_eq!(snapshot(one(), None).lowest_free_pubkey_id(), Some(1));
+        assert_eq!(snapshot(one(), Some(2)).lowest_free_pubkey_id(), Some(1));
+        assert_eq!(snapshot(one(), Some(1)).lowest_free_pubkey_id(), None);
+        assert_eq!(snapshot(full(), None).lowest_free_pubkey_id(), None);
+        assert_eq!(snapshot(full(), Some(96)).lowest_free_pubkey_id(), None);
     }
 
     #[tokio::test]

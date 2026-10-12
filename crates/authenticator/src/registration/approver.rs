@@ -798,7 +798,7 @@ fn plan_registration(
         return Err(RegistrationErrorReason::AuthenticatorConflict);
     }
 
-    authenticators
+    snapshot
         .lowest_free_pubkey_id()
         .map(|pubkey_id| RegistrationPlan::Insert { pubkey_id })
         .ok_or(RegistrationErrorReason::MaxAuthenticatorsReached)

@@ -309,8 +309,6 @@ impl<'de> Deserialize<'de> for RegistrationRequest {
 
 #[cfg(test)]
 mod tests {
-    use world_id_primitives::authenticator_message::Id;
-
     use super::*;
     use crate::registration::{PairingSecret, ResponseSecretKey};
 
@@ -395,11 +393,11 @@ mod tests {
 
         let (mut request, _, request_id) = signed_request(admin());
         request.class = zero;
-        let message = RegisterRequestMessage::new(
-            Some(Id::String(request_id.to_string())),
-            REGISTER_METHOD,
-            request,
-        );
+        let message = RegisterRequestMessage::builder()
+            .id(request_id.to_string())
+            .method(REGISTER_METHOD)
+            .params(request)
+            .build();
         assert!(world_id_primitives::authenticator_message::encode(&message).is_err());
     }
 
@@ -407,11 +405,11 @@ mod tests {
     fn request_round_trips_through_cbor() {
         for class in [admin(), AuthenticatorClass::Proving] {
             let (request, _, request_id) = signed_request(class);
-            let message = RegisterRequestMessage::new(
-                Some(Id::String(request_id.to_string())),
-                REGISTER_METHOD,
-                request,
-            );
+            let message = RegisterRequestMessage::builder()
+                .id(request_id.to_string())
+                .method(REGISTER_METHOD)
+                .params(request)
+                .build();
             let encoded = world_id_primitives::authenticator_message::encode(&message).unwrap();
             let parsed: RegisterRequestMessage =
                 world_id_primitives::authenticator_message::decode(&encoded, 10000).unwrap();

@@ -36,16 +36,19 @@ pub use request::{
 };
 pub use requester::{RegistrationRequester, RequestedClass, RequesterError, RequesterStatus};
 pub use response::{
-    KnownAuthenticator, RegisterResponseMessage, RegistrationErrorData, RegistrationErrorReason,
-    RegistrationResult, Vault, VaultFormat,
+    KnownAuthenticator, MAX_VAULT_SIZE, RegisterResponseMessage, RegistrationErrorData,
+    RegistrationErrorReason, RegistrationResult, Vault, VaultFormat,
 };
 pub use session::{
     EncryptedPayload, PairingCode, PairingSecret, RESPONSE_PUBLIC_KEY_LEN, RequestId,
     ResponsePublicKey, ResponseSecretKey, TransportError, TransportKey,
 };
 
-/// The largest encoded response a Requesting Authenticator accepts.
-const MAX_RESPONSE_SIZE: usize = 16 * 1024 * 1024;
+/// The largest encoded request (WIP-109 §3.5).
+const MAX_REQUEST_SIZE: usize = 4 * 1024;
+
+/// The largest encoded response: a full vault plus 4 KiB for the other fields (WIP-109 §3.5).
+const MAX_RESPONSE_SIZE: usize = MAX_VAULT_SIZE + 4 * 1024;
 
 fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
 where

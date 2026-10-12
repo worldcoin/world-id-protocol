@@ -394,7 +394,14 @@ fn bridge_client(bridge: &BridgeStub) -> BridgeClient {
 
 fn requester(seed: &[u8; 32], class: RequestedClass, bridge: &BridgeStub) -> RegistrationRequester {
     let name = AuthenticatorName::try_from("Chrome on MacBook".to_string()).unwrap();
-    RegistrationRequester::new(seed, class, Some(name), bridge_client(bridge), None).unwrap()
+    RegistrationRequester::new(
+        seed,
+        class,
+        Some(name),
+        bridge_client(bridge),
+        "bridge.example.org".parse().unwrap(),
+    )
+    .unwrap()
 }
 
 async fn completed(requester: &mut RegistrationRequester) -> RequesterStatus {

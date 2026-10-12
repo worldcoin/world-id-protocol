@@ -40,16 +40,15 @@ pub struct RegistrationRequester {
     expires_at: Instant,
     request: RegistrationRequest,
     digest: RegistrationDigest,
-    advertised_bridge: Option<BridgeDomain>,
+    advertised_bridge: BridgeDomain,
     bridge: BridgeClient,
 }
 
 impl RegistrationRequester {
     /// Starts a session for the authenticator derived from `seed`.
     ///
-    /// `bridge` is the bridge the session uses. `advertised_bridge` is the domain written into the
-    /// Pairing URI, or `None` to let the Approving Authenticator use its default bridge, which
-    /// must then be the same deployment.
+    /// `bridge` is the bridge the session uses. `advertised_bridge` is its domain, written into
+    /// the Pairing URI.
     ///
     /// # Errors
     ///
@@ -59,7 +58,7 @@ impl RegistrationRequester {
         class: RequestedClass,
         name: Option<AuthenticatorName>,
         bridge: BridgeClient,
-        advertised_bridge: Option<BridgeDomain>,
+        advertised_bridge: BridgeDomain,
     ) -> Result<Self, RequesterError> {
         let signer = Signer::from_seed_bytes(seed).map_err(AuthenticatorError::from)?;
         let class = match class {
@@ -151,11 +150,11 @@ impl RegistrationRequester {
         }
         let secrets = self.secrets.as_ref().ok_or(RequesterError::SessionEnded)?;
         let request_id = secrets.secret.request_id();
-        let message = RegisterRequestMessage::new(
-            Some(Id::String(request_id.to_string())),
-            REGISTER_METHOD,
-            self.request.clone(),
-        );
+        let message = RegisterRequestMessage::builder()
+            .id(request_id.to_string())
+            .method(REGISTER_METHOD)
+            .params(self.request.clone())
+            .build();
         // A retry needs a new requester, so a local failure ends the session and wipes its keys.
         let encrypted = authenticator_message::encode(&message)
             .map_err(|e| {
@@ -426,7 +425,7 @@ mod tests {
             RequestedClass::Proving,
             None,
             BridgeClient::new(server.url().parse().unwrap()).unwrap(),
-            None,
+            "bridge.example.org".parse().unwrap(),
         )
         .unwrap()
     }
@@ -438,11 +437,13 @@ mod tests {
     ) -> PendingRegistration {
         let secrets = session.secrets.as_ref().unwrap();
         let id = secrets.secret.request_id();
-        let plaintext = authenticator_message::encode(&RegisterRequestMessage::new(
-            message_id,
-            REGISTER_METHOD,
-            session.request.clone(),
-        ))
+        let plaintext = authenticator_message::encode(
+            &RegisterRequestMessage::builder()
+                .maybe_id(message_id)
+                .method(REGISTER_METHOD)
+                .params(session.request.clone())
+                .build(),
+        )
         .unwrap();
         let payload = secrets.transport_key.encrypt_request(&plaintext).unwrap();
         let mock = server

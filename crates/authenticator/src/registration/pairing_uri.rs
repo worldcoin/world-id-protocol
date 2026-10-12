@@ -21,8 +21,8 @@ const ENCODED_32_BYTES_LEN: usize = 43;
 
 /// The `worldid://auth/v1/register` deeplink, shown as a QR code by the Requesting Authenticator.
 ///
-/// It carries the [`PairingSecret`], the [`RegistrationDigest`] and optionally the bridge the
-/// Requesting Authenticator uses. Anyone who holds it can retrieve and consume the encrypted
+/// It carries the [`PairingSecret`], the [`RegistrationDigest`] and the bridge the Requesting
+/// Authenticator uses. Anyone who holds it can retrieve and consume the encrypted
 /// registration request; reading its plaintext also requires the independently transferred
 /// pairing code. The URI must not be logged or sent to analytics. Its `Debug` output is redacted.
 ///
@@ -39,7 +39,7 @@ const ENCODED_32_BYTES_LEN: usize = 43;
 /// let uri = PairingUri {
 ///     secret: PairingSecret::from_bytes([1; 32]),
 ///     digest: RegistrationDigest::from_bytes([2; 32]),
-///     bridge: Some("bridge.example.org".parse::<BridgeDomain>().unwrap()),
+///     bridge: "bridge.example.org".parse::<BridgeDomain>().unwrap(),
 /// };
 /// let link = uri.to_string();
 /// assert!(link.starts_with("worldid://auth/v1/register?s="));
@@ -51,8 +51,9 @@ pub struct PairingUri {
     pub secret: PairingSecret,
     /// The commitment to the registration parameters.
     pub digest: RegistrationDigest,
-    /// The bridge to use, or `None` for the Approving Authenticator's default bridge.
-    pub bridge: Option<BridgeDomain>,
+    /// The bridge the Requesting Authenticator uses. The Approving Authenticator must use this
+    /// bridge and no other.
+    pub bridge: BridgeDomain,
 }
 
 impl fmt::Debug for PairingUri {
@@ -67,17 +68,14 @@ impl fmt::Debug for PairingUri {
 
 impl fmt::Display for PairingUri {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut link = Deeplink::new(NAMESPACE, VERSION, ACTION)
+        let link = Deeplink::new(NAMESPACE, VERSION, ACTION)
             .expect("the registration deeplink is valid")
             .with_param(SECRET_PARAM, URL_SAFE_NO_PAD.encode(self.secret.as_bytes()))
             .expect("the secret parameter key is nonempty")
             .with_param(DIGEST_PARAM, URL_SAFE_NO_PAD.encode(self.digest.as_bytes()))
-            .expect("the digest parameter key is nonempty");
-        if let Some(bridge) = &self.bridge {
-            link = link
-                .with_param(BRIDGE_PARAM, bridge.as_str())
-                .expect("the bridge parameter key is nonempty");
-        }
+            .expect("the digest parameter key is nonempty")
+            .with_param(BRIDGE_PARAM, self.bridge.as_str())
+            .expect("the bridge parameter key is nonempty");
         write!(f, "{link}")
     }
 }
@@ -108,7 +106,7 @@ impl FromStr for PairingUri {
             digest: RegistrationDigest::from_bytes(
                 digest.ok_or(PairingUriError::MissingParameter)?,
             ),
-            bridge,
+            bridge: bridge.ok_or(PairingUriError::MissingParameter)?,
         })
     }
 }
@@ -172,7 +170,7 @@ pub enum PairingUriError {
     /// A parameter appears more than once.
     #[error("duplicated pairing parameter")]
     DuplicateParameter,
-    /// The `s` or `d` parameter is missing.
+    /// The `s`, `d` or `b` parameter is missing.
     #[error("missing pairing parameter")]
     MissingParameter,
     /// `s` or `d` is not 32 bytes of canonical unpadded base64url.
@@ -205,59 +203,58 @@ fn decode_32_bytes(value: &str) -> Result<[u8; 32], PairingUriError> {
 mod tests {
     use super::*;
 
-    fn uri(bridge: Option<&str>) -> PairingUri {
+    fn uri() -> PairingUri {
         PairingUri {
             secret: PairingSecret::from_bytes([0xff; 32]),
             digest: RegistrationDigest::from_bytes([0x00; 32]),
-            bridge: bridge.map(|b| b.parse().unwrap()),
+            bridge: "bridge.example.org".parse().unwrap(),
         }
     }
 
+    /// The link of [`uri`] without its `b` parameter.
+    fn link_without_bridge() -> String {
+        format!(
+            "worldid://auth/v1/register?s={}8&d={}",
+            "_".repeat(42),
+            "A".repeat(43)
+        )
+    }
+
     #[test]
-    fn round_trips_with_and_without_bridge() {
-        for bridge in [None, Some("bridge.example.org")] {
-            let original = uri(bridge);
-            let link = original.to_string();
-            assert_eq!(link.parse::<PairingUri>().unwrap(), original, "{link}");
-        }
+    fn round_trips() {
+        let link = uri().to_string();
+        assert_eq!(link.parse::<PairingUri>().unwrap(), uri(), "{link}");
     }
 
     #[test]
     fn uses_unpadded_base64url() {
-        let link = uri(None).to_string();
         assert_eq!(
-            link,
-            format!(
-                "worldid://auth/v1/register?s={}8&d={}",
-                "_".repeat(42),
-                "A".repeat(43)
-            )
+            uri().to_string(),
+            format!("{}&b=bridge.example.org", link_without_bridge())
         );
     }
 
     #[test]
     fn accepts_parameters_in_any_order_and_percent_encoded() {
-        let link = uri(Some("bridge.example.org")).to_string();
+        let link = uri().to_string();
         let (base, query) = link.split_once('?').unwrap();
         let mut params: Vec<&str> = query.split('&').collect();
         params.reverse();
         let reordered = format!("{base}?{}", params.join("&")).replace("bridge.", "bridge%2E");
-        assert_eq!(
-            reordered.parse::<PairingUri>().unwrap(),
-            uri(Some("bridge.example.org"))
-        );
+        assert_eq!(reordered.parse::<PairingUri>().unwrap(), uri());
     }
 
     #[test]
     fn debug_redacts_the_secret() {
-        let debug = format!("{:?}", uri(None));
+        let debug = format!("{:?}", uri());
         assert!(debug.contains("REDACTED"));
         assert!(!debug.contains("255"));
     }
 
     #[test]
     fn rejects_malformed_links() {
-        let valid = uri(None).to_string();
+        let valid = uri().to_string();
+        let without_bridge = link_without_bridge();
         let s = "_".repeat(42) + "8";
         let d = "A".repeat(43);
         let cases = [
@@ -279,13 +276,18 @@ mod tests {
                 PairingUriError::DuplicateParameter,
             ),
             (
-                format!("worldid://auth/v1/register?s={s}"),
+                format!("{valid}&b=bridge.example.org"),
+                PairingUriError::DuplicateParameter,
+            ),
+            (
+                format!("worldid://auth/v1/register?s={s}&b=bridge.example.org"),
                 PairingUriError::MissingParameter,
             ),
             (
-                format!("worldid://auth/v1/register?d={d}"),
+                format!("worldid://auth/v1/register?d={d}&b=bridge.example.org"),
                 PairingUriError::MissingParameter,
             ),
+            (without_bridge.clone(), PairingUriError::MissingParameter),
             (
                 format!("worldid://auth/v1/register?s={s}=&d={d}"),
                 PairingUriError::InvalidEncoding,
@@ -303,20 +305,23 @@ mod tests {
                 PairingUriError::InvalidEncoding,
             ),
             (
-                format!("{valid}&b=https%3A%2F%2Fbridge.example.org"),
+                format!("{without_bridge}&b=https%3A%2F%2Fbridge.example.org"),
                 PairingUriError::InvalidBridge,
             ),
             (
-                format!("{valid}&b=bridge.example.org%3A443"),
-                PairingUriError::InvalidBridge,
-            ),
-            (format!("{valid}&b="), PairingUriError::InvalidBridge),
-            (
-                format!("{valid}&b=-bridge.org"),
+                format!("{without_bridge}&b=bridge.example.org%3A443"),
                 PairingUriError::InvalidBridge,
             ),
             (
-                format!("{valid}&b=bridge..org"),
+                format!("{without_bridge}&b="),
+                PairingUriError::InvalidBridge,
+            ),
+            (
+                format!("{without_bridge}&b=-bridge.org"),
+                PairingUriError::InvalidBridge,
+            ),
+            (
+                format!("{without_bridge}&b=bridge..org"),
                 PairingUriError::InvalidBridge,
             ),
             (
@@ -349,7 +354,7 @@ mod tests {
             );
             // Brackets are not valid in a URI query, so they arrive percent-encoded.
             let encoded = domain.replace('[', "%5B").replace(']', "%5D");
-            let link = format!("{}&b={encoded}", uri(None));
+            let link = format!("{}&b={encoded}", link_without_bridge());
             assert_eq!(
                 link.parse::<PairingUri>(),
                 Err(PairingUriError::InvalidBridge)
