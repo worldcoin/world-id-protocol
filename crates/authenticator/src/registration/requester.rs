@@ -234,9 +234,15 @@ impl RegistrationRequester {
         let response: RegisterResponseMessage =
             authenticator_message::decode(&plaintext, MAX_RESPONSE_SIZE)
                 .map_err(|e| RequesterError::MalformedResponse(e.to_string()))?;
-        if response.id != Some(Id::String(request_id.to_string())) {
+        // The outer envelope binds the response to this session, so an uncorrelated error, with a
+        // null ID, is accepted too. A success always has an ID.
+        if response
+            .id
+            .as_ref()
+            .is_some_and(|id| *id != Id::String(request_id.to_string()))
+        {
             return Err(RequesterError::MalformedResponse(
-                "uncorrelated response or response id does not match the request".to_string(),
+                "response id does not match the request".to_string(),
             ));
         }
         Ok(RequesterStatus::Completed(response.outcome))
@@ -745,16 +751,21 @@ mod tests {
         assert!(session.secrets.is_none());
     }
 
+    #[test_case(None, true; "null id")]
+    #[test_case(Some("other"), false; "another id")]
     #[tokio::test]
-    async fn null_id_is_a_local_protocol_error_and_ends_pairing() {
+    async fn errors_are_accepted_with_a_null_id_but_not_another_id(
+        id: Option<&str>,
+        accepted: bool,
+    ) {
         let mut server = mockito::Server::new_async().await;
         let mut session = requester(&server);
         session.published = true;
         let secrets = session.secrets.as_ref().unwrap();
-        let id = secrets.secret.request_id();
+        let request_id = secrets.secret.request_id();
         let response = RegisterResponseMessage {
             version: Version::V1,
-            id: None,
+            id: id.map(|id| Id::String(id.to_string())),
             outcome: Err(ErrorObject {
                 code: "invalid_request".into(),
                 message: "Invalid request".into(),
@@ -769,15 +780,20 @@ mod tests {
             )
             .unwrap();
         let _response = server
-            .mock("GET", format!("/response/{id}").as_str())
+            .mock("GET", format!("/response/{request_id}").as_str())
             .with_status(200)
             .with_body(serde_json::json!({"status":"completed", "response":encrypted}).to_string())
             .create_async()
             .await;
-        assert!(matches!(
-            session.poll().await,
-            Err(RequesterError::MalformedResponse(_))
-        ));
+        let status = session.poll().await;
+        if accepted {
+            let Ok(RequesterStatus::Completed(Err(error))) = status else {
+                panic!("expected the error to be accepted");
+            };
+            assert_eq!(error.code, "invalid_request");
+        } else {
+            assert!(matches!(status, Err(RequesterError::MalformedResponse(_))));
+        }
         assert!(session.secrets.is_none());
     }
 }
