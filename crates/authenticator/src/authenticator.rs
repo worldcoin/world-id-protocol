@@ -155,9 +155,8 @@ impl Authenticator {
         zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
-        let registry = Self::registry_for(&config);
-
-        let http_client = default_http_client();
+        let http_client = default_http_client()?;
+        let registry = Self::registry_for(&config, http_client.clone());
 
         let indexer_client =
             ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
@@ -211,8 +210,8 @@ impl Authenticator {
         zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
-        let registry = Self::registry_for(&config);
-        let http_client = default_http_client();
+        let http_client = default_http_client()?;
+        let registry = Self::registry_for(&config, http_client.clone());
         let indexer_client =
             ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
         let gateway_client =
@@ -248,7 +247,7 @@ impl Authenticator {
         recovery_address: Option<Address>,
     ) -> Result<InitializingAuthenticator, AuthenticatorError> {
         let gateway_client = ServiceClient::new(
-            default_http_client(),
+            default_http_client()?,
             ServiceKind::Gateway,
             config.gateway(),
         )?;
@@ -277,7 +276,7 @@ impl Authenticator {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 let gateway_client = ServiceClient::new(
-                    default_http_client(),
+                    default_http_client()?,
                     ServiceKind::Gateway,
                     config.gateway(),
                 )?;
@@ -698,11 +697,16 @@ impl Authenticator {
         })
     }
 
-    fn registry_for(config: &Config) -> Option<Arc<WorldIdRegistryInstance<DynProvider>>> {
+    /// Returns the `WorldIDRegistry` reached through `http_client`, or `None` when no RPC URL is
+    /// configured.
+    fn registry_for(
+        config: &Config,
+        http_client: reqwest::Client,
+    ) -> Option<Arc<WorldIdRegistryInstance<DynProvider>>> {
         config.rpc_url().map(|rpc_url| {
             let provider = alloy::providers::ProviderBuilder::new()
                 .with_chain_id(config.chain_id())
-                .connect_http(rpc_url.clone());
+                .connect_reqwest(http_client, rpc_url.clone());
             Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
                 *config.registry_address(),
                 alloy::providers::Provider::erased(provider),
@@ -831,6 +835,42 @@ mod tests {
         );
         assert_eq!(leaf_index_of(packed), 42);
         assert_eq!(recovery_counter_of(packed), U256::from(3));
+    }
+
+    #[tokio::test]
+    async fn registry_requests_end_at_the_http_clients_timeout() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rpc_url = format!("http://{}", listener.local_addr().unwrap());
+        let _unresponsive_rpc = tokio::spawn(async move {
+            let mut connections = Vec::new();
+            loop {
+                connections.push(listener.accept().await.unwrap());
+            }
+        });
+        let config = Config::new(
+            Some(rpc_url),
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            ServiceEndpoint::direct("http://indexer.example.com".to_string()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(100))
+            .build()
+            .unwrap();
+        let registry = Authenticator::registry_for(&config, http_client).unwrap();
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            registry.getRecoveryCounter(1).call(),
+        )
+        .await
+        .expect("the HTTP client's timeout ends the RPC request");
+
+        assert!(result.is_err());
     }
 
     const LEAF_INDEX: u64 = 42;

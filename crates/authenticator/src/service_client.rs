@@ -6,26 +6,29 @@ use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use world_id_primitives::ServiceEndpoint;
 
-/// The maximum time to establish a connection to a gateway or indexer.
+/// The maximum time to establish a connection to a service.
 #[cfg(not(target_arch = "wasm32"))]
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-/// The maximum time for a whole gateway, indexer or OHTTP relay request, including reading the
-/// response. Set on each request because browser clients have no client-wide timeout.
+/// The maximum time for a whole request to a service, including reading the response.
 pub(crate) const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Builds the HTTP client for gateway and indexer requests.
+/// Builds the HTTP client for the gateway, the indexer, OHTTP relays and the RPC.
 ///
-/// Native clients also bound connection setup with [`CONNECT_TIMEOUT`]. Every request sets
-/// [`REQUEST_TIMEOUT`] on both native and browser clients.
-pub(crate) fn default_http_client() -> reqwest::Client {
+/// A native client bounds connection setup with [`CONNECT_TIMEOUT`] and every request with
+/// [`REQUEST_TIMEOUT`]. A browser client cannot be bounded client-wide, so gateway, indexer and
+/// OHTTP relay requests also set [`REQUEST_TIMEOUT`] on each request; RPC requests from a browser
+/// are bounded only by the browser.
+///
+/// # Errors
+/// Returns [`AuthenticatorError::NetworkError`] if the TLS backend cannot be initialized.
+pub(crate) fn default_http_client() -> Result<reqwest::Client, AuthenticatorError> {
     #[cfg(not(target_arch = "wasm32"))]
-    let client = reqwest::Client::builder()
+    let builder = reqwest::Client::builder()
         .connect_timeout(CONNECT_TIMEOUT)
-        .build()
-        .unwrap_or_default();
+        .timeout(REQUEST_TIMEOUT);
     #[cfg(target_arch = "wasm32")]
-    let client = reqwest::Client::new();
-    client
+    let builder = reqwest::Client::builder();
+    Ok(builder.build()?)
 }
 
 #[derive(Clone, Copy, Debug)]
