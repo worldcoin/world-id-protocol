@@ -364,6 +364,8 @@ fn typed_codecs_enforce_bounds_and_framing() {
 #[test_case(r#"{h'76657273696f6e': "1.0", "id": "ping-1", "result": null}"#; "byte string version key")]
 #[test_case(r#"{"version": "1.0", h'6964': "ping-1", "result": null}"#; "byte string id key")]
 #[test_case(r#"{"version": "1.0", "id": "ping-1", h'726573756c74': null}"#; "byte string result key")]
+#[test_case(r#"{"version": "1.0", "id": null, h'6572726f72': {"code": "failed", "message": "bad"}}"#; "byte string error key")]
+#[test_case(r#"{"version": "1.0", "id": null, "error": {"code": "failed", "message": "bad", "message": "bad"}}"#; "duplicate error message")]
 fn rejects_invalid_response(diagnostic: &str) {
     assert!(matches!(
         decode_response::<Value, Value>(diagnostic),
