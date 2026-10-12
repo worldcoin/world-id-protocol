@@ -340,8 +340,9 @@ impl RegistrationRequester {
     ///
     /// The registry, through the indexer, must show this session's key at `result.pubkey_id` on
     /// `result.leaf_index`, with the requested class. Until this succeeds the authenticator must
-    /// not consider itself registered. The indexer may lag behind the registry, so this retries
-    /// with backoff within a one-minute deadline, including time spent on requests.
+    /// not consider itself registered. The authenticator is built from the same account state
+    /// that was checked. The indexer may lag behind the registry, so this retries with backoff
+    /// within a one-minute deadline, including time spent on requests.
     ///
     /// Importing the vault is up to the caller, which must validate the imported credentials
     /// against the account.
@@ -368,26 +369,15 @@ impl RegistrationRequester {
             return Err(RequesterError::SeedMismatch);
         }
         let verification = async {
-            let attempt = || async {
-                let authenticator = Authenticator::init_with_leaf_index(
-                    seed,
-                    result.leaf_index,
-                    config.clone(),
-                    Arc::clone(&zk_artifact_source),
-                )
-                .await?;
-                let registered = Authenticator::fetch_authenticators_for(
-                    result.leaf_index,
-                    &config,
-                    &authenticator.indexer_client,
-                )
-                .await?
-                .find(&self.request.new_authenticator_pubkey)
-                // Another indexer replica may still lag behind the one `init` read from.
-                .ok_or(AuthenticatorError::PublicKeyNotFound)?;
-                Ok::<_, AuthenticatorError>((authenticator, registered))
+            let lookup = || async {
+                let authenticators =
+                    Authenticator::fetch_account_authenticators(result.leaf_index, &config).await?;
+                let registered = authenticators
+                    .find(&self.request.new_authenticator_pubkey)
+                    .ok_or(AuthenticatorError::PublicKeyNotFound)?;
+                Ok::<_, AuthenticatorError>((authenticators, registered))
             };
-            let (authenticator, registered) = attempt
+            let (authenticators, registered) = lookup
                 .retry(polling_backoff().with_total_delay(Some(VERIFY_TIMEOUT)))
                 .when(is_transient)
                 .await
@@ -405,7 +395,13 @@ impl RegistrationRequester {
             if registered != (result.pubkey_id, address) {
                 return Err(RequesterError::RegistrationMismatch);
             }
-            Ok(authenticator)
+            Ok(Authenticator::from_account_authenticators(
+                seed,
+                result.leaf_index,
+                &authenticators,
+                config,
+                zk_artifact_source,
+            )?)
         };
         before(Instant::now() + VERIFY_TIMEOUT, verification)
             .await
@@ -465,13 +461,22 @@ mod tests {
     use tokio::sync::Notify;
     use world_id_primitives::authenticator_message::{Id, Version};
 
-    use crate::registration::RegisterResponseMessage;
+    use alloy::primitives::U256;
+    use eddsa_babyjubjub::EdDSAPublicKey;
+    use world_id_primitives::{
+        AuthenticatorPublicKeySet, ServiceEndpoint, api_types::IndexerAuthenticatorsResponse,
+    };
+    use world_id_proof::artifacts::dummy::DummyZkArtifactSource;
+
+    use crate::{OnchainKeyRepresentable as _, registration::RegisterResponseMessage};
 
     use super::*;
 
+    const SEED: [u8; 32] = [77; 32];
+
     fn requester(server: &mockito::ServerGuard) -> RegistrationRequester {
         RegistrationRequester::new(
-            &[77; 32],
+            &SEED,
             RequestedClass::Proving,
             None,
             BridgeClient::with_base_url(
@@ -578,6 +583,90 @@ mod tests {
         };
         assert_eq!(interrupted, retried);
         assert!(session.pairing_uri().is_some());
+    }
+
+    /// An `/authenticators` body with each slot's key and address, and the commitment to the keys.
+    fn authenticators_body(slots: &[Option<(EdDSAPublicKey, Address)>]) -> String {
+        let pubkeys: Vec<_> = slots
+            .iter()
+            .map(|slot| {
+                slot.as_ref()
+                    .map(|(pubkey, _)| pubkey.to_ethereum_representation().unwrap())
+            })
+            .collect();
+        let key_set =
+            AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(pubkeys.clone()).unwrap();
+        serde_json::to_string(&IndexerAuthenticatorsResponse {
+            authenticator_pubkeys: pubkeys,
+            authenticator_addresses: slots
+                .iter()
+                .map(|slot| slot.as_ref().map(|(_, address)| *address))
+                .collect(),
+            offchain_signer_commitment: key_set.leaf_hash().into(),
+            recovery_counter: 0,
+        })
+        .unwrap()
+    }
+
+    #[test_case(1, Address::ZERO, Some(1); "the requested slot and class")]
+    #[test_case(2, Address::ZERO, None; "another slot")]
+    #[test_case(1, Address::repeat_byte(0x11), None; "another class")]
+    #[tokio::test]
+    async fn verify_builds_the_authenticator_from_the_account_state_it_checked(
+        registered_slot: usize,
+        registered_address: Address,
+        expected_pubkey_id: Option<u64>,
+    ) {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut indexer = mockito::Server::new_async().await;
+        let session = requester(&indexer);
+        let approver = Signer::from_seed_bytes(&[1; 32]).unwrap();
+        let mut slots = vec![None; registered_slot + 1];
+        slots[0] = Some((
+            approver.offchain_signer_pubkey(),
+            approver.onchain_signer_address(),
+        ));
+        slots[registered_slot] = Some((
+            session.request.new_authenticator_pubkey.clone(),
+            registered_address,
+        ));
+        let lookup = indexer
+            .mock("POST", "/authenticators")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(authenticators_body(&slots))
+            .expect(1)
+            .create_async()
+            .await;
+        let config = Config::new(
+            None,
+            1,
+            Address::repeat_byte(0x01),
+            ServiceEndpoint::direct(indexer.url()),
+            ServiceEndpoint::direct(indexer.url()),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+        let result = RegistrationResult {
+            leaf_index: 42,
+            pubkey_id: 1,
+            authenticators: Vec::new(),
+            vault: None,
+        };
+
+        let verified = session
+            .verify(&SEED, &result, config, Arc::new(DummyZkArtifactSource))
+            .await;
+        match (verified, expected_pubkey_id) {
+            (Ok(authenticator), Some(pubkey_id)) => {
+                assert_eq!(authenticator.leaf_index(), 42);
+                assert_eq!(authenticator.pubkey_id(), U256::from(pubkey_id));
+            }
+            (Err(RequesterError::RegistrationMismatch), None) => {}
+            (verified, _) => panic!("unexpected verification result: {:?}", verified.err()),
+        }
+        lookup.assert_async().await;
     }
 
     /// The `id` of a response in a test.
