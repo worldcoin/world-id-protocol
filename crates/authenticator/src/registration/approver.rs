@@ -922,10 +922,7 @@ fn parse_request(
     let invalid_params = |error: &dyn std::fmt::Display| {
         rejected(RegistrationErrorReason::InvalidParams, error.to_string())
     };
-    super::reject_tags(&params).map_err(|error| invalid_params(&error))?;
-    params
-        .deserialized()
-        .map_err(|error| invalid_params(&error))
+    RegistrationRequest::from_params(&params).map_err(|error| invalid_params(&error))
 }
 
 /// Reads `params.response_pubkey` from a request that failed validation, to seal the answer to.

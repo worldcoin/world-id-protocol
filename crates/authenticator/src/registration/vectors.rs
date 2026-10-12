@@ -8,6 +8,7 @@
 use alloy::primitives::Address;
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use sha2::{Digest as _, Sha256};
+use world_id_primitives::authenticator_message::Id;
 
 use super::*;
 
@@ -61,14 +62,17 @@ fn pairing_secret() -> PairingSecret {
 fn session_derivations_match_vectors() {
     let secret = pairing_secret();
     assert_eq!(secret.request_id().to_string(), REQUEST_ID);
+    assert_eq!(
+        secret.request_id().message_id(),
+        Id::String(REQUEST_ID.to_string())
+    );
     // Independently computed with libargon2 and Python cryptography HKDF-SHA256.
     assert_eq!(
         hex::encode(
             secret
                 .transport_key(&"QJTWPK".parse().unwrap())
                 .unwrap()
-                .key
-                .as_ref()
+                .key()
         ),
         "d54c3095e7243461690e9589eb9c39ebdeafa3f585b0a8586958b5bdb067dc7c"
     );

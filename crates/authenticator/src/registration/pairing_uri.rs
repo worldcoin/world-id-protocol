@@ -5,6 +5,7 @@ use std::{fmt, str::FromStr};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use world_id_primitives::authenticator_message::{Deeplink, DeeplinkError};
+use zeroize::Zeroizing;
 
 use super::{request::RegistrationDigest, session::PairingSecret};
 
@@ -18,6 +19,55 @@ const BRIDGE_PARAM: &str = "b";
 
 /// The length of a 32-byte value encoded as unpadded base64url.
 const ENCODED_32_BYTES_LEN: usize = 43;
+
+/// The domain of a bridge deployment, e.g. `bridge.example.org`.
+///
+/// It is a DNS name with at least two labels and a final label starting with an ASCII letter,
+/// so URL parsers cannot interpret it as an IP address. No scheme, port, path, user info, query
+/// or fragment is allowed. Letters are normalized to lowercase; the bridge is reached over `https`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BridgeDomain(String);
+
+impl BridgeDomain {
+    /// Returns the domain as a string slice.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl FromStr for BridgeDomain {
+    type Err = InvalidBridgeDomain;
+
+    fn from_str(domain: &str) -> Result<Self, Self::Err> {
+        let is_valid_label = |label: &str| {
+            (1..=63).contains(&label.len())
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        };
+        let has_named_tld = domain
+            .rsplit_once('.')
+            .is_some_and(|(_, tld)| tld.starts_with(|c: char| c.is_ascii_alphabetic()));
+        if domain.len() > 253 || !has_named_tld || !domain.split('.').all(is_valid_label) {
+            return Err(InvalidBridgeDomain);
+        }
+        Ok(Self(domain.to_ascii_lowercase()))
+    }
+}
+
+impl fmt::Display for BridgeDomain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// The error returned when a string is not a valid [`BridgeDomain`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("bridge must be a bare domain name with a named top-level label")]
+pub struct InvalidBridgeDomain;
 
 /// The `worldid://auth/v1/register` deeplink, shown as a QR code by the Requesting Authenticator.
 ///
@@ -85,64 +135,24 @@ impl FromStr for PairingUri {
         let mut bridge = None;
         for (key, value) in link.params() {
             match key.as_str() {
-                SECRET_PARAM => set_once(&mut secret, decode_32_bytes(value)?)?,
-                DIGEST_PARAM => set_once(&mut digest, decode_32_bytes(value)?)?,
+                SECRET_PARAM => {
+                    let bytes = decode_32_bytes(value)?;
+                    set_once(&mut secret, PairingSecret::from_bytes(*bytes))?;
+                }
+                DIGEST_PARAM => {
+                    let bytes = decode_32_bytes(value)?;
+                    set_once(&mut digest, RegistrationDigest::from_bytes(*bytes))?;
+                }
                 BRIDGE_PARAM => set_once(&mut bridge, value.parse()?)?,
                 _ => return Err(PairingUriError::UnknownParameter),
             }
         }
 
         Ok(Self {
-            secret: PairingSecret::from_bytes(secret.ok_or(PairingUriError::MissingParameter)?),
-            digest: RegistrationDigest::from_bytes(
-                digest.ok_or(PairingUriError::MissingParameter)?,
-            ),
+            secret: secret.ok_or(PairingUriError::MissingParameter)?,
+            digest: digest.ok_or(PairingUriError::MissingParameter)?,
             bridge: bridge.ok_or(PairingUriError::MissingParameter)?,
         })
-    }
-}
-
-/// The domain of a bridge deployment, e.g. `bridge.example.org`.
-///
-/// It is a DNS name with at least two labels and a final label starting with an ASCII letter,
-/// so URL parsers cannot interpret it as an IP address. No scheme, port, path, user info, query
-/// or fragment is allowed. Letters are normalized to lowercase; the bridge is reached over `https`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BridgeDomain(String);
-
-impl BridgeDomain {
-    /// Returns the domain as a string slice.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl FromStr for BridgeDomain {
-    type Err = PairingUriError;
-
-    fn from_str(domain: &str) -> Result<Self, Self::Err> {
-        let is_valid_label = |label: &str| {
-            (1..=63).contains(&label.len())
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-                && label
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        };
-        let has_named_tld = domain
-            .rsplit_once('.')
-            .is_some_and(|(_, tld)| tld.starts_with(|c: char| c.is_ascii_alphabetic()));
-        if domain.len() > 253 || !has_named_tld || !domain.split('.').all(is_valid_label) {
-            return Err(PairingUriError::InvalidBridge);
-        }
-        Ok(Self(domain.to_ascii_lowercase()))
-    }
-}
-
-impl fmt::Display for BridgeDomain {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
     }
 }
 
@@ -167,9 +177,9 @@ pub enum PairingUriError {
     /// `s` or `d` is not 32 bytes of canonical unpadded base64url.
     #[error("pairing secret and digest must be 32 bytes of unpadded base64url")]
     InvalidEncoding,
-    /// `b` is not a bare DNS domain with a named top-level label.
-    #[error("bridge must be a bare domain name")]
-    InvalidBridge,
+    /// `b` is not a valid [`BridgeDomain`].
+    #[error(transparent)]
+    InvalidBridge(#[from] InvalidBridgeDomain),
 }
 
 fn set_once<T>(slot: &mut Option<T>, value: T) -> Result<(), PairingUriError> {
@@ -179,19 +189,22 @@ fn set_once<T>(slot: &mut Option<T>, value: T) -> Result<(), PairingUriError> {
     Ok(())
 }
 
-fn decode_32_bytes(value: &str) -> Result<[u8; 32], PairingUriError> {
+/// Decodes a 32-byte parameter straight into storage that is wiped on drop, as `s` is secret.
+fn decode_32_bytes(value: &str) -> Result<Zeroizing<[u8; 32]>, PairingUriError> {
     if value.len() != ENCODED_32_BYTES_LEN {
         return Err(PairingUriError::InvalidEncoding);
     }
+    let mut bytes = Zeroizing::new([0; 32]);
     URL_SAFE_NO_PAD
-        .decode(value)
-        .map_err(|_| PairingUriError::InvalidEncoding)?
-        .try_into()
-        .map_err(|_| PairingUriError::InvalidEncoding)
+        .decode_slice(value, bytes.as_mut())
+        .map_err(|_| PairingUriError::InvalidEncoding)?;
+    Ok(bytes)
 }
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
 
     fn uri() -> PairingUri {
@@ -202,13 +215,24 @@ mod tests {
         }
     }
 
+    /// The valid `s` parameter of [`uri`].
+    fn secret_param() -> String {
+        "_".repeat(42) + "8"
+    }
+
+    /// The valid `d` parameter of [`uri`].
+    fn digest_param() -> String {
+        "A".repeat(43)
+    }
+
+    /// A registration link with the parameters `s` and `d` and no `b`.
+    fn link(secret: &str, digest: &str) -> String {
+        format!("worldid://auth/v1/register?s={secret}&d={digest}")
+    }
+
     /// The link of [`uri`] without its `b` parameter.
     fn link_without_bridge() -> String {
-        format!(
-            "worldid://auth/v1/register?s={}8&d={}",
-            "_".repeat(42),
-            "A".repeat(43)
-        )
+        link(&secret_param(), &digest_param())
     }
 
     #[test]
@@ -242,118 +266,85 @@ mod tests {
         assert!(!debug.contains("255"));
     }
 
-    #[test]
-    fn rejects_malformed_links() {
-        let valid = uri().to_string();
-        let without_bridge = link_without_bridge();
-        let s = "_".repeat(42) + "8";
-        let d = "A".repeat(43);
-        let cases = [
-            (
-                valid.replace("auth/v1/register", "auth/v2/register"),
-                PairingUriError::NotARegistrationLink,
-            ),
-            (
-                valid.replace("auth/v1/register", "pay/v1/register"),
-                PairingUriError::NotARegistrationLink,
-            ),
-            (
-                valid.replace("worldid://", "https://"),
-                PairingUriError::Deeplink(DeeplinkError::InvalidScheme),
-            ),
-            (format!("{valid}&x=1"), PairingUriError::UnknownParameter),
-            (
-                format!("{valid}&s={s}"),
-                PairingUriError::DuplicateParameter,
-            ),
-            (
-                format!("{valid}&b=bridge.example.org"),
-                PairingUriError::DuplicateParameter,
-            ),
-            (
-                format!("worldid://auth/v1/register?s={s}&b=bridge.example.org"),
-                PairingUriError::MissingParameter,
-            ),
-            (
-                format!("worldid://auth/v1/register?d={d}&b=bridge.example.org"),
-                PairingUriError::MissingParameter,
-            ),
-            (without_bridge.clone(), PairingUriError::MissingParameter),
-            (
-                format!("worldid://auth/v1/register?s={s}=&d={d}"),
-                PairingUriError::InvalidEncoding,
-            ),
-            (
-                format!("worldid://auth/v1/register?s={}&d={d}", &s[1..]),
-                PairingUriError::InvalidEncoding,
-            ),
-            (
-                format!("worldid://auth/v1/register?s={}+w&d={d}", &s[..41]),
-                PairingUriError::InvalidEncoding,
-            ),
-            (
-                format!("worldid://auth/v1/register?s={}x&d={d}", &s[..42]),
-                PairingUriError::InvalidEncoding,
-            ),
-            (
-                format!("{without_bridge}&b=https%3A%2F%2Fbridge.example.org"),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{without_bridge}&b=bridge.example.org%3A443"),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{without_bridge}&b="),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{without_bridge}&b=-bridge.org"),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{without_bridge}&b=bridge..org"),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{valid}#frag"),
-                PairingUriError::Deeplink(DeeplinkError::UnexpectedFragment),
-            ),
-        ];
-        for (link, expected) in cases {
-            assert_eq!(link.parse::<PairingUri>(), Err(expected), "{link}");
-        }
+    #[test_case(uri().to_string().replace("auth/v1/register", "auth/v2/register"),
+                PairingUriError::NotARegistrationLink; "other version")]
+    #[test_case(uri().to_string().replace("auth/v1/register", "pay/v1/register"),
+                PairingUriError::NotARegistrationLink; "other namespace")]
+    #[test_case(uri().to_string().replace("worldid://", "https://"),
+                PairingUriError::Deeplink(DeeplinkError::InvalidScheme); "other scheme")]
+    #[test_case(format!("{}#frag", uri()),
+                PairingUriError::Deeplink(DeeplinkError::UnexpectedFragment); "fragment")]
+    #[test_case(format!("{}&x=1", uri()), PairingUriError::UnknownParameter; "unknown parameter")]
+    #[test_case(format!("{}&s={}", uri(), secret_param()),
+                PairingUriError::DuplicateParameter; "duplicated secret")]
+    #[test_case(format!("{}&b=bridge.example.org", uri()),
+                PairingUriError::DuplicateParameter; "duplicated bridge")]
+    #[test_case(format!("worldid://auth/v1/register?s={}&b=bridge.example.org", secret_param()),
+                PairingUriError::MissingParameter; "missing digest")]
+    #[test_case(format!("worldid://auth/v1/register?d={}&b=bridge.example.org", digest_param()),
+                PairingUriError::MissingParameter; "missing secret")]
+    #[test_case(link_without_bridge(), PairingUriError::MissingParameter; "missing bridge")]
+    #[test_case(link(&format!("{}=", secret_param()), &digest_param()),
+                PairingUriError::InvalidEncoding; "padded secret")]
+    #[test_case(link(&secret_param()[1..], &digest_param()),
+                PairingUriError::InvalidEncoding; "short secret")]
+    #[test_case(link(&format!("{}+w", &secret_param()[..41]), &digest_param()),
+                PairingUriError::InvalidEncoding; "standard base64 secret")]
+    #[test_case(link(&format!("{}x", &secret_param()[..42]), &digest_param()),
+                PairingUriError::InvalidEncoding; "non-canonical trailing bits")]
+    #[test_case(format!("{}&b=https%3A%2F%2Fbridge.example.org", link_without_bridge()),
+                PairingUriError::InvalidBridge(InvalidBridgeDomain); "bridge with scheme")]
+    #[test_case(format!("{}&b=bridge.example.org%3A443", link_without_bridge()),
+                PairingUriError::InvalidBridge(InvalidBridgeDomain); "bridge with port")]
+    #[test_case(format!("{}&b=", link_without_bridge()),
+                PairingUriError::InvalidBridge(InvalidBridgeDomain); "empty bridge")]
+    #[test_case(format!("{}&b=-bridge.org", link_without_bridge()),
+                PairingUriError::InvalidBridge(InvalidBridgeDomain); "leading hyphen in bridge")]
+    #[test_case(format!("{}&b=bridge..org", link_without_bridge()),
+                PairingUriError::InvalidBridge(InvalidBridgeDomain); "empty bridge label")]
+    fn rejects_malformed_links(link: String, expected: PairingUriError) {
+        assert_eq!(link.parse::<PairingUri>(), Err(expected));
+    }
+
+    #[test_case("127.0.0.1"; "dotted decimal")]
+    #[test_case("127.1"; "short dotted decimal")]
+    #[test_case("2130706433"; "decimal")]
+    #[test_case("0177.0.0.1"; "octal")]
+    #[test_case("127.0x1"; "hexadecimal part")]
+    #[test_case("10.0xa"; "hexadecimal letter")]
+    #[test_case("127.0X1"; "uppercase hexadecimal prefix")]
+    #[test_case("127.0x"; "empty hexadecimal part")]
+    #[test_case("0x7f000001"; "hexadecimal")]
+    #[test_case("[::1]"; "ipv6")]
+    fn rejects_bridge_hosts_that_url_parsers_treat_as_ip_addresses(domain: &str) {
+        assert_eq!(domain.parse::<BridgeDomain>(), Err(InvalidBridgeDomain));
+        // Brackets are not valid in a URI query, so they arrive percent-encoded.
+        let encoded = domain.replace('[', "%5B").replace(']', "%5D");
+        let link = format!("{}&b={encoded}", link_without_bridge());
+        assert_eq!(
+            link.parse::<PairingUri>(),
+            Err(PairingUriError::InvalidBridge(InvalidBridgeDomain))
+        );
     }
 
     #[test]
-    fn rejects_bridge_hosts_that_url_parsers_treat_as_ip_addresses() {
-        for domain in [
-            "127.0.0.1",
-            "127.1",
-            "2130706433",
-            "0177.0.0.1",
-            "127.0x1",
-            "10.0xa",
-            "127.0X1",
-            "127.0x",
-            "0x7f000001",
-            "[::1]",
-        ] {
-            assert_eq!(
-                domain.parse::<BridgeDomain>(),
-                Err(PairingUriError::InvalidBridge)
-            );
-            // Brackets are not valid in a URI query, so they arrive percent-encoded.
-            let encoded = domain.replace('[', "%5B").replace(']', "%5D");
-            let link = format!("{}&b={encoded}", link_without_bridge());
-            assert_eq!(
-                link.parse::<PairingUri>(),
-                Err(PairingUriError::InvalidBridge)
-            );
-        }
-        for domain in ["bridge.example.org", "127.example.org", "bridge.xn--p1ai"] {
-            assert_eq!(domain.parse::<BridgeDomain>().unwrap().as_str(), domain);
-        }
+    fn rejects_a_single_label_bridge_domain() {
+        assert_eq!(
+            "localhost".parse::<BridgeDomain>(),
+            Err(InvalidBridgeDomain)
+        );
+        let link = format!("{}&b=localhost", link_without_bridge());
+        assert_eq!(
+            link.parse::<PairingUri>(),
+            Err(PairingUriError::InvalidBridge(InvalidBridgeDomain))
+        );
+    }
+
+    #[test_case("bridge.example.org"; "subdomain")]
+    #[test_case("127.example.org"; "numeric label")]
+    #[test_case("bridge.xn--p1ai"; "punycode top-level label")]
+    fn accepts_bridge_domains(domain: &str) {
+        assert_eq!(domain.parse::<BridgeDomain>().unwrap().as_str(), domain);
     }
 
     #[test]

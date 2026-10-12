@@ -15,8 +15,8 @@
 //!
 //! Messages are encoded with
 //! [`authenticator_message::encode`](world_id_primitives::authenticator_message::encode) and
-//! decoded with [`decode_request`] and [`decode_response`], which add the WIP-109 size limits and
-//! payload rules to the WIP-105 envelope.
+//! received request params are decoded with [`RegistrationRequest::from_params`] and responses
+//! with [`decode_response`], which add the WIP-109 payload rules to the WIP-105 envelope.
 
 use world_id_primitives::authenticator_message::{MessageError, Value};
 
@@ -35,10 +35,10 @@ pub use approver::{
     UserVerification,
 };
 pub use bridge::{BridgeClient, BridgeError, DeliveryOutcome, PublishOutcome, ResponseState};
-pub use pairing_uri::{BridgeDomain, PairingUri, PairingUriError};
+pub use pairing_uri::{BridgeDomain, InvalidBridgeDomain, PairingUri, PairingUriError};
 pub use request::{
     AuthenticatorName, MAX_NAME_LEN, NameTooLong, REGISTER_METHOD, RegisterRequestMessage,
-    RegistrationDigest, RegistrationRequest, decode_request,
+    RegistrationDigest, RegistrationRequest,
 };
 pub use requester::{RegistrationRequester, RequestedClass, RequesterError, RequesterStatus};
 pub use response::{
@@ -46,8 +46,8 @@ pub use response::{
     RegistrationErrorReason, RegistrationResult, Vault, VaultFormat, decode_response,
 };
 pub use session::{
-    EncryptedPayload, PairingCode, PairingSecret, RESPONSE_PUBLIC_KEY_LEN, RequestId,
-    ResponsePublicKey, ResponseSecretKey, TransportError, TransportKey,
+    EncryptedPayload, PairingCode, PairingSecret, RequestId, ResponsePublicKey, ResponseSecretKey,
+    TransportError, TransportKey,
 };
 
 /// The largest encoded request (WIP-109 §3.5).
@@ -59,6 +59,8 @@ const MAX_RESPONSE_SIZE: usize = MAX_VAULT_SIZE + 4 * 1024;
 /// Rejects a registration payload that contains a CBOR tag at any depth.
 ///
 /// WIP-109 §3.6 defines every payload field by its CBOR major type, which a tag would wrap.
+/// Bignums are the exception this cannot see: Ciborium reads them into a [`Value`] as plain
+/// integers, so integer fields need their typed check as well.
 fn reject_tags(payload: &Value) -> Result<(), MessageError> {
     if contains_tag(payload) {
         return Err(MessageError::Deserialize(serde::de::Error::custom(
