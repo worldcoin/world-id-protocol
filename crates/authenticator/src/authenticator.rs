@@ -350,58 +350,35 @@ impl Authenticator {
         }
     }
 
-    /// Fetches the packed account data for this authenticator from the indexer or registry
-    /// without mutating local state.
+    /// Fetches the packed account data of this authenticator without mutating local state.
+    ///
+    /// The authenticator is looked up by its on-chain address, in the registry when an RPC URL is
+    /// configured and through the indexer otherwise. A Proving Authenticator is registered with
+    /// the zero address, so when that lookup does not find this authenticator on its account and
+    /// slot, it is looked up by its leaf index and public key in the indexed account instead.
+    ///
+    /// An authenticator never moves to another account or slot: only the recovery counter of the
+    /// result can differ from [`packed_account_data`](Self::packed_account_data).
     ///
     /// # Errors
-    /// Will error if the network call fails or if the account does not exist.
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if this authenticator is no longer
+    ///   registered: it was removed, or a recovery revoked it.
+    /// - Other errors if a network call fails or the indexer returns an invalid account state.
     pub async fn fetch_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
-        let by_address = self
+        match self
             .fetch_packed_account_data_of(self.onchain_address())
-            .await;
-        match by_address {
-            // An authenticator never changes accounts or slots, so only accept data for its own
-            // leaf and slot. The recovery counter may change.
+            .await
+        {
             Ok(packed)
                 if packed & !MASK_RECOVERY_COUNTER
                     == self.packed_account_data & !MASK_RECOVERY_COUNTER =>
             {
                 Ok(packed)
             }
-            // A Proving Authenticator is registered with the zero address, so its own address is
-            // unknown to the registry or registered on another account or slot. Look it up by leaf
-            // index and public key instead.
             Ok(_) | Err(AuthenticatorError::AccountDoesNotExist) => {
-                let authenticators = Self::fetch_authenticators_for(
-                    self.leaf_index(),
-                    &self.config,
-                    &self.indexer_client,
-                )
-                .await?;
-                // Only a Proving Authenticator may take this path. An Admin Authenticator the
-                // registry no longer knows was revoked, and a stale indexed key must not revive it.
-                let is_proving = authenticators
-                    .find(&self.offchain_pubkey())
-                    .is_some_and(|(_, address)| address.is_zero());
-                if !is_proving {
-                    return Err(AuthenticatorError::AccountDoesNotExist);
-                }
-                // A recovery revokes every authenticator. If the registry is ahead of the indexed
-                // account, the indexed key may already be revoked.
-                if let Some(registry) = self.registry() {
-                    let current = registry
-                        .getRecoveryCounter(self.leaf_index())
-                        .call()
-                        .await?;
-                    if current != U256::from(authenticators.recovery_counter()) {
-                        return Err(AuthenticatorError::AccountDoesNotExist);
-                    }
-                }
-                authenticators
-                    .packed_account_data(self.leaf_index(), &self.offchain_pubkey())
-                    .ok_or(AuthenticatorError::AccountDoesNotExist)
+                self.fetch_proving_packed_account_data().await
             }
-            result => result,
+            Err(error) => Err(error),
         }
     }
 
@@ -718,6 +695,39 @@ impl Authenticator {
                 .into()
             }
         })
+    }
+
+    /// Looks this authenticator up as a Proving Authenticator: by its leaf index and public key in
+    /// the indexed account.
+    ///
+    /// Only a Proving Authenticator is found this way. An Admin Authenticator that the address
+    /// lookup does not find was removed or revoked, and a stale indexed key must not revive it.
+    async fn fetch_proving_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
+        let authenticators =
+            Self::fetch_authenticators_for(self.leaf_index(), &self.config, &self.indexer_client)
+                .await?;
+        let Some((pubkey_id, address)) = authenticators.find(&self.offchain_pubkey()) else {
+            return Err(AuthenticatorError::AccountDoesNotExist);
+        };
+        if !address.is_zero() {
+            return Err(AuthenticatorError::AccountDoesNotExist);
+        }
+        // A recovery revokes every authenticator. If the registry is ahead of the indexed
+        // account, the indexed key may already be revoked.
+        if let Some(registry) = self.registry() {
+            let current = registry
+                .getRecoveryCounter(self.leaf_index())
+                .call()
+                .await?;
+            if current != U256::from(authenticators.recovery_counter()) {
+                return Err(AuthenticatorError::AccountDoesNotExist);
+            }
+        }
+        Ok(pack_account_data(
+            authenticators.recovery_counter(),
+            pubkey_id,
+            self.leaf_index(),
+        ))
     }
 
     /// Returns the `WorldIDRegistry` reached through `http_client`, or `None` when no RPC URL is
