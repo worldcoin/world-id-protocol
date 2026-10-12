@@ -173,6 +173,7 @@ impl BridgeClient {
 
     /// Stores the encrypted request under `request_id` (`POST /request`).
     ///
+    /// The bridge answers `200` when it stored the request and `409` when it already has one.
     /// Retried on server errors, `429` and transport failures. A retry of a request that the bridge
     /// stored before the reply was lost yields [`PublishOutcome::AlreadyPublished`]. In the rare
     /// case that the Approving Authenticator took the request in between, the retry stores it
@@ -194,7 +195,7 @@ impl BridgeClient {
         with_retries(|| async {
             let response = self.send(self.http.post(url.clone()).json(&body)).await?;
             match response.status() {
-                StatusCode::OK | StatusCode::CREATED => Ok(PublishOutcome::Published),
+                StatusCode::OK => Ok(PublishOutcome::Published),
                 StatusCode::CONFLICT => Ok(PublishOutcome::AlreadyPublished),
                 _ => Err(BridgeError::unexpected_status(&response)),
             }
@@ -238,7 +239,9 @@ impl BridgeClient {
 
     /// Stores the encrypted response to `request_id` (`PUT /response/:id`).
     ///
-    /// Retried on server errors, `429` and transport failures, honoring `Retry-After`.
+    /// The bridge answers `201` when it stored the response, and `400` or `409` when the session
+    /// is gone or already has a response. Retried on server errors, `429` and transport failures,
+    /// honoring `Retry-After`.
     ///
     /// # Errors
     ///
@@ -255,7 +258,7 @@ impl BridgeClient {
             let attempt = async {
                 let reply = self.send(self.http.put(url.clone()).json(response)).await?;
                 match reply.status() {
-                    StatusCode::CREATED | StatusCode::OK => Ok(DeliveryOutcome::Delivered),
+                    StatusCode::CREATED => Ok(DeliveryOutcome::Delivered),
                     StatusCode::BAD_REQUEST | StatusCode::CONFLICT
                         if maybe_stored.load(Ordering::Relaxed) =>
                     {
@@ -467,7 +470,7 @@ mod tests {
     }
 
     #[test_case(200, Ok(PublishOutcome::Published); "stored")]
-    #[test_case(201, Ok(PublishOutcome::Published); "created")]
+    #[test_case(201, Err(StatusCode::CREATED); "another success status")]
     #[test_case(409, Ok(PublishOutcome::AlreadyPublished); "stored by an earlier attempt")]
     #[test_case(400, Err(StatusCode::BAD_REQUEST); "rejected")]
     #[tokio::test]
@@ -608,6 +611,7 @@ mod tests {
     #[test_case(201, Ok(DeliveryOutcome::Delivered); "stored")]
     #[test_case(400, Ok(DeliveryOutcome::Rejected); "session gone")]
     #[test_case(409, Ok(DeliveryOutcome::Rejected); "response already stored")]
+    #[test_case(200, Err(StatusCode::OK); "another success status")]
     #[test_case(403, Err(StatusCode::FORBIDDEN); "forbidden")]
     #[tokio::test]
     async fn put_response_reports_the_bridge_verdict(

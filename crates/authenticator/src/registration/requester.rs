@@ -490,7 +490,7 @@ mod tests {
         assert!(session.pairing_code().is_none());
         let _publish = server
             .mock("POST", "/request")
-            .with_status(201)
+            .with_status(200)
             .create_async()
             .await;
         session.publish().await.unwrap();
