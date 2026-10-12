@@ -721,6 +721,7 @@ mod tests {
     use super::*;
     use crate::{error::AuthenticatorError, traits::OnchainKeyRepresentable};
     use alloy::primitives::{U256, address};
+    use test_case::test_case;
     use world_id_primitives::MAX_AUTHENTICATOR_KEYS;
 
     fn test_pubkey(seed_byte: u8) -> EdDSAPublicKey {
@@ -791,6 +792,10 @@ mod tests {
         ));
     }
 
+    const LEAF_INDEX: u64 = 42;
+    const SEED: [u8; 32] = [7; 32];
+    const ADMIN: Address = address!("0x0000000000000000000000000000000000000011");
+
     fn config_with_indexer(indexer_url: String) -> Config {
         Config::new(
             None,
@@ -804,10 +809,42 @@ mod tests {
         .unwrap()
     }
 
+    fn own_pubkey() -> EdDSAPublicKey {
+        Signer::from_seed_bytes(&SEED)
+            .unwrap()
+            .offchain_signer_pubkey()
+    }
+
+    /// An `/authenticators` response body with each slot's public key and address, and the
+    /// commitment to the keys.
+    fn authenticators_body(
+        slots: &[Option<(EdDSAPublicKey, Address)>],
+        recovery_counter: u64,
+    ) -> serde_json::Value {
+        let authenticator_pubkeys: Vec<_> = slots
+            .iter()
+            .map(|slot| {
+                slot.as_ref()
+                    .map(|(pubkey, _)| pubkey.to_ethereum_representation().unwrap())
+            })
+            .collect();
+        let key_set = Authenticator::decode_indexer_pubkeys(authenticator_pubkeys.clone()).unwrap();
+        serde_json::to_value(IndexerAuthenticatorsResponse {
+            authenticator_pubkeys,
+            authenticator_addresses: slots
+                .iter()
+                .map(|slot| slot.as_ref().map(|(_, address)| *address))
+                .collect(),
+            offchain_signer_commitment: key_set.leaf_hash().into(),
+            recovery_counter,
+        })
+        .unwrap()
+    }
+
     async fn mock_authenticators(
         server: &mut mockito::ServerGuard,
         status: usize,
-        body: serde_json::Value,
+        body: &serde_json::Value,
     ) -> mockito::Mock {
         server
             .mock("POST", "/authenticators")
@@ -821,144 +858,124 @@ mod tests {
             .await
     }
 
-    #[tokio::test]
-    async fn test_init_with_leaf_index_finds_the_key_slot() {
+    async fn init_with_leaf_index(
+        server: &mockito::ServerGuard,
+    ) -> Result<Authenticator, AuthenticatorError> {
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let mut server = mockito::Server::new_async().await;
-        let seed = [7u8; 32];
-        let own_pubkey = Signer::from_seed_bytes(&seed)
-            .unwrap()
-            .offchain_signer_pubkey()
-            .to_ethereum_representation()
-            .unwrap();
-        let mock = mock_authenticators(
-            &mut server,
-            200,
-            serde_json::json!({
-                "authenticator_pubkeys": [format!("{:#x}", encoded_test_pubkey(1)), null, format!("{own_pubkey:#x}")],
-                "authenticator_addresses": ["0x0000000000000000000000000000000000000011", null, "0x0000000000000000000000000000000000000000"],
-                "offchain_signer_commitment": "0x1",
-                "recovery_counter": "0x3",
-            }),
-        )
-        .await;
-
-        let authenticator = Authenticator::init_with_leaf_index(
-            &seed,
-            42,
+        Authenticator::init_with_leaf_index(
+            &SEED,
+            LEAF_INDEX,
             config_with_indexer(server.url()),
             dummy_zk_artifact_source(),
         )
         .await
-        .unwrap();
+    }
 
-        assert_eq!(authenticator.leaf_index(), 42);
+    #[tokio::test]
+    async fn init_with_leaf_index_takes_the_slot_of_the_key() {
+        let mut server = mockito::Server::new_async().await;
+        let body = authenticators_body(
+            &[
+                Some((test_pubkey(1), ADMIN)),
+                None,
+                Some((own_pubkey(), Address::ZERO)),
+            ],
+            3,
+        );
+        let mock = mock_authenticators(&mut server, 200, &body).await;
+
+        let authenticator = init_with_leaf_index(&server).await.unwrap();
+
+        assert_eq!(authenticator.leaf_index(), LEAF_INDEX);
         assert_eq!(authenticator.pubkey_id(), U256::from(2));
         assert_eq!(authenticator.recovery_counter(), U256::from(3));
         mock.assert_async().await;
     }
 
     #[tokio::test]
-    async fn test_proving_authenticator_refreshes_by_leaf_index() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+    async fn init_with_leaf_index_requires_a_registered_key() {
         let mut server = mockito::Server::new_async().await;
-        let seed = [7u8; 32];
-        let own_pubkey = Signer::from_seed_bytes(&seed)
-            .unwrap()
-            .offchain_signer_pubkey()
-            .to_ethereum_representation()
-            .unwrap();
-        let _authenticators = mock_authenticators(
-            &mut server,
-            200,
-            serde_json::json!({
-                "authenticator_pubkeys": [format!("{:#x}", encoded_test_pubkey(1)), format!("{own_pubkey:#x}")],
-                "authenticator_addresses": ["0x0000000000000000000000000000000000000011", "0x0000000000000000000000000000000000000000"],
-                "offchain_signer_commitment": "0x1",
-                "recovery_counter": "0x3",
-            }),
-        )
-        .await;
+        let body = authenticators_body(&[Some((test_pubkey(1), ADMIN))], 0);
+        let _mock = mock_authenticators(&mut server, 200, &body).await;
+
+        let result = init_with_leaf_index(&server).await;
+
+        assert!(matches!(result, Err(AuthenticatorError::PublicKeyNotFound)));
+    }
+
+    #[test_case(r#"{ "code": "not_found", "message": "not found" }"#, true; "the indexer's not_found")]
+    #[test_case("404 page not found", false; "a 404 from elsewhere")]
+    #[tokio::test]
+    async fn only_the_indexers_not_found_means_an_unknown_account(
+        body: &str,
+        is_unknown_account: bool,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("POST", "/authenticators")
+            .with_status(404)
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let result = init_with_leaf_index(&server).await;
+
+        if is_unknown_account {
+            assert!(matches!(
+                result,
+                Err(AuthenticatorError::AccountDoesNotExist)
+            ));
+        } else {
+            assert!(matches!(
+                result,
+                Err(AuthenticatorError::IndexerError { status, .. }) if status == reqwest::StatusCode::NOT_FOUND
+            ));
+        }
+    }
+
+    #[test_case(400, r#"{ "code": "account_does_not_exist", "message": "no account" }"#; "an unknown address")]
+    #[test_case(200, r#"{ "packed_account_data": "0x7" }"#; "an address on another account")]
+    #[test_case(200, r#"{ "packed_account_data": "0x2a" }"#; "an address at another slot")]
+    #[tokio::test]
+    async fn proving_authenticator_refreshes_by_leaf_index(
+        packed_account_status: usize,
+        packed_account_body: &str,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let body = authenticators_body(
+            &[
+                Some((test_pubkey(1), ADMIN)),
+                Some((own_pubkey(), Address::ZERO)),
+            ],
+            3,
+        );
+        let _authenticators = mock_authenticators(&mut server, 200, &body).await;
         let _by_address = server
             .mock("POST", "/packed-account")
-            .with_status(400)
+            .with_status(packed_account_status)
             .with_header("content-type", "application/json")
-            .with_body(
-                serde_json::json!({ "code": "account_does_not_exist", "message": "no account" })
-                    .to_string(),
-            )
+            .with_body(packed_account_body)
             .create_async()
             .await;
+        let mut authenticator = init_with_leaf_index(&server).await.unwrap();
 
-        let mut authenticator = Authenticator::init_with_leaf_index(
-            &seed,
-            42,
-            config_with_indexer(server.url()),
-            dummy_zk_artifact_source(),
-        )
-        .await
-        .unwrap();
         let packed = authenticator.refresh_packed_account_data().await.unwrap();
 
-        let expected = (U256::from(3) << 224) | (U256::from(1) << 192) | U256::from(42);
+        let expected = (U256::from(3) << 224) | (U256::from(1) << 192) | U256::from(LEAF_INDEX);
         assert_eq!(packed, expected);
-        assert_eq!(authenticator.pubkey_id(), U256::from(1));
-
-        // The same seed's address registered as an Admin on another account does not move this
-        // authenticator to that account.
-        _by_address.remove_async().await;
-        let _other_account = server
-            .mock("POST", "/packed-account")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(serde_json::json!({ "packed_account_data": "0x7" }).to_string())
-            .create_async()
-            .await;
-        assert_eq!(
-            authenticator.refresh_packed_account_data().await.unwrap(),
-            expected
-        );
-        assert_eq!(authenticator.leaf_index(), 42);
-
-        // Nor does it resolving to another slot on the same account.
-        _other_account.remove_async().await;
-        let _other_slot = server
-            .mock("POST", "/packed-account")
-            .with_status(200)
-            .with_header("content-type", "application/json")
-            .with_body(serde_json::json!({ "packed_account_data": "0x2a" }).to_string())
-            .create_async()
-            .await;
-        assert_eq!(
-            authenticator.refresh_packed_account_data().await.unwrap(),
-            expected
-        );
-        assert_eq!(authenticator.pubkey_id(), U256::from(1));
+        assert_eq!(authenticator.packed_account_data, expected);
     }
 
     #[tokio::test]
-    async fn test_refresh_does_not_revive_a_revoked_admin_authenticator() {
-        let _ = rustls::crypto::ring::default_provider().install_default();
+    async fn refresh_does_not_revive_a_revoked_admin_authenticator() {
         let mut server = mockito::Server::new_async().await;
-        let seed = [7u8; 32];
-        let signer = Signer::from_seed_bytes(&seed).unwrap();
-        let own_pubkey = signer
-            .offchain_signer_pubkey()
-            .to_ethereum_representation()
-            .unwrap();
+        let own_address = Signer::from_seed_bytes(&SEED)
+            .unwrap()
+            .onchain_signer_address();
         // The indexer still lists the key with an Admin address, as it would right after a
         // recovery revoked it, while the registry no longer knows the address.
-        let _authenticators = mock_authenticators(
-            &mut server,
-            200,
-            serde_json::json!({
-                "authenticator_pubkeys": [format!("{own_pubkey:#x}")],
-                "authenticator_addresses": [format!("{:#x}", signer.onchain_signer_address())],
-                "offchain_signer_commitment": "0x1",
-                "recovery_counter": "0x0",
-            }),
-        )
-        .await;
+        let body = authenticators_body(&[Some((own_pubkey(), own_address))], 0);
+        let _authenticators = mock_authenticators(&mut server, 200, &body).await;
         let _by_address = server
             .mock("POST", "/packed-account")
             .with_status(400)
@@ -969,89 +986,13 @@ mod tests {
             )
             .create_async()
             .await;
+        let mut authenticator = init_with_leaf_index(&server).await.unwrap();
 
-        let mut authenticator = Authenticator::init_with_leaf_index(
-            &seed,
-            42,
-            config_with_indexer(server.url()),
-            dummy_zk_artifact_source(),
-        )
-        .await
-        .unwrap();
-        assert!(matches!(
-            authenticator.refresh_packed_account_data().await,
-            Err(AuthenticatorError::AccountDoesNotExist)
-        ));
-    }
+        let result = authenticator.refresh_packed_account_data().await;
 
-    #[tokio::test]
-    async fn test_init_with_leaf_index_requires_a_registered_key() {
-        let mut server = mockito::Server::new_async().await;
-        let _mock = mock_authenticators(
-            &mut server,
-            200,
-            serde_json::json!({
-                "authenticator_pubkeys": [format!("{:#x}", encoded_test_pubkey(1))],
-                "authenticator_addresses": ["0x0000000000000000000000000000000000000011"],
-                "offchain_signer_commitment": "0x1",
-                "recovery_counter": "0x0",
-            }),
-        )
-        .await;
-
-        let result = Authenticator::init_with_leaf_index(
-            &[7u8; 32],
-            42,
-            config_with_indexer(server.url()),
-            dummy_zk_artifact_source(),
-        )
-        .await;
-        assert!(matches!(result, Err(AuthenticatorError::PublicKeyNotFound)));
-    }
-
-    #[tokio::test]
-    async fn test_init_with_leaf_index_maps_unknown_account() {
-        let mut server = mockito::Server::new_async().await;
-        let _mock = mock_authenticators(
-            &mut server,
-            404,
-            serde_json::json!({ "code": "not_found", "message": "not found" }),
-        )
-        .await;
-
-        let result = Authenticator::init_with_leaf_index(
-            &[7u8; 32],
-            42,
-            config_with_indexer(server.url()),
-            dummy_zk_artifact_source(),
-        )
-        .await;
         assert!(matches!(
             result,
             Err(AuthenticatorError::AccountDoesNotExist)
-        ));
-    }
-
-    #[tokio::test]
-    async fn test_init_with_leaf_index_keeps_other_404s_as_indexer_errors() {
-        let mut server = mockito::Server::new_async().await;
-        let _mock = server
-            .mock("POST", "/authenticators")
-            .with_status(404)
-            .with_body("404 page not found")
-            .create_async()
-            .await;
-
-        let result = Authenticator::init_with_leaf_index(
-            &[7u8; 32],
-            42,
-            config_with_indexer(server.url()),
-            dummy_zk_artifact_source(),
-        )
-        .await;
-        assert!(matches!(
-            result,
-            Err(AuthenticatorError::IndexerError { status, .. }) if status == reqwest::StatusCode::NOT_FOUND
         ));
     }
 
