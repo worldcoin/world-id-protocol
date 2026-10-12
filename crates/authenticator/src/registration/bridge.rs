@@ -82,8 +82,11 @@ pub enum DeliveryOutcome {
 #[derive(Debug, thiserror::Error)]
 pub enum BridgeError {
     /// The request could not be sent or its response could not be read, e.g. on a timeout.
+    ///
+    /// The error carries no URL: the bridge routes contain the request id, which is the only key
+    /// to the session.
     #[error("bridge request failed: {0}")]
-    Transport(#[from] reqwest::Error),
+    Transport(#[source] reqwest::Error),
     /// The bridge answered with a status this operation does not expect.
     #[error("bridge returned unexpected status {status}")]
     UnexpectedStatus {
@@ -107,6 +110,12 @@ pub enum BridgeError {
     /// The bridge URL could not be built from the configured base URL.
     #[error("invalid bridge URL: {0}")]
     InvalidUrl(String),
+}
+
+impl From<reqwest::Error> for BridgeError {
+    fn from(error: reqwest::Error) -> Self {
+        Self::Transport(error.without_url())
+    }
 }
 
 /// The body of `POST /request`.
@@ -495,6 +504,19 @@ mod tests {
             .await;
         assert_eq!(status_of(result), expected);
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn transport_errors_do_not_reveal_the_request_id() {
+        let request_id = request_id().to_string();
+        let error = reqwest::get(format!("http://127.0.0.1:1/request/{request_id}"))
+            .await
+            .unwrap_err();
+        assert!(format!("{error:?}").contains(&request_id));
+
+        let error = BridgeError::from(error);
+        assert!(!error.to_string().contains(&request_id));
+        assert!(!format!("{error:?}").contains(&request_id));
     }
 
     #[tokio::test]
