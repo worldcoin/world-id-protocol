@@ -37,11 +37,6 @@ fn decode<T: DeserializeOwned>(diagnostic: &str) -> Result<T, MessageError> {
     "request without params"
 )]
 #[test_case(
-    Request::builder().id(1).method(PING).params(Value::Null).build(),
-    r#"{"version": "1.0", "id": 1, "method": "worldid_ping", "params": null}"#;
-    "request with present null params"
-)]
-#[test_case(
     Request::builder().method(PING).params(Value::Array(vec![])).build(),
     r#"{"version": "1.0", "method": "worldid_ping", "params": []}"#;
     "notification"
@@ -141,6 +136,14 @@ fn ignores_unknown_envelope_and_error_fields() {
     r#"{"version": "1.0", "version": "1.0", "method": "worldid_ping"}"#;
     "duplicate field"
 )]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "result": null}"#; "result field")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "error": null}"#; "error field")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": null}"#; "null params")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": 1}"#; "integer params")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": "text"}"#; "text params")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": h'01'}"#; "byte string params")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": true}"#; "boolean params")]
+#[test_case(r#"{"version": "1.0", "method": "worldid_ping", "params": 1.5}"#; "float params")]
 fn rejects_invalid_request(diagnostic: &str) {
     assert!(matches!(
         decode::<Request<Value>>(diagnostic),
@@ -164,9 +167,64 @@ fn typed_params_reject_null() {
         "error": {"code": "failed", "message": "failed"}}"#;
     "both outcomes"
 )]
+#[test_case(r#"{"version": "1.0", "id": 1, "result": null, "method": null}"#; "method field")]
+#[test_case(r#"{"version": "1.0", "id": 1, "result": null, "params": null}"#; "params field")]
+#[test_case(
+    r#"{"version": "1.0", "id": null, "error": {"code": "parse_error", "message": "bad"}, "method": "worldid_ping"}"#;
+    "error response with method"
+)]
+#[test_case(
+    r#"{"version": "1.0", "id": null, "error": {"code": "parse_error", "message": "bad"}, "params": {}}"#;
+    "error response with params"
+)]
 fn rejects_invalid_response(diagnostic: &str) {
     assert!(matches!(
         decode::<Response<Value>>(diagnostic),
+        Err(MessageError::Deserialize(_))
+    ));
+}
+
+#[test]
+fn request_ignores_unknown_envelope_fields() {
+    let request = decode::<Request<Value>>(
+        r#"{"extra": null, "version": "1.0", "method": "worldid_ping", "params": {}}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        request,
+        Request::builder()
+            .method(PING)
+            .params(Value::Map(vec![]))
+            .build()
+    );
+}
+
+#[test]
+fn typed_params_decode_at_the_envelope_boundary() {
+    let request = decode::<Request<BTreeMap<String, u64>>>(
+        r#"{"version": "1.0", "method": "worldid_ping", "params": {"nonce": 42}}"#,
+    )
+    .unwrap();
+    assert_eq!(request.params, Some(BTreeMap::from([("nonce".into(), 42)])));
+    let request = decode::<Request<Vec<u64>>>(
+        r#"{"version": "1.0", "method": "worldid_ping", "params": [1, 2]}"#,
+    )
+    .unwrap();
+    assert_eq!(request.params, Some(vec![1, 2]));
+}
+
+#[test]
+fn typed_params_reject_duplicate_schema_fields() {
+    #[derive(serde::Deserialize)]
+    struct Params {
+        #[serde(rename = "nonce")]
+        _nonce: u64,
+    }
+
+    assert!(matches!(
+        decode::<Request<Params>>(
+            r#"{"version": "1.0", "method": "worldid_ping", "params": {"nonce": 1, "nonce": 2}}"#,
+        ),
         Err(MessageError::Deserialize(_))
     ));
 }
