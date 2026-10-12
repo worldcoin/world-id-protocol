@@ -286,7 +286,9 @@ mod leaf_index {
     }
 }
 
-/// Authenticator slots are below `NUM_KEYS` (WIP-100 §3.8).
+/// Authenticator slots are below the registry's `getMaxAuthenticators()` (WIP-109 §3.6.2). Decoding
+/// checks [`MAX_AUTHENTICATOR_KEYS`], the most slots an account's key set holds; the Requesting
+/// Authenticator checks the actual slot against the registry.
 mod pubkey_id {
     use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
 
