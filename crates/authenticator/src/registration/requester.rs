@@ -7,14 +7,15 @@ use secrecy::ExposeSecret as _;
 use web_time::Instant;
 use world_id_primitives::{
     Config, Signer,
-    authenticator_message::{self, ErrorObject, Id, MessageError},
+    authenticator_message::{self, ErrorObject, MessageError},
 };
 use world_id_proof::artifacts::ZkArtifactSource;
 
 use super::{
-    AuthenticatorName, MAX_RESPONSE_SIZE, PairingCode, PairingSecret, PairingUri, REGISTER_METHOD,
-    RegisterRequestMessage, RegisterResponseMessage, RegistrationDigest, RegistrationErrorData,
-    RegistrationRequest, RegistrationResult, ResponseSecretKey, TransportError, TransportKey,
+    AuthenticatorName, EncryptedPayload, MAX_RESPONSE_SIZE, PairingCode, PairingSecret, PairingUri,
+    REGISTER_METHOD, RegisterRequestMessage, RegisterResponseMessage, RegistrationDigest,
+    RegistrationErrorData, RegistrationRequest, RegistrationResult, RequestId, ResponseSecretKey,
+    TransportError, TransportKey,
     bridge::{BridgeClient, BridgeError, ResponseState},
     deadline::{SESSION_TTL, before, polling_backoff},
 };
@@ -22,320 +23,6 @@ use crate::{Authenticator, AuthenticatorClass, AuthenticatorError};
 
 /// How long [`RegistrationRequester::verify`] waits for the indexer to show a new registration.
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// One registration attempt of a new authenticator.
-///
-/// A session is driven by the host: [`publish`](Self::publish) the request, show
-/// [`pairing_uri`](Self::pairing_uri) as a QR code and link, [`poll`](Self::poll) until the
-/// response arrives, then [`verify`](Self::verify) a successful result before importing the vault.
-///
-/// Retries after an expired or lost session must create a new session from the **same seed**,
-/// so that an insertion that already happened is found instead of repeated.
-pub struct RegistrationRequester {
-    secrets: Option<SessionSecrets>,
-    published: bool,
-    expires_at: Instant,
-    request: RegistrationRequest,
-    digest: RegistrationDigest,
-    bridge: BridgeClient,
-}
-
-impl RegistrationRequester {
-    /// Starts a session for the authenticator derived from `seed`.
-    ///
-    /// `bridge` is the bridge the session uses. Its domain is written into the Pairing URI.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the seed is invalid or the operating system CSPRNG is unavailable.
-    pub fn new(
-        seed: &[u8],
-        class: RequestedClass,
-        name: Option<AuthenticatorName>,
-        bridge: BridgeClient,
-    ) -> Result<Self, RequesterError> {
-        let signer = Signer::from_seed_bytes(seed).map_err(AuthenticatorError::from)?;
-        let class = match class {
-            RequestedClass::Admin => AuthenticatorClass::Admin {
-                address: signer.onchain_signer_address(),
-            },
-            RequestedClass::Proving => AuthenticatorClass::Proving,
-        };
-        let secret = PairingSecret::generate()?;
-        let response_key = ResponseSecretKey::generate()?;
-        let code = PairingCode::generate()?;
-        let transport_key = secret.transport_key(&code)?;
-        let (request, digest) = RegistrationRequest::new_signed(
-            signer.offchain_signer_private_key().expose_secret(),
-            class,
-            response_key.public_key(),
-            name,
-            &secret.request_id(),
-        )
-        .map_err(AuthenticatorError::from)?;
-        Ok(Self {
-            secrets: Some(SessionSecrets {
-                secret,
-                response_key,
-                code,
-                transport_key,
-                code_revealed: false,
-            }),
-            published: false,
-            expires_at: Instant::now() + SESSION_TTL,
-            request,
-            digest,
-            bridge,
-        })
-    }
-
-    /// Returns the Pairing URI once the request is published, while the session is active and the
-    /// code is still hidden. Replace the URI screen with the code after retrieval. Never log
-    /// either value.
-    #[must_use]
-    pub fn pairing_uri(&self) -> Option<PairingUri> {
-        let secrets = self.secrets.as_ref()?;
-        if !self.published || secrets.code_revealed || Instant::now() >= self.expires_at {
-            return None;
-        }
-        Some(PairingUri {
-            secret: secrets.secret.clone(),
-            digest: self.digest,
-            bridge: self.bridge.domain().clone(),
-        })
-    }
-
-    /// Reveals the code only after polling has observed `retrieved`.
-    /// Display it only on this device, with instructions to enter it on the intended approver.
-    #[must_use]
-    pub fn pairing_code(&self) -> Option<&PairingCode> {
-        let secrets = self.secrets.as_ref()?;
-        (secrets.code_revealed && Instant::now() < self.expires_at).then_some(&secrets.code)
-    }
-
-    /// Ends this attempt and discards its secrets. A retry must create a new requester.
-    pub fn cancel(&mut self) {
-        self.secrets = None;
-    }
-
-    /// Returns the request this session asks the Approving Authenticator to approve.
-    #[must_use]
-    pub const fn request(&self) -> &RegistrationRequest {
-        &self.request
-    }
-
-    /// Encrypts and publishes the request on the bridge.
-    ///
-    /// Call it once per session: publishing again after the Approving Authenticator read the
-    /// request resets the session on the bridge. The Pairing URI is available only after this
-    /// succeeds, so retrying a call that was interrupted before then is safe (WIP-109 §3.8).
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the request cannot be encrypted or the bridge rejects it.
-    pub async fn publish(&mut self) -> Result<(), RequesterError> {
-        if Instant::now() >= self.expires_at {
-            self.cancel();
-        }
-        if self.secrets.is_none() {
-            return Err(RequesterError::SessionEnded);
-        }
-        if self.published {
-            return Err(RequesterError::AlreadyPublished);
-        }
-        let secrets = self.secrets.as_ref().ok_or(RequesterError::SessionEnded)?;
-        let request_id = secrets.secret.request_id();
-        let message = RegisterRequestMessage::builder()
-            .id(request_id.to_string())
-            .method(REGISTER_METHOD)
-            .params(self.request.clone())
-            .build();
-        // A retry needs a new requester, so a local failure ends the session and wipes its keys.
-        let encrypted = authenticator_message::encode(&message)
-            .map_err(RequesterError::Encoding)
-            .and_then(|plaintext| {
-                secrets
-                    .transport_key
-                    .encrypt_request(&plaintext)
-                    .map_err(RequesterError::from)
-            });
-        let encrypted = match encrypted {
-            Ok(encrypted) => encrypted,
-            Err(error) => {
-                self.cancel();
-                return Err(error);
-            }
-        };
-        match self.bridge.publish_request(&request_id, &encrypted).await {
-            Ok(_) => {
-                self.published = true;
-                self.expires_at = Instant::now() + SESSION_TTL;
-                Ok(())
-            }
-            Err(error) => {
-                self.cancel();
-                Err(error.into())
-            }
-        }
-    }
-
-    /// Checks the bridge once for the response. Call it periodically, e.g. every second.
-    ///
-    /// A completed response is consumed by this call.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the bridge cannot be reached or the response cannot be opened or
-    /// parsed. After a transport error the next poll may report [`RequesterStatus::Expired`],
-    /// if the response was consumed but not received. Failures discard the session secrets.
-    pub async fn poll(&mut self) -> Result<RequesterStatus, RequesterError> {
-        if self.secrets.is_none() || Instant::now() >= self.expires_at {
-            self.cancel();
-            return Ok(RequesterStatus::Expired);
-        }
-        if !self.published {
-            return Ok(RequesterStatus::Waiting);
-        }
-        let request_id = self
-            .secrets
-            .as_ref()
-            .ok_or(RequesterError::SessionEnded)?
-            .secret
-            .request_id();
-        let state = before(self.expires_at, self.bridge.fetch_response(&request_id)).await;
-        let sealed = match state {
-            Some(Ok(ResponseState::Initialized)) => return Ok(RequesterStatus::Waiting),
-            Some(Ok(ResponseState::Retrieved)) => {
-                let secrets = self.secrets.as_mut().ok_or(RequesterError::SessionEnded)?;
-                if !secrets.code_revealed {
-                    self.expires_at = Instant::now() + SESSION_TTL;
-                    secrets.code_revealed = true;
-                }
-                return Ok(RequesterStatus::Retrieved);
-            }
-            None | Some(Ok(ResponseState::NotFound)) => {
-                self.cancel();
-                return Ok(RequesterStatus::Expired);
-            }
-            Some(Err(error)) => {
-                self.cancel();
-                return Err(error.into());
-            }
-            Some(Ok(ResponseState::Completed(sealed))) => sealed,
-        };
-        let secrets = self.secrets.take().ok_or(RequesterError::SessionEnded)?;
-        let plaintext = secrets
-            .transport_key
-            .decrypt_response(&secrets.response_key, &sealed)?;
-        let response: RegisterResponseMessage =
-            authenticator_message::decode(&plaintext, MAX_RESPONSE_SIZE)
-                .map_err(RequesterError::MalformedResponse)?;
-        // The outer envelope binds the response to this session, so an uncorrelated error, with a
-        // null ID, is accepted too. A success always has an ID.
-        if response
-            .id
-            .as_ref()
-            .is_some_and(|id| *id != Id::String(request_id.to_string()))
-        {
-            return Err(RequesterError::ResponseIdMismatch);
-        }
-        Ok(RequesterStatus::Completed(response.outcome))
-    }
-
-    /// Checks a successful `result` against the account state and returns the new
-    /// authenticator, ready to generate proofs.
-    ///
-    /// The registry, through the indexer, must show this session's key at `result.pubkey_id` on
-    /// `result.leaf_index`, with the requested class. Until this succeeds the authenticator must
-    /// not consider itself registered. The indexer may lag behind the registry, so this retries
-    /// with backoff within a one-minute deadline, including time spent on requests.
-    ///
-    /// Importing the vault is up to the caller, which must validate the imported credentials
-    /// against the account.
-    ///
-    /// # Errors
-    ///
-    /// - [`RequesterError::SeedMismatch`] if `seed` is not the one this session registers.
-    /// - [`RequesterError::RegistrationMismatch`] if the key is registered at another slot or
-    ///   with another class.
-    /// - [`RequesterError::VerificationTimeout`] if the key is still not found on the account, or
-    ///   the indexer still fails transiently, when the deadline passes. A wrong `leaf_index`
-    ///   cannot be told apart from indexer lag, so it also ends here.
-    /// - [`RequesterError::Authenticator`] if initialization or an account lookup fails
-    ///   permanently.
-    pub async fn verify(
-        &self,
-        seed: &[u8],
-        result: &RegistrationResult,
-        config: Config,
-        zk_artifact_source: Arc<dyn ZkArtifactSource>,
-    ) -> Result<Authenticator, RequesterError> {
-        let verification = async {
-            let signer = Signer::from_seed_bytes(seed).map_err(AuthenticatorError::from)?;
-            if signer.offchain_signer_pubkey().pk != self.request.new_authenticator_pubkey.pk {
-                return Err(RequesterError::SeedMismatch);
-            }
-            let attempt = || async {
-                let authenticator = Authenticator::init_with_leaf_index(
-                    seed,
-                    result.leaf_index,
-                    config.clone(),
-                    Arc::clone(&zk_artifact_source),
-                )
-                .await?;
-                let registered = Authenticator::fetch_authenticators_for(
-                    result.leaf_index,
-                    &config,
-                    &authenticator.indexer_client,
-                )
-                .await?
-                .find(&self.request.new_authenticator_pubkey)
-                // Another indexer replica may still lag behind the one `init` read from.
-                .ok_or(AuthenticatorError::PublicKeyNotFound)?;
-                Ok::<_, AuthenticatorError>((authenticator, registered))
-            };
-            let (authenticator, registered) = attempt
-                .retry(polling_backoff().with_total_delay(Some(VERIFY_TIMEOUT)))
-                .when(is_transient)
-                .await
-                .map_err(|error| {
-                    if is_transient(&error) {
-                        RequesterError::VerificationTimeout
-                    } else {
-                        error.into()
-                    }
-                })?;
-            if registered != (result.pubkey_id, self.request.class) {
-                return Err(RequesterError::RegistrationMismatch);
-            }
-            Ok(authenticator)
-        };
-        before(Instant::now() + VERIFY_TIMEOUT, verification)
-            .await
-            .ok_or(RequesterError::VerificationTimeout)?
-    }
-}
-
-/// Errors that may clear up while the indexer catches up with the registry or recovers.
-fn is_transient(error: &AuthenticatorError) -> bool {
-    match error {
-        AuthenticatorError::PublicKeyNotFound
-        | AuthenticatorError::AccountDoesNotExist
-        | AuthenticatorError::NetworkError(_) => true,
-        AuthenticatorError::IndexerError { status, .. } => {
-            status.is_server_error() || *status == reqwest::StatusCode::TOO_MANY_REQUESTS
-        }
-        _ => false,
-    }
-}
-
-impl std::fmt::Debug for RegistrationRequester {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RegistrationRequester")
-            .field("active", &self.secrets.is_some())
-            .finish_non_exhaustive()
-    }
-}
 
 /// The class a Requesting Authenticator asks for. An Admin Authenticator registers the management
 /// key derived from its seed.
@@ -389,29 +76,386 @@ pub enum RequesterError {
     /// The registry does not show the new authenticator where the response says it is.
     #[error("the registration result does not match the registry")]
     RegistrationMismatch,
-    /// This attempt has completed, expired, or been cancelled.
+    /// This session has completed, expired, or been cancelled.
     #[error("registration session has ended")]
     SessionEnded,
     /// The account could not be verified before the deadline.
     #[error("registration verification timed out")]
     VerificationTimeout,
-    /// The request was already published. Start a fresh attempt instead.
+    /// The request was already published. Start a new session instead.
     #[error("registration request was already published")]
     AlreadyPublished,
 }
 
+/// The secrets of one session (WIP-109 §3.3), discarded when it ends.
+#[derive(Debug)]
 struct SessionSecrets {
-    secret: PairingSecret,
-    response_key: ResponseSecretKey,
+    pairing_secret: PairingSecret,
     code: PairingCode,
     transport_key: TransportKey,
-    code_revealed: bool,
+    response_key: ResponseSecretKey,
+}
+
+/// Where a session is (WIP-109 §3.8). A live session holds its secrets and its estimated expiry.
+#[derive(Debug)]
+enum SessionState {
+    /// The request is not yet published.
+    Created {
+        secrets: SessionSecrets,
+        expires_at: Instant,
+    },
+    /// The request is on the bridge; the Pairing URI may be shown.
+    Published {
+        secrets: SessionSecrets,
+        expires_at: Instant,
+    },
+    /// The Approving Authenticator took the request; the pairing code may be shown.
+    Retrieved {
+        secrets: SessionSecrets,
+        expires_at: Instant,
+    },
+    /// The session completed, failed, expired or was cancelled, and its secrets are gone.
+    Ended,
+}
+
+/// The Requesting Authenticator's side of one registration session.
+///
+/// The host drives the session: [`publish`](Self::publish) the request, show
+/// [`pairing_uri`](Self::pairing_uri) as a QR code and link, [`poll`](Self::poll) until the
+/// response arrives, showing [`pairing_code`](Self::pairing_code) once the request was
+/// retrieved, then [`verify`](Self::verify) a successful result before importing the vault.
+///
+/// A retry after an expired or lost session must start a new session from the **same seed**, so
+/// that an insertion that already happened is found instead of repeated.
+#[derive(Debug)]
+pub struct RegistrationRequester {
+    request: RegistrationRequest,
+    digest: RegistrationDigest,
+    bridge: BridgeClient,
+    state: SessionState,
+}
+
+impl RegistrationRequester {
+    /// Starts a session for the authenticator derived from `seed`.
+    ///
+    /// `bridge` is the bridge the session uses. Its domain is written into the Pairing URI.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the seed is invalid or the operating system CSPRNG is unavailable.
+    pub fn new(
+        seed: &[u8],
+        class: RequestedClass,
+        name: Option<AuthenticatorName>,
+        bridge: BridgeClient,
+    ) -> Result<Self, RequesterError> {
+        let signer = Signer::from_seed_bytes(seed).map_err(AuthenticatorError::from)?;
+        let class = match class {
+            RequestedClass::Admin => AuthenticatorClass::Admin {
+                address: signer.onchain_signer_address(),
+            },
+            RequestedClass::Proving => AuthenticatorClass::Proving,
+        };
+        let pairing_secret = PairingSecret::generate()?;
+        let code = PairingCode::generate()?;
+        let secrets = SessionSecrets {
+            transport_key: pairing_secret.transport_key(&code)?,
+            response_key: ResponseSecretKey::generate()?,
+            pairing_secret,
+            code,
+        };
+        let request_id = secrets.pairing_secret.request_id();
+        let (request, digest) = RegistrationRequest::new_signed(
+            signer.offchain_signer_private_key().expose_secret(),
+            class,
+            secrets.response_key.public_key(),
+            name,
+            &request_id,
+        )
+        .map_err(AuthenticatorError::from)?;
+        Ok(Self {
+            request,
+            digest,
+            bridge,
+            state: SessionState::Created {
+                secrets,
+                expires_at: Instant::now() + SESSION_TTL,
+            },
+        })
+    }
+
+    /// Returns the request this session asks the Approving Authenticator to approve.
+    #[must_use]
+    pub const fn request(&self) -> &RegistrationRequest {
+        &self.request
+    }
+
+    /// Returns the Pairing URI once the request is published, until the Approving Authenticator
+    /// takes it or the session ends. Never log it.
+    #[must_use]
+    pub fn pairing_uri(&self) -> Option<PairingUri> {
+        match &self.state {
+            SessionState::Published {
+                secrets,
+                expires_at,
+            } if Instant::now() < *expires_at => Some(PairingUri {
+                secret: secrets.pairing_secret.clone(),
+                digest: self.digest,
+                bridge: self.bridge.domain().clone(),
+            }),
+            _ => None,
+        }
+    }
+
+    /// Returns the pairing code once the Approving Authenticator took the request, until the
+    /// session ends.
+    ///
+    /// Show it only on this device, with instructions to enter it only on the intended
+    /// Approving Authenticator. Never log it.
+    #[must_use]
+    pub fn pairing_code(&self) -> Option<&PairingCode> {
+        match &self.state {
+            SessionState::Retrieved {
+                secrets,
+                expires_at,
+            } if Instant::now() < *expires_at => Some(&secrets.code),
+            _ => None,
+        }
+    }
+
+    /// Ends this session and discards its secrets. A retry must start a new session.
+    pub fn cancel(&mut self) {
+        self.state = SessionState::Ended;
+    }
+
+    /// Encrypts and publishes the request on the bridge.
+    ///
+    /// Call it once per session: publishing again after the Approving Authenticator read the
+    /// request would reset the session on the bridge. The Pairing URI is available only after
+    /// this succeeds, so calling it again after an interrupted call is safe (WIP-109 §3.8).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RequesterError::AlreadyPublished`] after a successful publish,
+    /// [`RequesterError::SessionEnded`] once the session ended, or the error that ended it.
+    pub async fn publish(&mut self) -> Result<(), RequesterError> {
+        self.end_if_expired();
+        let secrets = match &self.state {
+            SessionState::Created { secrets, .. } => secrets,
+            SessionState::Published { .. } | SessionState::Retrieved { .. } => {
+                return Err(RequesterError::AlreadyPublished);
+            }
+            SessionState::Ended => return Err(RequesterError::SessionEnded),
+        };
+        let request_id = secrets.pairing_secret.request_id();
+        let message = RegisterRequestMessage::builder()
+            .id(request_id.message_id())
+            .method(REGISTER_METHOD)
+            .params(self.request.clone())
+            .build();
+        let encrypted = authenticator_message::encode(&message)
+            .map_err(RequesterError::Encoding)
+            .and_then(|plaintext| Ok(secrets.transport_key.encrypt_request(&plaintext)?));
+        let published = match encrypted {
+            Ok(encrypted) => self
+                .bridge
+                .publish_request(&request_id, &encrypted)
+                .await
+                .map_err(RequesterError::from),
+            Err(error) => Err(error),
+        };
+        // A retry needs a new session, so a failure ends this one and discards its keys.
+        if let Err(error) = published {
+            self.cancel();
+            return Err(error);
+        }
+        self.state = match std::mem::replace(&mut self.state, SessionState::Ended) {
+            SessionState::Created { secrets, .. } => SessionState::Published {
+                secrets,
+                expires_at: Instant::now() + SESSION_TTL,
+            },
+            state => state,
+        };
+        Ok(())
+    }
+
+    /// Checks the bridge once for the response. Call it periodically, e.g. every second.
+    ///
+    /// A completed response is consumed by this call, which ends the session.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the bridge cannot be reached, or the response cannot be opened or
+    /// does not answer this session's request. Errors end the session. After a transport error
+    /// the response may have been consumed but not received, so a new session is needed.
+    pub async fn poll(&mut self) -> Result<RequesterStatus, RequesterError> {
+        self.end_if_expired();
+        let (secrets, expires_at) = match &self.state {
+            SessionState::Created { .. } => return Ok(RequesterStatus::Waiting),
+            SessionState::Published {
+                secrets,
+                expires_at,
+            }
+            | SessionState::Retrieved {
+                secrets,
+                expires_at,
+            } => (secrets, *expires_at),
+            SessionState::Ended => return Ok(RequesterStatus::Expired),
+        };
+        let request_id = secrets.pairing_secret.request_id();
+        match before(expires_at, self.bridge.fetch_response(&request_id)).await {
+            Some(Ok(ResponseState::Initialized)) => Ok(RequesterStatus::Waiting),
+            Some(Ok(ResponseState::Retrieved)) => {
+                self.state = match std::mem::replace(&mut self.state, SessionState::Ended) {
+                    // Retrieval restarts the bridge session (WIP-109 §3.5).
+                    SessionState::Published { secrets, .. } => SessionState::Retrieved {
+                        secrets,
+                        expires_at: Instant::now() + SESSION_TTL,
+                    },
+                    state => state,
+                };
+                Ok(RequesterStatus::Retrieved)
+            }
+            Some(Ok(ResponseState::Completed(sealed))) => {
+                let outcome = open_response(secrets, &request_id, &sealed);
+                self.cancel();
+                outcome.map(RequesterStatus::Completed)
+            }
+            None | Some(Ok(ResponseState::NotFound)) => {
+                self.cancel();
+                Ok(RequesterStatus::Expired)
+            }
+            Some(Err(error)) => {
+                self.cancel();
+                Err(error.into())
+            }
+        }
+    }
+
+    /// Checks a successful `result` against the account state and returns the new
+    /// authenticator, ready to generate proofs.
+    ///
+    /// The registry, through the indexer, must show this session's key at `result.pubkey_id` on
+    /// `result.leaf_index`, with the requested class. Until this succeeds the authenticator must
+    /// not consider itself registered. The indexer may lag behind the registry, so this retries
+    /// with backoff within a one-minute deadline, including time spent on requests.
+    ///
+    /// Importing the vault is up to the caller, which must validate the imported credentials
+    /// against the account.
+    ///
+    /// # Errors
+    ///
+    /// - [`RequesterError::SeedMismatch`] if `seed` is not the one this session registers.
+    /// - [`RequesterError::RegistrationMismatch`] if the key is registered at another slot or
+    ///   with another class.
+    /// - [`RequesterError::VerificationTimeout`] if the key is still not found on the account, or
+    ///   the indexer still fails transiently, when the deadline passes. A wrong `leaf_index`
+    ///   cannot be told apart from indexer lag, so it also ends here.
+    /// - [`RequesterError::Authenticator`] if initialization or an account lookup fails
+    ///   permanently.
+    pub async fn verify(
+        &self,
+        seed: &[u8],
+        result: &RegistrationResult,
+        config: Config,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
+    ) -> Result<Authenticator, RequesterError> {
+        let signer = Signer::from_seed_bytes(seed).map_err(AuthenticatorError::from)?;
+        if signer.offchain_signer_pubkey().pk != self.request.new_authenticator_pubkey.pk {
+            return Err(RequesterError::SeedMismatch);
+        }
+        let verification = async {
+            let attempt = || async {
+                let authenticator = Authenticator::init_with_leaf_index(
+                    seed,
+                    result.leaf_index,
+                    config.clone(),
+                    Arc::clone(&zk_artifact_source),
+                )
+                .await?;
+                let registered = Authenticator::fetch_authenticators_for(
+                    result.leaf_index,
+                    &config,
+                    &authenticator.indexer_client,
+                )
+                .await?
+                .find(&self.request.new_authenticator_pubkey)
+                // Another indexer replica may still lag behind the one `init` read from.
+                .ok_or(AuthenticatorError::PublicKeyNotFound)?;
+                Ok::<_, AuthenticatorError>((authenticator, registered))
+            };
+            let (authenticator, registered) = attempt
+                .retry(polling_backoff().with_total_delay(Some(VERIFY_TIMEOUT)))
+                .when(is_transient)
+                .await
+                .map_err(|error| {
+                    if is_transient(&error) {
+                        RequesterError::VerificationTimeout
+                    } else {
+                        error.into()
+                    }
+                })?;
+            if registered != (result.pubkey_id, self.request.class) {
+                return Err(RequesterError::RegistrationMismatch);
+            }
+            Ok(authenticator)
+        };
+        before(Instant::now() + VERIFY_TIMEOUT, verification)
+            .await
+            .ok_or(RequesterError::VerificationTimeout)?
+    }
+
+    fn end_if_expired(&mut self) {
+        let expires_at = match &self.state {
+            SessionState::Created { expires_at, .. }
+            | SessionState::Published { expires_at, .. }
+            | SessionState::Retrieved { expires_at, .. } => *expires_at,
+            SessionState::Ended => return,
+        };
+        if Instant::now() >= expires_at {
+            self.cancel();
+        }
+    }
+}
+
+/// Opens a sealed response and checks that it answers the request `request_id` (WIP-109 §3.8
+/// step 5).
+fn open_response(
+    secrets: &SessionSecrets,
+    request_id: &RequestId,
+    sealed: &EncryptedPayload,
+) -> Result<Result<RegistrationResult, ErrorObject<RegistrationErrorData>>, RequesterError> {
+    let plaintext = secrets
+        .transport_key
+        .decrypt_response(&secrets.response_key, sealed)?;
+    let response: RegisterResponseMessage =
+        authenticator_message::decode(&plaintext, MAX_RESPONSE_SIZE)
+            .map_err(RequesterError::MalformedResponse)?;
+    // The outer envelope binds the response to this session, so an uncorrelated error, with a
+    // null ID, is accepted too. A success always has an ID.
+    if response.id.is_some_and(|id| id != request_id.message_id()) {
+        return Err(RequesterError::ResponseIdMismatch);
+    }
+    Ok(response.outcome)
+}
+
+/// Errors that may clear up while the indexer catches up with the registry or recovers.
+fn is_transient(error: &AuthenticatorError) -> bool {
+    match error {
+        AuthenticatorError::PublicKeyNotFound
+        | AuthenticatorError::AccountDoesNotExist
+        | AuthenticatorError::NetworkError(_) => true,
+        AuthenticatorError::IndexerError { status, .. } => {
+            status.is_server_error() || *status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        }
+        _ => false,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
-    use world_id_primitives::authenticator_message::Version;
+    use world_id_primitives::authenticator_message::{Id, Version};
 
     use super::*;
 
@@ -429,124 +473,131 @@ mod tests {
         .unwrap()
     }
 
-    /// The Pairing URI of `session`, which `pairing_uri` returns only once it is published.
-    fn uri_of(session: &RegistrationRequester) -> PairingUri {
-        PairingUri {
-            secret: session.secrets.as_ref().unwrap().secret.clone(),
-            digest: session.digest,
-            bridge: session.bridge.domain().clone(),
+    fn secrets(session: &RegistrationRequester) -> &SessionSecrets {
+        match &session.state {
+            SessionState::Created { secrets, .. }
+            | SessionState::Published { secrets, .. }
+            | SessionState::Retrieved { secrets, .. } => secrets,
+            SessionState::Ended => panic!("the session has ended"),
         }
     }
 
-    #[tokio::test]
-    async fn uri_follows_publishing_and_code_follows_retrieval() {
-        let mut server = mockito::Server::new_async().await;
-        let mut session = requester(&server);
-        assert!(session.pairing_uri().is_none());
-        assert!(session.pairing_code().is_none());
-        let _publish = server
+    async fn published(server: &mut mockito::ServerGuard) -> RegistrationRequester {
+        let mut session = requester(server);
+        let publish = server
             .mock("POST", "/request")
             .with_status(200)
             .create_async()
             .await;
         session.publish().await.unwrap();
-        assert_eq!(session.pairing_uri(), Some(uri_of(&session)));
-        assert!(session.pairing_code().is_none());
-        let id = session.secrets.as_ref().unwrap().secret.request_id();
+        publish.remove_async().await;
+        session
+    }
+
+    #[tokio::test]
+    async fn the_pairing_uri_follows_publishing_and_the_code_follows_retrieval() {
+        let mut server = mockito::Server::new_async().await;
+        let session = requester(&server);
+        assert_eq!(session.pairing_uri(), None);
+        assert_eq!(session.pairing_code(), None);
+
+        let mut session = published(&mut server).await;
+        let uri = session.pairing_uri().unwrap();
+        assert_eq!(uri.secret, secrets(&session).pairing_secret);
+        assert_eq!(uri.bridge.as_str(), "bridge.example.org");
+        assert_eq!(session.pairing_code(), None);
+        assert!(matches!(
+            session.publish().await,
+            Err(RequesterError::AlreadyPublished)
+        ));
+
         let _retrieved = server
-            .mock("GET", format!("/response/{id}").as_str())
+            .mock(
+                "GET",
+                format!("/response/{}", uri.secret.request_id()).as_str(),
+            )
             .with_status(200)
             .with_body(r#"{"status":"retrieved","response":null}"#)
             .create_async()
             .await;
         assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
-        assert!(session.pairing_code().is_some());
-        assert!(session.pairing_uri().is_none());
+        assert_eq!(session.pairing_code(), Some(&secrets(&session).code));
+        assert_eq!(session.pairing_uri(), None);
+
         session.cancel();
-        assert!(session.pairing_code().is_none());
-        assert!(session.secrets.is_none());
+        assert_eq!(session.pairing_code(), None);
         assert_eq!(session.poll().await.unwrap(), RequesterStatus::Expired);
+        assert!(matches!(
+            session.publish().await,
+            Err(RequesterError::SessionEnded)
+        ));
     }
 
-    #[tokio::test]
-    async fn authenticated_errors_preserve_unknown_codes_and_clear_secrets() {
-        let mut server = mockito::Server::new_async().await;
-        let mut session = requester(&server);
-        session.published = true;
-        let secrets = session.secrets.as_ref().unwrap();
-        let id = secrets.secret.request_id();
+    /// The `id` of a response in a test.
+    #[derive(Clone, Copy, Debug)]
+    enum ResponseId {
+        ThisRequest,
+        Null,
+        Other(&'static str),
+    }
+
+    /// An error response to `session` with `id`, sealed as the Approving Authenticator would.
+    fn sealed_error(
+        session: &RegistrationRequester,
+        id: ResponseId,
+        code: &str,
+    ) -> EncryptedPayload {
+        let secrets = secrets(session);
+        let id = match id {
+            ResponseId::ThisRequest => Some(secrets.pairing_secret.request_id().message_id()),
+            ResponseId::Null => None,
+            ResponseId::Other(id) => Some(Id::String(id.to_string())),
+        };
         let response = RegisterResponseMessage {
             version: Version::V1,
-            id: Some(Id::String(id.to_string())),
+            id,
             outcome: Err(ErrorObject {
-                code: "future_error".into(),
-                message: "New method error".into(),
+                code: code.into(),
+                message: "Registration failed".into(),
                 data: None,
             }),
         };
-        let encrypted = secrets
+        secrets
             .transport_key
             .encrypt_response(
                 &secrets.response_key.public_key(),
                 &authenticator_message::encode(&response).unwrap(),
             )
-            .unwrap();
-        let _response = server
-            .mock("GET", format!("/response/{id}").as_str())
-            .with_status(200)
-            .with_body(serde_json::json!({"status":"completed", "response":encrypted}).to_string())
-            .create_async()
-            .await;
-        let RequesterStatus::Completed(Err(error)) = session.poll().await.unwrap() else {
-            panic!("expected method error");
-        };
-        assert_eq!(error.code, "future_error");
-        assert!(session.secrets.is_none());
+            .unwrap()
     }
 
-    #[test_case(None, true; "null id")]
-    #[test_case(Some("other"), false; "another id")]
+    #[test_case(ResponseId::ThisRequest, "future_error", Some("future_error"); "an unknown code for this request")]
+    #[test_case(ResponseId::Null, "invalid_request", Some("invalid_request"); "an uncorrelated error")]
+    #[test_case(ResponseId::Other("other"), "invalid_request", None; "an error for another request")]
     #[tokio::test]
-    async fn errors_are_accepted_with_a_null_id_but_not_another_id(
-        id: Option<&str>,
-        accepted: bool,
+    async fn completed_errors_are_accepted_only_for_this_request(
+        id: ResponseId,
+        code: &str,
+        accepted_code: Option<&str>,
     ) {
         let mut server = mockito::Server::new_async().await;
-        let mut session = requester(&server);
-        session.published = true;
-        let secrets = session.secrets.as_ref().unwrap();
-        let request_id = secrets.secret.request_id();
-        let response = RegisterResponseMessage {
-            version: Version::V1,
-            id: id.map(|id| Id::String(id.to_string())),
-            outcome: Err(ErrorObject {
-                code: "invalid_request".into(),
-                message: "Invalid request".into(),
-                data: None,
-            }),
-        };
-        let encrypted = secrets
-            .transport_key
-            .encrypt_response(
-                &secrets.response_key.public_key(),
-                &authenticator_message::encode(&response).unwrap(),
-            )
-            .unwrap();
-        let _response = server
+        let mut session = published(&mut server).await;
+        let sealed = sealed_error(&session, id, code);
+        let request_id = secrets(&session).pairing_secret.request_id();
+        let _completed = server
             .mock("GET", format!("/response/{request_id}").as_str())
             .with_status(200)
-            .with_body(serde_json::json!({"status":"completed", "response":encrypted}).to_string())
+            .with_body(serde_json::json!({ "status": "completed", "response": sealed }).to_string())
             .create_async()
             .await;
-        let status = session.poll().await;
-        if accepted {
-            let Ok(RequesterStatus::Completed(Err(error))) = status else {
-                panic!("expected the error to be accepted");
-            };
-            assert_eq!(error.code, "invalid_request");
-        } else {
-            assert!(matches!(status, Err(RequesterError::ResponseIdMismatch)));
+
+        match (session.poll().await, accepted_code) {
+            (Ok(RequesterStatus::Completed(Err(error))), Some(expected)) => {
+                assert_eq!(error.code, expected);
+            }
+            (Err(RequesterError::ResponseIdMismatch), None) => {}
+            (status, _) => panic!("unexpected poll result: {status:?}"),
         }
-        assert!(session.secrets.is_none());
+        assert!(matches!(session.state, SessionState::Ended));
     }
 }
