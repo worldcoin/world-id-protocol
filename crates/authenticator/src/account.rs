@@ -1,5 +1,5 @@
-//! This module contains account management operations for the user's World ID. It lets
-//! the user add, update, remove authenticators.
+//! Account state and account management operations for the user's World ID: reading the
+//! account's registered authenticators, and adding, updating and removing authenticators.
 use alloy::primitives::Address;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use ruint::aliases::U256;
@@ -19,6 +19,91 @@ use crate::{
 use world_id_registries::world_id::{
     domain, sign_insert_authenticator, sign_remove_authenticator, sign_update_authenticator,
 };
+
+/// The kind of an authenticator, as defined in WIP-104.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthenticatorClass {
+    /// An Admin Authenticator, which can manage the account with its management key.
+    Admin {
+        /// The non-zero address of the authenticator's management key.
+        address: Address,
+    },
+    /// A Proving Authenticator, which can generate proofs but cannot manage the account.
+    Proving,
+}
+
+impl AuthenticatorClass {
+    /// Returns the class of an authenticator registered with `address`: Proving for the zero
+    /// address, Admin otherwise.
+    #[must_use]
+    pub fn from_onchain_address(address: Address) -> Self {
+        if address.is_zero() {
+            Self::Proving
+        } else {
+            Self::Admin { address }
+        }
+    }
+
+    /// Returns the address registered on-chain for this class: the management key of an Admin
+    /// Authenticator, or the zero address for a Proving Authenticator.
+    #[must_use]
+    pub const fn onchain_address(&self) -> Address {
+        match self {
+            Self::Admin { address } => *address,
+            Self::Proving => Address::ZERO,
+        }
+    }
+
+    /// An Admin Authenticator with the zero address cannot be registered or encoded.
+    pub(crate) fn has_zero_management_address(&self) -> bool {
+        matches!(self, Self::Admin { address } if address.is_zero())
+    }
+}
+
+/// The registered authenticators of an account, read from one indexed account state.
+#[derive(Clone, Debug)]
+pub struct AccountAuthenticators {
+    /// The public keys, by `pubkey_id`.
+    pub key_set: AuthenticatorPublicKeySet,
+    /// The classes, by `pubkey_id`. A removed slot is `None`, as in `key_set`.
+    pub classes: Vec<Option<AuthenticatorClass>>,
+    /// The commitment to `key_set` stored in the `WorldIDRegistry`.
+    pub offchain_signer_commitment: U256,
+    /// The number of recoveries of the account.
+    pub recovery_counter: u64,
+}
+
+impl AccountAuthenticators {
+    /// Returns the slot and class of `pubkey`, if it is registered.
+    #[must_use]
+    pub fn find(&self, pubkey: &EdDSAPublicKey) -> Option<(u32, AuthenticatorClass)> {
+        let slot = self
+            .key_set
+            .iter()
+            .position(|key| key.as_ref().is_some_and(|key| key.pk == pubkey.pk))?;
+        let class = self.classes.get(slot).copied().flatten()?;
+        Some((
+            u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"),
+            class,
+        ))
+    }
+
+    /// Returns the registry's packed account data for `pubkey` on `leaf_index`: the recovery
+    /// counter, the slot and the leaf index. `None` if `pubkey` is not registered.
+    #[must_use]
+    pub(crate) fn packed_account_data(
+        &self,
+        leaf_index: u64,
+        pubkey: &EdDSAPublicKey,
+    ) -> Option<U256> {
+        let (pubkey_id, _) = self.find(pubkey)?;
+        Some(
+            (U256::from(self.recovery_counter) << 224)
+                | (U256::from(pubkey_id) << 192)
+                | U256::from(leaf_index),
+        )
+    }
+}
 
 /// A view of an account to sign an account operation from. See
 /// [`Authenticator::fetch_account_snapshot`].
@@ -381,90 +466,5 @@ impl Authenticator {
             request_id: body.request_id,
             pubkey_id,
         })
-    }
-}
-
-/// The registered authenticators of an account, read from one indexed account state.
-#[derive(Clone, Debug)]
-pub struct AccountAuthenticators {
-    /// The public keys, by `pubkey_id`.
-    pub key_set: AuthenticatorPublicKeySet,
-    /// The classes, by `pubkey_id`. A removed slot is `None`, as in `key_set`.
-    pub classes: Vec<Option<AuthenticatorClass>>,
-    /// The commitment to `key_set` stored in the `WorldIDRegistry`.
-    pub offchain_signer_commitment: U256,
-    /// The number of recoveries of the account.
-    pub recovery_counter: u64,
-}
-
-impl AccountAuthenticators {
-    /// Returns the slot and class of `pubkey`, if it is registered.
-    #[must_use]
-    pub fn find(&self, pubkey: &EdDSAPublicKey) -> Option<(u32, AuthenticatorClass)> {
-        let slot = self
-            .key_set
-            .iter()
-            .position(|key| key.as_ref().is_some_and(|key| key.pk == pubkey.pk))?;
-        let class = self.classes.get(slot).copied().flatten()?;
-        Some((
-            u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"),
-            class,
-        ))
-    }
-
-    /// Returns the registry's packed account data for `pubkey` on `leaf_index`: the recovery
-    /// counter, the slot and the leaf index. `None` if `pubkey` is not registered.
-    #[must_use]
-    pub(crate) fn packed_account_data(
-        &self,
-        leaf_index: u64,
-        pubkey: &EdDSAPublicKey,
-    ) -> Option<U256> {
-        let (pubkey_id, _) = self.find(pubkey)?;
-        Some(
-            (U256::from(self.recovery_counter) << 224)
-                | (U256::from(pubkey_id) << 192)
-                | U256::from(leaf_index),
-        )
-    }
-}
-
-/// The kind of an authenticator, as defined in WIP-104.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AuthenticatorClass {
-    /// An Admin Authenticator, which can manage the account with its management key.
-    Admin {
-        /// The non-zero address of the authenticator's management key.
-        address: Address,
-    },
-    /// A Proving Authenticator, which can generate proofs but cannot manage the account.
-    Proving,
-}
-
-impl AuthenticatorClass {
-    /// Returns the class of an authenticator registered with `address`: Proving for the zero
-    /// address, Admin otherwise.
-    #[must_use]
-    pub fn from_onchain_address(address: Address) -> Self {
-        if address.is_zero() {
-            Self::Proving
-        } else {
-            Self::Admin { address }
-        }
-    }
-
-    /// Returns the address registered on-chain for this class: the management key of an Admin
-    /// Authenticator, or the zero address for a Proving Authenticator.
-    #[must_use]
-    pub const fn onchain_address(&self) -> Address {
-        match self {
-            Self::Admin { address } => *address,
-            Self::Proving => Address::ZERO,
-        }
-    }
-
-    /// An Admin Authenticator with the zero address cannot be registered or encoded.
-    pub(crate) fn has_zero_management_address(&self) -> bool {
-        matches!(self, Self::Admin { address } if address.is_zero())
     }
 }

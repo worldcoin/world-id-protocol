@@ -6,6 +6,28 @@ use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use world_id_primitives::ServiceEndpoint;
 
+/// The maximum time to establish a connection to a gateway or indexer.
+#[cfg(not(target_arch = "wasm32"))]
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// The maximum time for a whole gateway, indexer or OHTTP relay request, including reading the
+/// response. Set on each request because browser clients have no client-wide timeout.
+pub(crate) const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Builds the HTTP client for gateway and indexer requests.
+///
+/// Native clients also bound connection setup with [`CONNECT_TIMEOUT`]. Every request sets
+/// [`REQUEST_TIMEOUT`] on both native and browser clients.
+pub(crate) fn default_http_client() -> reqwest::Client {
+    #[cfg(not(target_arch = "wasm32"))]
+    let client = reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
+        .build()
+        .unwrap_or_default();
+    #[cfg(target_arch = "wasm32")]
+    let client = reqwest::Client::new();
+    client
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ServiceKind {
     Gateway,
@@ -192,26 +214,4 @@ impl ServiceClient {
             ))
         })
     }
-}
-
-/// The maximum time to establish a connection to a gateway or indexer.
-#[cfg(not(target_arch = "wasm32"))]
-const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-/// The maximum time for a whole gateway, indexer or OHTTP relay request, including reading the
-/// response. Set on each request because browser clients have no client-wide timeout.
-pub(crate) const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// Builds the HTTP client for gateway and indexer requests.
-///
-/// Native clients also bound connection setup with [`CONNECT_TIMEOUT`]. Every request sets
-/// [`REQUEST_TIMEOUT`] on both native and browser clients.
-pub(crate) fn default_http_client() -> reqwest::Client {
-    #[cfg(not(target_arch = "wasm32"))]
-    let client = reqwest::Client::builder()
-        .connect_timeout(CONNECT_TIMEOUT)
-        .build()
-        .unwrap_or_default();
-    #[cfg(target_arch = "wasm32")]
-    let client = reqwest::Client::new();
-    client
 }
