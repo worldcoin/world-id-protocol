@@ -184,6 +184,13 @@ struct ResponseChannel {
     expires_at: Instant,
 }
 
+/// The response ID and key of an answer to an invalid request (WIP-105 §3.1.4).
+#[derive(Debug)]
+struct Reply {
+    id: Option<Id>,
+    response_pubkey: ResponsePublicKey,
+}
+
 /// An authenticated request that fails validation, and where to answer it (WIP-109 §3.7.1
 /// step 4).
 #[derive(Debug)]
@@ -193,13 +200,6 @@ struct RejectedRequest {
     problem: String,
     /// The ID and key to answer with, or `None` if the request must not or cannot be answered.
     reply: Option<Reply>,
-}
-
-/// The response ID and key of an answer to an invalid request (WIP-105 §3.1.4).
-#[derive(Debug)]
-struct Reply {
-    id: Option<Id>,
-    response_pubkey: ResponsePublicKey,
 }
 
 /// Why the Approving Authenticator refuses a valid request (WIP-109 §3.6.3).
@@ -814,7 +814,7 @@ impl RejectedRequest {
             request,
             reason = ?self.reason,
             problem = self.problem,
-            answered = delivery.is_some(),
+            delivered = matches!(delivery, Some(Ok(DeliveryOutcome::Delivered))),
             "invalid registration request"
         );
         ApproverError::InvalidRequest {
@@ -1352,6 +1352,7 @@ mod tests {
     #[test_case(Tamper::Set("id", "other".into()), RegistrationErrorReason::InvalidRequest, ExpectedReply::OtherId("other"); "another id")]
     #[test_case(Tamper::Set("method", "worldid_auth_v1_other".into()), RegistrationErrorReason::MethodNotFound, ExpectedReply::RequestId; "another method")]
     #[test_case(Tamper::Set("params.registration_sig", Value::Bytes(vec![0; 63])), RegistrationErrorReason::InvalidParams, ExpectedReply::RequestId; "malformed params")]
+    #[test_case(Tamper::Set("params.new_authenticator_pubkey", Value::Tag(42, Box::new(Value::Bytes(vec![1; 32])))), RegistrationErrorReason::InvalidParams, ExpectedReply::RequestId; "tagged params")]
     fn parse_request_answers_an_invalid_request_only_when_it_may_and_can(
         tamper: Tamper,
         reason: RegistrationErrorReason,
