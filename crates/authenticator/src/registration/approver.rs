@@ -18,13 +18,13 @@ use futures_util::future::{Either, select};
 use web_time::Instant;
 use world_id_primitives::{
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
-    authenticator_message::{self, ErrorObject, Id, Version},
+    authenticator_message::{self, ErrorObject, Id, Request, Value, Version},
 };
 use zeroize::Zeroizing;
 
 use super::{
-    BridgeDomain, EncryptedPayload, KnownAuthenticator, MAX_RESPONSE_SIZE, PairingCode, PairingUri,
-    REGISTER_METHOD, RegisterRequestMessage, RegisterResponseMessage, RegistrationErrorData,
+    BridgeDomain, EncryptedPayload, KnownAuthenticator, MAX_REQUEST_SIZE, MAX_RESPONSE_SIZE,
+    PairingCode, PairingUri, REGISTER_METHOD, RegisterResponseMessage, RegistrationErrorData,
     RegistrationErrorReason, RegistrationRequest, RegistrationResult, RequestId, ResponsePublicKey,
     TransportError, TransportKey, Vault,
     bridge::{BridgeClient, BridgeError, DeliveryOutcome},
@@ -97,7 +97,8 @@ impl PendingRegistration {
 
     /// Authenticates the retained ciphertext, then validates the CBOR request and signature.
     /// At most three code attempts are allowed before expiry. No response is sent before
-    /// authentication, or when CBOR decoding, envelope validation, or digest matching fails.
+    /// authentication. An authenticated request that fails validation is answered with the
+    /// WIP-105 error, if it carries a readable `response_pubkey` to seal it to.
     ///
     /// # Errors
     /// An incorrect code leaves the ciphertext available for the reported remaining attempts.
@@ -274,61 +275,78 @@ impl IncomingRegistration {
         plaintext: &[u8],
     ) -> Result<Self, ApproverError> {
         let request_id = attempt.uri.secret.request_id();
-        let message: RegisterRequestMessage = authenticator_message::decode(plaintext, 16 * 1024)
-            .map_err(|error| ApproverError::InvalidRequest {
-            reason: error.to_string(),
-            responded: false,
-        })?;
-        if message.method != REGISTER_METHOD
-            || message.id != Some(Id::String(request_id.to_string()))
-        {
-            return Err(ApproverError::InvalidRequest {
-                reason: "unexpected registration method or request id".into(),
-                responded: false,
-            });
-        }
-        let request = message
-            .params
-            .ok_or_else(|| ApproverError::InvalidRequest {
-                reason: "missing registration params".into(),
-                responded: false,
-            })?;
-        let digest = request
-            .digest(&request_id)
-            .map_err(|e| ApproverError::InvalidRequest {
-                reason: e.to_string(),
-                responded: false,
-            })?;
-        if digest != attempt.uri.digest {
-            tracing::warn!(request = %log_tag(&request_id), "registration request does not match the pairing link");
-            return Err(ApproverError::DigestMismatch);
-        }
+        let channel = |response_pubkey| ResponseChannel {
+            request_id,
+            response_pubkey,
+            transport_key,
+            bridge: attempt.bridge,
+            expires_at: attempt.taken_at + BRIDGE_SESSION_TTL,
+        };
+        let request = match parse_request(plaintext, &request_id) {
+            Ok(request) => request,
+            Err(rejection) => {
+                let responded = match rejection.reply_to {
+                    Some(response_pubkey) => channel(response_pubkey)
+                        .reply(rejection.id, Err(rejection.reason.into_error(None)))
+                        .await
+                        .is_ok(),
+                    None => false,
+                };
+                tracing::warn!(request = %log_tag(&request_id), reason = ?rejection.reason, responded, "invalid registration request");
+                return Err(ApproverError::InvalidRequest {
+                    reason: rejection.detail,
+                    responded,
+                });
+            }
+        };
 
         let incoming = Self {
-            channel: ResponseChannel {
-                request_id,
-                response_pubkey: request.response_pubkey.clone(),
-                transport_key,
-                bridge: attempt.bridge,
-                expires_at: attempt.taken_at + BRIDGE_SESSION_TTL,
-            },
+            channel: channel(request.response_pubkey.clone()),
             request,
             respond_by: attempt.taken_at + DEFAULT_RESPONSE_DEADLINE,
         };
+        let digest = match incoming.request.digest(&request_id) {
+            Ok(digest) => digest,
+            Err(error) => {
+                let responded = incoming
+                    .refuse_invalid_params("invalid registration params")
+                    .await;
+                return Err(ApproverError::InvalidRequest {
+                    reason: error.to_string(),
+                    responded,
+                });
+            }
+        };
+        if digest != attempt.uri.digest {
+            let responded = incoming
+                .refuse_invalid_params("registration request does not match the pairing link")
+                .await;
+            return Err(ApproverError::DigestMismatch { responded });
+        }
         if !incoming.request.verify_signature(&digest) {
             let responded = incoming
-                .channel
-                .send(Err(RegistrationErrorReason::InvalidParams
-                    .into_error(Some("invalid registration_sig".to_string()))))
-                .await
-                .is_ok();
-            tracing::warn!(request = %log_tag(&request_id), responded, "invalid registration signature");
+                .refuse_invalid_params("invalid registration_sig")
+                .await;
             return Err(ApproverError::InvalidRequest {
                 reason: "invalid registration signature".to_string(),
                 responded,
             });
         }
         Ok(incoming)
+    }
+
+    /// Answers `invalid_params` to a request that decoded but failed validation. Returns whether
+    /// the answer was delivered.
+    async fn refuse_invalid_params(&self, detail: &str) -> bool {
+        let responded = self
+            .channel
+            .send(Err(
+                RegistrationErrorReason::InvalidParams.into_error(Some(detail.to_string()))
+            ))
+            .await
+            .is_ok();
+        tracing::warn!(request = %log_tag(&self.channel.request_id), detail, responded, "invalid registration params");
+        responded
     }
 
     async fn refuse(
@@ -660,10 +678,15 @@ pub enum ApproverError {
         /// Number of remaining code attempts; zero means a new pairing is required.
         attempts_remaining: u8,
     },
-    /// The request does not match the digest in the Pairing URI. No response was sent.
+    /// The request does not match the digest in the Pairing URI. `responded` tells whether an
+    /// `invalid_params` error was sent.
     #[error("the registration request does not match the pairing link")]
-    DigestMismatch,
-    /// The request is malformed. `responded` tells whether an `invalid_params` error was sent.
+    DigestMismatch {
+        /// Whether an error response was sent to the Requesting Authenticator.
+        responded: bool,
+    },
+    /// The request is malformed. `responded` tells whether an error was sent: none is sent for a
+    /// notification, or when the request has no readable `response_pubkey` to seal it to.
     #[error("invalid registration request: {reason}")]
     InvalidRequest {
         /// What is wrong with the request.
@@ -720,9 +743,20 @@ impl ResponseChannel {
         &self,
         outcome: Result<RegistrationResult, ErrorObject<RegistrationErrorData>>,
     ) -> Result<DeliveryOutcome, ApproverError> {
+        self.reply(Some(Id::String(self.request_id.to_string())), outcome)
+            .await
+    }
+
+    /// Sends `outcome` with response ID `id`, which differs from the request ID only for an
+    /// invalid request (WIP-105 §3.1.4).
+    async fn reply(
+        &self,
+        id: Option<Id>,
+        outcome: Result<RegistrationResult, ErrorObject<RegistrationErrorData>>,
+    ) -> Result<DeliveryOutcome, ApproverError> {
         let response = RegisterResponseMessage {
             version: Version::V1,
-            id: Some(Id::String(self.request_id.to_string())),
+            id,
             outcome,
         };
         let sealed = self.transport_key.encrypt_response(
@@ -741,6 +775,96 @@ impl ResponseChannel {
         }
         delivery
     }
+}
+
+/// Why a decrypted request was refused, and how to answer it (WIP-109 §3.7.1 step 4).
+#[derive(Debug)]
+struct Rejection {
+    reason: RegistrationErrorReason,
+    detail: String,
+    /// The ID to answer with.
+    id: Option<Id>,
+    /// The key to seal the answer to. Without one, no answer can be sent.
+    reply_to: Option<ResponsePublicKey>,
+}
+
+/// Validates a decrypted registration request in the order of WIP-109 §3.7.1 step 4: CBOR
+/// (`parse_error`), envelope and ID (`invalid_request`), method (`method_not_found`) and params
+/// (`invalid_params`). The registration digest and signature are checked by the caller.
+///
+/// A notification, a request without an ID, is never answered (WIP-105 §3.1.2).
+fn parse_request(
+    plaintext: &[u8],
+    request_id: &RequestId,
+) -> Result<RegistrationRequest, Box<Rejection>> {
+    let value: Value =
+        authenticator_message::decode(plaintext, MAX_REQUEST_SIZE).map_err(|error| {
+            Box::new(Rejection {
+                reason: RegistrationErrorReason::ParseError,
+                detail: error.to_string(),
+                id: None,
+                reply_to: None,
+            })
+        })?;
+    let reply_to = response_pubkey_of(&value);
+    let envelope: Request<Value> = value.deserialized().map_err(|error| {
+        Box::new(Rejection {
+            reason: RegistrationErrorReason::InvalidRequest,
+            detail: error.to_string(),
+            id: unique_field(&value, "id").and_then(|id| id.deserialized().ok()),
+            reply_to: reply_to.clone(),
+        })
+    })?;
+    let Some(id) = envelope.id else {
+        return Err(Box::new(Rejection {
+            reason: RegistrationErrorReason::InvalidRequest,
+            detail: "registration request is a notification".to_string(),
+            id: None,
+            reply_to: None,
+        }));
+    };
+    let reject = |reason, detail: &str| {
+        Box::new(Rejection {
+            reason,
+            detail: detail.to_string(),
+            id: Some(id.clone()),
+            reply_to: reply_to.clone(),
+        })
+    };
+    if id != Id::String(request_id.to_string()) {
+        return Err(reject(
+            RegistrationErrorReason::InvalidRequest,
+            "request id does not match the pairing link",
+        ));
+    }
+    if envelope.method != REGISTER_METHOD {
+        return Err(reject(
+            RegistrationErrorReason::MethodNotFound,
+            "unexpected registration method",
+        ));
+    }
+    envelope
+        .params
+        .ok_or_else(|| reject(RegistrationErrorReason::InvalidParams, "missing params"))?
+        .deserialized()
+        .map_err(|error| reject(RegistrationErrorReason::InvalidParams, &error.to_string()))
+}
+
+/// Reads `params.response_pubkey` from a request that failed validation, to seal the error to.
+fn response_pubkey_of(request: &Value) -> Option<ResponsePublicKey> {
+    let key = unique_field(unique_field(request, "params")?, "response_pubkey")?.as_bytes()?;
+    ResponsePublicKey::from_bytes(key).ok()
+}
+
+/// Returns the value of `key` in `map`, if `map` is a map that has it exactly once.
+fn unique_field<'a>(map: &'a Value, key: &str) -> Option<&'a Value> {
+    let mut values = map
+        .as_map()?
+        .iter()
+        .filter(|(k, _)| k.as_text() == Some(key))
+        .map(|(_, value)| value);
+    let value = values.next()?;
+    values.next().is_none().then_some(value)
 }
 
 /// Looks up the packed account data registered for a management `address`, from the registry

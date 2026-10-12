@@ -129,6 +129,12 @@ pub enum VaultFormat {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RegistrationErrorReason {
+    /// The request is not valid CBOR (WIP-105 §3.1.4).
+    ParseError,
+    /// The request envelope or its ID is invalid (WIP-105 §3.1.4).
+    InvalidRequest,
+    /// The request is for another method (WIP-105 §3.1.4).
+    MethodNotFound,
     /// A field is missing or malformed, or a key or address is invalid.
     InvalidParams,
     /// The Approving Authenticator does not accept the requested name.
@@ -154,6 +160,9 @@ impl RegistrationErrorReason {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
+            Self::ParseError => "parse_error",
+            Self::InvalidRequest => "invalid_request",
+            Self::MethodNotFound => "method_not_found",
             Self::InvalidParams => "invalid_params",
             Self::InvalidName => "invalid_name",
             Self::InternalError => "internal_error",
@@ -170,6 +179,9 @@ impl RegistrationErrorReason {
     #[must_use]
     pub fn from_code(code: &str) -> Option<Self> {
         match code {
+            "parse_error" => Some(Self::ParseError),
+            "invalid_request" => Some(Self::InvalidRequest),
+            "method_not_found" => Some(Self::MethodNotFound),
             "invalid_params" => Some(Self::InvalidParams),
             "invalid_name" => Some(Self::InvalidName),
             "internal_error" => Some(Self::InternalError),
@@ -198,6 +210,9 @@ impl RegistrationErrorReason {
 
     const fn message(self) -> &'static str {
         match self {
+            Self::ParseError => "Parse error",
+            Self::InvalidRequest => "Invalid request",
+            Self::MethodNotFound => "Method not found",
             Self::InvalidParams => "Invalid params",
             Self::InvalidName => "Name not accepted",
             Self::InternalError => "Internal error",

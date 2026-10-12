@@ -409,10 +409,13 @@ struct SessionSecrets {
 
 #[cfg(test)]
 mod tests {
-    use world_id_primitives::authenticator_message::Version;
+    use std::sync::{Arc, Mutex};
+
+    use test_case::test_case;
+    use world_id_primitives::authenticator_message::{Value, Version};
 
     use super::*;
-    use crate::registration::{ApproverError, PendingRegistration};
+    use crate::registration::{ApproverError, EncryptedPayload, PendingRegistration};
 
     fn requester(server: &mockito::ServerGuard) -> RegistrationRequester {
         RegistrationRequester::new(
@@ -428,22 +431,34 @@ mod tests {
         .unwrap()
     }
 
-    async fn pending(
-        session: &RegistrationRequester,
-        server: &mut mockito::ServerGuard,
-        message_id: Option<Id>,
-    ) -> PendingRegistration {
-        let secrets = session.secrets.as_ref().unwrap();
-        let id = secrets.secret.request_id();
-        let plaintext = authenticator_message::encode(
+    fn request_message(session: &RegistrationRequester, message_id: Option<Id>) -> Vec<u8> {
+        authenticator_message::encode(
             &RegisterRequestMessage::builder()
                 .maybe_id(message_id)
                 .method(REGISTER_METHOD)
                 .params(session.request.clone())
                 .build(),
         )
-        .unwrap();
-        let payload = secrets.transport_key.encrypt_request(&plaintext).unwrap();
+        .unwrap()
+    }
+
+    async fn pending(
+        session: &RegistrationRequester,
+        server: &mut mockito::ServerGuard,
+        message_id: Option<Id>,
+    ) -> PendingRegistration {
+        pending_with(session, server, &request_message(session, message_id)).await
+    }
+
+    /// Serves `plaintext`, encrypted for this session, as the request the approver receives.
+    async fn pending_with(
+        session: &RegistrationRequester,
+        server: &mut mockito::ServerGuard,
+        plaintext: &[u8],
+    ) -> PendingRegistration {
+        let secrets = session.secrets.as_ref().unwrap();
+        let id = secrets.secret.request_id();
+        let payload = secrets.transport_key.encrypt_request(plaintext).unwrap();
         let mock = server
             .mock("GET", format!("/request/{id}").as_str())
             .with_status(200)
@@ -550,6 +565,121 @@ mod tests {
             attempt.authenticate(code).await,
             Err(ApproverError::Expired)
         ));
+    }
+
+    /// Records the body of every `PUT /response` for this session.
+    async fn capture_responses(
+        session: &RegistrationRequester,
+        server: &mut mockito::ServerGuard,
+    ) -> Arc<Mutex<Vec<EncryptedPayload>>> {
+        let id = session.secrets.as_ref().unwrap().secret.request_id();
+        let captured = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&captured);
+        server
+            .mock("PUT", format!("/response/{id}").as_str())
+            .match_request(move |request| {
+                let payload = serde_json::from_slice(request.body().unwrap()).unwrap();
+                sink.lock().unwrap().push(payload);
+                true
+            })
+            .with_status(201)
+            .create_async()
+            .await;
+        captured
+    }
+
+    /// Replaces the value at the dot-separated `path` of a CBOR map.
+    fn set_field(map: &mut Value, path: &str, new: Value) {
+        let (key, rest) = path
+            .split_once('.')
+            .map_or((path, None), |(key, rest)| (key, Some(rest)));
+        let value = map
+            .as_map_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|(k, _)| k.as_text() == Some(key))
+            .map(|(_, value)| value)
+            .unwrap();
+        match rest {
+            Some(rest) => set_field(value, rest, new),
+            None => *value = new,
+        }
+    }
+
+    /// `reply_id` is the expected response ID, or `None` for the request's own ID.
+    #[test_case("method", "worldid_auth_v1_other".into(), "method_not_found", None; "another method")]
+    #[test_case("id", "other".into(), "invalid_request", Some("other"); "another id")]
+    #[test_case("version", "2.0".into(), "invalid_request", None; "unsupported version")]
+    #[test_case("params.registration_sig", Value::Bytes(vec![0; 63]), "invalid_params", None; "malformed params")]
+    #[tokio::test]
+    async fn authenticated_invalid_requests_get_the_wip_105_error(
+        path: &str,
+        new: Value,
+        code: &str,
+        reply_id: Option<&str>,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let session = requester(&server);
+        let secrets = session.secrets.as_ref().unwrap();
+        let request_id = secrets.secret.request_id().to_string();
+        let responses = capture_responses(&session, &mut server).await;
+        let mut message: Value = authenticator_message::decode(
+            &request_message(&session, Some(Id::String(request_id.clone()))),
+            4096,
+        )
+        .unwrap();
+        set_field(&mut message, path, new);
+        let plaintext = authenticator_message::encode(&message).unwrap();
+        let mut attempt = pending_with(&session, &mut server, &plaintext).await;
+
+        assert!(matches!(
+            attempt.authenticate(&secrets.code).await,
+            Err(ApproverError::InvalidRequest {
+                responded: true,
+                ..
+            })
+        ));
+        let responses = responses.lock().unwrap();
+        let [response] = responses.as_slice() else {
+            panic!("expected one response, got {}", responses.len());
+        };
+        let plaintext = secrets
+            .transport_key
+            .decrypt_response(&secrets.response_key, response)
+            .unwrap();
+        let response: RegisterResponseMessage =
+            authenticator_message::decode(&plaintext, MAX_RESPONSE_SIZE).unwrap();
+        assert_eq!(
+            response.id,
+            Some(Id::String(reply_id.unwrap_or(&request_id).to_string()))
+        );
+        assert_eq!(response.outcome.unwrap_err().code, code);
+    }
+
+    #[tokio::test]
+    async fn requests_without_a_readable_response_key_get_no_response() {
+        let mut server = mockito::Server::new_async().await;
+        let session = requester(&server);
+        let secrets = session.secrets.as_ref().unwrap();
+        let responses = capture_responses(&session, &mut server).await;
+        let without_params = authenticator_message::encode(
+            &RegisterRequestMessage::builder()
+                .id(secrets.secret.request_id().to_string())
+                .method(REGISTER_METHOD)
+                .build(),
+        )
+        .unwrap();
+        for plaintext in [vec![0xff], without_params] {
+            let mut attempt = pending_with(&session, &mut server, &plaintext).await;
+            assert!(matches!(
+                attempt.authenticate(&secrets.code).await,
+                Err(ApproverError::InvalidRequest {
+                    responded: false,
+                    ..
+                })
+            ));
+        }
+        assert!(responses.lock().unwrap().is_empty());
     }
 
     #[tokio::test]

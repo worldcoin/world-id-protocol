@@ -332,7 +332,7 @@ async fn e2e_authenticator_registration() {
     };
     assert_eq!(error.code, RegistrationErrorReason::InternalError.code());
 
-    // A request that does not match the digest in the link is dropped without a response.
+    // A request that does not match the digest in the link is answered with `invalid_params`.
     let mut session = requester(&[45u8; 32], RequestedClass::Proving, &bridge);
     session.publish().await.unwrap();
     let mut tampered = session.pairing_uri().unwrap();
@@ -341,9 +341,15 @@ async fn e2e_authenticator_registration() {
         .await
         .unwrap();
     assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
-    let dropped = pending.authenticate(session.pairing_code().unwrap()).await;
-    assert!(matches!(dropped, Err(ApproverError::DigestMismatch)));
-    assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
+    let refused = pending.authenticate(session.pairing_code().unwrap()).await;
+    assert!(matches!(
+        refused,
+        Err(ApproverError::DigestMismatch { responded: true })
+    ));
+    let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
+        panic!("expected invalid_params");
+    };
+    assert_eq!(error.code, RegistrationErrorReason::InvalidParams.code());
 }
 
 fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
