@@ -123,10 +123,7 @@ fn nullable_result_is_required_and_preserved() {
         r#"{"version": "1.0", "id": "ping-1", "result": null}"#,
     )
     .unwrap();
-    assert_eq!(
-        response,
-        Response::success("ping-1".into(), None)
-    );
+    assert_eq!(response, Response::success("ping-1".into(), None));
     assert!(
         decode_response::<Option<u64>, Value>(r#"{"version": "1.0", "id": "ping-1"}"#).is_err()
     );
@@ -249,10 +246,7 @@ fn response_accepts_reordered_and_indefinite_maps() {
     let response =
         decode_response::<Value, Value>(r#"{_ "result": null, "id": "ping-1", "version": "1.0"}"#)
             .unwrap();
-    assert_eq!(
-        response,
-        Response::success("ping-1".into(), Value::Null)
-    );
+    assert_eq!(response, Response::success("ping-1".into(), Value::Null));
 }
 
 #[test_case("1"; "positive")]
