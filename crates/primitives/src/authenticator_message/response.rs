@@ -1,4 +1,4 @@
-//! Decodes payloads directly to avoid an extra buffered plaintext copy.
+//! Streaming avoids untagged deserialization's extra plaintext buffer and payload copies.
 
 use std::fmt;
 

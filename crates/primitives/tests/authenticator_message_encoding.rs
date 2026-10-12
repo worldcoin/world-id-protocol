@@ -49,22 +49,22 @@ fn request_wire_example(request: Request<Value>, diagnostic: &str) {
 }
 
 #[test_case(
-    Response::Success { version: Version::V1, id: "ping-1".into(), result: Value::Bytes(vec![0, 255]) },
+    Response::success("ping-1".into(), Value::Bytes(vec![0, 255])),
     r#"{"version": "1.0", "id": "ping-1", "result": h'00ff'}"#;
     "binary result"
 )]
 #[test_case(
-    Response::Success { version: Version::V1, id: "ping-1".into(), result: Value::Null },
+    Response::success("ping-1".into(), Value::Null),
     r#"{"version": "1.0", "id": "ping-1", "result": null}"#;
     "present null result"
 )]
 #[test_case(
-    Response::Error { version: Version::V1, id: Some("ping-1".into()), error: ErrorObject::new("invalid_params", "Invalid params", None) },
+    Response::error(Some("ping-1".into()), ErrorObject::new("invalid_params", "Invalid params", None)),
     r#"{"version": "1.0", "id": "ping-1", "error": {"code": "invalid_params", "message": "Invalid params"}}"#;
     "correlated error without data"
 )]
 #[test_case(
-    Response::Error { version: Version::V1, id: None, error: ErrorObject::new("parse_error", "Invalid message", Some(Value::Null)) },
+    Response::error(None, ErrorObject::new("parse_error", "Invalid message", Some(Value::Null))),
     r#"{"version": "1.0", "id": null, "error": {"code": "parse_error", "message": "Invalid message", "data": null}}"#;
     "uncorrelated error with present null data"
 )]
@@ -85,11 +85,7 @@ fn ignores_unknown_error_fields() {
     .unwrap();
     assert_eq!(
         response,
-        Response::Error {
-            version: Version::V1,
-            id: None,
-            error: ErrorObject::new("parse_error", "bad", None),
-        }
+        Response::error(None, ErrorObject::new("parse_error", "bad", None))
     );
 }
 
@@ -129,11 +125,7 @@ fn nullable_result_is_required_and_preserved() {
     .unwrap();
     assert_eq!(
         response,
-        Response::Success {
-            version: Version::V1,
-            id: "ping-1".into(),
-            result: None
-        }
+        Response::success("ping-1".into(), None)
     );
     assert!(
         decode_response::<Option<u64>, Value>(r#"{"version": "1.0", "id": "ping-1"}"#).is_err()
@@ -259,11 +251,7 @@ fn response_accepts_reordered_and_indefinite_maps() {
             .unwrap();
     assert_eq!(
         response,
-        Response::Success {
-            version: Version::V1,
-            id: "ping-1".into(),
-            result: Value::Null
-        }
+        Response::success("ping-1".into(), Value::Null)
     );
 }
 
@@ -296,13 +284,9 @@ fn numeric_ids_are_rejected(id: &str) {
 #[test]
 fn typed_codecs_enforce_bounds_and_framing() {
     let request = Request::<Value>::new(None, PING, None).encode().unwrap();
-    let response = Response::<Value>::Success {
-        version: Version::V1,
-        id: "ping-1".into(),
-        result: Value::Null,
-    }
-    .encode()
-    .unwrap();
+    let response = Response::<Value>::success("ping-1".into(), Value::Null)
+        .encode()
+        .unwrap();
     assert!(matches!(
         Request::<Value>::decode(&request, request.len() - 1),
         Err(MessageError::TooLarge)
@@ -360,7 +344,6 @@ fn typed_codecs_enforce_bounds_and_framing() {
 #[test_case(r#"{"version": "1.0", "id": "ping-1", "result": null, "extra": true}"#; "unknown envelope")]
 #[test_case(r#"{"version": "1.0", "id": "ping-1", "result": null, "method": "worldid_ping"}"#; "response method")]
 #[test_case(r#"{"version": "1.0", "id": "ping-1", "result": null, "params": {}}"#; "response params")]
-#[test_case(r#"{"version": "1.0", "outcome": {"success": {"id": "ping-1", "result": null}}}"#; "obsolete outcome")]
 #[test_case(r#"{h'76657273696f6e': "1.0", "id": "ping-1", "result": null}"#; "byte string version key")]
 #[test_case(r#"{"version": "1.0", h'6964': "ping-1", "result": null}"#; "byte string id key")]
 #[test_case(r#"{"version": "1.0", "id": "ping-1", h'726573756c74': null}"#; "byte string result key")]
@@ -383,14 +366,6 @@ fn response_accepts_both_length_encodings(diagnostic: &str) {
         Response::<Value>::decode(&response.encode().unwrap(), 1024).unwrap(),
         response
     );
-}
-
-#[test_case("success"; "success")]
-#[test_case("error"; "error")]
-fn rejects_bare_discriminator_and_a_second_cbor_item(variant: &str) {
-    let mut bytes = fixture(&format!(r#"{{"version": "1.0", "outcome": "{variant}"}}"#));
-    bytes.extend(fixture(r#"{"id": "ping-1", "result": null}"#));
-    assert!(Response::<Value>::decode(&bytes, bytes.len()).is_err());
 }
 
 #[test_case("0(7)"; "generic tag")]

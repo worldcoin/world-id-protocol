@@ -363,17 +363,12 @@ mod vault_data {
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
-    use world_id_primitives::authenticator_message::Version;
 
     use super::{RegistrationErrorReason::*, *};
 
     /// Decodes the result of a response whose CBOR `result` is `result`.
     fn decode_result(result: Value) -> Result<RegistrationResult, MessageError> {
-        let response = Response::<Value, Value>::Success {
-            version: Version::V1,
-            id: "request".into(),
-            result,
-        };
+        let response = Response::<Value, Value>::success("request".into(), result);
         let decoded = decode_response(&response.encode().unwrap())?;
         let Response::Success { result, .. } = decoded else {
             panic!("expected a successful response");
@@ -388,11 +383,7 @@ mod tests {
             "InsertAuthenticator operation failed",
             Some(data),
         );
-        let response = Response::<Value, Value>::Error {
-            version: Version::V1,
-            id: Some("request".into()),
-            error,
-        };
+        let response = Response::<Value, Value>::error(Some("request".into()), error);
         let decoded = decode_response(&response.encode().unwrap()).unwrap();
         let Response::Error { error, .. } = decoded else {
             panic!("expected an error response");
@@ -596,11 +587,7 @@ mod tests {
                 ("detail".into(), second),
             ])),
         );
-        let response = Response::<Value, Value>::Error {
-            version: Version::V1,
-            id: Some("request".into()),
-            error,
-        };
+        let response = Response::<Value, Value>::error(Some("request".into()), error);
         let error = decode_response(&response.encode().unwrap())
             .unwrap_err()
             .to_string();
