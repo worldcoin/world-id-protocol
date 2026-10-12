@@ -18,3 +18,4 @@
 - [WIP-106: Authenticator Assertions](WIPs/wip-106.md)
 - [WIP-109: Authenticator Registration](WIPs/wip-109.md)
 - [WIP-110: Message Bridge](WIPs/wip-110.md)
+- [WIP-115: Authenticator Vault Sync](WIPs/wip-115.md)
