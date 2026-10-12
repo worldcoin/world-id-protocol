@@ -433,12 +433,11 @@ fn open_response(
         .decrypt_response(&secrets.response_key, sealed)?;
     let response = decode_response(&plaintext).map_err(RequesterError::MalformedResponse)?;
     // The outer envelope binds the response to this session, so an uncorrelated error, with a
-    // null ID, is accepted too. A success always has an ID.
+    // null ID, is accepted too.
+    let expected_id = request_id.message_id();
     match response.outcome {
-        Outcome::Success { id, result } if id == request_id.message_id() => Ok(Ok(result)),
-        Outcome::Error { id, error }
-            if id.as_ref().is_none_or(|id| *id == request_id.message_id()) =>
-        {
+        Outcome::Success { id, result } if id == expected_id => Ok(Ok(result)),
+        Outcome::Error { id, error } if id.as_ref().is_none_or(|id| *id == expected_id) => {
             Ok(Err(error))
         }
         _ => Err(RequesterError::ResponseIdMismatch),
@@ -470,6 +469,7 @@ mod tests {
         authenticator_message::{Id, Version},
     };
     use world_id_proof::artifacts::dummy::DummyZkArtifactSource;
+    use zeroize::Zeroizing;
 
     use super::*;
     use crate::registration::{RegisterResponseMessage, fixtures::indexed_account};
@@ -482,6 +482,18 @@ mod tests {
         ThisRequest,
         Null,
         Other(&'static str),
+    }
+
+    impl ResponseId {
+        fn value(self, session: &RegistrationRequester) -> Option<Id> {
+            match self {
+                Self::ThisRequest => {
+                    Some(secrets(session).pairing_secret.request_id().message_id())
+                }
+                Self::Null => None,
+                Self::Other(id) => Some(Id::String(id.to_string())),
+            }
+        }
     }
 
     fn requester(server: &mockito::ServerGuard) -> RegistrationRequester {
@@ -656,76 +668,56 @@ mod tests {
         lookup.assert_async().await;
     }
 
-    #[test_case(true; "matching success id")]
-    #[test_case(false; "another success id")]
+    #[test_case(ResponseId::ThisRequest; "matching success id")]
+    #[test_case(ResponseId::Other("other"); "another success id")]
     #[tokio::test]
-    async fn successful_responses_must_match_the_request_id(matches_request: bool) {
-        let server = mockito::Server::new_async().await;
-        let session = requester(&server);
-        let secrets = secrets(&session);
-        let request_id = secrets.pairing_secret.request_id();
-        let id = if matches_request {
-            request_id.message_id()
-        } else {
-            Id::String("other".into())
-        };
+    async fn successful_responses_must_match_the_request_id(id: ResponseId) {
+        let mut server = mockito::Server::new_async().await;
+        let mut session = published(&mut server).await;
         let result = RegistrationResult {
             leaf_index: 42,
             pubkey_id: 1,
             authenticators: Vec::new(),
             vault: None,
         };
-        let response = RegisterResponseMessage {
-            version: Version::V1,
-            outcome: Outcome::Success {
-                id,
+        let sealed = sealed_response(
+            &session,
+            Outcome::Success {
+                id: id.value(&session).expect("a success has a non-null ID"),
                 result: result.clone(),
             },
-        };
-        let encoded = zeroize::Zeroizing::new(authenticator_message::encode(&response).unwrap());
-        let sealed = secrets
-            .transport_key
-            .encrypt_response(&secrets.response_key.public_key(), &encoded)
-            .unwrap();
-        match (
-            open_response(secrets, &request_id, &sealed),
-            matches_request,
-        ) {
-            (Ok(Ok(decoded)), true) => assert_eq!(decoded, result),
-            (Err(RequesterError::ResponseIdMismatch), false) => {}
-            (response, _) => panic!("unexpected response: {response:?}"),
+        );
+        let request_id = secrets(&session).pairing_secret.request_id();
+        let _completed = server
+            .mock("GET", format!("/response/{request_id}").as_str())
+            .with_status(200)
+            .with_body(serde_json::json!({ "status": "completed", "response": sealed }).to_string())
+            .create_async()
+            .await;
+        match (session.poll().await, id) {
+            (Ok(RequesterStatus::Completed(Ok(decoded))), ResponseId::ThisRequest) => {
+                assert_eq!(decoded, result)
+            }
+            (Err(RequesterError::ResponseIdMismatch), ResponseId::Other(_)) => {}
+            (status, _) => panic!("unexpected poll result: {status:?}"),
         }
+        assert!(matches!(session.state, SessionState::Ended));
     }
 
-    /// An error response to `session` with `id`, sealed as the Approving Authenticator would.
-    fn sealed_error(
+    /// A response to `session`, sealed as the Approving Authenticator would.
+    fn sealed_response(
         session: &RegistrationRequester,
-        id: ResponseId,
-        code: &str,
+        outcome: Outcome<RegistrationResult, RegistrationErrorData>,
     ) -> EncryptedPayload {
         let secrets = secrets(session);
-        let id = match id {
-            ResponseId::ThisRequest => Some(secrets.pairing_secret.request_id().message_id()),
-            ResponseId::Null => None,
-            ResponseId::Other(id) => Some(Id::String(id.to_string())),
-        };
         let response = RegisterResponseMessage {
             version: Version::V1,
-            outcome: Outcome::Error {
-                id,
-                error: ErrorObject {
-                    code: code.into(),
-                    message: "Registration failed".into(),
-                    data: None,
-                },
-            },
+            outcome,
         };
+        let encoded = Zeroizing::new(authenticator_message::encode(&response).unwrap());
         secrets
             .transport_key
-            .encrypt_response(
-                &secrets.response_key.public_key(),
-                &authenticator_message::encode(&response).unwrap(),
-            )
+            .encrypt_response(&secrets.response_key.public_key(), &encoded)
             .unwrap()
     }
 
@@ -740,7 +732,17 @@ mod tests {
     ) {
         let mut server = mockito::Server::new_async().await;
         let mut session = published(&mut server).await;
-        let sealed = sealed_error(&session, id, code);
+        let sealed = sealed_response(
+            &session,
+            Outcome::Error {
+                id: id.value(&session),
+                error: ErrorObject {
+                    code: code.into(),
+                    message: "Registration failed".into(),
+                    data: None,
+                },
+            },
+        );
         let request_id = secrets(&session).pairing_secret.request_id();
         let _completed = server
             .mock("GET", format!("/response/{request_id}").as_str())

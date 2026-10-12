@@ -741,13 +741,13 @@ impl ResponseChannel {
         }
     }
 
-    /// Sends `outcome` as the response to the request.
+    /// Sends the answer correlated with this request's ID.
     async fn send(
         &self,
-        outcome: Result<&RegistrationResult, ErrorObject<RegistrationErrorData>>,
+        answer: Result<&RegistrationResult, ErrorObject<RegistrationErrorData>>,
     ) -> Result<DeliveryOutcome, ApproverError> {
         let id = self.request_id.message_id();
-        let outcome = match outcome {
+        let outcome = match answer {
             Ok(result) => Outcome::Success { id, result },
             Err(error) => Outcome::Error {
                 id: Some(id),
