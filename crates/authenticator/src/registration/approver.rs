@@ -19,7 +19,7 @@ use eddsa_babyjubjub::EdDSAPublicKey;
 use web_time::Instant;
 use world_id_primitives::{
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
-    authenticator_message::{self, ErrorObject, Id, Outcome, Request, Response, Value, Version},
+    authenticator_message::{ErrorObject, Id, MessageError, Outcome, Request, Response, Value},
 };
 use zeroize::Zeroizing;
 
@@ -102,7 +102,7 @@ pub enum ApproverError {
     Transport(#[from] TransportError),
     /// The response could not be encoded.
     #[error("failed to encode the response: {0}")]
-    Encoding(#[from] authenticator_message::MessageError),
+    Encoding(#[from] MessageError),
 }
 
 /// How a checked registration will be carried out.
@@ -609,20 +609,18 @@ impl CheckedRegistration {
     /// Whether a successful response carrying `approval` stays within the size the Requesting
     /// Authenticator accepts.
     fn response_fits(&self, approval: &Approval) -> bool {
-        let response = RegisterResponseMessage {
-            version: Version::V1,
-            outcome: Outcome::Success {
-                id: self.incoming.channel.request_id.message_id(),
-                result: RegistrationResult {
-                    leaf_index: self.snapshot.leaf_index,
-                    // Every valid slot encodes to the same single CBOR byte.
-                    pubkey_id: 0,
-                    authenticators: approval.authenticators.clone(),
-                    vault: approval.vault.clone(),
-                },
+        let response = RegisterResponseMessage::new(Outcome::Success {
+            id: self.incoming.channel.request_id.message_id(),
+            result: RegistrationResult {
+                leaf_index: self.snapshot.leaf_index,
+                // Every valid slot encodes to the same single CBOR byte.
+                pubkey_id: 0,
+                authenticators: approval.authenticators.clone(),
+                vault: approval.vault.clone(),
             },
-        };
-        authenticator_message::encode(&response)
+        });
+        response
+            .encode()
             .map(Zeroizing::new)
             .is_ok_and(|encoded| encoded.len() <= MAX_RESPONSE_SIZE)
     }
@@ -763,11 +761,8 @@ impl ResponseChannel {
         outcome: Outcome<&RegistrationResult, RegistrationErrorData>,
     ) -> Result<DeliveryOutcome, ApproverError> {
         let delivery = async {
-            let response = Response {
-                version: Version::V1,
-                outcome,
-            };
-            let encoded = Zeroizing::new(authenticator_message::encode(&response)?);
+            let response = Response::new(outcome);
+            let encoded = Zeroizing::new(response.encode()?);
             let sealed = self
                 .transport_key
                 .encrypt_response(&self.response_pubkey, &encoded)?;
@@ -866,6 +861,20 @@ impl From<RegistrationErrorReason> for Refusal {
     }
 }
 
+/// Reads bounded CBOR before envelope validation so malformed requests retain their error class
+/// and an unambiguous response key. Typed decoding would lose that recovery context.
+fn decode_request_value(plaintext: &[u8]) -> Result<Value, MessageError> {
+    if plaintext.len() > MAX_REQUEST_SIZE {
+        return Err(MessageError::TooLarge);
+    }
+    let mut remaining = plaintext;
+    let value = ciborium::de::from_reader_with_recursion_limit(&mut remaining, 32)?;
+    if !remaining.is_empty() {
+        return Err(MessageError::TrailingData);
+    }
+    Ok(value)
+}
+
 /// Parses a decrypted registration request in the order of WIP-109 §3.7.1 step 4: CBOR
 /// (`parse_error`), envelope and ID (`invalid_request`), method (`method_not_found`) and params
 /// (`invalid_params`).
@@ -877,14 +886,13 @@ fn parse_request(
     plaintext: &[u8],
     request_id: &RequestId,
 ) -> Result<RegistrationRequest, Box<RejectedRequest>> {
-    let value: Value =
-        authenticator_message::decode(plaintext, MAX_REQUEST_SIZE).map_err(|error| {
-            Box::new(RejectedRequest {
-                reason: RegistrationErrorReason::ParseError,
-                problem: error.to_string(),
-                reply: None,
-            })
-        })?;
+    let value: Value = decode_request_value(plaintext).map_err(|error| {
+        Box::new(RejectedRequest {
+            reason: RegistrationErrorReason::ParseError,
+            problem: error.to_string(),
+            reply: None,
+        })
+    })?;
     let reply_to = |id| {
         response_pubkey_of(&value).map(|response_pubkey| Reply {
             id,
@@ -1181,14 +1189,13 @@ mod tests {
 
         /// The encoded request message, changed by `tamper`.
         fn message(&self, tamper: Tamper) -> Vec<u8> {
-            let valid = RegisterRequestMessage::builder()
-                .id(self.request_id().message_id())
-                .method(REGISTER_METHOD)
-                .params(self.request.clone())
-                .build();
-            let valid = authenticator_message::encode(&valid).unwrap();
-            let mut message: Value =
-                authenticator_message::decode(&valid, MAX_REQUEST_SIZE).unwrap();
+            let valid = RegisterRequestMessage::new(
+                Some(self.request_id().message_id()),
+                REGISTER_METHOD,
+                Some(self.request.clone()),
+            );
+            let valid = valid.encode().unwrap();
+            let mut message: Value = decode_request_value(&valid).unwrap();
             match tamper {
                 Tamper::Nothing => {}
                 Tamper::TaggedPubkey => {
@@ -1209,7 +1216,9 @@ mod tests {
                     .retain(|(k, _)| k.as_text() != Some(key)),
                 Tamper::Set(path, value) => set_field(&mut message, path, value),
             }
-            authenticator_message::encode(&message).unwrap()
+            let mut encoded = Vec::new();
+            ciborium::into_writer(&message, &mut encoded).unwrap();
+            encoded
         }
 
         /// Serves `plaintext`, encrypted, as the request of this session on `server`, and receives
@@ -1360,6 +1369,26 @@ mod tests {
     }
 
     #[test]
+    fn raw_request_decoding_enforces_bounds_and_framing() {
+        assert!(matches!(
+            decode_request_value(&vec![0; MAX_REQUEST_SIZE + 1]),
+            Err(MessageError::TooLarge)
+        ));
+        assert!(matches!(
+            decode_request_value(&[0xa0, 0]),
+            Err(MessageError::TrailingData)
+        ));
+        let mut nested = vec![0x81; 34];
+        nested.push(0);
+        assert!(matches!(
+            decode_request_value(&nested),
+            Err(MessageError::Deserialize(
+                ciborium::de::Error::RecursionLimitExceeded
+            ))
+        ));
+    }
+
+    #[test]
     fn parse_request_accepts_the_committed_request() {
         let requester = Requester::new();
         let request =
@@ -1373,6 +1402,7 @@ mod tests {
     #[test_case(Tamper::Remove("params"), RegistrationErrorReason::InvalidParams, ExpectedReply::NoAnswer; "no response key to seal to")]
     #[test_case(Tamper::Set("params", 7.into()), RegistrationErrorReason::InvalidParams, ExpectedReply::NoAnswer; "scalar params")]
     #[test_case(Tamper::Set("params", Value::Null), RegistrationErrorReason::InvalidParams, ExpectedReply::NoAnswer; "null params")]
+    #[test_case(Tamper::Set("id", 1.into()), RegistrationErrorReason::InvalidRequest, ExpectedReply::NullId; "a numeric id")]
     #[test_case(Tamper::Set("id", Value::Bool(true)), RegistrationErrorReason::InvalidRequest, ExpectedReply::NullId; "an unreadable id")]
     #[test_case(Tamper::Set("version", "2.0".into()), RegistrationErrorReason::InvalidRequest, ExpectedReply::RequestId; "an unsupported version")]
     #[test_case(Tamper::Set("id", "other".into()), RegistrationErrorReason::InvalidRequest, ExpectedReply::OtherId("other"); "another id")]
@@ -1391,7 +1421,7 @@ mod tests {
         let expected_id = match expected_reply {
             ExpectedReply::NoAnswer => None,
             ExpectedReply::RequestId => Some(Some(requester.request_id().message_id())),
-            ExpectedReply::OtherId(id) => Some(Some(Id::String(id.to_string()))),
+            ExpectedReply::OtherId(id) => Some(Some(id.to_string())),
             ExpectedReply::NullId => Some(None),
         };
         let reply_id = rejected.reply.map(|reply| {

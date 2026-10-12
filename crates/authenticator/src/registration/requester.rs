@@ -8,7 +8,7 @@ use secrecy::ExposeSecret as _;
 use web_time::Instant;
 use world_id_primitives::{
     Config, Signer,
-    authenticator_message::{self, ErrorObject, MessageError, Outcome},
+    authenticator_message::{ErrorObject, MessageError, Outcome},
 };
 use world_id_proof::artifacts::ZkArtifactSource;
 
@@ -175,13 +175,12 @@ impl RegistrationRequester {
             &request_id,
         )
         .map_err(AuthenticatorError::from)?;
-        let message = RegisterRequestMessage::builder()
-            .id(request_id.message_id())
-            .method(REGISTER_METHOD)
-            .params(request.clone())
-            .build();
-        let plaintext =
-            authenticator_message::encode(&message).map_err(RequesterError::Encoding)?;
+        let message = RegisterRequestMessage::new(
+            Some(request_id.message_id()),
+            REGISTER_METHOD,
+            Some(request.clone()),
+        );
+        let plaintext = message.encode().map_err(RequesterError::Encoding)?;
         let encrypted_request = secrets.transport_key.encrypt_request(&plaintext)?;
         Ok(Self {
             request,
@@ -491,7 +490,7 @@ mod tests {
                     Some(secrets(session).pairing_secret.request_id().message_id())
                 }
                 Self::Null => None,
-                Self::Other(id) => Some(Id::String(id.to_string())),
+                Self::Other(id) => Some(id.to_string()),
             }
         }
     }
@@ -714,7 +713,7 @@ mod tests {
             version: Version::V1,
             outcome,
         };
-        let encoded = Zeroizing::new(authenticator_message::encode(&response).unwrap());
+        let encoded = Zeroizing::new(response.encode().unwrap());
         secrets
             .transport_key
             .encrypt_response(&secrets.response_key.public_key(), &encoded)
