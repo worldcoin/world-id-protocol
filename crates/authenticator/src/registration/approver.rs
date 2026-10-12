@@ -1116,6 +1116,8 @@ mod tests {
     #[derive(Debug)]
     enum Tamper {
         Nothing,
+        /// Wraps the otherwise valid new public key in a CBOR tag.
+        TaggedPubkey,
         /// Replaces the whole message.
         Bytes(Vec<u8>),
         /// Removes a top-level field.
@@ -1178,6 +1180,17 @@ mod tests {
                 authenticator_message::decode(&valid, MAX_REQUEST_SIZE).unwrap();
             match tamper {
                 Tamper::Nothing => {}
+                Tamper::TaggedPubkey => {
+                    let params = unique_field(&message, "params").unwrap();
+                    let pubkey = unique_field(params, "new_authenticator_pubkey")
+                        .unwrap()
+                        .clone();
+                    set_field(
+                        &mut message,
+                        "params.new_authenticator_pubkey",
+                        Value::Tag(42, Box::new(pubkey)),
+                    );
+                }
                 Tamper::Bytes(bytes) => return bytes,
                 Tamper::Remove(key) => message
                     .as_map_mut()
@@ -1352,7 +1365,7 @@ mod tests {
     #[test_case(Tamper::Set("id", "other".into()), RegistrationErrorReason::InvalidRequest, ExpectedReply::OtherId("other"); "another id")]
     #[test_case(Tamper::Set("method", "worldid_auth_v1_other".into()), RegistrationErrorReason::MethodNotFound, ExpectedReply::RequestId; "another method")]
     #[test_case(Tamper::Set("params.registration_sig", Value::Bytes(vec![0; 63])), RegistrationErrorReason::InvalidParams, ExpectedReply::RequestId; "malformed params")]
-    #[test_case(Tamper::Set("params.new_authenticator_pubkey", Value::Tag(42, Box::new(Value::Bytes(vec![1; 32])))), RegistrationErrorReason::InvalidParams, ExpectedReply::RequestId; "tagged params")]
+    #[test_case(Tamper::TaggedPubkey, RegistrationErrorReason::InvalidParams, ExpectedReply::RequestId; "tagged params")]
     fn parse_request_answers_an_invalid_request_only_when_it_may_and_can(
         tamper: Tamper,
         reason: RegistrationErrorReason,
