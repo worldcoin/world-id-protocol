@@ -75,6 +75,7 @@ impl PendingRegistration {
             .find(|bridge| *bridge.domain() == uri.bridge)
             .ok_or_else(|| ApproverError::BridgeNotAllowed(uri.bridge.clone()))?
             .clone();
+        let taken_at = Instant::now();
         let encrypted = bridge
             .take_request(&uri.secret.request_id())
             .await?
@@ -84,7 +85,7 @@ impl PendingRegistration {
                 uri: uri.clone(),
                 encrypted,
                 bridge,
-                taken_at: Instant::now(),
+                taken_at,
             }),
             attempts_remaining: 3,
         })
@@ -748,6 +749,8 @@ struct PendingAttempt {
     uri: PairingUri,
     encrypted: EncryptedPayload,
     bridge: BridgeClient,
+    /// When the fetch started, no later than when the successful `GET /request` was sent. The
+    /// session expiry is estimated from it (WIP-109 §3.5).
     taken_at: Instant,
 }
 
