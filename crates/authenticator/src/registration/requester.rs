@@ -8,7 +8,7 @@ use secrecy::ExposeSecret as _;
 use web_time::Instant;
 use world_id_primitives::{
     Config, Signer,
-    authenticator_message::{self, ErrorObject, MessageError},
+    authenticator_message::{self, ErrorObject, MessageError, Outcome},
 };
 use world_id_proof::artifacts::ZkArtifactSource;
 
@@ -434,10 +434,15 @@ fn open_response(
     let response = decode_response(&plaintext).map_err(RequesterError::MalformedResponse)?;
     // The outer envelope binds the response to this session, so an uncorrelated error, with a
     // null ID, is accepted too. A success always has an ID.
-    if response.id.is_some_and(|id| id != request_id.message_id()) {
-        return Err(RequesterError::ResponseIdMismatch);
+    match response.outcome {
+        Outcome::Success { id, result } if id == request_id.message_id() => Ok(Ok(result)),
+        Outcome::Error { id, error }
+            if id.as_ref().is_none_or(|id| *id == request_id.message_id()) =>
+        {
+            Ok(Err(error))
+        }
+        _ => Err(RequesterError::ResponseIdMismatch),
     }
-    Ok(response.outcome)
 }
 
 /// Errors that may clear up while the indexer catches up with the registry or recovers.
@@ -651,6 +656,47 @@ mod tests {
         lookup.assert_async().await;
     }
 
+    #[test_case(true; "matching success id")]
+    #[test_case(false; "another success id")]
+    #[tokio::test]
+    async fn successful_responses_must_match_the_request_id(matches_request: bool) {
+        let server = mockito::Server::new_async().await;
+        let session = requester(&server);
+        let secrets = secrets(&session);
+        let request_id = secrets.pairing_secret.request_id();
+        let id = if matches_request {
+            request_id.message_id()
+        } else {
+            Id::String("other".into())
+        };
+        let result = RegistrationResult {
+            leaf_index: 42,
+            pubkey_id: 1,
+            authenticators: Vec::new(),
+            vault: None,
+        };
+        let response = RegisterResponseMessage {
+            version: Version::V1,
+            outcome: Outcome::Success {
+                id,
+                result: result.clone(),
+            },
+        };
+        let encoded = zeroize::Zeroizing::new(authenticator_message::encode(&response).unwrap());
+        let sealed = secrets
+            .transport_key
+            .encrypt_response(&secrets.response_key.public_key(), &encoded)
+            .unwrap();
+        match (
+            open_response(secrets, &request_id, &sealed),
+            matches_request,
+        ) {
+            (Ok(Ok(decoded)), true) => assert_eq!(decoded, result),
+            (Err(RequesterError::ResponseIdMismatch), false) => {}
+            (response, _) => panic!("unexpected response: {response:?}"),
+        }
+    }
+
     /// An error response to `session` with `id`, sealed as the Approving Authenticator would.
     fn sealed_error(
         session: &RegistrationRequester,
@@ -665,12 +711,14 @@ mod tests {
         };
         let response = RegisterResponseMessage {
             version: Version::V1,
-            id,
-            outcome: Err(ErrorObject {
-                code: code.into(),
-                message: "Registration failed".into(),
-                data: None,
-            }),
+            outcome: Outcome::Error {
+                id,
+                error: ErrorObject {
+                    code: code.into(),
+                    message: "Registration failed".into(),
+                    data: None,
+                },
+            },
         };
         secrets
             .transport_key

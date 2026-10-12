@@ -19,7 +19,7 @@ use eddsa_babyjubjub::EdDSAPublicKey;
 use web_time::Instant;
 use world_id_primitives::{
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
-    authenticator_message::{self, ErrorObject, Id, Request, Response, Value, Version},
+    authenticator_message::{self, ErrorObject, Id, Outcome, Request, Response, Value, Version},
 };
 use zeroize::Zeroizing;
 
@@ -611,14 +611,16 @@ impl CheckedRegistration {
     fn response_fits(&self, approval: &Approval) -> bool {
         let response = RegisterResponseMessage {
             version: Version::V1,
-            id: Some(self.incoming.channel.request_id.message_id()),
-            outcome: Ok(RegistrationResult {
-                leaf_index: self.snapshot.leaf_index,
-                // Every valid slot encodes to the same single CBOR byte.
-                pubkey_id: 0,
-                authenticators: approval.authenticators.clone(),
-                vault: approval.vault.clone(),
-            }),
+            outcome: Outcome::Success {
+                id: self.incoming.channel.request_id.message_id(),
+                result: RegistrationResult {
+                    leaf_index: self.snapshot.leaf_index,
+                    // Every valid slot encodes to the same single CBOR byte.
+                    pubkey_id: 0,
+                    authenticators: approval.authenticators.clone(),
+                    vault: approval.vault.clone(),
+                },
+            },
         };
         authenticator_message::encode(&response)
             .map(Zeroizing::new)
@@ -744,21 +746,25 @@ impl ResponseChannel {
         &self,
         outcome: Result<&RegistrationResult, ErrorObject<RegistrationErrorData>>,
     ) -> Result<DeliveryOutcome, ApproverError> {
-        self.reply(Some(self.request_id.message_id()), outcome)
-            .await
+        let id = self.request_id.message_id();
+        let outcome = match outcome {
+            Ok(result) => Outcome::Success { id, result },
+            Err(error) => Outcome::Error {
+                id: Some(id),
+                error,
+            },
+        };
+        self.reply(outcome).await
     }
 
-    /// Sends `outcome` with response ID `id`, which differs from the request's own only for an
-    /// invalid request (WIP-105 §3.1.4).
+    /// Seals and delivers the response outcome before the session expires.
     async fn reply(
         &self,
-        id: Option<Id>,
-        outcome: Result<&RegistrationResult, ErrorObject<RegistrationErrorData>>,
+        outcome: Outcome<&RegistrationResult, RegistrationErrorData>,
     ) -> Result<DeliveryOutcome, ApproverError> {
         let delivery = async {
             let response = Response {
                 version: Version::V1,
-                id,
                 outcome,
             };
             let encoded = Zeroizing::new(authenticator_message::encode(&response)?);
@@ -806,7 +812,12 @@ impl RejectedRequest {
             }) => {
                 let channel = ResponseChannel::new(retained, transport_key, response_pubkey);
                 let error = self.reason.into_error(Some(self.problem.clone()));
-                Some(channel.reply(id, Err(error)).await.map_err(Box::new))
+                Some(
+                    channel
+                        .reply(Outcome::Error { id, error })
+                        .await
+                        .map_err(Box::new),
+                )
             }
             None => None,
         };
@@ -1360,6 +1371,8 @@ mod tests {
     #[test_case(Tamper::Bytes(vec![0xff]), RegistrationErrorReason::ParseError, ExpectedReply::NoAnswer; "not CBOR")]
     #[test_case(Tamper::Remove("id"), RegistrationErrorReason::InvalidRequest, ExpectedReply::NoAnswer; "a notification")]
     #[test_case(Tamper::Remove("params"), RegistrationErrorReason::InvalidParams, ExpectedReply::NoAnswer; "no response key to seal to")]
+    #[test_case(Tamper::Set("params", 7.into()), RegistrationErrorReason::InvalidParams, ExpectedReply::NoAnswer; "scalar params")]
+    #[test_case(Tamper::Set("params", Value::Null), RegistrationErrorReason::InvalidParams, ExpectedReply::NoAnswer; "null params")]
     #[test_case(Tamper::Set("id", Value::Bool(true)), RegistrationErrorReason::InvalidRequest, ExpectedReply::NullId; "an unreadable id")]
     #[test_case(Tamper::Set("version", "2.0".into()), RegistrationErrorReason::InvalidRequest, ExpectedReply::RequestId; "an unsupported version")]
     #[test_case(Tamper::Set("id", "other".into()), RegistrationErrorReason::InvalidRequest, ExpectedReply::OtherId("other"); "another id")]
@@ -1536,8 +1549,11 @@ mod tests {
             panic!("expected one answer, got {}", answers.len());
         };
         let response = requester.open(answer);
-        assert_eq!(response.id, Some(requester.request_id().message_id()));
-        assert_eq!(response.outcome.unwrap_err().code, "method_not_found");
+        let Outcome::Error { id, error } = response.outcome else {
+            panic!("expected an error response");
+        };
+        assert_eq!(id, Some(requester.request_id().message_id()));
+        assert_eq!(error.code, "method_not_found");
         assert!(matches!(
             pending.authenticate(&requester.code).await,
             Err(ApproverError::Expired)
