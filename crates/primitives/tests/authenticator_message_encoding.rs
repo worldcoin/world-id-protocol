@@ -171,6 +171,23 @@ fn rejects_invalid_response(diagnostic: &str) {
     ));
 }
 
+#[test_case(r#"{"success": [1, null]}"#; "success")]
+#[test_case(r#"{"error": [null, {"code": "failed", "message": "bad"}]}"#; "error")]
+fn rejects_outcome_with_positional_body(outcome: &str) {
+    assert!(
+        decode::<Response<Value>>(&format!(r#"{{"version": "1.0", "outcome": {outcome}}}"#))
+            .is_err()
+    );
+}
+
+#[test_case("success", r#"{"id": 1, "result": null}"#; "success")]
+#[test_case("error", r#"{"id": null, "error": {"code": "failed", "message": "bad"}}"#; "error")]
+fn rejects_outcome_body_in_a_second_cbor_item(variant: &str, body: &str) {
+    let mut bytes = fixture(&format!(r#"{{"version": "1.0", "outcome": "{variant}"}}"#));
+    bytes.extend(fixture(body));
+    assert!(cbor::decode::<Response<Value>>(&bytes, bytes.len()).is_err());
+}
+
 #[test]
 fn nullable_result_is_required_and_preserved() {
     let response = decode::<Response<Option<u64>>>(

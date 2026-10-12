@@ -57,12 +57,16 @@ pub struct Request<P> {
 /// locally, without replying. A null error ID is uncorrelated and must never match a pending
 /// request. Use [`encode`] and [`decode`] at the transport boundary.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, bon::Builder)]
-#[serde(deny_unknown_fields)]
+#[serde(
+    deny_unknown_fields,
+    bound(deserialize = "R: Deserialize<'de>, D: Deserialize<'de>")
+)]
 pub struct Response<R, D = Value> {
     /// The message format version.
     #[builder(default)]
     pub version: Version,
     /// The successful result or the error that prevented it.
+    #[serde(deserialize_with = "deserialize_outcome")]
     pub outcome: Outcome<R, D>,
 }
 
@@ -426,6 +430,35 @@ pub enum DeeplinkError {
     /// A parameter is not `key=value`, has an empty key, or is not valid percent-encoded UTF-8.
     #[error("deeplink parameters must be percent-encoded `key=value` pairs")]
     MalformedParameter,
+}
+
+/// Dispatches the enum through a single-entry map so Ciborium cannot read a bare discriminator's
+/// body from another CBOR item. Serde's map dispatcher also requires struct-variant map bodies.
+fn deserialize_outcome<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    struct OutcomeVisitor<T>(std::marker::PhantomData<T>);
+
+    impl<'de, T: Deserialize<'de>> serde::de::Visitor<'de> for OutcomeVisitor<T> {
+        type Value = T;
+
+        fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+            formatter.write_str("a definite-length, single-entry outcome map")
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(self, map: A) -> Result<T, A::Error> {
+            if map.size_hint() != Some(1) {
+                return Err(A::Error::custom(
+                    "outcome must be a definite-length map with one entry",
+                ));
+            }
+            T::deserialize(serde::de::value::MapAccessDeserializer::new(map))
+        }
+    }
+
+    deserializer.deserialize_map(OutcomeVisitor(std::marker::PhantomData))
 }
 
 const fn is_valid_method_name(name: &str) -> bool {
