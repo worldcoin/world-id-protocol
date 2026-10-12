@@ -19,6 +19,7 @@ use super::{MAX_REQUEST_SIZE, MAX_RESPONSE_SIZE};
 const REQUEST_ID_INFO: &[u8] = b"WORLD-ID/WIP-109/REQUESTID";
 const TRANSPORT_SECRET_INFO: &[u8] = b"WORLD-ID/WIP-109/TRANSPORTSECRET";
 const REQUEST_LABEL: &[u8] = b"WORLD-ID/WIP-109/REQUEST";
+
 /// The AAD label of a response, which is also the `info` the response is sealed with.
 const RESPONSE_LABEL: &[u8] = b"WORLD-ID/WIP-109/RESPONSE";
 
@@ -218,11 +219,6 @@ pub struct TransportKey {
 }
 
 impl TransportKey {
-    #[cfg(test)]
-    pub(super) fn key(&self) -> &[u8; 32] {
-        &self.key
-    }
-
     /// Encrypts a request under a fresh nonce, bound to this session and to the request direction.
     ///
     /// # Errors
@@ -360,6 +356,11 @@ impl TransportKey {
                 },
             )
             .map_err(|_| TransportError::Decrypt)
+    }
+
+    #[cfg(test)]
+    pub(super) fn key(&self) -> &[u8; 32] {
+        &self.key
     }
 }
 
