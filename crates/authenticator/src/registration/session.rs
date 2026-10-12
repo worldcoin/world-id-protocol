@@ -19,7 +19,8 @@ use super::{MAX_REQUEST_SIZE, MAX_RESPONSE_SIZE};
 const REQUEST_ID_INFO: &[u8] = b"WORLD-ID/WIP-109/REQUESTID";
 const TRANSPORT_SECRET_INFO: &[u8] = b"WORLD-ID/WIP-109/TRANSPORTSECRET";
 const REQUEST_LABEL: &[u8] = b"WORLD-ID/WIP-109/REQUEST";
-const RESPONSE_INFO: &[u8] = b"WORLD-ID/WIP-109/RESPONSE";
+/// The AAD label of a response, which is also the `info` the response is sealed with.
+const RESPONSE_LABEL: &[u8] = b"WORLD-ID/WIP-109/RESPONSE";
 
 /// The length in bytes of an AES-256-GCM nonce.
 const NONCE_LEN: usize = 12;
@@ -263,12 +264,12 @@ impl TransportKey {
         if plaintext.len() > MAX_RESPONSE_SIZE {
             return Err(TransportError::TooLarge);
         }
-        let sealed = quantum_box::PublicKey::seal(&recipient.0, plaintext, Some(RESPONSE_INFO))
+        let sealed = quantum_box::PublicKey::seal(&recipient.0, plaintext, Some(RESPONSE_LABEL))
             .map_err(|e| match e {
                 quantum_box::Error::Rng => TransportError::Rng,
                 _ => TransportError::Encrypt,
             })?;
-        self.encrypt(RESPONSE_INFO, &sealed)
+        self.encrypt(RESPONSE_LABEL, &sealed)
     }
 
     /// Authenticates and decrypts the outer layer of a response, then opens the sealed response
@@ -288,14 +289,14 @@ impl TransportKey {
         encrypted: &EncryptedPayload,
     ) -> Result<Zeroizing<Vec<u8>>, TransportError> {
         let sealed = self.decrypt(
-            RESPONSE_INFO,
+            RESPONSE_LABEL,
             encrypted,
             MAX_RESPONSE_SIZE + SEALED_OVERHEAD + TAG_LEN,
         )?;
         if !sealed.starts_with(&SEALED_HEADER) {
             return Err(TransportError::Decrypt);
         }
-        quantum_box::SecretKey::unseal(&recipient.0, &sealed, Some(RESPONSE_INFO))
+        quantum_box::SecretKey::unseal(&recipient.0, &sealed, Some(RESPONSE_LABEL))
             .map(Zeroizing::new)
             .map_err(|_| TransportError::Decrypt)
     }
@@ -627,11 +628,11 @@ mod tests {
         let mut sealed = quantum_box::PublicKey::seal(
             &recipient().public_key().0,
             b"response",
-            Some(RESPONSE_INFO),
+            Some(RESPONSE_LABEL),
         )
         .unwrap();
         sealed[0] = 0x01;
-        let response = SESSION_KEY.encrypt(RESPONSE_INFO, &sealed).unwrap();
+        let response = SESSION_KEY.encrypt(RESPONSE_LABEL, &sealed).unwrap();
         assert_eq!(
             SESSION_KEY.decrypt_response(&recipient(), &response),
             Err(TransportError::Decrypt)
@@ -711,7 +712,7 @@ mod tests {
         );
         let oversized_response = key
             .encrypt(
-                RESPONSE_INFO,
+                RESPONSE_LABEL,
                 &vec![0; MAX_RESPONSE_SIZE + SEALED_OVERHEAD + 1],
             )
             .unwrap();
