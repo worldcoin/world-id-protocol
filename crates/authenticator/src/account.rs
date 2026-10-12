@@ -24,7 +24,8 @@ use world_id_registries::world_id::{
 /// The registered authenticators of an account, read from one indexed account state.
 ///
 /// Parsed from the indexer's `/authenticators` response with [`TryFrom`]: every slot has both a
-/// public key and an address, or neither, and the recovery counter fits the registry's 32 bits.
+/// public key and an address, or neither, the off-chain signer commitment is the commitment to the
+/// public keys, and the recovery counter fits the registry's 32 bits.
 #[derive(Clone, Debug)]
 pub struct AccountAuthenticators {
     key_set: AuthenticatorPublicKeySet,
@@ -48,7 +49,8 @@ impl AccountAuthenticators {
         &self.addresses
     }
 
-    /// Returns the commitment to [`key_set`](Self::key_set) stored in the `WorldIDRegistry`.
+    /// Returns the off-chain signer commitment stored in the `WorldIDRegistry`: the commitment to
+    /// [`key_set`](Self::key_set).
     #[must_use]
     pub const fn offchain_signer_commitment(&self) -> U256 {
         self.offchain_signer_commitment
@@ -100,7 +102,8 @@ impl TryFrom<IndexerAuthenticatorsResponse> for AccountAuthenticators {
     /// # Errors
     /// - [`AuthenticatorError::PrimitiveError`] if the response has different numbers of
     ///   addresses and public keys, a slot with only one of them, a recovery counter above 32
-    ///   bits, or an invalid public key.
+    ///   bits, an invalid public key, or a commitment that does not match the public keys. Such
+    ///   an account state cannot be signed from or proven with.
     /// - [`AuthenticatorError::InvalidIndexerPubkeySlot`] if a public key is registered at a
     ///   slot beyond [`MAX_AUTHENTICATOR_KEYS`].
     fn try_from(response: IndexerAuthenticatorsResponse) -> Result<Self, Self::Error> {
@@ -126,8 +129,15 @@ impl TryFrom<IndexerAuthenticatorsResponse> for AccountAuthenticators {
         }
         let recovery_counter = u32::try_from(recovery_counter)
             .map_err(|_| invalid_response("a recovery counter above 32 bits"))?;
+        let key_set = Authenticator::decode_indexer_pubkeys(authenticator_pubkeys)?;
+        let commitment: U256 = key_set.leaf_hash().into();
+        if offchain_signer_commitment != commitment {
+            return Err(invalid_response(
+                "an off-chain signer commitment that does not match the pubkeys",
+            ));
+        }
         Ok(Self {
-            key_set: Authenticator::decode_indexer_pubkeys(authenticator_pubkeys)?,
+            key_set,
             addresses: authenticator_addresses,
             offchain_signer_commitment,
             recovery_counter,
@@ -259,8 +269,8 @@ impl Authenticator {
     /// the request finalizes.
     ///
     /// # Errors
-    /// - [`AuthenticatorError::InvalidAccountSnapshot`] if the snapshot belongs to another account
-    ///   or its commitment does not match its public keys.
+    /// - [`AuthenticatorError::InvalidAccountSnapshot`] if the snapshot belongs to another
+    ///   account.
     /// - [`AuthenticatorError::MaxAuthenticatorsReached`] if the snapshot has no free slot below
     ///   the registry's limit.
     /// - [`AuthenticatorError::GatewayError`] if the gateway rejects the operation, e.g. because
@@ -275,12 +285,6 @@ impl Authenticator {
         if snapshot.leaf_index != self.leaf_index() {
             return Err(AuthenticatorError::InvalidAccountSnapshot(
                 "snapshot belongs to a different account",
-            ));
-        }
-        let commitment: U256 = snapshot.authenticators.key_set.leaf_hash().into();
-        if snapshot.authenticators.offchain_signer_commitment != commitment {
-            return Err(AuthenticatorError::InvalidAccountSnapshot(
-                "off-chain signer commitment does not match the public key set",
             ));
         }
         snapshot
@@ -590,6 +594,22 @@ mod tests {
         AccountAuthenticators::try_from(response).is_ok()
     }
 
+    #[test]
+    fn rejects_a_commitment_that_does_not_match_the_pubkeys() {
+        let consistent = response(&[Some((1, ADMIN))]);
+        let response = IndexerAuthenticatorsResponse {
+            offchain_signer_commitment: consistent.offchain_signer_commitment ^ U256::from(1),
+            ..consistent
+        };
+
+        assert!(matches!(
+            AccountAuthenticators::try_from(response),
+            Err(AuthenticatorError::PrimitiveError(
+                PrimitiveError::Deserialization(_)
+            ))
+        ));
+    }
+
     #[test_case(&[], None => Some(0); "an empty account")]
     #[test_case(&[Some(1)], None => Some(1); "the slot after the last key")]
     #[test_case(&[Some(1), None, Some(2)], Some(2) => Some(1); "a removed slot below the limit")]
@@ -730,29 +750,6 @@ mod tests {
 
         let result = authenticator
             .insert_authenticator_from_snapshot(&snapshot(None), pubkey(2), Address::ZERO)
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(AuthenticatorError::InvalidAccountSnapshot(_))
-        ));
-        no_submission.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn insertion_refuses_a_snapshot_whose_commitment_does_not_match_its_keys() {
-        let mut server = mockito::Server::new_async().await;
-        let authenticator = admin_authenticator(&server, LEAF_INDEX);
-        let mut snapshot = snapshot(None);
-        snapshot.authenticators.offchain_signer_commitment ^= U256::from(1);
-        let no_submission = server
-            .mock("POST", "/insert-authenticator")
-            .expect(0)
-            .create_async()
-            .await;
-
-        let result = authenticator
-            .insert_authenticator_from_snapshot(&snapshot, pubkey(2), Address::ZERO)
             .await;
 
         assert!(matches!(
