@@ -150,7 +150,7 @@ async fn e2e_authenticator_registration() {
     assert_eq!(session.poll().await.unwrap(), RequesterStatus::Expired);
 
     // The same pairing link cannot be used twice.
-    let reused = PendingRegistration::receive(&original_uri, bridge_client(&bridge)).await;
+    let reused = PendingRegistration::receive(&original_uri, &[bridge_client(&bridge)]).await;
     assert!(matches!(reused, Err(ApproverError::Expired)));
 
     // A retry with the same keys finds the existing registration and inserts nothing.
@@ -337,7 +337,7 @@ async fn e2e_authenticator_registration() {
     session.publish().await.unwrap();
     let mut tampered = session.pairing_uri().unwrap();
     tampered.digest = RegistrationDigest::from_bytes([0; 32]);
-    let mut pending = PendingRegistration::receive(&tampered, bridge_client(&bridge))
+    let mut pending = PendingRegistration::receive(&tampered, &[bridge_client(&bridge)])
         .await
         .unwrap();
     assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
@@ -389,19 +389,16 @@ fn verified() -> UserVerification {
 }
 
 fn bridge_client(bridge: &BridgeStub) -> BridgeClient {
-    BridgeClient::new(Url::parse(&bridge.url).unwrap()).unwrap()
+    BridgeClient::with_base_url(
+        "bridge.example.org".parse().unwrap(),
+        Url::parse(&bridge.url).unwrap(),
+    )
+    .unwrap()
 }
 
 fn requester(seed: &[u8; 32], class: RequestedClass, bridge: &BridgeStub) -> RegistrationRequester {
     let name = AuthenticatorName::try_from("Chrome on MacBook".to_string()).unwrap();
-    RegistrationRequester::new(
-        seed,
-        class,
-        Some(name),
-        bridge_client(bridge),
-        "bridge.example.org".parse().unwrap(),
-    )
-    .unwrap()
+    RegistrationRequester::new(seed, class, Some(name), bridge_client(bridge)).unwrap()
 }
 
 async fn completed(requester: &mut RegistrationRequester) -> RequesterStatus {
@@ -420,7 +417,7 @@ async fn receive(
 ) -> Result<IncomingRegistration, ApproverError> {
     assert!(session.pairing_code().is_none());
     let mut pending =
-        PendingRegistration::receive(&session.pairing_uri().unwrap(), bridge_client(bridge))
+        PendingRegistration::receive(&session.pairing_uri().unwrap(), &[bridge_client(bridge)])
             .await?;
     assert_eq!(session.poll().await.unwrap(), RequesterStatus::Retrieved);
     assert!(session.pairing_uri().is_none());

@@ -12,10 +12,9 @@ use world_id_primitives::{
 use world_id_proof::artifacts::ZkArtifactSource;
 
 use super::{
-    AuthenticatorName, BridgeDomain, MAX_RESPONSE_SIZE, PairingCode, PairingSecret, PairingUri,
-    REGISTER_METHOD, RegisterRequestMessage, RegisterResponseMessage, RegistrationDigest,
-    RegistrationErrorData, RegistrationRequest, RegistrationResult, ResponseSecretKey,
-    TransportError, TransportKey,
+    AuthenticatorName, MAX_RESPONSE_SIZE, PairingCode, PairingSecret, PairingUri, REGISTER_METHOD,
+    RegisterRequestMessage, RegisterResponseMessage, RegistrationDigest, RegistrationErrorData,
+    RegistrationRequest, RegistrationResult, ResponseSecretKey, TransportError, TransportKey,
     approver::before,
     bridge::{BridgeClient, BridgeError, ResponseState},
 };
@@ -40,15 +39,13 @@ pub struct RegistrationRequester {
     expires_at: Instant,
     request: RegistrationRequest,
     digest: RegistrationDigest,
-    advertised_bridge: BridgeDomain,
     bridge: BridgeClient,
 }
 
 impl RegistrationRequester {
     /// Starts a session for the authenticator derived from `seed`.
     ///
-    /// `bridge` is the bridge the session uses. `advertised_bridge` is its domain, written into
-    /// the Pairing URI.
+    /// `bridge` is the bridge the session uses. Its domain is written into the Pairing URI.
     ///
     /// # Errors
     ///
@@ -58,7 +55,6 @@ impl RegistrationRequester {
         class: RequestedClass,
         name: Option<AuthenticatorName>,
         bridge: BridgeClient,
-        advertised_bridge: BridgeDomain,
     ) -> Result<Self, RequesterError> {
         let signer = Signer::from_seed_bytes(seed).map_err(AuthenticatorError::from)?;
         let class = match class {
@@ -91,7 +87,6 @@ impl RegistrationRequester {
             expires_at: Instant::now() + SESSION_TTL,
             request,
             digest,
-            advertised_bridge,
             bridge,
         })
     }
@@ -107,7 +102,7 @@ impl RegistrationRequester {
         Some(PairingUri {
             secret: secrets.secret.clone(),
             digest: self.digest,
-            bridge: self.advertised_bridge.clone(),
+            bridge: self.bridge.domain().clone(),
         })
     }
 
@@ -424,8 +419,11 @@ mod tests {
             &[77; 32],
             RequestedClass::Proving,
             None,
-            BridgeClient::new(server.url().parse().unwrap()).unwrap(),
-            "bridge.example.org".parse().unwrap(),
+            BridgeClient::with_base_url(
+                "bridge.example.org".parse().unwrap(),
+                server.url().parse().unwrap(),
+            )
+            .unwrap(),
         )
         .unwrap()
     }
@@ -453,10 +451,12 @@ mod tests {
             .expect(1)
             .create_async()
             .await;
-        let pending =
-            PendingRegistration::receive(&session.pairing_uri().unwrap(), session.bridge.clone())
-                .await
-                .unwrap();
+        let pending = PendingRegistration::receive(
+            &session.pairing_uri().unwrap(),
+            std::slice::from_ref(&session.bridge),
+        )
+        .await
+        .unwrap();
         mock.assert_async().await;
         pending
     }
@@ -487,6 +487,28 @@ mod tests {
         assert!(session.pairing_code().is_none());
         assert!(session.secrets.is_none());
         assert_eq!(session.poll().await.unwrap(), RequesterStatus::Expired);
+    }
+
+    #[tokio::test]
+    async fn approver_contacts_only_an_allowed_bridge() {
+        let mut server = mockito::Server::new_async().await;
+        let session = requester(&server);
+        let untouched = server
+            .mock("GET", mockito::Matcher::Any)
+            .expect(0)
+            .create_async()
+            .await;
+        let other = BridgeClient::with_base_url(
+            "other.example.org".parse().unwrap(),
+            server.url().parse().unwrap(),
+        )
+        .unwrap();
+        let uri = session.pairing_uri().unwrap();
+        assert!(matches!(
+            PendingRegistration::receive(&uri, &[other]).await,
+            Err(ApproverError::BridgeNotAllowed(domain)) if domain == uri.bridge
+        ));
+        untouched.assert_async().await;
     }
 
     #[tokio::test]

@@ -29,34 +29,43 @@ const OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug)]
 pub struct BridgeClient {
     http: reqwest::Client,
+    domain: BridgeDomain,
     base_url: Url,
 }
 
 impl BridgeClient {
-    /// Creates a client for the bridge at `base_url`, e.g. `https://bridge.example.org`.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`BridgeError::InvalidUrl`] if `base_url` cannot be a base for the bridge routes.
-    pub fn new(base_url: Url) -> Result<Self, BridgeError> {
-        if base_url.cannot_be_a_base() {
-            return Err(BridgeError::InvalidUrl(base_url.to_string()));
-        }
-        Ok(Self {
-            http: default_http_client(),
-            base_url,
-        })
-    }
-
     /// Creates a client for the bridge at `https://{domain}`.
     ///
     /// # Errors
     ///
     /// Returns [`BridgeError::InvalidUrl`] if the domain does not form a valid URL.
-    pub fn for_domain(domain: &BridgeDomain) -> Result<Self, BridgeError> {
+    pub fn new(domain: BridgeDomain) -> Result<Self, BridgeError> {
         let url = Url::parse(&format!("https://{domain}"))
             .map_err(|e| BridgeError::InvalidUrl(e.to_string()))?;
-        Self::new(url)
+        Self::with_base_url(domain, url)
+    }
+
+    /// Creates a client that reaches the bridge deployment named `domain` at `base_url` instead
+    /// of `https://{domain}`, e.g. a local deployment in tests.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BridgeError::InvalidUrl`] if `base_url` cannot be a base for the bridge routes.
+    pub fn with_base_url(domain: BridgeDomain, base_url: Url) -> Result<Self, BridgeError> {
+        if base_url.cannot_be_a_base() {
+            return Err(BridgeError::InvalidUrl(base_url.to_string()));
+        }
+        Ok(Self {
+            http: default_http_client(),
+            domain,
+            base_url,
+        })
+    }
+
+    /// Returns the domain of the bridge deployment, as written into a Pairing URI.
+    #[must_use]
+    pub const fn domain(&self) -> &BridgeDomain {
+        &self.domain
     }
 
     /// Stores the encrypted request under `request_id` (`POST /request`).
@@ -421,7 +430,11 @@ mod tests {
     }
 
     fn client(server: &mockito::ServerGuard) -> BridgeClient {
-        BridgeClient::new(Url::parse(&server.url()).unwrap()).unwrap()
+        BridgeClient::with_base_url(
+            "bridge.example.org".parse().unwrap(),
+            Url::parse(&server.url()).unwrap(),
+        )
+        .unwrap()
     }
 
     #[tokio::test]

@@ -23,7 +23,7 @@ use world_id_primitives::{
 use zeroize::Zeroizing;
 
 use super::{
-    EncryptedPayload, KnownAuthenticator, MAX_RESPONSE_SIZE, PairingCode, PairingUri,
+    BridgeDomain, EncryptedPayload, KnownAuthenticator, MAX_RESPONSE_SIZE, PairingCode, PairingUri,
     REGISTER_METHOD, RegisterRequestMessage, RegisterResponseMessage, RegistrationErrorData,
     RegistrationErrorReason, RegistrationRequest, RegistrationResult, RequestId, ResponsePublicKey,
     TransportError, TransportKey, Vault,
@@ -56,12 +56,25 @@ pub struct PendingRegistration {
 }
 
 impl PendingRegistration {
-    /// Fetches and retains the encrypted request. Never refetch it after a mistyped code.
-    /// The host must use an allowlisted bridge or obtain confirmation before contacting it.
+    /// Fetches and retains the encrypted request from the URI's bridge. Never refetch it after a
+    /// mistyped code.
+    ///
+    /// `allowed_bridges` are the bridge deployments the host allows (WIP-109 §3.4). The URI's
+    /// bridge must be one of them; to contact another bridge, the host must first get the user's
+    /// confirmation and then pass a client for it.
     ///
     /// # Errors
-    /// Returns [`ApproverError::Expired`] for a used or expired URI, or a bridge error.
-    pub async fn receive(uri: &PairingUri, bridge: BridgeClient) -> Result<Self, ApproverError> {
+    /// Returns [`ApproverError::BridgeNotAllowed`] if the URI's bridge is not allowed,
+    /// [`ApproverError::Expired`] for a used or expired URI, or a bridge error.
+    pub async fn receive(
+        uri: &PairingUri,
+        allowed_bridges: &[BridgeClient],
+    ) -> Result<Self, ApproverError> {
+        let bridge = allowed_bridges
+            .iter()
+            .find(|bridge| *bridge.domain() == uri.bridge)
+            .ok_or_else(|| ApproverError::BridgeNotAllowed(uri.bridge.clone()))?
+            .clone();
         let encrypted = bridge
             .take_request(&uri.secret.request_id())
             .await?
@@ -633,6 +646,10 @@ pub struct ApprovalOutcome {
 /// Errors on the Approving Authenticator's side of a registration.
 #[derive(Debug, thiserror::Error)]
 pub enum ApproverError {
+    /// The Pairing URI names a bridge the host does not allow. The host may ask the user to
+    /// confirm it, then retry with a client for it.
+    #[error("bridge {0} is not allowed")]
+    BridgeNotAllowed(BridgeDomain),
     /// The request expired or was already taken. The user should create a new QR code or link
     /// on the new device.
     #[error("the registration request expired or was already used")]
