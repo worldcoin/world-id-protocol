@@ -5,6 +5,7 @@ use std::{fmt, str::FromStr};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use world_id_primitives::authenticator_message::{Deeplink, DeeplinkError};
+use zeroize::Zeroizing;
 
 use super::{request::RegistrationDigest, session::PairingSecret};
 
@@ -133,18 +134,22 @@ impl FromStr for PairingUri {
         let mut bridge = None;
         for (key, value) in link.params() {
             match key.as_str() {
-                SECRET_PARAM => set_once(&mut secret, decode_32_bytes(value)?)?,
-                DIGEST_PARAM => set_once(&mut digest, decode_32_bytes(value)?)?,
+                SECRET_PARAM => {
+                    let bytes = decode_32_bytes(value)?;
+                    set_once(&mut secret, PairingSecret::from_bytes(*bytes))?;
+                }
+                DIGEST_PARAM => {
+                    let bytes = decode_32_bytes(value)?;
+                    set_once(&mut digest, RegistrationDigest::from_bytes(*bytes))?;
+                }
                 BRIDGE_PARAM => set_once(&mut bridge, value.parse()?)?,
                 _ => return Err(PairingUriError::UnknownParameter),
             }
         }
 
         Ok(Self {
-            secret: PairingSecret::from_bytes(secret.ok_or(PairingUriError::MissingParameter)?),
-            digest: RegistrationDigest::from_bytes(
-                digest.ok_or(PairingUriError::MissingParameter)?,
-            ),
+            secret: secret.ok_or(PairingUriError::MissingParameter)?,
+            digest: digest.ok_or(PairingUriError::MissingParameter)?,
             bridge: bridge.ok_or(PairingUriError::MissingParameter)?,
         })
     }
@@ -183,15 +188,16 @@ fn set_once<T>(slot: &mut Option<T>, value: T) -> Result<(), PairingUriError> {
     Ok(())
 }
 
-fn decode_32_bytes(value: &str) -> Result<[u8; 32], PairingUriError> {
+/// Decodes a 32-byte parameter straight into storage that is wiped on drop, as `s` is secret.
+fn decode_32_bytes(value: &str) -> Result<Zeroizing<[u8; 32]>, PairingUriError> {
     if value.len() != ENCODED_32_BYTES_LEN {
         return Err(PairingUriError::InvalidEncoding);
     }
+    let mut bytes = Zeroizing::new([0; 32]);
     URL_SAFE_NO_PAD
-        .decode(value)
-        .map_err(|_| PairingUriError::InvalidEncoding)?
-        .try_into()
-        .map_err(|_| PairingUriError::InvalidEncoding)
+        .decode_slice(value, bytes.as_mut())
+        .map_err(|_| PairingUriError::InvalidEncoding)?;
+    Ok(bytes)
 }
 
 #[cfg(test)]
