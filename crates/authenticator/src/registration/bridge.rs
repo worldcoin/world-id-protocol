@@ -150,7 +150,8 @@ impl BridgeClient {
     ///
     /// # Errors
     ///
-    /// Returns [`BridgeError::InvalidUrl`] if the domain does not form a valid URL.
+    /// Returns [`BridgeError::InvalidUrl`] if the domain does not form a valid URL, or
+    /// [`BridgeError::Transport`] if the TLS backend cannot be initialized.
     pub fn new(domain: BridgeDomain) -> Result<Self, BridgeError> {
         let url = Url::parse(&format!("https://{domain}"))
             .map_err(|e| BridgeError::InvalidUrl(e.to_string()))?;
@@ -162,13 +163,14 @@ impl BridgeClient {
     ///
     /// # Errors
     ///
-    /// Returns [`BridgeError::InvalidUrl`] if `base_url` cannot be a base for the bridge routes.
+    /// Returns [`BridgeError::InvalidUrl`] if `base_url` cannot be a base for the bridge routes,
+    /// or [`BridgeError::Transport`] if the TLS backend cannot be initialized.
     pub fn with_base_url(domain: BridgeDomain, base_url: Url) -> Result<Self, BridgeError> {
         if base_url.cannot_be_a_base() {
             return Err(BridgeError::InvalidUrl(base_url.to_string()));
         }
         Ok(Self {
-            http: http_client(),
+            http: http_client()?,
             domain,
             base_url,
         })
@@ -380,11 +382,11 @@ impl BridgeError {
 
 /// Builds the HTTP client for the bridge, which does not follow redirects where the platform
 /// lets it decide.
-fn http_client() -> reqwest::Client {
+fn http_client() -> Result<reqwest::Client, BridgeError> {
     let builder = http_client_builder();
     #[cfg(not(target_arch = "wasm32"))]
     let builder = builder.redirect(reqwest::redirect::Policy::none());
-    builder.build().expect("the TLS backend initializes")
+    Ok(builder.build()?)
 }
 
 /// Runs `attempt`, retrying transient failures with bounded backoff, within

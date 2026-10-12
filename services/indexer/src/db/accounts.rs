@@ -31,16 +31,6 @@ pub struct Account {
     pub latest_event_id: AccountLatestEventId,
 }
 
-/// The authenticator slots of an account, as read by
-/// [`Accounts::get_authenticators_by_leaf_index`].
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AccountAuthenticators {
-    pub authenticator_addresses: Vec<Option<Address>>,
-    pub authenticator_pubkeys: Vec<Option<U256>>,
-    pub offchain_signer_commitment: U256,
-    pub recovery_counter: u64,
-}
-
 pub struct Accounts<'a, E>
 where
     E: sqlx::Executor<'a, Database = Postgres>,
@@ -107,41 +97,6 @@ where
                 let offchain_signer_commitment = Self::map_offchain_signer_commitment(&row)?;
                 let pubkeys = Self::map_authenticator_pub_keys(&row)?;
                 Ok((offchain_signer_commitment, pubkeys))
-            })
-            .transpose()
-    }
-
-    /// Returns the authenticator slots, offchain signer commitment and recovery counter of
-    /// `leaf_index` from one row, or `None` if the account is not indexed yet.
-    #[instrument(level = "info", skip(self))]
-    pub async fn get_authenticators_by_leaf_index(
-        self,
-        leaf_index: u64,
-    ) -> DBResult<Option<AccountAuthenticators>> {
-        let result = sqlx::query(
-            r#"
-                SELECT
-                    authenticator_addresses,
-                    authenticator_pubkeys,
-                    offchain_signer_commitment,
-                    recovery_counter
-                FROM accounts
-                WHERE
-                    leaf_index = $1
-            "#,
-        )
-        .bind(leaf_index as i64)
-        .fetch_optional(self.executor)
-        .await?;
-
-        result
-            .map(|row| {
-                Ok(AccountAuthenticators {
-                    authenticator_addresses: Self::map_authenticator_addresses(&row)?,
-                    authenticator_pubkeys: Self::map_authenticator_pub_keys(&row)?,
-                    offchain_signer_commitment: Self::map_offchain_signer_commitment(&row)?,
-                    recovery_counter: Self::map_recovery_counter(&row)?,
-                })
             })
             .transpose()
     }
@@ -355,6 +310,8 @@ where
     ) -> DBResult<()> {
         // `jsonb_set` appends when the index is past the end, so pad both arrays with nulls up
         // to `pubkey_id` first. Otherwise a sparse insertion would land at the wrong slot.
+        let padded_len = i32::try_from(pubkey_id)
+            .map_err(|_| invalid_field!("pubkey_id", "exceeds the JSON array index range"))?;
         sqlx::query(
             r#"
                 UPDATE accounts SET
@@ -378,7 +335,7 @@ where
             .bind(new_commitment)
             .bind(latest_block_number as i64)
             .bind(latest_log_index as i64)
-            .bind(i32::try_from(pubkey_id).unwrap_or(i32::MAX))
+            .bind(padded_len)
             .execute(self.executor)
             .await?;
         Ok(())

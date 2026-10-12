@@ -107,7 +107,7 @@ async fn a_proving_authenticator_is_registered_with_the_vault(h: &mut Harness) -
     assert_eq!(checked.plan(), RegistrationPlan::Insert { pubkey_id: 1 });
     let vault = Vault {
         format: VaultFormat::WalletkitPlaintextV1,
-        data: b"SQLite format 3".to_vec(),
+        data: b"SQLite format 3".to_vec().into(),
     };
     let approval = Approval {
         vault: Some(vault.clone()),
@@ -311,7 +311,7 @@ async fn an_oversized_vault_is_left_out(h: &mut Harness) {
     let approval = Approval {
         vault: Some(Vault {
             format: VaultFormat::WalletkitPlaintextV1,
-            data: vec![0; MAX_VAULT_SIZE + 1],
+            data: vec![0; MAX_VAULT_SIZE + 1].into(),
         }),
         ..Approval::default()
     };

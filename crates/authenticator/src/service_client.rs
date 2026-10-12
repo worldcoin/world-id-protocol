@@ -6,6 +6,36 @@ use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use world_id_primitives::ServiceEndpoint;
 
+/// The maximum time to establish a connection to a service.
+#[cfg(not(target_arch = "wasm32"))]
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// The maximum time for a whole request to a service, including reading the response.
+pub(crate) const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Builds the HTTP client for the gateway, the indexer, OHTTP relays and the RPC.
+///
+/// A native client bounds connection setup with [`CONNECT_TIMEOUT`] and every request with
+/// [`REQUEST_TIMEOUT`]. A browser client cannot be bounded client-wide, so gateway, indexer and
+/// OHTTP relay requests also set [`REQUEST_TIMEOUT`] on each request; RPC requests from a browser
+/// are bounded only by the browser.
+///
+/// # Errors
+/// Returns [`AuthenticatorError::NetworkError`] if the TLS backend cannot be initialized.
+pub(crate) fn default_http_client() -> Result<reqwest::Client, AuthenticatorError> {
+    Ok(http_client_builder().build()?)
+}
+
+/// Starts building an HTTP client with the bounds of [`default_http_client`], for a client that
+/// needs more settings.
+pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
+    let builder = reqwest::Client::builder();
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = builder
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT);
+    builder
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ServiceKind {
     Gateway,
@@ -192,33 +222,4 @@ impl ServiceClient {
             ))
         })
     }
-}
-
-/// The maximum time to establish a connection to a gateway or indexer.
-#[cfg(not(target_arch = "wasm32"))]
-const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
-/// The maximum time for a whole gateway, indexer or OHTTP relay request, including reading the
-/// response. Set on each request because browser clients have no client-wide timeout.
-pub(crate) const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-
-/// Builds the HTTP client for gateway and indexer requests.
-///
-/// Every request sets [`REQUEST_TIMEOUT`] on both native and browser clients.
-///
-/// # Panics
-///
-/// Panics if the TLS backend cannot be initialized, as [`reqwest::Client::new`] does.
-pub(crate) fn default_http_client() -> reqwest::Client {
-    http_client_builder()
-        .build()
-        .expect("the TLS backend initializes")
-}
-
-/// Starts building an HTTP client with the shared connection settings: native clients bound
-/// connection setup with [`CONNECT_TIMEOUT`].
-pub(crate) fn http_client_builder() -> reqwest::ClientBuilder {
-    let builder = reqwest::Client::builder();
-    #[cfg(not(target_arch = "wasm32"))]
-    let builder = builder.connect_timeout(CONNECT_TIMEOUT);
-    builder
 }

@@ -22,7 +22,7 @@ pub enum AuthenticatorError {
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 
-    /// A supplied snapshot belongs to another account or contains inconsistent account state.
+    /// A supplied account snapshot belongs to another account.
     #[error("Invalid account snapshot: {0}")]
     InvalidAccountSnapshot(&'static str),
 

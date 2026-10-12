@@ -13,6 +13,7 @@
 
 use std::{future::Future, time::Duration};
 
+use alloy::primitives::Address;
 use backon::BackoffBuilder as _;
 use web_time::Instant;
 use world_id_primitives::{
@@ -29,7 +30,7 @@ use super::{
     bridge::{BridgeClient, BridgeError, DeliveryOutcome},
     deadline::{SESSION_TTL, before, polling_backoff, sleep},
 };
-use crate::{AccountSnapshot, Authenticator, AuthenticatorClass, AuthenticatorError};
+use crate::{AccountSnapshot, Authenticator, AuthenticatorError, authenticator::leaf_index_of};
 
 /// How many times the user may enter the pairing code for one request (WIP-109 §3.7.1 step 3).
 const MAX_CODE_ATTEMPTS: u8 = 3;
@@ -414,7 +415,7 @@ impl IncomingRegistration {
         // Step 1: the registry, not the snapshot, decides whether the approver is still an Admin
         // Authenticator of its account.
         match self
-            .before_deadline(packed_account_data_of(approver, approver.onchain_address()))
+            .before_deadline(approver.fetch_packed_account_data_of(approver.onchain_address()))
             .await?
         {
             Ok(packed) if leaf_index_of(packed) == approver.leaf_index() => {}
@@ -429,11 +430,11 @@ impl IncomingRegistration {
             .map_err(Refusal::internal_error)?;
         let plan = plan_registration(&snapshot, approver, &self.request)?;
         // Step 4: a new Admin address must not be registered to any account yet.
-        if let (RegistrationPlan::Insert { .. }, AuthenticatorClass::Admin { address }) =
-            (plan, self.request.class)
+        if let (RegistrationPlan::Insert { .. }, Some(address)) =
+            (plan, self.request.new_authenticator_address)
         {
             match self
-                .before_deadline(packed_account_data_of(approver, address))
+                .before_deadline(approver.fetch_packed_account_data_of(address))
                 .await?
             {
                 Err(AuthenticatorError::AccountDoesNotExist) => {}
@@ -625,7 +626,7 @@ impl CheckedRegistration {
         let submission = approver.insert_authenticator_from_snapshot(
             &self.snapshot,
             self.incoming.request.new_authenticator_pubkey.clone(),
-            self.incoming.request.class,
+            onchain_address(&self.incoming.request),
         );
         let insertion = before(respond_by, submission)
             .await
@@ -635,9 +636,7 @@ impl CheckedRegistration {
         let mut submitted = false;
         let mut failed_polls = 0_u32;
         for delay in polling_backoff().build() {
-            let Some(status) =
-                before(respond_by, approver.poll_status(&insertion.request_id)).await
-            else {
+            let Some(status) = before(respond_by, approver.poll_status(&insertion)).await else {
                 break;
             };
             match status {
@@ -665,7 +664,7 @@ impl CheckedRegistration {
         }
         tracing::warn!(
             request = %log_tag(&self.incoming.channel.request_id),
-            gateway_request_id = %insertion.request_id,
+            gateway_request_id = %insertion,
             submitted,
             failed_polls,
             "insertion outcome unknown at the response deadline"
@@ -684,11 +683,11 @@ impl CheckedRegistration {
             };
             match snapshot {
                 Ok(snapshot) => {
-                    if let Some((slot, class)) = snapshot
+                    if let Some((slot, address)) = snapshot
                         .authenticators
                         .find(&request.new_authenticator_pubkey)
                     {
-                        return if class == request.class {
+                        return if address == onchain_address(request) {
                             Ok(slot)
                         } else {
                             Err(RegistrationErrorReason::AuthenticatorConflict.into())
@@ -908,16 +907,19 @@ fn parse_request(
             format!("unexpected method {}", envelope.method.as_str()),
         ));
     }
-    envelope
-        .params
-        .ok_or_else(|| {
-            rejected(
-                RegistrationErrorReason::InvalidParams,
-                "missing params".to_string(),
-            )
-        })?
+    let params = envelope.params.ok_or_else(|| {
+        rejected(
+            RegistrationErrorReason::InvalidParams,
+            "missing params".to_string(),
+        )
+    })?;
+    let invalid_params = |error: &dyn std::fmt::Display| {
+        rejected(RegistrationErrorReason::InvalidParams, error.to_string())
+    };
+    super::reject_tags(&params).map_err(|error| invalid_params(&error))?;
+    params
         .deserialized()
-        .map_err(|error| rejected(RegistrationErrorReason::InvalidParams, error.to_string()))
+        .map_err(|error| invalid_params(&error))
 }
 
 /// Reads `params.response_pubkey` from a request that failed validation, to seal the answer to.
@@ -976,26 +978,24 @@ fn plan_registration(
     request: &RegistrationRequest,
 ) -> Result<RegistrationPlan, RegistrationErrorReason> {
     let authenticators = &snapshot.authenticators;
-    let approver_class = AuthenticatorClass::Admin {
-        address: approver.onchain_address(),
-    };
     if authenticators
         .find(&approver.offchain_pubkey())
-        .map(|(_, class)| class)
-        != Some(approver_class)
+        .map(|(_, address)| address)
+        != Some(approver.onchain_address())
     {
         return Err(RegistrationErrorReason::NotAuthorized);
     }
 
-    if let Some((pubkey_id, class)) = authenticators.find(&request.new_authenticator_pubkey) {
-        if class != request.class {
+    if let Some((pubkey_id, address)) = authenticators.find(&request.new_authenticator_pubkey) {
+        if address != onchain_address(request) {
             return Err(RegistrationErrorReason::AuthenticatorConflict);
         }
         return Ok(RegistrationPlan::AlreadyRegistered { pubkey_id });
     }
 
-    if matches!(request.class, AuthenticatorClass::Admin { .. })
-        && authenticators.classes.contains(&Some(request.class))
+    if request
+        .new_authenticator_address
+        .is_some_and(|address| authenticators.addresses().contains(&Some(address)))
     {
         return Err(RegistrationErrorReason::AuthenticatorConflict);
     }
@@ -1006,25 +1006,10 @@ fn plan_registration(
         .ok_or(RegistrationErrorReason::MaxAuthenticatorsReached)
 }
 
-/// Looks up the packed account data registered for a management `address`, from the registry
-/// when an RPC is configured and from the indexer otherwise. A revoked address is
-/// [`AuthenticatorError::AccountDoesNotExist`].
-async fn packed_account_data_of(
-    approver: &Authenticator,
-    address: alloy::primitives::Address,
-) -> Result<alloy::primitives::U256, AuthenticatorError> {
-    Authenticator::fetch_packed_account_data_for(
-        address,
-        approver.registry().as_deref(),
-        &approver.config,
-        &approver.indexer_client,
-    )
-    .await
-}
-
-/// The leaf index in packed account data: its low 64 bits.
-fn leaf_index_of(packed: alloy::primitives::U256) -> u64 {
-    packed.as_limbs()[0]
+/// The address the registry records for the requested authenticator: its management key, or the
+/// zero address for a Proving Authenticator (WIP-104).
+fn onchain_address(request: &RegistrationRequest) -> Address {
+    request.new_authenticator_address.unwrap_or(Address::ZERO)
 }
 
 /// Classifies a failure to submit `InsertAuthenticator`.
@@ -1108,7 +1093,9 @@ mod tests {
     use world_id_primitives::Signer;
 
     use super::*;
-    use crate::registration::{PairingSecret, RegisterRequestMessage, ResponseSecretKey};
+    use crate::registration::{
+        PairingSecret, RegisterRequestMessage, ResponseSecretKey, decode_response,
+    };
 
     /// The Requesting Authenticator's side of a session, built from the protocol primitives.
     struct Requester {
@@ -1146,7 +1133,7 @@ mod tests {
             let signer = Signer::from_seed_bytes(&[9; 32]).unwrap();
             let (request, digest) = RegistrationRequest::new_signed(
                 signer.offchain_signer_private_key().expose_secret(),
-                AuthenticatorClass::Proving,
+                None,
                 response_key.public_key(),
                 None,
                 &pairing_secret.request_id(),
@@ -1220,7 +1207,7 @@ mod tests {
                 .transport_key()
                 .decrypt_response(&self.response_key, sealed)
                 .unwrap();
-            authenticator_message::decode(&plaintext, MAX_RESPONSE_SIZE).unwrap()
+            decode_response(&plaintext).unwrap()
         }
     }
 
@@ -1399,7 +1386,7 @@ mod tests {
         let signer = Signer::from_seed_bytes(&[9; 32]).unwrap();
         let (other_session, _) = RegistrationRequest::new_signed(
             signer.offchain_signer_private_key().expose_secret(),
-            AuthenticatorClass::Proving,
+            None,
             requester.response_key.public_key(),
             None,
             &PairingSecret::from_bytes([10; 32]).request_id(),

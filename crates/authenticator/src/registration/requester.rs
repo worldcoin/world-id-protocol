@@ -2,6 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
+use alloy::primitives::Address;
 use backon::Retryable as _;
 use secrecy::ExposeSecret as _;
 use web_time::Instant;
@@ -12,14 +13,14 @@ use world_id_primitives::{
 use world_id_proof::artifacts::ZkArtifactSource;
 
 use super::{
-    AuthenticatorName, EncryptedPayload, MAX_RESPONSE_SIZE, PairingCode, PairingSecret, PairingUri,
-    REGISTER_METHOD, RegisterRequestMessage, RegisterResponseMessage, RegistrationDigest,
-    RegistrationErrorData, RegistrationRequest, RegistrationResult, RequestId, ResponseSecretKey,
-    TransportError, TransportKey,
+    AuthenticatorName, EncryptedPayload, PairingCode, PairingSecret, PairingUri, REGISTER_METHOD,
+    RegisterRequestMessage, RegistrationDigest, RegistrationErrorData, RegistrationRequest,
+    RegistrationResult, RequestId, ResponseSecretKey, TransportError, TransportKey,
     bridge::{BridgeClient, BridgeError, ResponseState},
     deadline::{SESSION_TTL, before, polling_backoff},
+    decode_response,
 };
-use crate::{Authenticator, AuthenticatorClass, AuthenticatorError};
+use crate::{Authenticator, AuthenticatorError};
 
 /// How long [`RegistrationRequester::verify`] waits for the indexer to show a new registration.
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(60);
@@ -153,11 +154,9 @@ impl RegistrationRequester {
         bridge: BridgeClient,
     ) -> Result<Self, RequesterError> {
         let signer = Signer::from_seed_bytes(seed).map_err(AuthenticatorError::from)?;
-        let class = match class {
-            RequestedClass::Admin => AuthenticatorClass::Admin {
-                address: signer.onchain_signer_address(),
-            },
-            RequestedClass::Proving => AuthenticatorClass::Proving,
+        let new_authenticator_address = match class {
+            RequestedClass::Admin => Some(signer.onchain_signer_address()),
+            RequestedClass::Proving => None,
         };
         let pairing_secret = PairingSecret::generate()?;
         let code = PairingCode::generate()?;
@@ -170,7 +169,7 @@ impl RegistrationRequester {
         let request_id = secrets.pairing_secret.request_id();
         let (request, digest) = RegistrationRequest::new_signed(
             signer.offchain_signer_private_key().expose_secret(),
-            class,
+            new_authenticator_address,
             secrets.response_key.public_key(),
             name,
             &request_id,
@@ -399,7 +398,11 @@ impl RegistrationRequester {
                         error.into()
                     }
                 })?;
-            if registered != (result.pubkey_id, self.request.class) {
+            let address = self
+                .request
+                .new_authenticator_address
+                .unwrap_or(Address::ZERO);
+            if registered != (result.pubkey_id, address) {
                 return Err(RequesterError::RegistrationMismatch);
             }
             Ok(authenticator)
@@ -432,9 +435,7 @@ fn open_response(
     let plaintext = secrets
         .transport_key
         .decrypt_response(&secrets.response_key, sealed)?;
-    let response: RegisterResponseMessage =
-        authenticator_message::decode(&plaintext, MAX_RESPONSE_SIZE)
-            .map_err(RequesterError::MalformedResponse)?;
+    let response = decode_response(&plaintext).map_err(RequesterError::MalformedResponse)?;
     // The outer envelope binds the response to this session, so an uncorrelated error, with a
     // null ID, is accepted too. A success always has an ID.
     if response.id.is_some_and(|id| id != request_id.message_id()) {
@@ -463,6 +464,8 @@ mod tests {
     use test_case::test_case;
     use tokio::sync::Notify;
     use world_id_primitives::authenticator_message::{Id, Version};
+
+    use crate::registration::RegisterResponseMessage;
 
     use super::*;
 

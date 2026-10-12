@@ -24,7 +24,8 @@ const ENCODED_32_BYTES_LEN: usize = 43;
 /// It carries the [`PairingSecret`], the [`RegistrationDigest`] and the bridge the Requesting
 /// Authenticator uses. Anyone who holds it can retrieve and consume the encrypted
 /// registration request; reading its plaintext also requires the independently transferred
-/// pairing code. The URI must not be logged or sent to analytics. Its `Debug` output is redacted.
+/// pairing code. The URI must not be logged or sent to analytics. Its `Debug` output redacts the
+/// secret.
 ///
 /// Parsing is strict: it rejects any other deeplink, unknown, missing or duplicated parameters,
 /// and values that are not canonical unpadded base64url of 32 bytes.
@@ -45,7 +46,7 @@ const ENCODED_32_BYTES_LEN: usize = 43;
 /// assert!(link.starts_with("worldid://auth/v1/register?s="));
 /// assert_eq!(link.parse::<PairingUri>().unwrap(), uri);
 /// ```
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PairingUri {
     /// The session secret used to derive the request ID and code-bound transport key.
     pub secret: PairingSecret,
@@ -54,16 +55,6 @@ pub struct PairingUri {
     /// The bridge the Requesting Authenticator uses. The Approving Authenticator must use this
     /// bridge and no other.
     pub bridge: BridgeDomain,
-}
-
-impl fmt::Debug for PairingUri {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("PairingUri")
-            .field("secret", &self.secret)
-            .field("digest", &self.digest)
-            .field("bridge", &self.bridge)
-            .finish()
-    }
 }
 
 impl fmt::Display for PairingUri {
