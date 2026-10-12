@@ -12,6 +12,8 @@
 //! pairing secret is deterministic. Transport encryption additionally requires the independently
 //! transferred [`PairingCode`].
 
+use world_id_primitives::authenticator_message::{MessageError, Value};
+
 mod bytes;
 mod pairing_uri;
 mod request;
@@ -21,7 +23,7 @@ mod session;
 pub use pairing_uri::{BridgeDomain, PairingUri, PairingUriError};
 pub use request::{
     AuthenticatorName, MAX_NAME_LEN, NameTooLong, REGISTER_METHOD, RegisterRequestMessage,
-    RegistrationDigest, RegistrationRequest,
+    RegistrationDigest, RegistrationRequest, decode_request,
 };
 pub use response::{
     KnownAuthenticator, MAX_VAULT_SIZE, RegisterResponseMessage, RegistrationErrorData,
@@ -37,6 +39,18 @@ const MAX_REQUEST_SIZE: usize = 4 * 1024;
 
 /// The largest encoded response: a full vault plus 4 KiB for the other fields (WIP-109 §3.5).
 const MAX_RESPONSE_SIZE: usize = MAX_VAULT_SIZE + 4 * 1024;
+
+/// Rejects a registration payload that contains a CBOR tag at any depth.
+///
+/// WIP-109 §3.6 defines every payload field by its CBOR major type, which a tag would wrap.
+fn reject_tags(payload: &Value) -> Result<(), MessageError> {
+    if contains_tag(payload) {
+        return Err(MessageError::Deserialize(serde::de::Error::custom(
+            "registration payloads must not contain CBOR tags",
+        )));
+    }
+    Ok(())
+}
 
 fn deserialize_payload<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
