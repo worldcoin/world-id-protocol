@@ -8,7 +8,7 @@ use secrecy::ExposeSecret as _;
 use web_time::Instant;
 use world_id_primitives::{
     Config, Signer,
-    authenticator_message::{ErrorObject, MessageError, Outcome},
+    authenticator_message::{ErrorObject, MessageError, Response},
 };
 use world_id_proof::artifacts::ZkArtifactSource;
 
@@ -434,9 +434,9 @@ fn open_response(
     // The outer envelope binds the response to this session, so an uncorrelated error, with a
     // null ID, is accepted too.
     let expected_id = request_id.message_id();
-    match response.outcome {
-        Outcome::Success { id, result } if id == expected_id => Ok(Ok(result)),
-        Outcome::Error { id, error } if id.as_ref().is_none_or(|id| *id == expected_id) => {
+    match response {
+        Response::Success { id, result, .. } if id == expected_id => Ok(Ok(result)),
+        Response::Error { id, error, .. } if id.as_ref().is_none_or(|id| *id == expected_id) => {
             Ok(Err(error))
         }
         _ => Err(RequesterError::ResponseIdMismatch),
@@ -681,7 +681,8 @@ mod tests {
         };
         let sealed = sealed_response(
             &session,
-            Outcome::Success {
+            Response::Success {
+                version: Version::V1,
                 id: id.value(&session).expect("a success has a non-null ID"),
                 result: result.clone(),
             },
@@ -706,13 +707,9 @@ mod tests {
     /// A response to `session`, sealed as the Approving Authenticator would.
     fn sealed_response(
         session: &RegistrationRequester,
-        outcome: Outcome<RegistrationResult, RegistrationErrorData>,
+        response: RegisterResponseMessage,
     ) -> EncryptedPayload {
         let secrets = secrets(session);
-        let response = RegisterResponseMessage {
-            version: Version::V1,
-            outcome,
-        };
         let encoded = Zeroizing::new(response.encode().unwrap());
         secrets
             .transport_key
@@ -733,7 +730,8 @@ mod tests {
         let mut session = published(&mut server).await;
         let sealed = sealed_response(
             &session,
-            Outcome::Error {
+            Response::Error {
+                version: Version::V1,
                 id: id.value(&session),
                 error: ErrorObject {
                     code: code.into(),

@@ -19,7 +19,7 @@ use eddsa_babyjubjub::EdDSAPublicKey;
 use web_time::Instant;
 use world_id_primitives::{
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
-    authenticator_message::{ErrorObject, Id, MessageError, Outcome, Request, Response, Value},
+    authenticator_message::{ErrorObject, Id, MessageError, Request, Response, Value},
 };
 use zeroize::Zeroizing;
 
@@ -609,16 +609,16 @@ impl CheckedRegistration {
     /// Whether a successful response carrying `approval` stays within the size the Requesting
     /// Authenticator accepts.
     fn response_fits(&self, approval: &Approval) -> bool {
-        let response = RegisterResponseMessage::new(Outcome::Success {
-            id: self.incoming.channel.request_id.message_id(),
-            result: RegistrationResult {
+        let response = RegisterResponseMessage::success(
+            self.incoming.channel.request_id.message_id(),
+            RegistrationResult {
                 leaf_index: self.snapshot.leaf_index,
                 // Every valid slot encodes to the same single CBOR byte.
                 pubkey_id: 0,
                 authenticators: approval.authenticators.clone(),
                 vault: approval.vault.clone(),
             },
-        });
+        );
         response
             .encode()
             .map(Zeroizing::new)
@@ -745,23 +745,19 @@ impl ResponseChannel {
         answer: Result<&RegistrationResult, ErrorObject<RegistrationErrorData>>,
     ) -> Result<DeliveryOutcome, ApproverError> {
         let id = self.request_id.message_id();
-        let outcome = match answer {
-            Ok(result) => Outcome::Success { id, result },
-            Err(error) => Outcome::Error {
-                id: Some(id),
-                error,
-            },
+        let response = match answer {
+            Ok(result) => Response::success(id, result),
+            Err(error) => Response::error(Some(id), error),
         };
-        self.reply(outcome).await
+        self.reply(response).await
     }
 
-    /// Seals and delivers the response outcome before the session expires.
+    /// Seals and delivers the response before the session expires.
     async fn reply(
         &self,
-        outcome: Outcome<&RegistrationResult, RegistrationErrorData>,
+        response: Response<&RegistrationResult, RegistrationErrorData>,
     ) -> Result<DeliveryOutcome, ApproverError> {
         let delivery = async {
-            let response = Response::new(outcome);
             let encoded = Zeroizing::new(response.encode()?);
             let sealed = self
                 .transport_key
@@ -809,7 +805,7 @@ impl RejectedRequest {
                 let error = self.reason.into_error(Some(self.problem.clone()));
                 Some(
                     channel
-                        .reply(Outcome::Error { id, error })
+                        .reply(Response::error(id, error))
                         .await
                         .map_err(Box::new),
                 )
@@ -1579,7 +1575,7 @@ mod tests {
             panic!("expected one answer, got {}", answers.len());
         };
         let response = requester.open(answer);
-        let Outcome::Error { id, error } = response.outcome else {
+        let Response::Error { id, error, .. } = response else {
             panic!("expected an error response");
         };
         assert_eq!(id, Some(requester.request_id().message_id()));
