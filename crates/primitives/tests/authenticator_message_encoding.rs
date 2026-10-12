@@ -233,15 +233,25 @@ fn typed_payloads_enforce_their_schema(payload: &str) {
         decode::<Request<StrictPayload>>(&format!(
             r#"{{"version": "1.0", "method": "worldid_ping", "params": {payload}}}"#
         ))
-        .is_err()
+        .is_err(),
+        "request params accepted an invalid payload"
     );
     assert!(
         decode::<Response<StrictPayload>>(&format!(
             r#"{{"version": "1.0", "outcome": {{"success": {{"id": 1, "result": {payload}}}}}}}"#
         ))
-        .is_err()
+        .is_err(),
+        "success result accepted an invalid payload"
     );
-    assert!(decode::<Response<Value, StrictPayload>>(&format!(r#"{{"version": "1.0", "outcome": {{"error": {{"id": null, "error": {{"code": "failed", "message": "bad", "data": {payload}}}}}}}}}"#)).is_err());
+    let error_message = format!(
+        r#"{{"version": "1.0", "outcome": {{"error": {{
+            "id": null, "error": {{"code": "failed", "message": "bad", "data": {payload}}}
+        }}}}}}"#
+    );
+    assert!(
+        decode::<Response<Value, StrictPayload>>(&error_message).is_err(),
+        "error data accepted an invalid payload"
+    );
 }
 
 #[test_case("null", Value::Null; "null")]
