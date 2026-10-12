@@ -11,10 +11,9 @@
 //! Every step that fails for a reason the Requesting Authenticator should learn about sends it an
 //! error response before returning.
 
-use std::{future::Future, time::Duration};
+use std::time::Duration;
 
-use backon::{BackoffBuilder as _, ExponentialBuilder, Sleeper as _};
-use futures_util::future::{Either, select};
+use backon::BackoffBuilder as _;
 use web_time::Instant;
 use world_id_primitives::{
     api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError},
@@ -28,18 +27,16 @@ use super::{
     RegistrationErrorData, RegistrationErrorReason, RegistrationRequest, RegistrationResult,
     RequestId, ResponsePublicKey, TransportError, TransportKey, Vault,
     bridge::{BridgeClient, BridgeError, DeliveryOutcome},
+    deadline::{SESSION_TTL, before, polling_backoff, sleep},
 };
 use crate::{AccountSnapshot, Authenticator, AuthenticatorClass, AuthenticatorError};
-
-/// How long the bridge keeps a session after the request is taken.
-const BRIDGE_SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 
 /// How long before the bridge session expires the response is due. WIP-109 recommends 60 s.
 const RESPONSE_MARGIN: Duration = Duration::from_secs(60);
 
 /// How long after taking the request the response is due.
 pub const DEFAULT_RESPONSE_DEADLINE: Duration =
-    Duration::from_secs(BRIDGE_SESSION_TTL.as_secs() - RESPONSE_MARGIN.as_secs());
+    Duration::from_secs(SESSION_TTL.as_secs() - RESPONSE_MARGIN.as_secs());
 
 /// The least time left before the response deadline for [`CheckedRegistration::approve`] to
 /// still submit an insertion. With less, the outcome would most likely be `outcome_unknown`.
@@ -109,7 +106,7 @@ impl PendingRegistration {
         code: &PairingCode,
     ) -> Result<IncomingRegistration, ApproverError> {
         let attempt = self.attempt.as_ref().ok_or(ApproverError::Expired)?;
-        if Instant::now() >= attempt.taken_at + BRIDGE_SESSION_TTL {
+        if Instant::now() >= attempt.taken_at + SESSION_TTL {
             self.cancel();
             return Err(ApproverError::Expired);
         }
@@ -281,7 +278,7 @@ impl IncomingRegistration {
             response_pubkey,
             transport_key,
             bridge: attempt.bridge,
-            expires_at: attempt.taken_at + BRIDGE_SESSION_TTL,
+            expires_at: attempt.taken_at + SESSION_TTL,
         };
         let request = match parse_request(plaintext, &request_id) {
             Ok(request) => request,
@@ -540,12 +537,7 @@ impl CheckedRegistration {
             .ok_or((RegistrationErrorReason::OutcomeUnknown, None))?
             .map_err(classify_submission_error)?;
 
-        let mut delays = ExponentialBuilder::default()
-            .with_min_delay(Duration::from_secs(1))
-            .with_max_delay(Duration::from_secs(8))
-            .without_max_times()
-            .with_jitter()
-            .build();
+        let mut delays = polling_backoff().build();
         let mut submitted = false;
         let mut failed_polls = 0_u32;
         loop {
@@ -569,10 +561,7 @@ impl CheckedRegistration {
                 }
             }
             let delay = delays.next().unwrap_or(Duration::from_secs(8));
-            if before(respond_by, backon::DefaultSleeper::default().sleep(delay))
-                .await
-                .is_none()
-            {
+            if before(respond_by, sleep(delay)).await.is_none() {
                 break;
             }
         }
@@ -591,12 +580,7 @@ impl CheckedRegistration {
         approver: &Authenticator,
     ) -> Result<u32, (RegistrationErrorReason, Option<String>)> {
         let deadline = self.incoming.respond_by;
-        let mut delays = ExponentialBuilder::default()
-            .with_min_delay(Duration::from_secs(1))
-            .with_max_delay(Duration::from_secs(8))
-            .without_max_times()
-            .with_jitter()
-            .build();
+        let mut delays = polling_backoff().build();
         while let Some(state) = before(deadline, approver.fetch_account_snapshot()).await {
             match state {
                 Ok(snapshot) => {
@@ -612,14 +596,8 @@ impl CheckedRegistration {
                 }
                 Err(error) => tracing::debug!(%error, "failed to refresh finalized registration"),
             }
-            if before(
-                deadline,
-                backon::DefaultSleeper::default()
-                    .sleep(delays.next().unwrap_or(Duration::from_secs(8))),
-            )
-            .await
-            .is_none()
-            {
+            let delay = delays.next().unwrap_or(Duration::from_secs(8));
+            if before(deadline, sleep(delay)).await.is_none() {
                 break;
             }
         }
@@ -921,20 +899,6 @@ fn log_tag(request_id: &RequestId) -> String {
     hex::encode(&sha2::Sha256::digest(request_id.as_bytes())[..4])
 }
 
-/// Runs `future` until `deadline`, returning `None` if the deadline passes first.
-pub(super) async fn before<F: Future>(deadline: Instant, future: F) -> Option<F::Output> {
-    let now = Instant::now();
-    if now >= deadline {
-        return None;
-    }
-    let remaining = deadline.saturating_duration_since(now);
-    let timeout = backon::DefaultSleeper::default().sleep(remaining);
-    match select(std::pin::pin!(future), std::pin::pin!(timeout)).await {
-        Either::Left((output, _)) => Some(output),
-        Either::Right(_) => None,
-    }
-}
-
 fn plan_registration(
     snapshot: &AccountSnapshot,
     approver: &Authenticator,
@@ -1035,15 +999,6 @@ fn classify_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[tokio::test]
-    async fn expired_deadline_never_polls_operation() {
-        let result = before(Instant::now() - Duration::from_secs(1), async {
-            panic!("expired operation was polled");
-        })
-        .await;
-        assert_eq!(result, None::<()>);
-    }
 
     #[test]
     fn reverts_are_definitive_failures() {

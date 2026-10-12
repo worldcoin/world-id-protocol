@@ -16,6 +16,7 @@
 mod approver;
 mod bridge;
 mod bytes;
+mod deadline;
 mod pairing_uri;
 mod request;
 mod requester;

@@ -2,7 +2,7 @@
 
 use std::{sync::Arc, time::Duration};
 
-use backon::{ExponentialBuilder, Retryable as _};
+use backon::Retryable as _;
 use secrecy::ExposeSecret as _;
 use web_time::Instant;
 use world_id_primitives::{
@@ -15,12 +15,10 @@ use super::{
     AuthenticatorName, MAX_RESPONSE_SIZE, PairingCode, PairingSecret, PairingUri, REGISTER_METHOD,
     RegisterRequestMessage, RegisterResponseMessage, RegistrationDigest, RegistrationErrorData,
     RegistrationRequest, RegistrationResult, ResponseSecretKey, TransportError, TransportKey,
-    approver::before,
     bridge::{BridgeClient, BridgeError, ResponseState},
+    deadline::{SESSION_TTL, before, polling_backoff},
 };
 use crate::{Authenticator, AuthenticatorClass, AuthenticatorError};
-
-const SESSION_TTL: Duration = Duration::from_secs(15 * 60);
 
 /// How long [`RegistrationRequester::verify`] waits for the indexer to show a new registration.
 const VERIFY_TIMEOUT: Duration = Duration::from_secs(60);
@@ -305,14 +303,7 @@ impl RegistrationRequester {
                 Ok::<_, AuthenticatorError>((authenticator, registered))
             };
             let (authenticator, registered) = attempt
-                .retry(
-                    ExponentialBuilder::default()
-                        .with_min_delay(Duration::from_secs(1))
-                        .with_max_delay(Duration::from_secs(8))
-                        .without_max_times()
-                        .with_total_delay(Some(VERIFY_TIMEOUT))
-                        .with_jitter(),
-                )
+                .retry(polling_backoff().with_total_delay(Some(VERIFY_TIMEOUT)))
                 .when(is_transient)
                 .await
                 .map_err(|error| {
