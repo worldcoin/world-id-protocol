@@ -23,7 +23,7 @@ mod request;
 mod response;
 mod session;
 
-pub use pairing_uri::{BridgeDomain, PairingUri, PairingUriError};
+pub use pairing_uri::{BridgeDomain, InvalidBridgeDomain, PairingUri, PairingUriError};
 pub use request::{
     AuthenticatorName, MAX_NAME_LEN, NameTooLong, REGISTER_METHOD, RegisterRequestMessage,
     RegistrationDigest, RegistrationRequest,
