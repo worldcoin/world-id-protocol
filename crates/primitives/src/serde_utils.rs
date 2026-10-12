@@ -362,10 +362,7 @@ where
 ///
 /// ```
 /// use serde::Deserialize;
-/// use world_id_primitives::{
-///     authenticator_message::{MethodName, Request, Value},
-///     serde_utils::cbor,
-/// };
+/// use world_id_primitives::{authenticator_message::Value, serde_utils::cbor};
 ///
 /// #[derive(Debug, Deserialize)]
 /// struct Slot {
@@ -376,18 +373,22 @@ where
 /// }
 ///
 /// let slot = |key: Value, index: Value| {
-///     Request::new(None, MethodName::from_static("worldid_example"),
-///         Some(Value::Map(vec![("key".into(), key), ("index".into(), index)])))
-///         .encode().unwrap()
+///     let value = Value::Map(vec![("key".into(), key), ("index".into(), index)]);
+///     let mut bytes = Vec::new();
+///     ciborium::into_writer(&value, &mut bytes).unwrap();
+///     bytes
 /// };
 ///
-/// let valid = Request::<Slot>::decode(&slot(Value::Bytes(vec![1, 2]), 7.into()), 128).unwrap().params.unwrap();
+/// let bytes = slot(Value::Bytes(vec![1, 2]), 7.into());
+/// let valid: Slot = ciborium::from_reader(bytes.as_slice()).unwrap();
 /// assert_eq!((valid.key, valid.index), ([1, 2], 7));
 ///
 /// let integers = Value::Array(vec![1.into(), 2.into()]);
-/// assert!(Request::<Slot>::decode(&slot(integers, 7.into()), 128).is_err());
+/// let bytes = slot(integers, 7.into());
+/// assert!(ciborium::from_reader::<Slot, _>(bytes.as_slice()).is_err());
 /// let tagged = Value::Tag(0, Box::new(7.into()));
-/// assert!(Request::<Slot>::decode(&slot(Value::Bytes(vec![1, 2]), tagged), 128).is_err());
+/// let bytes = slot(Value::Bytes(vec![1, 2]), tagged);
+/// assert!(ciborium::from_reader::<Slot, _>(bytes.as_slice()).is_err());
 /// ```
 pub mod cbor {
     use std::fmt;
