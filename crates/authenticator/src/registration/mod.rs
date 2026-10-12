@@ -46,6 +46,8 @@ const MAX_RESPONSE_SIZE: usize = MAX_VAULT_SIZE + 4 * 1024;
 /// Rejects a registration payload that contains a CBOR tag at any depth.
 ///
 /// WIP-109 §3.6 defines every payload field by its CBOR major type, which a tag would wrap.
+/// Bignums are the exception this cannot see: Ciborium reads them into a [`Value`] as plain
+/// integers, so integer fields need their typed check as well.
 fn reject_tags(payload: &Value) -> Result<(), MessageError> {
     if contains_tag(payload) {
         return Err(MessageError::Deserialize(serde::de::Error::custom(

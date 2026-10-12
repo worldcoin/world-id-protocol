@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
     authenticator_message::{self, ErrorObject, MessageError, Response, Value},
@@ -85,16 +85,27 @@ pub struct RegistrationResult {
 }
 
 /// The `data` member of a registration error.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+///
+/// WIP-109 §3.6.3 lets `error.data` be a map with a `detail` text string. Any other `data`
+/// decodes too, as no detail, so that an unexpected `data` never hides the error itself.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub struct RegistrationErrorData {
     /// Optional implementation-specific detail, e.g. a gateway error code.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_present"
-    )]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for RegistrationErrorData {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let detail = match Value::deserialize(deserializer)? {
+            Value::Map(entries) => entries.into_iter().find_map(|entry| match entry {
+                (Value::Text(key), Value::Text(detail)) if key == "detail" => Some(detail),
+                _ => None,
+            }),
+            _ => None,
+        };
+        Ok(Self { detail })
+    }
 }
 
 /// The machine-readable reason a registration failed, carried as its [`code`](Self::code) in
@@ -187,36 +198,38 @@ impl RegistrationErrorReason {
 
 /// The registration response as sent over the bridge.
 ///
-/// Decode it with [`decode_response`], which also rejects the CBOR tags that deserializing the
-/// message directly would skip.
+/// Decode it with [`decode_response`], which also rejects the CBOR tags in a `result` that
+/// deserializing the message directly would skip.
 pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErrorData>;
 
 /// Decodes a registration response from the plaintext of
 /// [`TransportKey::decrypt_response`](super::TransportKey::decrypt_response).
 ///
 /// The plaintext must hold a single WIP-105 response of at most 3.5 MiB plus 4 KiB (WIP-109
-/// §3.5). Its `result` must be a [`RegistrationResult`] and its `error.data`, when present, a
-/// [`RegistrationErrorData`], neither with CBOR tags at any depth. Matching the `id` against the
-/// request is up to the caller.
+/// §3.5). Its `result` must be a [`RegistrationResult`] without CBOR tags at any depth. An
+/// error's `data` is read as [`RegistrationErrorData`], which accepts any value. Matching the `id`
+/// against the request is up to the caller.
 ///
 /// # Errors
 ///
 /// Returns a [`MessageError`] if the plaintext is too large, is not a single CBOR value, or does
 /// not match the response schema.
 pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, MessageError> {
-    let response = authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
-    // Typed decoding skips CBOR tags, so the payload is decoded once more as a `Value` to find
-    // them.
+    let response: RegisterResponseMessage =
+        authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
+    if response.outcome.is_err() {
+        return Ok(response);
+    }
+    // Neither pass suffices alone: typed decoding skips tags, and a `Value` turns bignums into
+    // plain integers, which only the typed `deserialize_unsigned` rejects. The `Value` copy may
+    // hold the vault, so it is wiped before the tag check can return.
     let mut raw: Response<Value, Value> =
         authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
-    let tag_check = match &raw.outcome {
-        Ok(result) => reject_tags(result),
-        Err(error) => error.data.as_ref().map_or(Ok(()), reject_tags),
-    };
     if let Ok(result) = &mut raw.outcome {
         wipe_byte_strings(result);
+        reject_tags(result)?;
     }
-    tag_check.map(|()| response)
+    Ok(response)
 }
 
 /// Wipes every byte string in `value`, which may hold a copy of the vault.
@@ -336,8 +349,8 @@ mod tests {
         Ok(decoded.outcome.expect("a successful response"))
     }
 
-    /// Decodes the error data of an error response whose CBOR `error.data` is `data`.
-    fn decode_error_data(data: Value) -> Result<Option<RegistrationErrorData>, MessageError> {
+    /// Decodes an `operation_failed` error response whose CBOR `error.data` is `data`.
+    fn decode_error_with_data(data: Value) -> ErrorObject<RegistrationErrorData> {
         let error = ErrorObject::builder()
             .code("operation_failed")
             .message("InsertAuthenticator operation failed")
@@ -347,8 +360,8 @@ mod tests {
             .id("request".to_string())
             .outcome(Err(error))
             .build();
-        let decoded = decode_response(&encode(&response).unwrap())?;
-        Ok(decoded.outcome.expect_err("an error response").data)
+        let decoded = decode_response(&encode(&response).unwrap()).unwrap();
+        decoded.outcome.expect_err("an error response")
     }
 
     /// A CBOR `result` with the given indexes and no other fields.
@@ -496,24 +509,26 @@ mod tests {
         );
     }
 
-    #[test]
-    fn error_data_must_be_an_untagged_map_without_unknown_fields() {
-        let data = Value::Map(vec![("detail".into(), "transaction_reverted".into())]);
-        assert_eq!(
-            decode_error_data(data.clone()).unwrap(),
-            Some(RegistrationErrorData {
-                detail: Some("transaction_reverted".into())
-            })
-        );
-        for invalid in [
-            Value::Tag(0, Box::new(data)),
-            Value::Map(vec![("detail".into(), Value::Tag(0, Box::new("x".into())))]),
-            Value::Map(vec![("other".into(), "x".into())]),
-            Value::Map(vec![("detail".into(), Value::Null)]),
-            Value::Null,
-        ] {
-            assert!(decode_error_data(invalid.clone()).is_err(), "{invalid:?}");
-        }
+    #[test_case(Value::Map(vec![("detail".into(), "transaction_reverted".into())]),
+                Some("transaction_reverted"); "detail")]
+    #[test_case(Value::Map(vec![
+                    ("detail".into(), "transaction_reverted".into()),
+                    ("revert_data".into(), Value::Bytes(vec![1])),
+                ]),
+                Some("transaction_reverted"); "detail and another field")]
+    #[test_case(Value::Map(vec![("other".into(), "x".into())]), None; "map without detail")]
+    #[test_case(Value::Map(vec![("detail".into(), Value::Null)]), None; "null detail")]
+    #[test_case(Value::Map(vec![("detail".into(), 7.into())]), None; "integer detail")]
+    #[test_case(Value::Map(vec![("detail".into(), Value::Tag(0, Box::new("x".into())))]),
+                None; "tagged detail")]
+    #[test_case(Value::Tag(0, Box::new(Value::Map(vec![("detail".into(), "x".into())]))),
+                None; "tagged map")]
+    #[test_case(Value::Null, None; "null")]
+    #[test_case("transaction_reverted".into(), None; "text")]
+    fn error_data_never_hides_the_error(data: Value, detail: Option<&str>) {
+        let error = decode_error_with_data(data);
+        assert_eq!(error.code, "operation_failed");
+        assert_eq!(error.data.unwrap().detail.as_deref(), detail);
     }
 
     #[test_case(1, 0, 6; "lowest leaf index")]
