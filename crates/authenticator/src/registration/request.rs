@@ -8,13 +8,13 @@ use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use sha2::{Digest as _, Sha256};
 use world_id_primitives::{
     FieldElement, PrimitiveError,
-    authenticator_message::{self, MessageError, MethodName, Request, Value},
+    authenticator_message::{MessageError, MethodName, Request, Value},
     poseidon::{self, ds},
     serde_utils::deserialize_present,
 };
 
 use super::{
-    MAX_REQUEST_SIZE, reject_tags,
+    reject_tags,
     session::{RequestId, ResponsePublicKey},
 };
 
@@ -138,9 +138,12 @@ impl fmt::Debug for RegistrationDigest {
 
 /// The `params` of a `worldid_auth_v1_register` request.
 ///
-/// Deserialization only checks encodings and bounds. The Approving Authenticator still has to
-/// compare [`RegistrationRequest::digest`] with the digest from the Pairing URI and verify the
-/// signature with [`RegistrationRequest::verify_signature`].
+/// Decode received params with [`RegistrationRequest::from_params`]. The `Deserialize` impl alone
+/// skips CBOR tags, which WIP-109 payloads must not contain.
+///
+/// Decoding only checks encodings and bounds. The Approving Authenticator still has to compare
+/// [`RegistrationRequest::digest`] with the digest from the Pairing URI and verify the signature
+/// with [`RegistrationRequest::verify_signature`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RegistrationRequest {
@@ -210,6 +213,23 @@ impl RegistrationRequest {
         Ok((request, digest))
     }
 
+    /// Decodes the `params` of a received registration request.
+    ///
+    /// The Approving Authenticator decodes the request envelope as a [`Request<Value>`] first, so
+    /// that it can answer an invalid request with its `id`, and passes the `params` here once the
+    /// `id` and `method` are checked.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`MessageError::Deserialize`] if `params` contains a CBOR tag at any depth or does
+    /// not match the request schema.
+    pub fn from_params(params: &Value) -> Result<Self, MessageError> {
+        reject_tags(params)?;
+        params
+            .deserialized()
+            .map_err(|error| MessageError::Deserialize(serde::de::Error::custom(error)))
+    }
+
     /// Recomputes the digest of this request for the session identified by `request_id`.
     ///
     /// # Errors
@@ -235,30 +255,9 @@ impl RegistrationRequest {
 
 /// The registration request as sent over the bridge.
 ///
-/// Decode it with [`decode_request`], which also rejects the CBOR tags that deserializing the
-/// message directly would skip.
+/// The Requesting Authenticator builds and encodes it. A received request is decoded in two
+/// steps, as described on [`RegistrationRequest::from_params`].
 pub type RegisterRequestMessage = Request<RegistrationRequest>;
-
-/// Decodes a registration request from the plaintext of
-/// [`TransportKey::decrypt_request`](super::TransportKey::decrypt_request).
-///
-/// The plaintext must hold a single WIP-105 request of at most 4 KiB (WIP-109 §3.5). Its
-/// `params`, when present, must be a [`RegistrationRequest`] without CBOR tags at any depth.
-/// Checking the method, the `id`, the registration digest and the signature is up to the caller.
-///
-/// # Errors
-///
-/// Returns a [`MessageError`] if the plaintext is too large, is not a single CBOR value, or does
-/// not match the request schema.
-pub fn decode_request(plaintext: &[u8]) -> Result<RegisterRequestMessage, MessageError> {
-    let request = authenticator_message::decode(plaintext, MAX_REQUEST_SIZE)?;
-    // Typed decoding skips CBOR tags, so `params` is decoded once more as a `Value` to find them.
-    let raw: Request<Value> = authenticator_message::decode(plaintext, MAX_REQUEST_SIZE)?;
-    if let Some(params) = &raw.params {
-        reject_tags(params)?;
-    }
-    Ok(request)
-}
 
 /// Returns `address`, unless it is the zero address, which WIP-109 §3.6.1 forbids as
 /// `new_authenticator_address`: on-chain, the zero address marks a Proving Authenticator.
@@ -367,8 +366,10 @@ mod xwing_pubkey {
 
 #[cfg(test)]
 mod tests {
+    use world_id_primitives::authenticator_message;
+
     use super::*;
-    use crate::registration::{PairingSecret, ResponseSecretKey};
+    use crate::registration::{MAX_REQUEST_SIZE, PairingSecret, ResponseSecretKey};
 
     const ADMIN: Option<Address> = Some(Address::repeat_byte(0x11));
     const PROVING: Option<Address> = None;
@@ -465,10 +466,13 @@ mod tests {
             let message = RegisterRequestMessage::builder()
                 .id(request_id.to_string())
                 .method(REGISTER_METHOD)
-                .params(request)
+                .params(request.clone())
                 .build();
             let encoded = authenticator_message::encode(&message).unwrap();
-            assert_eq!(decode_request(&encoded).unwrap(), message);
+            let received: Request<Value> =
+                authenticator_message::decode(&encoded, MAX_REQUEST_SIZE).unwrap();
+            let params = received.params.unwrap();
+            assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
         }
     }
 
@@ -484,16 +488,8 @@ mod tests {
             entries.extend(value.map(|value| (Value::from(field), value)));
             Value::Map(entries)
         };
-        let encode = |params: Value| {
-            let message = Request::builder()
-                .id("request".to_string())
-                .method(REGISTER_METHOD)
-                .params(params)
-                .build();
-            authenticator_message::encode(&message).unwrap()
-        };
 
-        assert!(decode_request(&encode(params.clone())).is_ok());
+        assert!(RegistrationRequest::from_params(&params).is_ok());
         for (case, invalid) in [
             ("tagged params", Value::Tag(55799, Box::new(params.clone()))),
             (
@@ -533,7 +529,10 @@ mod tests {
             ("missing signature", with_field("registration_sig", None)),
             ("unknown field", with_field("class", Some("admin".into()))),
         ] {
-            assert!(decode_request(&encode(invalid)).is_err(), "{case}");
+            assert!(
+                RegistrationRequest::from_params(&invalid).is_err(),
+                "{case}"
+            );
         }
     }
 }
