@@ -11,6 +11,7 @@ use hkdf::Hkdf;
 use rand::{RngCore as _, rngs::OsRng as RandOsRng};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
+use world_id_primitives::authenticator_message::Id;
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use super::{MAX_REQUEST_SIZE, MAX_RESPONSE_SIZE};
@@ -330,6 +331,12 @@ impl RequestId {
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
+    }
+
+    /// Returns the message `id` of the registration request and its response: this id as text.
+    #[must_use]
+    pub fn message_id(&self) -> Id {
+        Id::String(self.to_string())
     }
 }
 
