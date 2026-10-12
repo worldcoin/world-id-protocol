@@ -30,6 +30,7 @@ pub mod authenticator_message;
 mod key_set;
 pub use key_set::{
     AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
+    decode_authenticator_pubkey,
 };
 
 /// Contains the global configuration for interacting with the World ID Protocol.
