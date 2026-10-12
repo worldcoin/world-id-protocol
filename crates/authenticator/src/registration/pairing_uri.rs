@@ -19,6 +19,54 @@ const BRIDGE_PARAM: &str = "b";
 /// The length of a 32-byte value encoded as unpadded base64url.
 const ENCODED_32_BYTES_LEN: usize = 43;
 
+/// The domain of a bridge deployment, e.g. `bridge.example.org`.
+///
+/// It is a DNS name only: no scheme, port, path, user info, query or fragment. Letters are
+/// normalized to lowercase, and the final label must start with an ASCII letter so URL parsers
+/// cannot interpret it as an IP address. The bridge is always reached over `https`.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct BridgeDomain(String);
+
+impl BridgeDomain {
+    /// Returns the domain as a string slice.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl FromStr for BridgeDomain {
+    type Err = PairingUriError;
+
+    fn from_str(domain: &str) -> Result<Self, Self::Err> {
+        let is_valid_label = |label: &str| {
+            (1..=63).contains(&label.len())
+                && !label.starts_with('-')
+                && !label.ends_with('-')
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        };
+        if domain.len() > 253 || !domain.split('.').all(is_valid_label) {
+            return Err(PairingUriError::InvalidBridge);
+        }
+        let final_label = domain
+            .rsplit('.')
+            .next()
+            .ok_or(PairingUriError::InvalidBridge)?;
+        if !final_label.starts_with(|c: char| c.is_ascii_alphabetic()) {
+            return Err(PairingUriError::InvalidBridge);
+        }
+        Ok(Self(domain.to_ascii_lowercase()))
+    }
+}
+
+impl fmt::Display for BridgeDomain {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// The `worldid://auth/v1/register` deeplink, shown as a QR code by the Requesting Authenticator.
 ///
 /// It carries the [`PairingSecret`], the [`RegistrationDigest`] and the bridge the Requesting
@@ -99,54 +147,6 @@ impl FromStr for PairingUri {
             ),
             bridge: bridge.ok_or(PairingUriError::MissingParameter)?,
         })
-    }
-}
-
-/// The domain of a bridge deployment, e.g. `bridge.example.org`.
-///
-/// It is a DNS name only: no scheme, port, path, user info, query or fragment. Letters are
-/// normalized to lowercase, and the final label must start with an ASCII letter so URL parsers
-/// cannot interpret it as an IP address. The bridge is always reached over `https`.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct BridgeDomain(String);
-
-impl BridgeDomain {
-    /// Returns the domain as a string slice.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
-impl FromStr for BridgeDomain {
-    type Err = PairingUriError;
-
-    fn from_str(domain: &str) -> Result<Self, Self::Err> {
-        let is_valid_label = |label: &str| {
-            (1..=63).contains(&label.len())
-                && !label.starts_with('-')
-                && !label.ends_with('-')
-                && label
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-        };
-        if domain.len() > 253 || !domain.split('.').all(is_valid_label) {
-            return Err(PairingUriError::InvalidBridge);
-        }
-        let final_label = domain
-            .rsplit('.')
-            .next()
-            .ok_or(PairingUriError::InvalidBridge)?;
-        if !final_label.starts_with(|c: char| c.is_ascii_alphabetic()) {
-            return Err(PairingUriError::InvalidBridge);
-        }
-        Ok(Self(domain.to_ascii_lowercase()))
-    }
-}
-
-impl fmt::Display for BridgeDomain {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
     }
 }
 

@@ -37,94 +37,31 @@ const SEALED_OVERHEAD: usize = 1143;
 /// The length in bytes of an X-Wing encapsulation key.
 pub const RESPONSE_PUBLIC_KEY_LEN: usize = 1216;
 
-/// The 32-byte secret a Requesting Authenticator generates for each registration attempt.
+/// The bridge id of a registration session, derived from its [`PairingSecret`].
 ///
-/// It determines the bridge [`RequestId`] and combines with the [`PairingCode`] to derive the
-/// [`TransportKey`]. It travels to the Approving Authenticator inside
-/// the [`PairingUri`](super::PairingUri), which therefore is a bearer secret.
-#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
-pub struct PairingSecret([u8; 32]);
+/// It is displayed as 64 lowercase hex characters, which is also the message `id` of the
+/// registration request and its response.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RequestId([u8; 32]);
 
-impl PairingSecret {
-    /// Generates a fresh pairing secret from the operating system CSPRNG.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TransportError::Rng`] if randomness is unavailable.
-    pub fn generate() -> Result<Self, TransportError> {
-        let mut secret = Self([0u8; 32]);
-        OsRng
-            .try_fill_bytes(&mut secret.0)
-            .map_err(|_| TransportError::Rng)?;
-        Ok(secret)
-    }
-
-    /// Wraps raw secret bytes, e.g. ones parsed from a Pairing URI or restored after a restart.
-    #[must_use]
-    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
-        Self(bytes)
-    }
-
-    /// Returns the raw secret bytes.
+impl RequestId {
+    /// Returns the raw HKDF output, as committed to in the
+    /// [`RegistrationDigest`](super::RegistrationDigest).
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
+}
 
-    /// Derives the id that addresses both the request and the response on the bridge.
-    #[must_use]
-    pub fn request_id(&self) -> RequestId {
-        RequestId(*self.derive(REQUEST_ID_INFO))
-    }
-
-    /// Derives the transport key from this secret and the independently transferred code.
-    ///
-    /// This runs Argon2id with 64 MiB of memory, so derive the key once per code attempt.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TransportError::KeyDerivation`] if Argon2id fails.
-    pub fn transport_key(&self, code: &PairingCode) -> Result<TransportKey, TransportError> {
-        let params = argon2::Params::new(65536, 3, 4, Some(32))
-            .expect("WIP-109 Argon2 parameters are valid");
-        let argon =
-            argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
-        let request_id = self.request_id();
-        let mut password = Zeroizing::new([0u8; 38]);
-        password[..32].copy_from_slice(&self.0);
-        password[32..].copy_from_slice(&code.0);
-        // `pairing_secret || code_key`, with Argon2id writing `code_key` into the second half.
-        let mut transport_ikm = Zeroizing::new([0u8; 64]);
-        transport_ikm[..32].copy_from_slice(&self.0);
-        let mut memory =
-            Zeroizing::new(vec![argon2::Block::default(); argon.params().block_count()]);
-        argon
-            .hash_password_into_with_memory(
-                password.as_ref(),
-                request_id.as_bytes(),
-                &mut transport_ikm[32..],
-                &mut *memory,
-            )
-            .map_err(|_| TransportError::KeyDerivation)?;
-        let mut key = Zeroizing::new([0u8; 32]);
-        Hkdf::<Sha256>::new(None, transport_ikm.as_ref())
-            .expand(TRANSPORT_SECRET_INFO, key.as_mut())
-            .expect("32 bytes is a valid HKDF-SHA256 output length");
-        Ok(TransportKey { key, request_id })
-    }
-
-    fn derive(&self, info: &[u8]) -> Zeroizing<[u8; 32]> {
-        let mut okm = Zeroizing::new([0u8; 32]);
-        Hkdf::<Sha256>::new(None, &self.0)
-            .expand(info, okm.as_mut())
-            .expect("32 bytes is a valid HKDF-SHA256 output length");
-        okm
+impl fmt::Display for RequestId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&hex::encode(self.0))
     }
 }
 
-impl fmt::Debug for PairingSecret {
+impl fmt::Debug for RequestId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("PairingSecret(REDACTED)")
+        write!(f, "RequestId({self})")
     }
 }
 
@@ -190,6 +127,77 @@ impl fmt::Debug for PairingCode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("PairingCode(REDACTED)")
     }
+}
+
+/// The public X-Wing encapsulation key a response is sealed to.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResponsePublicKey(quantum_box::PublicKey);
+
+impl ResponsePublicKey {
+    /// Parses a raw 1216-byte X-Wing encapsulation key.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::InvalidPublicKey`] if the bytes are not a valid key.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, TransportError> {
+        quantum_box::PublicKey::from_bytes(bytes)
+            .map(Self)
+            .map_err(|_| TransportError::InvalidPublicKey)
+    }
+
+    /// Returns the raw 1216-byte encapsulation key.
+    #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        self.0.to_bytes()
+    }
+}
+
+/// The ephemeral X-Wing key pair a Requesting Authenticator generates to receive the response.
+///
+/// The response carries the credential vault, so it is sealed to the public half, whose secret
+/// half never leaves the Requesting Authenticator. A Pairing URI alone is not enough to read it.
+#[derive(Clone)]
+pub struct ResponseSecretKey(quantum_box::SecretKey);
+
+impl ResponseSecretKey {
+    /// Generates a fresh key pair from the operating system CSPRNG.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::Rng`] if the operating system CSPRNG is unavailable.
+    pub fn generate() -> Result<Self, TransportError> {
+        quantum_box::SecretKey::generate()
+            .map(Self)
+            .map_err(|_| TransportError::Rng)
+    }
+
+    /// Deterministically derives the key pair from a 32-byte seed, e.g. to restore a session
+    /// after a restart.
+    #[must_use]
+    pub fn from_seed(seed: &[u8; 32]) -> Self {
+        Self(quantum_box::SecretKey::from_seed(seed))
+    }
+
+    /// Returns the public half, sent in the registration request.
+    #[must_use]
+    pub fn public_key(&self) -> ResponsePublicKey {
+        ResponsePublicKey(self.0.public_key())
+    }
+}
+
+impl fmt::Debug for ResponseSecretKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ResponseSecretKey(REDACTED)")
+    }
+}
+
+/// An encrypted message as carried by the bridge: a base64 `iv` and a base64 `payload`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EncryptedPayload {
+    /// The standard padded base64 nonce, for either direction.
+    pub iv: String,
+    /// The standard padded base64 ciphertext.
+    pub payload: String,
 }
 
 /// The code-bound AES-256-GCM key authenticating both directions of a pairing session.
@@ -337,102 +345,94 @@ impl fmt::Debug for TransportKey {
     }
 }
 
-/// The bridge id of a registration session, derived from its [`PairingSecret`].
+/// The 32-byte secret a Requesting Authenticator generates for each registration attempt.
 ///
-/// It is displayed as 64 lowercase hex characters, which is also the message `id` of the
-/// registration request and its response.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct RequestId([u8; 32]);
+/// It determines the bridge [`RequestId`] and combines with the [`PairingCode`] to derive the
+/// [`TransportKey`]. It travels to the Approving Authenticator inside
+/// the [`PairingUri`](super::PairingUri), which therefore is a bearer secret.
+#[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
+pub struct PairingSecret([u8; 32]);
 
-impl RequestId {
-    /// Returns the raw HKDF output, as committed to in the
-    /// [`RegistrationDigest`](super::RegistrationDigest).
+impl PairingSecret {
+    /// Generates a fresh pairing secret from the operating system CSPRNG.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TransportError::Rng`] if randomness is unavailable.
+    pub fn generate() -> Result<Self, TransportError> {
+        let mut secret = Self([0u8; 32]);
+        OsRng
+            .try_fill_bytes(&mut secret.0)
+            .map_err(|_| TransportError::Rng)?;
+        Ok(secret)
+    }
+
+    /// Wraps raw secret bytes, e.g. ones parsed from a Pairing URI or restored after a restart.
+    #[must_use]
+    pub const fn from_bytes(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    /// Returns the raw secret bytes.
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
-}
 
-impl fmt::Display for RequestId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&hex::encode(self.0))
+    /// Derives the id that addresses both the request and the response on the bridge.
+    #[must_use]
+    pub fn request_id(&self) -> RequestId {
+        RequestId(*self.derive(REQUEST_ID_INFO))
     }
-}
 
-impl fmt::Debug for RequestId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "RequestId({self})")
-    }
-}
-
-/// An encrypted message as carried by the bridge: a base64 `iv` and a base64 `payload`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct EncryptedPayload {
-    /// The standard padded base64 nonce, for either direction.
-    pub iv: String,
-    /// The standard padded base64 ciphertext.
-    pub payload: String,
-}
-
-/// The ephemeral X-Wing key pair a Requesting Authenticator generates to receive the response.
-///
-/// The response carries the credential vault, so it is sealed to the public half, whose secret
-/// half never leaves the Requesting Authenticator. A Pairing URI alone is not enough to read it.
-#[derive(Clone)]
-pub struct ResponseSecretKey(quantum_box::SecretKey);
-
-impl ResponseSecretKey {
-    /// Generates a fresh key pair from the operating system CSPRNG.
+    /// Derives the transport key from this secret and the independently transferred code.
+    ///
+    /// This runs Argon2id with 64 MiB of memory, so derive the key once per code attempt.
     ///
     /// # Errors
     ///
-    /// Returns [`TransportError::Rng`] if the operating system CSPRNG is unavailable.
-    pub fn generate() -> Result<Self, TransportError> {
-        quantum_box::SecretKey::generate()
-            .map(Self)
-            .map_err(|_| TransportError::Rng)
+    /// Returns [`TransportError::KeyDerivation`] if Argon2id fails.
+    pub fn transport_key(&self, code: &PairingCode) -> Result<TransportKey, TransportError> {
+        let params = argon2::Params::new(65536, 3, 4, Some(32))
+            .expect("WIP-109 Argon2 parameters are valid");
+        let argon =
+            argon2::Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+        let request_id = self.request_id();
+        let mut password = Zeroizing::new([0u8; 38]);
+        password[..32].copy_from_slice(&self.0);
+        password[32..].copy_from_slice(&code.0);
+        // `pairing_secret || code_key`, with Argon2id writing `code_key` into the second half.
+        let mut transport_ikm = Zeroizing::new([0u8; 64]);
+        transport_ikm[..32].copy_from_slice(&self.0);
+        let mut memory =
+            Zeroizing::new(vec![argon2::Block::default(); argon.params().block_count()]);
+        argon
+            .hash_password_into_with_memory(
+                password.as_ref(),
+                request_id.as_bytes(),
+                &mut transport_ikm[32..],
+                &mut *memory,
+            )
+            .map_err(|_| TransportError::KeyDerivation)?;
+        let mut key = Zeroizing::new([0u8; 32]);
+        Hkdf::<Sha256>::new(None, transport_ikm.as_ref())
+            .expand(TRANSPORT_SECRET_INFO, key.as_mut())
+            .expect("32 bytes is a valid HKDF-SHA256 output length");
+        Ok(TransportKey { key, request_id })
     }
 
-    /// Deterministically derives the key pair from a 32-byte seed, e.g. to restore a session
-    /// after a restart.
-    #[must_use]
-    pub fn from_seed(seed: &[u8; 32]) -> Self {
-        Self(quantum_box::SecretKey::from_seed(seed))
-    }
-
-    /// Returns the public half, sent in the registration request.
-    #[must_use]
-    pub fn public_key(&self) -> ResponsePublicKey {
-        ResponsePublicKey(self.0.public_key())
+    fn derive(&self, info: &[u8]) -> Zeroizing<[u8; 32]> {
+        let mut okm = Zeroizing::new([0u8; 32]);
+        Hkdf::<Sha256>::new(None, &self.0)
+            .expand(info, okm.as_mut())
+            .expect("32 bytes is a valid HKDF-SHA256 output length");
+        okm
     }
 }
 
-impl fmt::Debug for ResponseSecretKey {
+impl fmt::Debug for PairingSecret {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("ResponseSecretKey(REDACTED)")
-    }
-}
-
-/// The public X-Wing encapsulation key a response is sealed to.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ResponsePublicKey(quantum_box::PublicKey);
-
-impl ResponsePublicKey {
-    /// Parses a raw 1216-byte X-Wing encapsulation key.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`TransportError::InvalidPublicKey`] if the bytes are not a valid key.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, TransportError> {
-        quantum_box::PublicKey::from_bytes(bytes)
-            .map(Self)
-            .map_err(|_| TransportError::InvalidPublicKey)
-    }
-
-    /// Returns the raw 1216-byte encapsulation key.
-    #[must_use]
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.0.to_bytes()
+        f.write_str("PairingSecret(REDACTED)")
     }
 }
 

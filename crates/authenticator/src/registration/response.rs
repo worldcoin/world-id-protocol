@@ -16,38 +16,48 @@ use super::{MAX_RESPONSE_SIZE, reject_tags};
 /// response fits the message-bridge's 5 MiB body limit (WIP-109 §3.6.2).
 pub const MAX_VAULT_SIZE: usize = 3_670_016;
 
-/// The registration response as sent over the bridge.
-///
-/// Decode it with [`decode_response`], which also rejects the CBOR tags that deserializing the
-/// message directly would skip.
-pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErrorData>;
+/// The format of a [`Vault`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum VaultFormat {
+    /// The output of WalletKit's `export_vault_for_backup`, to be imported with
+    /// `merge_vault_from_backup`.
+    #[serde(rename = "walletkit_plaintext_v1")]
+    WalletkitPlaintextV1,
+}
 
-/// Decodes a registration response from the plaintext of
-/// [`TransportKey::decrypt_response`](super::TransportKey::decrypt_response).
+/// A credential vault export.
 ///
-/// The plaintext must hold a single WIP-105 response of at most 3.5 MiB plus 4 KiB (WIP-109
-/// §3.5). Its `result` must be a [`RegistrationResult`] and its `error.data`, when present, a
-/// [`RegistrationErrorData`], neither with CBOR tags at any depth. Matching the `id` against the
-/// request is up to the caller.
-///
-/// # Errors
-///
-/// Returns a [`MessageError`] if the plaintext is too large, is not a single CBOR value, or does
-/// not match the response schema.
-pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, MessageError> {
-    let response = authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
-    // Typed decoding skips CBOR tags, so the payload is decoded once more as a `Value` to find
-    // them.
-    let mut raw: Response<Value, Value> =
-        authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
-    let tag_check = match &raw.outcome {
-        Ok(result) => reject_tags(result),
-        Err(error) => error.data.as_ref().map_or(Ok(()), reject_tags),
-    };
-    if let Ok(result) = &mut raw.outcome {
-        wipe_byte_strings(result);
+/// The vault holds the account's credentials and the associated data from their issuers, which
+/// may include biometric data. Its bytes are zeroized on drop.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Vault {
+    /// The format of `data`.
+    pub format: VaultFormat,
+    /// The vault bytes, a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes on the wire.
+    #[serde(with = "vault_data")]
+    pub data: Zeroizing<Vec<u8>>,
+}
+
+impl fmt::Debug for Vault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Vault")
+            .field("format", &self.format)
+            .field("len", &self.data.len())
+            .finish_non_exhaustive()
     }
-    tag_check.map(|()| response)
+}
+
+/// The name of one of the account's other authenticators.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KnownAuthenticator {
+    /// The slot of the authenticator, below [`MAX_AUTHENTICATOR_KEYS`].
+    #[serde(with = "pubkey_id")]
+    pub pubkey_id: u32,
+    /// The name the Approving Authenticator knows it by. Untrusted text with no length limit of
+    /// its own (WIP-109 §3.6.2); the message size limit bounds it.
+    pub name: String,
 }
 
 /// The result of a successful registration: where the new authenticator was inserted, and the
@@ -74,48 +84,17 @@ pub struct RegistrationResult {
     pub vault: Option<Vault>,
 }
 
-/// The name of one of the account's other authenticators.
+/// The `data` member of a registration error.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct KnownAuthenticator {
-    /// The slot of the authenticator, below [`MAX_AUTHENTICATOR_KEYS`].
-    #[serde(with = "pubkey_id")]
-    pub pubkey_id: u32,
-    /// The name the Approving Authenticator knows it by. Untrusted text with no length limit of
-    /// its own (WIP-109 §3.6.2); the message size limit bounds it.
-    pub name: String,
-}
-
-/// A credential vault export.
-///
-/// The vault holds the account's credentials and the associated data from their issuers, which
-/// may include biometric data. Its bytes are zeroized on drop.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Vault {
-    /// The format of `data`.
-    pub format: VaultFormat,
-    /// The vault bytes, a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes on the wire.
-    #[serde(with = "vault_data")]
-    pub data: Zeroizing<Vec<u8>>,
-}
-
-impl fmt::Debug for Vault {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Vault")
-            .field("format", &self.format)
-            .field("len", &self.data.len())
-            .finish_non_exhaustive()
-    }
-}
-
-/// The format of a [`Vault`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum VaultFormat {
-    /// The output of WalletKit's `export_vault_for_backup`, to be imported with
-    /// `merge_vault_from_backup`.
-    #[serde(rename = "walletkit_plaintext_v1")]
-    WalletkitPlaintextV1,
+pub struct RegistrationErrorData {
+    /// Optional implementation-specific detail, e.g. a gateway error code.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    pub detail: Option<String>,
 }
 
 /// The machine-readable reason a registration failed, carried as its [`code`](Self::code) in
@@ -205,17 +184,38 @@ impl RegistrationErrorReason {
     }
 }
 
-/// The `data` member of a registration error.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct RegistrationErrorData {
-    /// Optional implementation-specific detail, e.g. a gateway error code.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_present"
-    )]
-    pub detail: Option<String>,
+/// The registration response as sent over the bridge.
+///
+/// Decode it with [`decode_response`], which also rejects the CBOR tags that deserializing the
+/// message directly would skip.
+pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErrorData>;
+
+/// Decodes a registration response from the plaintext of
+/// [`TransportKey::decrypt_response`](super::TransportKey::decrypt_response).
+///
+/// The plaintext must hold a single WIP-105 response of at most 3.5 MiB plus 4 KiB (WIP-109
+/// §3.5). Its `result` must be a [`RegistrationResult`] and its `error.data`, when present, a
+/// [`RegistrationErrorData`], neither with CBOR tags at any depth. Matching the `id` against the
+/// request is up to the caller.
+///
+/// # Errors
+///
+/// Returns a [`MessageError`] if the plaintext is too large, is not a single CBOR value, or does
+/// not match the response schema.
+pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, MessageError> {
+    let response = authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
+    // Typed decoding skips CBOR tags, so the payload is decoded once more as a `Value` to find
+    // them.
+    let mut raw: Response<Value, Value> =
+        authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
+    let tag_check = match &raw.outcome {
+        Ok(result) => reject_tags(result),
+        Err(error) => error.data.as_ref().map_or(Ok(()), reject_tags),
+    };
+    if let Ok(result) = &mut raw.outcome {
+        wipe_byte_strings(result);
+    }
+    tag_check.map(|()| response)
 }
 
 /// Wipes every byte string in `value`, which may hold a copy of the vault.
