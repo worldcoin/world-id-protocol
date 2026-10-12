@@ -363,7 +363,7 @@ where
 /// ```
 /// use serde::Deserialize;
 /// use world_id_primitives::{
-///     authenticator_message::{Value, decode, encode},
+///     authenticator_message::{MethodName, Request, Value},
 ///     serde_utils::cbor,
 /// };
 ///
@@ -376,16 +376,18 @@ where
 /// }
 ///
 /// let slot = |key: Value, index: Value| {
-///     encode(&Value::Map(vec![("key".into(), key), ("index".into(), index)])).unwrap()
+///     Request::new(None, MethodName::from_static("worldid_example"),
+///         Some(Value::Map(vec![("key".into(), key), ("index".into(), index)])))
+///         .encode().unwrap()
 /// };
 ///
-/// let valid: Slot = decode(&slot(Value::Bytes(vec![1, 2]), 7.into()), 64).unwrap();
+/// let valid = Request::<Slot>::decode(&slot(Value::Bytes(vec![1, 2]), 7.into()), 128).unwrap().params.unwrap();
 /// assert_eq!((valid.key, valid.index), ([1, 2], 7));
 ///
 /// let integers = Value::Array(vec![1.into(), 2.into()]);
-/// assert!(decode::<Slot>(&slot(integers, 7.into()), 64).is_err());
+/// assert!(Request::<Slot>::decode(&slot(integers, 7.into()), 128).is_err());
 /// let tagged = Value::Tag(0, Box::new(7.into()));
-/// assert!(decode::<Slot>(&slot(Value::Bytes(vec![1, 2]), tagged), 64).is_err());
+/// assert!(Request::<Slot>::decode(&slot(Value::Bytes(vec![1, 2]), tagged), 128).is_err());
 /// ```
 pub mod cbor {
     use std::fmt;

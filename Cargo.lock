@@ -12492,7 +12492,6 @@ dependencies = [
  "ark-ff 0.6.0",
  "ark-serialize 0.6.0",
  "arrayvec",
- "bon",
  "cbor-diag",
  "ciborium",
  "embed-doc-image",

@@ -364,7 +364,6 @@ mod xwing_pubkey {
 #[cfg(test)]
 mod tests {
     use test_case::test_case;
-    use world_id_primitives::authenticator_message;
 
     use super::*;
     use crate::registration::{MAX_REQUEST_SIZE, PairingSecret, ResponseSecretKey};
@@ -464,12 +463,12 @@ mod tests {
 
         let (mut request, _, request_id) = signed_request(ADMIN);
         request.new_authenticator_address = zero;
-        let message = RegisterRequestMessage::builder()
-            .id(request_id.message_id())
-            .method(REGISTER_METHOD)
-            .params(request)
-            .build();
-        let encoding = authenticator_message::encode(&message).unwrap_err();
+        let message = RegisterRequestMessage::new(
+            Some(request_id.message_id()),
+            REGISTER_METHOD,
+            Some(request),
+        );
+        let encoding = message.encode().unwrap_err();
         assert!(
             encoding
                 .to_string()
@@ -510,14 +509,13 @@ mod tests {
     #[test_case(PROVING; "proving")]
     fn request_round_trips_through_cbor(new_authenticator_address: Option<Address>) {
         let (request, _, request_id) = signed_request(new_authenticator_address);
-        let message = RegisterRequestMessage::builder()
-            .id(request_id.message_id())
-            .method(REGISTER_METHOD)
-            .params(request.clone())
-            .build();
-        let encoded = authenticator_message::encode(&message).unwrap();
-        let received: Request<Value> =
-            authenticator_message::decode(&encoded, MAX_REQUEST_SIZE).unwrap();
+        let message = RegisterRequestMessage::new(
+            Some(request_id.message_id()),
+            REGISTER_METHOD,
+            Some(request.clone()),
+        );
+        let encoded = message.encode().unwrap();
+        let received: Request<Value> = Request::decode(&encoded, MAX_REQUEST_SIZE).unwrap();
         let params = received.params.unwrap();
         assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
     }
