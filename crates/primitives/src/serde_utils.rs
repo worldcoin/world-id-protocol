@@ -357,6 +357,36 @@ where
 /// Serde's own impls accept other CBOR encodings of the same value: `Vec<u8>` and byte arrays also
 /// read an array of integers, integers also read bignums (tags 2 and 3), and most impls skip CBOR
 /// tags. These deserializers accept only the defined major type, without a tag.
+///
+/// # Examples
+///
+/// ```
+/// use serde::Deserialize;
+/// use world_id_primitives::{
+///     authenticator_message::{Value, decode, encode},
+///     serde_utils::cbor,
+/// };
+///
+/// #[derive(Debug, Deserialize)]
+/// struct Slot {
+///     #[serde(deserialize_with = "cbor::deserialize_byte_array")]
+///     key: [u8; 2],
+///     #[serde(deserialize_with = "cbor::deserialize_unsigned")]
+///     index: u32,
+/// }
+///
+/// let slot = |key: Value, index: Value| {
+///     encode(&Value::Map(vec![("key".into(), key), ("index".into(), index)])).unwrap()
+/// };
+///
+/// let valid: Slot = decode(&slot(Value::Bytes(vec![1, 2]), 7.into()), 64).unwrap();
+/// assert_eq!((valid.key, valid.index), ([1, 2], 7));
+///
+/// let integers = Value::Array(vec![1.into(), 2.into()]);
+/// assert!(decode::<Slot>(&slot(integers, 7.into()), 64).is_err());
+/// let tagged = Value::Tag(0, Box::new(7.into()));
+/// assert!(decode::<Slot>(&slot(Value::Bytes(vec![1, 2]), tagged), 64).is_err());
+/// ```
 pub mod cbor {
     use std::fmt;
 
@@ -430,7 +460,8 @@ pub mod cbor {
         D: Deserializer<'de>,
         T: TryFrom<u64>,
     {
-        // Ciborium reads a bignum into a `Value` as a plain integer, but visits it as a `u128`.
+        // A `Value` would hide bignums as plain integers. Visited directly, a bignum arrives as a
+        // `u128`, which this visitor rejects.
         struct UnsignedVisitor;
 
         impl Visitor<'_> for UnsignedVisitor {
