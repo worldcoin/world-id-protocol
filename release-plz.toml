@@ -28,10 +28,6 @@ name = "world-id-core"
 release = true
 publish = true
 changelog_update = false
-# TODO: remove once 0.15.0 is on crates.io. The 0.14.1 baseline no longer builds
-# (provekit-r1cs-compiler 0.1.4 resolves to an incompatible provekit_acir), and
-# release-plz still semver-checks crates without changes since 0.14.1.
-semver_check = false
 
 [[package]]
 name = "world-id-authenticator"
@@ -44,9 +40,6 @@ name = "world-id-issuer"
 release = true
 publish = true
 changelog_update = false
-# TODO: remove with world-id-core's semver_check. Same release-plz path; whether
-# its 0.14.1 baseline still builds is untested.
-semver_check = false
 
 [[package]]
 name = "world-id-proof"
