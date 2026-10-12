@@ -363,8 +363,9 @@ impl Authenticator {
     /// the zero address, so when that lookup does not find this authenticator on its account and
     /// slot, it is looked up by its leaf index and public key in the indexed account instead.
     ///
-    /// An authenticator never moves to another account or slot: only the recovery counter of the
-    /// result can differ from [`packed_account_data`](Self::packed_account_data).
+    /// The result stays on the same account. The Proving Authenticator lookup returns the public
+    /// key's current indexed slot, which may differ if the key was removed and reinserted. The
+    /// recovery counter can also differ from [`packed_account_data`](Self::packed_account_data).
     ///
     /// # Errors
     /// - [`AuthenticatorError::AccountDoesNotExist`] if this authenticator is no longer
