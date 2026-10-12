@@ -5,7 +5,7 @@ use std::fmt;
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
-    authenticator_message::{self, ErrorObject, MessageError, Response, Value},
+    authenticator_message::{self, ErrorObject, MessageError, Outcome, Response, Value},
     serde_utils::deserialize_present,
 };
 use zeroize::Zeroizing;
@@ -246,7 +246,7 @@ pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErro
 pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, MessageError> {
     let response: RegisterResponseMessage =
         authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
-    if response.outcome.is_err() {
+    if matches!(response.outcome, Outcome::Error { .. }) {
         return Ok(response);
     }
     // Neither pass suffices alone: typed decoding skips tags, and a `Value` turns bignums into
@@ -254,7 +254,7 @@ pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, Mess
     // hold the vault, so it is wiped before the tag check can return.
     let mut raw: Response<Value, Value> =
         authenticator_message::decode(plaintext, MAX_RESPONSE_SIZE)?;
-    if let Ok(result) = &mut raw.outcome {
+    if let Outcome::Success { result, .. } = &mut raw.outcome {
         wipe_byte_strings(result);
         reject_tags(result)?;
     }
@@ -371,11 +371,16 @@ mod tests {
     /// Decodes the result of a response whose CBOR `result` is `result`.
     fn decode_result(result: Value) -> Result<RegistrationResult, MessageError> {
         let response = Response::<Value, Value>::builder()
-            .id("request".to_string())
-            .outcome(Ok(result))
+            .outcome(Outcome::Success {
+                id: Id::String("request".into()),
+                result,
+            })
             .build();
         let decoded = decode_response(&encode(&response).unwrap())?;
-        Ok(decoded.outcome.expect("a successful response"))
+        let Outcome::Success { result, .. } = decoded.outcome else {
+            panic!("expected a successful response");
+        };
+        Ok(result)
     }
 
     /// Decodes an `operation_failed` error response whose CBOR `error.data` is `data`.
@@ -386,11 +391,16 @@ mod tests {
             .data(data)
             .build();
         let response = Response::<Value, Value>::builder()
-            .id("request".to_string())
-            .outcome(Err(error))
+            .outcome(Outcome::Error {
+                id: Some(Id::String("request".into())),
+                error,
+            })
             .build();
         let decoded = decode_response(&encode(&response).unwrap()).unwrap();
-        decoded.outcome.expect_err("an error response")
+        let Outcome::Error { error, .. } = decoded.outcome else {
+            panic!("expected an error response");
+        };
+        error
     }
 
     /// A CBOR `result` with the given indexes and no other fields.
@@ -487,8 +497,10 @@ mod tests {
 
         let response = RegisterResponseMessage {
             version: Version::V1,
-            id: Some(Id::String("request".into())),
-            outcome: Ok(result),
+            outcome: Outcome::Success {
+                id: Id::String("request".into()),
+                result,
+            },
         };
         assert_eq!(
             decode_response(&encode(&response).unwrap()).unwrap(),
@@ -572,8 +584,10 @@ mod tests {
             ]))
             .build();
         let response = Response::<Value, Value>::builder()
-            .id("request".to_string())
-            .outcome(Err(error))
+            .outcome(Outcome::Error {
+                id: Some(Id::String("request".into())),
+                error,
+            })
             .build();
         let error = decode_response(&encode(&response).unwrap())
             .unwrap_err()
