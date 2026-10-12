@@ -414,7 +414,9 @@ mod tests {
     use world_id_primitives::authenticator_message::{Value, Version};
 
     use super::*;
-    use crate::registration::{ApproverError, EncryptedPayload, PendingRegistration};
+    use crate::registration::{
+        ApproverError, DeliveryOutcome, EncryptedPayload, PendingRegistration,
+    };
 
     fn requester(server: &mockito::ServerGuard) -> RegistrationRequester {
         RegistrationRequester::new(
@@ -643,7 +645,7 @@ mod tests {
         assert!(matches!(
             attempt.authenticate(&secrets.code).await,
             Err(ApproverError::InvalidRequest {
-                responded: true,
+                delivery: Some(Ok(DeliveryOutcome::Delivered)),
                 ..
             })
         ));
@@ -681,10 +683,7 @@ mod tests {
             let mut attempt = pending_with(&session, &mut server, &plaintext).await;
             assert!(matches!(
                 attempt.authenticate(&secrets.code).await,
-                Err(ApproverError::InvalidRequest {
-                    responded: false,
-                    ..
-                })
+                Err(ApproverError::InvalidRequest { delivery: None, .. })
             ));
         }
         assert!(responses.lock().unwrap().is_empty());
@@ -705,10 +704,7 @@ mod tests {
 
         assert!(matches!(
             attempt.authenticate(&secrets.code).await,
-            Err(ApproverError::InvalidRequest {
-                responded: false,
-                ..
-            })
+            Err(ApproverError::InvalidRequest { delivery: None, .. })
         ));
         assert!(matches!(
             attempt.authenticate(&secrets.code).await,

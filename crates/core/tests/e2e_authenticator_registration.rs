@@ -378,7 +378,9 @@ async fn e2e_authenticator_registration() {
     let refused = pending.authenticate(session.pairing_code().unwrap()).await;
     assert!(matches!(
         refused,
-        Err(ApproverError::DigestMismatch { responded: true })
+        Err(ApproverError::DigestMismatch {
+            delivery: Ok(DeliveryOutcome::Delivered)
+        })
     ));
     let RequesterStatus::Completed(Err(error)) = completed(&mut session).await else {
         panic!("expected invalid_params");

@@ -26,7 +26,7 @@ mod session;
 pub use crate::account::AuthenticatorClass;
 pub use approver::{
     Approval, ApprovalOutcome, ApproverError, CheckedRegistration, DEFAULT_RESPONSE_DEADLINE,
-    IncomingRegistration, MIN_TRACKING_TIME, PendingRegistration, RegistrationPlan,
+    Delivery, IncomingRegistration, MIN_TRACKING_TIME, PendingRegistration, RegistrationPlan,
     UserVerification,
 };
 pub use bridge::{BridgeClient, BridgeError, DeliveryOutcome, PublishOutcome, ResponseState};

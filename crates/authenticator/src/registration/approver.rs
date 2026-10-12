@@ -42,6 +42,11 @@ pub const DEFAULT_RESPONSE_DEADLINE: Duration =
 /// still submit an insertion. With less, the outcome would most likely be `outcome_unknown`.
 pub const MIN_TRACKING_TIME: Duration = Duration::from_secs(2 * 60);
 
+/// Whether an answer reached the bridge: the bridge's verdict, or the error that kept it from
+/// being sent. Only [`DeliveryOutcome::Delivered`] means that the Requesting Authenticator can
+/// read it.
+pub type Delivery = Result<DeliveryOutcome, Box<ApproverError>>;
+
 /// An encrypted request fetched once, waiting for code entry on the approving device.
 ///
 /// Fetch this before prompting for a code. Code entry does not authorize registration;
@@ -283,17 +288,19 @@ impl IncomingRegistration {
         let request = match parse_request(plaintext, &request_id) {
             Ok(request) => request,
             Err(rejection) => {
-                let responded = match rejection.reply_to {
-                    Some(response_pubkey) => channel(response_pubkey)
-                        .reply(rejection.id, Err(rejection.reason.into_error(None)))
-                        .await
-                        .is_ok(),
-                    None => false,
+                let delivery = match rejection.reply_to {
+                    Some(response_pubkey) => Some(
+                        channel(response_pubkey)
+                            .reply(rejection.id, Err(rejection.reason.into_error(None)))
+                            .await
+                            .map_err(Box::new),
+                    ),
+                    None => None,
                 };
-                tracing::warn!(request = %log_tag(&request_id), reason = ?rejection.reason, responded, "invalid registration request");
+                tracing::warn!(request = %log_tag(&request_id), reason = ?rejection.reason, answered = delivery.is_some(), "invalid registration request");
                 return Err(ApproverError::InvalidRequest {
                     reason: rejection.detail,
-                    responded,
+                    delivery,
                 });
             }
         };
@@ -306,45 +313,42 @@ impl IncomingRegistration {
         let digest = match incoming.request.digest(&request_id) {
             Ok(digest) => digest,
             Err(error) => {
-                let responded = incoming
+                let delivery = incoming
                     .refuse_invalid_params("invalid registration params")
                     .await;
                 return Err(ApproverError::InvalidRequest {
                     reason: error.to_string(),
-                    responded,
+                    delivery: Some(delivery),
                 });
             }
         };
         if digest != attempt.uri.digest {
-            let responded = incoming
+            let delivery = incoming
                 .refuse_invalid_params("registration request does not match the pairing link")
                 .await;
-            return Err(ApproverError::DigestMismatch { responded });
+            return Err(ApproverError::DigestMismatch { delivery });
         }
         if !incoming.request.verify_signature(&digest) {
-            let responded = incoming
+            let delivery = incoming
                 .refuse_invalid_params("invalid registration_sig")
                 .await;
             return Err(ApproverError::InvalidRequest {
                 reason: "invalid registration signature".to_string(),
-                responded,
+                delivery: Some(delivery),
             });
         }
         Ok(incoming)
     }
 
-    /// Answers `invalid_params` to a request that decoded but failed validation. Returns whether
-    /// the answer was delivered.
-    async fn refuse_invalid_params(&self, detail: &str) -> bool {
-        let responded = self
-            .channel
+    /// Answers `invalid_params` to a request that decoded but failed validation.
+    async fn refuse_invalid_params(&self, detail: &str) -> Delivery {
+        tracing::warn!(request = %log_tag(&self.channel.request_id), detail, "invalid registration params");
+        self.channel
             .send(Err(
                 RegistrationErrorReason::InvalidParams.into_error(Some(detail.to_string()))
             ))
             .await
-            .is_ok();
-        tracing::warn!(request = %log_tag(&self.channel.request_id), detail, responded, "invalid registration params");
-        responded
+            .map_err(Box::new)
     }
 
     async fn refuse(
@@ -358,16 +362,15 @@ impl IncomingRegistration {
             error = source.as_ref().map(tracing::field::display),
             "refusing authenticator registration"
         );
-        let undelivered = self
+        let delivery = self
             .channel
             .send(Err(reason.into_error(None)))
             .await
-            .err()
-            .map(Box::new);
+            .map_err(Box::new);
         ApproverError::Refused {
             reason,
             source,
-            undelivered,
+            delivery,
         }
     }
 }
@@ -498,7 +501,7 @@ impl CheckedRegistration {
         ApprovalOutcome {
             result,
             vault_omitted,
-            delivery,
+            delivery: delivery.map_err(Box::new),
         }
     }
 
@@ -659,8 +662,9 @@ pub struct ApprovalOutcome {
     /// Whether the vault was left out because it exceeds [`MAX_VAULT_SIZE`]. The host must tell
     /// the user that the vault was not shared.
     pub vault_omitted: bool,
-    /// Whether the response reached the bridge.
-    pub delivery: Result<DeliveryOutcome, ApproverError>,
+    /// The delivery of the response. If it was not delivered, the host must tell the user that
+    /// the new device may not have received it, and to check it and retry from it if needed.
+    pub delivery: Delivery,
 }
 
 /// Errors on the Approving Authenticator's side of a registration.
@@ -680,33 +684,32 @@ pub enum ApproverError {
         /// Number of remaining code attempts; zero means a new pairing is required.
         attempts_remaining: u8,
     },
-    /// The request does not match the digest in the Pairing URI. `responded` tells whether an
-    /// `invalid_params` error was sent.
+    /// The request does not match the digest in the Pairing URI. It was answered with
+    /// `invalid_params`.
     #[error("the registration request does not match the pairing link")]
     DigestMismatch {
-        /// Whether an error response was sent to the Requesting Authenticator.
-        responded: bool,
+        /// The delivery of the answer.
+        delivery: Delivery,
     },
-    /// The request is malformed. `responded` tells whether an error was sent: none is sent for a
-    /// notification, or when the request has no readable `response_pubkey` to seal it to.
+    /// The request is malformed.
     #[error("invalid registration request: {reason}")]
     InvalidRequest {
         /// What is wrong with the request.
         reason: String,
-        /// Whether an error response was sent to the Requesting Authenticator.
-        responded: bool,
+        /// The delivery of the error answered, or `None` if none was sent: a notification is
+        /// never answered, and a request without a readable `response_pubkey` cannot be.
+        delivery: Option<Delivery>,
     },
-    /// The registration was refused. The reason was sent to the Requesting Authenticator unless
-    /// `undelivered` holds the error that prevented it.
+    /// The registration was refused.
     #[error("registration refused: {reason:?}")]
     Refused {
-        /// The reason for the refusal.
+        /// The reason, which was sent to the Requesting Authenticator.
         reason: RegistrationErrorReason,
         /// The underlying error, if the refusal was caused by one.
         #[source]
         source: Option<AuthenticatorError>,
-        /// The error that prevented sending the reason, if any.
-        undelivered: Option<Box<ApproverError>>,
+        /// The delivery of the reason.
+        delivery: Delivery,
     },
     /// The bridge session expired before the response could be delivered.
     #[error("the bridge session expired before the response was delivered")]
@@ -774,8 +777,18 @@ impl ResponseChannel {
         .await
         .ok_or(ApproverError::SessionExpired)
         .and_then(|delivery| delivery.map_err(ApproverError::from));
-        if let Err(error) = &delivery {
-            tracing::warn!(request = %log_tag(&self.request_id), %error, "failed to deliver registration response");
+        match &delivery {
+            Ok(DeliveryOutcome::Delivered) => {}
+            Ok(outcome) => tracing::warn!(
+                request = %log_tag(&self.request_id),
+                ?outcome,
+                "the bridge did not take the registration response"
+            ),
+            Err(error) => tracing::warn!(
+                request = %log_tag(&self.request_id),
+                %error,
+                "failed to deliver the registration response"
+            ),
         }
         delivery
     }
