@@ -480,33 +480,181 @@ pub enum TransportError {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::LazyLock;
+
+    use test_case::test_case;
+
     use super::*;
 
+    /// The key the transport tests encrypt under, derived once because Argon2id is slow.
+    static SESSION_KEY: LazyLock<TransportKey> = LazyLock::new(|| transport_key(7, "QJTWPK"));
+
+    fn transport_key(secret_seed: u8, code: &str) -> TransportKey {
+        PairingSecret::from_bytes([secret_seed; 32])
+            .transport_key(&code.parse().unwrap())
+            .unwrap()
+    }
+
+    fn recipient() -> ResponseSecretKey {
+        ResponseSecretKey::from_seed(&[1; 32])
+    }
+
+    #[test_case("QJTWPK"; "canonical")]
+    #[test_case("qjtwpk"; "lowercase")]
+    #[test_case(" qj-tw pk "; "spaces and hyphens")]
+    fn pairing_code_input_is_normalized(input: &str) {
+        assert_eq!(input.parse::<PairingCode>().unwrap().as_str(), "QJTWPK");
+    }
+
+    #[test_case("ABCDE"; "five letters")]
+    #[test_case("ABCDEFG"; "seven letters")]
+    #[test_case("ABC1EF"; "digit")]
+    #[test_case("ABC\tDEF"; "tab")]
+    #[test_case("ÄBCDEF"; "non-ASCII letter")]
+    #[test_case("ＡBCDEF"; "fullwidth letter")]
+    fn pairing_code_rejects_other_input(input: &str) {
+        assert_eq!(
+            input.parse::<PairingCode>(),
+            Err(TransportError::InvalidPairingCode)
+        );
+    }
+
     #[test]
-    fn pairing_code_normalizes_only_ascii_and_redacts_debug() {
-        let code: PairingCode = " qj-tw pk ".parse().unwrap();
-        assert_eq!(code.as_str(), "QJTWPK");
+    fn generated_pairing_code_is_six_uppercase_letters() {
+        let code = PairingCode::generate().unwrap();
+        assert_eq!(code.as_str().len(), 6);
+        assert!(code.as_str().bytes().all(|b| b.is_ascii_uppercase()));
+    }
+
+    #[test]
+    fn pairing_code_debug_is_redacted() {
+        let code: PairingCode = "QJTWPK".parse().unwrap();
         assert_eq!(format!("{code:?}"), "PairingCode(REDACTED)");
-        for invalid in [
-            "ABCDE", "ABCDEFG", "ABC1EF", "ABC\tDEF", "ÄBCDEF", "ＡBCDEF",
-        ] {
-            assert!(invalid.parse::<PairingCode>().is_err());
-        }
-        assert!(
-            PairingCode::generate()
+    }
+
+    #[test]
+    fn transport_round_trips_both_directions() {
+        let request = SESSION_KEY.encrypt_request(b"request").unwrap();
+        assert_eq!(SESSION_KEY.decrypt_request(&request).unwrap(), b"request");
+
+        let response = SESSION_KEY
+            .encrypt_response(&recipient().public_key(), b"response")
+            .unwrap();
+        assert_eq!(STANDARD.decode(&response.iv).unwrap().len(), NONCE_LEN);
+        assert_eq!(
+            SESSION_KEY
+                .decrypt_response(&recipient(), &response)
                 .unwrap()
-                .as_str()
-                .bytes()
-                .all(|b| b.is_ascii_uppercase())
+                .as_slice(),
+            b"response"
+        );
+    }
+
+    #[test_case(transport_key(7, "ABCDEF"); "another code")]
+    #[test_case(transport_key(8, "QJTWPK"); "another session")]
+    #[test_case(TransportKey {
+                    key: SESSION_KEY.key.clone(),
+                    request_id: PairingSecret::from_bytes([8; 32]).request_id(),
+                }; "another request id")]
+    fn another_key_cannot_decrypt(other: TransportKey) {
+        let request = SESSION_KEY.encrypt_request(b"request").unwrap();
+        assert_eq!(
+            other.decrypt_request(&request),
+            Err(TransportError::Decrypt)
+        );
+        let response = SESSION_KEY
+            .encrypt_response(&recipient().public_key(), b"response")
+            .unwrap();
+        assert_eq!(
+            other.decrypt_response(&recipient(), &response),
+            Err(TransportError::Decrypt)
+        );
+    }
+
+    #[test]
+    fn messages_do_not_decrypt_in_the_other_direction() {
+        let request = SESSION_KEY.encrypt_request(b"request").unwrap();
+        assert_eq!(
+            SESSION_KEY.decrypt_response(&recipient(), &request),
+            Err(TransportError::Decrypt)
+        );
+        let response = SESSION_KEY
+            .encrypt_response(&recipient().public_key(), b"response")
+            .unwrap();
+        assert_eq!(
+            SESSION_KEY.decrypt_request(&response),
+            Err(TransportError::Decrypt)
+        );
+    }
+
+    #[test]
+    fn tampered_ciphertext_fails_authentication() {
+        let mut request = SESSION_KEY.encrypt_request(b"request").unwrap();
+        let mut ciphertext = STANDARD.decode(&request.payload).unwrap();
+        ciphertext[0] ^= 1;
+        request.payload = STANDARD.encode(ciphertext);
+        assert_eq!(
+            SESSION_KEY.decrypt_request(&request),
+            Err(TransportError::Decrypt)
+        );
+    }
+
+    #[test]
+    fn response_opens_only_for_its_recipient() {
+        let response = SESSION_KEY
+            .encrypt_response(&recipient().public_key(), b"response")
+            .unwrap();
+        let other_recipient = ResponseSecretKey::from_seed(&[2; 32]);
+        assert_eq!(
+            SESSION_KEY.decrypt_response(&other_recipient, &response),
+            Err(TransportError::Decrypt)
+        );
+    }
+
+    #[test]
+    fn response_with_another_sealed_header_is_rejected() {
+        let mut sealed = quantum_box::PublicKey::seal(
+            &recipient().public_key().0,
+            b"response",
+            Some(RESPONSE_INFO),
+        )
+        .unwrap();
+        sealed[0] = 0x01;
+        let response = SESSION_KEY.encrypt(RESPONSE_INFO, &sealed).unwrap();
+        assert_eq!(
+            SESSION_KEY.decrypt_response(&recipient(), &response),
+            Err(TransportError::Decrypt)
+        );
+    }
+
+    #[test_case(String::new(); "empty")]
+    #[test_case(STANDARD.encode([0; NONCE_LEN - 1]); "one byte short")]
+    #[test_case(STANDARD.encode([0; NONCE_LEN + 1]); "one byte long")]
+    #[test_case("****************".to_string(); "not base64")]
+    fn malformed_iv_is_rejected(iv: String) {
+        let mut request = SESSION_KEY.encrypt_request(b"request").unwrap();
+        request.iv = iv;
+        assert_eq!(
+            SESSION_KEY.decrypt_request(&request),
+            Err(TransportError::Encoding)
+        );
+    }
+
+    #[test_case(STANDARD.encode([0; TAG_LEN - 1]); "shorter than the tag")]
+    #[test_case("***".to_string(); "not base64")]
+    fn malformed_payload_is_rejected(payload: String) {
+        let mut request = SESSION_KEY.encrypt_request(b"request").unwrap();
+        request.payload = payload;
+        assert_eq!(
+            SESSION_KEY.decrypt_request(&request),
+            Err(TransportError::Encoding)
         );
     }
 
     #[test]
     fn transport_enforces_message_size_limits() {
-        let key = PairingSecret::from_bytes([7; 32])
-            .transport_key(&"QJTWPK".parse().unwrap())
-            .unwrap();
-        let recipient = ResponseSecretKey::from_seed(&[1; 32]);
+        let key = &*SESSION_KEY;
+        let recipient = recipient();
 
         let request = key.encrypt_request(&[0; MAX_REQUEST_SIZE]).unwrap();
         assert_eq!(
@@ -548,87 +696,6 @@ mod tests {
         assert_eq!(
             key.decrypt_response(&recipient, &oversized_response),
             Err(TransportError::TooLarge)
-        );
-    }
-
-    #[test]
-    fn transport_authenticates_code_session_direction_and_recipient() {
-        let secret = PairingSecret::from_bytes([7; 32]);
-        let code = "QJTWPK".parse().unwrap();
-        let key = secret.transport_key(&code).unwrap();
-        let wrong_code = secret.transport_key(&"ABCDEF".parse().unwrap()).unwrap();
-        let other_session = PairingSecret::from_bytes([8; 32])
-            .transport_key(&code)
-            .unwrap();
-        let request = key.encrypt_request(b"request").unwrap();
-        let wrong_id = TransportKey {
-            key: key.key.clone(),
-            request_id: other_session.request_id,
-        };
-        assert_eq!(
-            wrong_id.decrypt_request(&request),
-            Err(TransportError::Decrypt)
-        );
-        let mut tampered = request.clone();
-        let mut ciphertext = STANDARD.decode(&tampered.payload).unwrap();
-        ciphertext[0] ^= 1;
-        tampered.payload = STANDARD.encode(ciphertext);
-        assert_eq!(key.decrypt_request(&tampered), Err(TransportError::Decrypt));
-        assert_eq!(key.decrypt_request(&request).unwrap(), b"request");
-        assert_eq!(
-            wrong_code.decrypt_request(&request),
-            Err(TransportError::Decrypt)
-        );
-        assert_eq!(
-            other_session.decrypt_request(&request),
-            Err(TransportError::Decrypt)
-        );
-        let recipient = ResponseSecretKey::from_seed(&[1; 32]);
-        let response = key
-            .encrypt_response(&recipient.public_key(), b"response")
-            .unwrap();
-        assert_eq!(STANDARD.decode(&response.iv).unwrap().len(), 12);
-        assert_eq!(
-            key.decrypt_response(&recipient, &response)
-                .unwrap()
-                .as_slice(),
-            b"response"
-        );
-        assert_eq!(key.decrypt_request(&response), Err(TransportError::Decrypt));
-        assert_eq!(
-            key.decrypt_response(&recipient, &request),
-            Err(TransportError::Decrypt)
-        );
-        assert_eq!(
-            wrong_code.decrypt_response(&recipient, &response),
-            Err(TransportError::Decrypt)
-        );
-        assert_eq!(
-            key.decrypt_response(&ResponseSecretKey::from_seed(&[2; 32]), &response),
-            Err(TransportError::Decrypt)
-        );
-        let mut malformed = response.clone();
-        malformed.iv.clear();
-        assert_eq!(
-            key.decrypt_response(&recipient, &malformed),
-            Err(TransportError::Encoding)
-        );
-        malformed = response.clone();
-        malformed.payload = STANDARD.encode([0; 15]);
-        assert_eq!(
-            key.decrypt_response(&recipient, &malformed),
-            Err(TransportError::Encoding)
-        );
-        malformed = response;
-        malformed.payload = "***".into();
-        assert_eq!(
-            key.decrypt_response(&recipient, &malformed),
-            Err(TransportError::Encoding)
-        );
-        let wrong_header = key.encrypt(RESPONSE_INFO, &[0; 32]).unwrap();
-        assert_eq!(
-            key.decrypt_response(&recipient, &wrong_header),
-            Err(TransportError::Decrypt)
         );
     }
 }

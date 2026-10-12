@@ -361,6 +361,7 @@ mod xwing_pubkey {
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
     use world_id_primitives::authenticator_message;
 
     use super::*;
@@ -390,13 +391,27 @@ mod tests {
         (request, digest, request_id)
     }
 
-    #[test]
-    fn signed_request_verifies_against_its_digest() {
-        for address in [ADMIN, PROVING] {
-            let (request, digest, request_id) = signed_request(address);
-            assert_eq!(request.digest(&request_id).unwrap(), digest);
-            assert!(request.verify_signature(&digest));
-        }
+    /// The params of an Admin Authenticator's [`signed_request`].
+    fn admin_params() -> Value {
+        Value::serialized(&signed_request(ADMIN).0).unwrap()
+    }
+
+    /// [`admin_params`] with `field` set to `value`, or removed if `value` is `None`.
+    fn params_with(field: &str, value: Option<Value>) -> Value {
+        let Value::Map(mut entries) = admin_params() else {
+            unreachable!("params serialize as a map")
+        };
+        entries.retain(|(key, _)| key.as_text() != Some(field));
+        entries.extend(value.map(|value| (Value::from(field), value)));
+        Value::Map(entries)
+    }
+
+    #[test_case(ADMIN; "admin")]
+    #[test_case(PROVING; "proving")]
+    fn signed_request_verifies_against_its_digest(new_authenticator_address: Option<Address>) {
+        let (request, digest, request_id) = signed_request(new_authenticator_address);
+        assert_eq!(request.digest(&request_id).unwrap(), digest);
+        assert!(request.verify_signature(&digest));
     }
 
     #[test]
@@ -455,79 +470,82 @@ mod tests {
     }
 
     #[test]
-    fn request_round_trips_through_cbor() {
-        for address in [ADMIN, PROVING] {
-            let (request, _, request_id) = signed_request(address);
-            let message = RegisterRequestMessage::builder()
-                .id(request_id.message_id())
-                .method(REGISTER_METHOD)
-                .params(request.clone())
-                .build();
-            let encoded = authenticator_message::encode(&message).unwrap();
-            let received: Request<Value> =
-                authenticator_message::decode(&encoded, MAX_REQUEST_SIZE).unwrap();
-            let params = received.params.unwrap();
-            assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
-        }
+    fn params_use_the_wip_109_field_names_and_byte_strings() {
+        let (request, _, _) = signed_request(ADMIN);
+        let pubkey = request
+            .new_authenticator_pubkey
+            .to_compressed_bytes()
+            .unwrap();
+        let signature = request.registration_sig.to_compressed_bytes().unwrap();
+        let params = Value::Map(vec![
+            (
+                "new_authenticator_pubkey".into(),
+                Value::Bytes(pubkey.to_vec()),
+            ),
+            (
+                "new_authenticator_address".into(),
+                Value::Bytes(vec![0x11; 20]),
+            ),
+            (
+                "response_pubkey".into(),
+                Value::Bytes(request.response_pubkey.to_bytes()),
+            ),
+            ("name".into(), "Chrome on MacBook".into()),
+            ("registration_sig".into(), Value::Bytes(signature.to_vec())),
+        ]);
+        assert_eq!(Value::serialized(&request).unwrap(), params);
+        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+    }
+
+    #[test_case(ADMIN; "admin")]
+    #[test_case(PROVING; "proving")]
+    fn request_round_trips_through_cbor(new_authenticator_address: Option<Address>) {
+        let (request, _, request_id) = signed_request(new_authenticator_address);
+        let message = RegisterRequestMessage::builder()
+            .id(request_id.message_id())
+            .method(REGISTER_METHOD)
+            .params(request.clone())
+            .build();
+        let encoded = authenticator_message::encode(&message).unwrap();
+        let received: Request<Value> =
+            authenticator_message::decode(&encoded, MAX_REQUEST_SIZE).unwrap();
+        let params = received.params.unwrap();
+        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
     }
 
     #[test]
-    fn decode_rejects_malformed_params() {
-        let (request, _, _) = signed_request(ADMIN);
-        let params = Value::serialized(&request).unwrap();
-        let with_field = |field: &str, value: Option<Value>| {
-            let Value::Map(mut entries) = params.clone() else {
-                unreachable!("params serialize as a map")
-            };
-            entries.retain(|(key, _)| key.as_text() != Some(field));
-            entries.extend(value.map(|value| (Value::from(field), value)));
-            Value::Map(entries)
-        };
+    fn from_params_rejects_tagged_params() {
+        let tagged = Value::Tag(55799, Box::new(admin_params()));
+        let rejection = RegistrationRequest::from_params(&tagged).unwrap_err();
+        assert!(rejection.to_string().contains("must not contain CBOR tags"));
+    }
 
-        assert!(RegistrationRequest::from_params(&params).is_ok());
-        for (case, invalid) in [
-            ("tagged params", Value::Tag(55799, Box::new(params.clone()))),
-            (
-                "tagged name",
-                with_field("name", Some(Value::Tag(0, Box::new("phone".into())))),
-            ),
-            ("null name", with_field("name", Some(Value::Null))),
-            ("long name", with_field("name", Some("x".repeat(65).into()))),
-            (
-                "null address",
-                with_field("new_authenticator_address", Some(Value::Null)),
-            ),
-            (
-                "zero address",
-                with_field("new_authenticator_address", Some(Value::Bytes(vec![0; 20]))),
-            ),
-            (
-                "short address",
-                with_field("new_authenticator_address", Some(Value::Bytes(vec![1; 19]))),
-            ),
-            (
-                "short pubkey",
-                with_field("new_authenticator_pubkey", Some(Value::Bytes(vec![0; 31]))),
-            ),
-            (
-                "text pubkey",
-                with_field("new_authenticator_pubkey", Some("0x12".into())),
-            ),
-            (
-                "short response key",
-                with_field("response_pubkey", Some(Value::Bytes(vec![1; 1215]))),
-            ),
-            (
-                "short signature",
-                with_field("registration_sig", Some(Value::Bytes(vec![1; 63]))),
-            ),
-            ("missing signature", with_field("registration_sig", None)),
-            ("unknown field", with_field("class", Some("admin".into()))),
-        ] {
-            assert!(
-                RegistrationRequest::from_params(&invalid).is_err(),
-                "{case}"
-            );
-        }
+    #[test_case("name", Some(Value::Tag(0, Box::new("phone".into()))),
+                "must not contain CBOR tags"; "tagged name")]
+    #[test_case("name", Some(Value::Null), "invalid type: null"; "null name")]
+    #[test_case("name", Some("x".repeat(65).into()), "at most 64 bytes"; "long name")]
+    #[test_case("new_authenticator_address", Some(Value::Null),
+                "expected a CBOR byte string"; "null address")]
+    #[test_case("new_authenticator_address", Some(Value::Bytes(vec![0; 20])),
+                "must not be the zero address"; "zero address")]
+    #[test_case("new_authenticator_address", Some(Value::Bytes(vec![1; 19])),
+                "of 20 bytes, got 19"; "short address")]
+    #[test_case("new_authenticator_pubkey", Some(Value::Bytes(vec![0; 31])),
+                "of 32 bytes, got 31"; "short pubkey")]
+    #[test_case("new_authenticator_pubkey", Some("0x12".into()),
+                "expected a CBOR byte string"; "text pubkey")]
+    #[test_case("response_pubkey", Some(Value::Bytes(vec![1; 1215])),
+                "invalid X-Wing encapsulation key"; "short response key")]
+    #[test_case("response_pubkey", Some(Value::Bytes(vec![1; 1217])),
+                "invalid X-Wing encapsulation key"; "long response key")]
+    #[test_case("registration_sig", Some(Value::Bytes(vec![1; 63])),
+                "of 64 bytes, got 63"; "short signature")]
+    #[test_case("registration_sig", None, "missing field `registration_sig`"; "missing signature")]
+    #[test_case("class", Some("admin".into()), "unknown field `class`"; "unknown field")]
+    fn from_params_rejects_a_malformed_field(field: &str, value: Option<Value>, error: &str) {
+        let rejection = RegistrationRequest::from_params(&params_with(field, value))
+            .unwrap_err()
+            .to_string();
+        assert!(rejection.contains(error), "{rejection}");
     }
 }

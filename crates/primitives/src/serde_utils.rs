@@ -432,8 +432,11 @@ pub mod cbor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use ciborium::Value;
     use serde::{Deserialize, Serialize};
+    use test_case::test_case;
+
+    use super::*;
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     struct Test {
@@ -529,59 +532,57 @@ mod tests {
 
     /// Decodes `T` from the CBOR encoding of `value`.
     fn from_cbor<T: serde::de::DeserializeOwned>(
-        value: &ciborium::Value,
+        value: &Value,
     ) -> Result<T, ciborium::de::Error<std::io::Error>> {
         let mut encoded = Vec::new();
         ciborium::into_writer(value, &mut encoded).unwrap();
         ciborium::from_reader(encoded.as_slice())
     }
 
+    #[derive(Debug, Deserialize)]
+    struct ByteString(#[serde(deserialize_with = "cbor::deserialize_byte_string")] Vec<u8>);
+
+    #[derive(Debug, Deserialize)]
+    struct ByteArray(#[serde(deserialize_with = "cbor::deserialize_byte_array")] [u8; 2]);
+
+    #[derive(Debug, Deserialize)]
+    struct Unsigned(#[serde(deserialize_with = "cbor::deserialize_unsigned")] u8);
+
     #[test]
-    fn cbor_byte_strings_reject_other_encodings() {
-        use ciborium::Value;
-
-        #[derive(Debug, Deserialize)]
-        struct ByteString(#[serde(deserialize_with = "cbor::deserialize_byte_string")] Vec<u8>);
-
-        #[derive(Debug, Deserialize)]
-        struct ByteArray(#[serde(deserialize_with = "cbor::deserialize_byte_array")] [u8; 2]);
-
+    fn cbor_byte_strings_accept_a_byte_string() {
         let bytes = Value::Bytes(vec![1, 2]);
         assert_eq!(from_cbor::<ByteString>(&bytes).unwrap().0, [1, 2]);
         assert_eq!(from_cbor::<ByteArray>(&bytes).unwrap().0, [1, 2]);
-        for invalid in [
-            Value::Array(vec![1.into(), 2.into()]),
-            Value::Tag(64, Box::new(bytes)),
-            Value::Text("0102".into()),
-        ] {
-            assert!(from_cbor::<ByteString>(&invalid).is_err(), "{invalid:?}");
-            assert!(from_cbor::<ByteArray>(&invalid).is_err(), "{invalid:?}");
-        }
-        assert!(from_cbor::<ByteArray>(&Value::Bytes(vec![1, 2, 3])).is_err());
+    }
+
+    #[test_case(Value::Array(vec![1.into(), 2.into()]); "array of integers")]
+    #[test_case(Value::Tag(64, Box::new(Value::Bytes(vec![1, 2]))); "tagged byte string")]
+    #[test_case(Value::Text("0102".into()); "text")]
+    #[test_case(Value::Null; "null")]
+    fn cbor_byte_strings_reject_other_data_items(invalid: Value) {
+        assert!(from_cbor::<ByteString>(&invalid).is_err());
+        assert!(from_cbor::<ByteArray>(&invalid).is_err());
     }
 
     #[test]
-    fn cbor_unsigned_rejects_other_encodings() {
-        use ciborium::Value;
+    fn cbor_byte_array_rejects_another_length() {
+        let error = from_cbor::<ByteArray>(&Value::Bytes(vec![1, 2, 3])).unwrap_err();
+        assert!(error.to_string().contains("of 2 bytes, got 3"), "{error}");
+    }
 
-        #[derive(Debug, Deserialize)]
-        struct Unsigned(#[serde(deserialize_with = "cbor::deserialize_unsigned")] u8);
+    #[test]
+    fn cbor_unsigned_accepts_an_unsigned_integer_that_fits() {
+        let value = Value::Integer(255.into());
+        assert_eq!(from_cbor::<Unsigned>(&value).unwrap().0, 255);
+    }
 
-        assert_eq!(
-            from_cbor::<Unsigned>(&Value::Integer(255.into()))
-                .unwrap()
-                .0,
-            255
-        );
-        for invalid in [
-            Value::Integer(256.into()),
-            Value::Integer((-1).into()),
-            Value::Float(1.0),
-            Value::Text("1".into()),
-            Value::Tag(0, Box::new(Value::Integer(1.into()))),
-            Value::Tag(2, Box::new(Value::Bytes(vec![1]))),
-        ] {
-            assert!(from_cbor::<Unsigned>(&invalid).is_err(), "{invalid:?}");
-        }
+    #[test_case(Value::Integer(256.into()); "too wide")]
+    #[test_case(Value::Integer((-1).into()); "negative")]
+    #[test_case(Value::Float(1.0); "float")]
+    #[test_case(Value::Text("1".into()); "text")]
+    #[test_case(Value::Tag(0, Box::new(Value::Integer(1.into()))); "tagged")]
+    #[test_case(Value::Tag(2, Box::new(Value::Bytes(vec![1]))); "bignum")]
+    fn cbor_unsigned_rejects_other_data_items(invalid: Value) {
+        assert!(from_cbor::<Unsigned>(&invalid).is_err());
     }
 }

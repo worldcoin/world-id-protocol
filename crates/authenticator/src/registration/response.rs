@@ -368,6 +368,46 @@ mod tests {
         Value::Map(entries)
     }
 
+    /// A CBOR `result` whose vault has the format `walletkit_plaintext_v1` and the given `data`.
+    fn result_with_vault_data(data: Value) -> Value {
+        result_with(
+            "vault",
+            Value::Map(vec![
+                ("format".into(), "walletkit_plaintext_v1".into()),
+                ("data".into(), data),
+            ]),
+        )
+    }
+
+    /// A CBOR `result` that also names one known authenticator at `known_pubkey_id`.
+    fn result_with_known(leaf_index: u64, pubkey_id: u32, known_pubkey_id: u32) -> Value {
+        let Value::Map(mut entries) = result_with_indexes(leaf_index.into(), pubkey_id.into())
+        else {
+            unreachable!("the result is a map")
+        };
+        entries.push((
+            "authenticators".into(),
+            Value::Array(vec![Value::Map(vec![
+                ("pubkey_id".into(), known_pubkey_id.into()),
+                ("name".into(), "phone".into()),
+            ])]),
+        ));
+        Value::Map(entries)
+    }
+
+    /// The [`RegistrationResult`] of [`result_with_known`].
+    fn known_result(leaf_index: u64, pubkey_id: u32, known_pubkey_id: u32) -> RegistrationResult {
+        RegistrationResult {
+            leaf_index,
+            pubkey_id,
+            authenticators: vec![KnownAuthenticator {
+                pubkey_id: known_pubkey_id,
+                name: "phone".to_string(),
+            }],
+            vault: None,
+        }
+    }
+
     #[test]
     fn result_uses_unsigned_indexes_and_raw_vault_bytes() {
         let result = RegistrationResult {
@@ -476,58 +516,31 @@ mod tests {
         }
     }
 
-    #[test]
-    fn indexes_are_bounded_to_the_protocol_ranges() {
-        let max_leaf_index = (1 << 30) - 1;
-        let with_known = |leaf_index: u64, pubkey_id: u64, known: u64| {
-            let Value::Map(mut entries) = result_with_indexes(leaf_index.into(), pubkey_id.into())
-            else {
-                unreachable!("the result is a map")
-            };
-            entries.push((
-                "authenticators".into(),
-                Value::Array(vec![Value::Map(vec![
-                    ("pubkey_id".into(), known.into()),
-                    ("name".into(), "phone".into()),
-                ])]),
-            ));
-            Value::Map(entries)
-        };
-        assert!(decode_result(with_known(1, 0, 6)).is_ok());
-        assert!(decode_result(with_known(max_leaf_index, 6, 0)).is_ok());
-        for (leaf_index, pubkey_id, known) in [(0, 1, 0), (1 << 30, 1, 0), (42, 7, 0), (42, 1, 7)] {
-            assert!(
-                decode_result(with_known(leaf_index, pubkey_id, known)).is_err(),
-                "{leaf_index} {pubkey_id} {known}"
-            );
-        }
+    #[test_case(1, 0, 6; "lowest leaf index")]
+    #[test_case((1 << 30) - 1, 6, 0; "highest leaf index")]
+    fn indexes_in_range_round_trip(leaf_index: u64, pubkey_id: u32, known_pubkey_id: u32) {
+        let result = known_result(leaf_index, pubkey_id, known_pubkey_id);
+        let wire = result_with_known(leaf_index, pubkey_id, known_pubkey_id);
+        assert_eq!(Value::serialized(&result).unwrap(), wire);
+        assert_eq!(decode_result(wire).unwrap(), result);
+    }
 
-        let valid = RegistrationResult {
-            leaf_index: 42,
-            pubkey_id: 1,
-            authenticators: Vec::new(),
-            vault: None,
-        };
-        assert!(Value::serialized(&valid).is_ok());
-        for invalid in [
-            RegistrationResult {
-                leaf_index: 0,
-                ..valid.clone()
-            },
-            RegistrationResult {
-                pubkey_id: 7,
-                ..valid.clone()
-            },
-            RegistrationResult {
-                authenticators: vec![KnownAuthenticator {
-                    pubkey_id: 7,
-                    name: "phone".to_string(),
-                }],
-                ..valid.clone()
-            },
-        ] {
-            assert!(Value::serialized(&invalid).is_err(), "{invalid:?}");
-        }
+    #[test_case(0, 1, 0, "leaf index out of range"; "reserved leaf index")]
+    #[test_case(1 << 30, 1, 0, "leaf index out of range"; "leaf index past the tree")]
+    #[test_case(42, 7, 0, "pubkey_id out of range"; "slot past the key set")]
+    #[test_case(42, 1, 7, "pubkey_id out of range"; "known slot past the key set")]
+    fn indexes_out_of_range_are_neither_decoded_nor_encoded(
+        leaf_index: u64,
+        pubkey_id: u32,
+        known_pubkey_id: u32,
+        error: &str,
+    ) {
+        let wire = result_with_known(leaf_index, pubkey_id, known_pubkey_id);
+        let decoding = decode_result(wire).unwrap_err().to_string();
+        assert!(decoding.contains(error), "{decoding}");
+        let result = known_result(leaf_index, pubkey_id, known_pubkey_id);
+        let encoding = Value::serialized(&result).unwrap_err().to_string();
+        assert!(encoding.contains(error), "{encoding}");
     }
 
     #[test]
@@ -544,36 +557,33 @@ mod tests {
         assert_eq!(result.authenticators[0].name, name);
     }
 
-    #[test]
-    fn result_rejects_other_cbor_types_and_tags() {
-        let vault = |data: Value| {
-            Value::Map(vec![
-                ("format".into(), "walletkit_plaintext_v1".into()),
-                ("data".into(), data),
-            ])
-        };
-        for invalid in [
-            Value::Tag(0, result_with_indexes(42.into(), 1.into()).into()),
-            result_with_indexes("0x2a".into(), 1.into()),
-            result_with_indexes((-1).into(), 1.into()),
-            result_with_indexes(42.into(), Value::Float(1.0)),
-            result_with_indexes(42.into(), Value::Tag(0, Box::new(1.into()))),
-            result_with_indexes(Value::Tag(2, Box::new(Value::Bytes(vec![42]))), 1.into()),
-            result_with_indexes(42.into(), (u64::from(u32::MAX) + 1).into()),
-            result_with(
-                "authenticators",
-                Value::Array(vec![Value::Map(vec![
+    #[test_case(Value::Tag(0, result_with_indexes(42.into(), 1.into()).into()),
+                "must not contain CBOR tags"; "tagged result")]
+    #[test_case(result_with_indexes("0x2a".into(), 1.into()),
+                "expected a CBOR unsigned integer"; "text leaf index")]
+    #[test_case(result_with_indexes((-1).into(), 1.into()),
+                "expected a CBOR unsigned integer"; "negative leaf index")]
+    #[test_case(result_with_indexes(Value::Tag(2, Box::new(Value::Bytes(vec![42]))), 1.into()),
+                "expected a CBOR unsigned integer"; "bignum leaf index")]
+    #[test_case(result_with_indexes(42.into(), Value::Float(1.0)),
+                "expected a CBOR unsigned integer"; "float pubkey id")]
+    #[test_case(result_with_indexes(42.into(), Value::Tag(0, Box::new(1.into()))),
+                "expected a CBOR unsigned integer"; "tagged pubkey id")]
+    #[test_case(result_with_indexes(42.into(), (u64::from(u32::MAX) + 1).into()),
+                "exceeds the field width"; "pubkey id wider than u32")]
+    #[test_case(result_with("authenticators", Value::Array(vec![Value::Map(vec![
                     ("pubkey_id".into(), 0.into()),
                     ("name".into(), Value::Tag(0, Box::new("phone".into()))),
-                ])]),
-            ),
-            result_with("authenticators", Value::Null),
-            result_with("vault", Value::Null),
-            result_with("vault", vault("U1FMaXRl".into())),
-            result_with("unknown", true.into()),
-        ] {
-            assert!(decode_result(invalid.clone()).is_err(), "{invalid:?}");
-        }
+                ])])),
+                "must not contain CBOR tags"; "tagged known name")]
+    #[test_case(result_with("authenticators", Value::Null), "invalid type: null"; "null authenticators")]
+    #[test_case(result_with("vault", Value::Null), "invalid type: null"; "null vault")]
+    #[test_case(result_with_vault_data("U1FMaXRl".into()),
+                "expected a CBOR byte string"; "text vault data")]
+    #[test_case(result_with("unknown", true.into()), "unknown field `unknown`"; "unknown field")]
+    fn result_rejects_other_cbor_types_and_tags(result: Value, error: &str) {
+        let rejection = decode_result(result).unwrap_err().to_string();
+        assert!(rejection.contains(error), "{rejection}");
     }
 
     #[test]
@@ -587,15 +597,7 @@ mod tests {
                 data: vec![0; size].into(),
             }),
         };
-        let wire = |size| {
-            result_with(
-                "vault",
-                Value::Map(vec![
-                    ("format".into(), "walletkit_plaintext_v1".into()),
-                    ("data".into(), Value::Bytes(vec![0; size])),
-                ]),
-            )
-        };
+        let wire = |size| result_with_vault_data(Value::Bytes(vec![0; size]));
         assert_eq!(
             decode_result(wire(MAX_VAULT_SIZE)).unwrap(),
             result(MAX_VAULT_SIZE)

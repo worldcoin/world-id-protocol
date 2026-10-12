@@ -196,6 +196,8 @@ fn decode_32_bytes(value: &str) -> Result<[u8; 32], PairingUriError> {
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
+
     use super::*;
 
     fn uri() -> PairingUri {
@@ -206,12 +208,22 @@ mod tests {
         }
     }
 
+    /// The valid `s` parameter of [`uri`].
+    fn secret_param() -> String {
+        "_".repeat(42) + "8"
+    }
+
+    /// The valid `d` parameter of [`uri`].
+    fn digest_param() -> String {
+        "A".repeat(43)
+    }
+
     /// The link of [`uri`] without its `b` parameter.
     fn link_without_bridge() -> String {
         format!(
-            "worldid://auth/v1/register?s={}8&d={}",
-            "_".repeat(42),
-            "A".repeat(43)
+            "worldid://auth/v1/register?s={}&d={}",
+            secret_param(),
+            digest_param()
         )
     }
 
@@ -246,118 +258,74 @@ mod tests {
         assert!(!debug.contains("255"));
     }
 
-    #[test]
-    fn rejects_malformed_links() {
-        let valid = uri().to_string();
-        let without_bridge = link_without_bridge();
-        let s = "_".repeat(42) + "8";
-        let d = "A".repeat(43);
-        let cases = [
-            (
-                valid.replace("auth/v1/register", "auth/v2/register"),
-                PairingUriError::NotARegistrationLink,
-            ),
-            (
-                valid.replace("auth/v1/register", "pay/v1/register"),
-                PairingUriError::NotARegistrationLink,
-            ),
-            (
-                valid.replace("worldid://", "https://"),
-                PairingUriError::Deeplink(DeeplinkError::InvalidScheme),
-            ),
-            (format!("{valid}&x=1"), PairingUriError::UnknownParameter),
-            (
-                format!("{valid}&s={s}"),
-                PairingUriError::DuplicateParameter,
-            ),
-            (
-                format!("{valid}&b=bridge.example.org"),
-                PairingUriError::DuplicateParameter,
-            ),
-            (
-                format!("worldid://auth/v1/register?s={s}&b=bridge.example.org"),
-                PairingUriError::MissingParameter,
-            ),
-            (
-                format!("worldid://auth/v1/register?d={d}&b=bridge.example.org"),
-                PairingUriError::MissingParameter,
-            ),
-            (without_bridge.clone(), PairingUriError::MissingParameter),
-            (
-                format!("worldid://auth/v1/register?s={s}=&d={d}"),
-                PairingUriError::InvalidEncoding,
-            ),
-            (
-                format!("worldid://auth/v1/register?s={}&d={d}", &s[1..]),
-                PairingUriError::InvalidEncoding,
-            ),
-            (
-                format!("worldid://auth/v1/register?s={}+w&d={d}", &s[..41]),
-                PairingUriError::InvalidEncoding,
-            ),
-            (
-                format!("worldid://auth/v1/register?s={}x&d={d}", &s[..42]),
-                PairingUriError::InvalidEncoding,
-            ),
-            (
-                format!("{without_bridge}&b=https%3A%2F%2Fbridge.example.org"),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{without_bridge}&b=bridge.example.org%3A443"),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{without_bridge}&b="),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{without_bridge}&b=-bridge.org"),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{without_bridge}&b=bridge..org"),
-                PairingUriError::InvalidBridge,
-            ),
-            (
-                format!("{valid}#frag"),
-                PairingUriError::Deeplink(DeeplinkError::UnexpectedFragment),
-            ),
-        ];
-        for (link, expected) in cases {
-            assert_eq!(link.parse::<PairingUri>(), Err(expected), "{link}");
-        }
+    #[test_case(uri().to_string().replace("auth/v1/register", "auth/v2/register"),
+                PairingUriError::NotARegistrationLink; "other version")]
+    #[test_case(uri().to_string().replace("auth/v1/register", "pay/v1/register"),
+                PairingUriError::NotARegistrationLink; "other namespace")]
+    #[test_case(uri().to_string().replace("worldid://", "https://"),
+                PairingUriError::Deeplink(DeeplinkError::InvalidScheme); "other scheme")]
+    #[test_case(format!("{}#frag", uri()),
+                PairingUriError::Deeplink(DeeplinkError::UnexpectedFragment); "fragment")]
+    #[test_case(format!("{}&x=1", uri()), PairingUriError::UnknownParameter; "unknown parameter")]
+    #[test_case(format!("{}&s={}", uri(), secret_param()),
+                PairingUriError::DuplicateParameter; "duplicated secret")]
+    #[test_case(format!("{}&b=bridge.example.org", uri()),
+                PairingUriError::DuplicateParameter; "duplicated bridge")]
+    #[test_case(format!("worldid://auth/v1/register?s={}&b=bridge.example.org", secret_param()),
+                PairingUriError::MissingParameter; "missing digest")]
+    #[test_case(format!("worldid://auth/v1/register?d={}&b=bridge.example.org", digest_param()),
+                PairingUriError::MissingParameter; "missing secret")]
+    #[test_case(link_without_bridge(), PairingUriError::MissingParameter; "missing bridge")]
+    #[test_case(format!("worldid://auth/v1/register?s={}=&d={}", secret_param(), digest_param()),
+                PairingUriError::InvalidEncoding; "padded secret")]
+    #[test_case(format!("worldid://auth/v1/register?s={}&d={}", &secret_param()[1..], digest_param()),
+                PairingUriError::InvalidEncoding; "short secret")]
+    #[test_case(format!("worldid://auth/v1/register?s={}+w&d={}", &secret_param()[..41], digest_param()),
+                PairingUriError::InvalidEncoding; "standard base64 secret")]
+    #[test_case(format!("worldid://auth/v1/register?s={}x&d={}", &secret_param()[..42], digest_param()),
+                PairingUriError::InvalidEncoding; "non-canonical trailing bits")]
+    #[test_case(format!("{}&b=https%3A%2F%2Fbridge.example.org", link_without_bridge()),
+                PairingUriError::InvalidBridge; "bridge with scheme")]
+    #[test_case(format!("{}&b=bridge.example.org%3A443", link_without_bridge()),
+                PairingUriError::InvalidBridge; "bridge with port")]
+    #[test_case(format!("{}&b=", link_without_bridge()), PairingUriError::InvalidBridge; "empty bridge")]
+    #[test_case(format!("{}&b=-bridge.org", link_without_bridge()),
+                PairingUriError::InvalidBridge; "bridge label starting with a hyphen")]
+    #[test_case(format!("{}&b=bridge..org", link_without_bridge()),
+                PairingUriError::InvalidBridge; "empty bridge label")]
+    fn rejects_malformed_links(link: String, expected: PairingUriError) {
+        assert_eq!(link.parse::<PairingUri>(), Err(expected));
     }
 
-    #[test]
-    fn rejects_bridge_hosts_that_url_parsers_treat_as_ip_addresses() {
-        for domain in [
-            "127.0.0.1",
-            "127.1",
-            "2130706433",
-            "0177.0.0.1",
-            "127.0x1",
-            "10.0xa",
-            "127.0X1",
-            "127.0x",
-            "0x7f000001",
-            "[::1]",
-        ] {
-            assert_eq!(
-                domain.parse::<BridgeDomain>(),
-                Err(PairingUriError::InvalidBridge)
-            );
-            // Brackets are not valid in a URI query, so they arrive percent-encoded.
-            let encoded = domain.replace('[', "%5B").replace(']', "%5D");
-            let link = format!("{}&b={encoded}", link_without_bridge());
-            assert_eq!(
-                link.parse::<PairingUri>(),
-                Err(PairingUriError::InvalidBridge)
-            );
-        }
-        for domain in ["bridge.example.org", "127.example.org", "bridge.xn--p1ai"] {
-            assert_eq!(domain.parse::<BridgeDomain>().unwrap().as_str(), domain);
-        }
+    #[test_case("127.0.0.1"; "dotted decimal")]
+    #[test_case("127.1"; "short dotted decimal")]
+    #[test_case("2130706433"; "decimal")]
+    #[test_case("0177.0.0.1"; "octal")]
+    #[test_case("127.0x1"; "hexadecimal part")]
+    #[test_case("10.0xa"; "hexadecimal letter")]
+    #[test_case("127.0X1"; "uppercase hexadecimal prefix")]
+    #[test_case("127.0x"; "empty hexadecimal part")]
+    #[test_case("0x7f000001"; "hexadecimal")]
+    #[test_case("[::1]"; "ipv6")]
+    fn rejects_bridge_hosts_that_url_parsers_treat_as_ip_addresses(domain: &str) {
+        assert_eq!(
+            domain.parse::<BridgeDomain>(),
+            Err(PairingUriError::InvalidBridge)
+        );
+        // Brackets are not valid in a URI query, so they arrive percent-encoded.
+        let encoded = domain.replace('[', "%5B").replace(']', "%5D");
+        let link = format!("{}&b={encoded}", link_without_bridge());
+        assert_eq!(
+            link.parse::<PairingUri>(),
+            Err(PairingUriError::InvalidBridge)
+        );
+    }
+
+    #[test_case("bridge.example.org"; "subdomain")]
+    #[test_case("127.example.org"; "numeric label")]
+    #[test_case("bridge.xn--p1ai"; "punycode top-level label")]
+    fn accepts_bridge_domains(domain: &str) {
+        assert_eq!(domain.parse::<BridgeDomain>().unwrap().as_str(), domain);
     }
 
     #[test]
