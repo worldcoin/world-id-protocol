@@ -122,6 +122,18 @@ pub enum RegistrationErrorReason {
 }
 
 impl RegistrationErrorReason {
+    const ALL: [Self; 9] = [
+        Self::InvalidParams,
+        Self::InvalidName,
+        Self::InternalError,
+        Self::UserRejected,
+        Self::NotAuthorized,
+        Self::AuthenticatorConflict,
+        Self::MaxAuthenticatorsReached,
+        Self::OperationFailed,
+        Self::OutcomeUnknown,
+    ];
+
     /// Returns the stable message error code for this reason.
     #[must_use]
     pub const fn code(self) -> &'static str {
@@ -142,18 +154,7 @@ impl RegistrationErrorReason {
     /// define. An unknown code stays available in the [`ErrorObject`].
     #[must_use]
     pub fn from_code(code: &str) -> Option<Self> {
-        match code {
-            "invalid_params" => Some(Self::InvalidParams),
-            "invalid_name" => Some(Self::InvalidName),
-            "internal_error" => Some(Self::InternalError),
-            "user_rejected" => Some(Self::UserRejected),
-            "not_authorized" => Some(Self::NotAuthorized),
-            "authenticator_conflict" => Some(Self::AuthenticatorConflict),
-            "max_authenticators_reached" => Some(Self::MaxAuthenticatorsReached),
-            "operation_failed" => Some(Self::OperationFailed),
-            "outcome_unknown" => Some(Self::OutcomeUnknown),
-            _ => None,
-        }
+        Self::ALL.into_iter().find(|reason| reason.code() == code)
     }
 
     /// Builds the message error object for this reason, with an optional implementation-specific
@@ -320,9 +321,10 @@ mod vault_data {
 
 #[cfg(test)]
 mod tests {
+    use test_case::test_case;
     use world_id_primitives::authenticator_message::{Id, Version, encode};
 
-    use super::*;
+    use super::{RegistrationErrorReason::*, *};
 
     /// Decodes the result of a response whose CBOR `result` is `result`.
     fn decode_result(result: Value) -> Result<RegistrationResult, MessageError> {
@@ -412,8 +414,33 @@ mod tests {
         );
     }
 
+    #[test_case(InvalidParams, "invalid_params"; "invalid_params")]
+    #[test_case(InvalidName, "invalid_name"; "invalid_name")]
+    #[test_case(InternalError, "internal_error"; "internal_error")]
+    #[test_case(UserRejected, "user_rejected"; "user_rejected")]
+    #[test_case(NotAuthorized, "not_authorized"; "not_authorized")]
+    #[test_case(
+        RegistrationErrorReason::AuthenticatorConflict,
+        "authenticator_conflict"
+    )]
+    #[test_case(
+        RegistrationErrorReason::MaxAuthenticatorsReached,
+        "max_authenticators_reached"
+    )]
+    #[test_case(OperationFailed, "operation_failed"; "operation_failed")]
+    #[test_case(OutcomeUnknown, "outcome_unknown"; "outcome_unknown")]
+    fn error_reasons_use_the_wip_109_codes(reason: RegistrationErrorReason, code: &str) {
+        assert_eq!(reason.code(), code);
+        assert_eq!(RegistrationErrorReason::from_code(code), Some(reason));
+    }
+
     #[test]
-    fn errors_use_direct_codes_and_preserve_optional_detail() {
+    fn an_unknown_error_code_has_no_reason() {
+        assert_eq!(RegistrationErrorReason::from_code("future_error"), None);
+    }
+
+    #[test]
+    fn into_error_carries_the_code_and_optional_detail() {
         let error = RegistrationErrorReason::OperationFailed
             .into_error(Some("transaction_reverted".into()));
         assert_eq!(error.code, "operation_failed");
@@ -427,11 +454,6 @@ mod tests {
                 .data
                 .is_none()
         );
-        assert_eq!(
-            RegistrationErrorReason::from_code("user_rejected"),
-            Some(RegistrationErrorReason::UserRejected)
-        );
-        assert_eq!(RegistrationErrorReason::from_code("future_error"), None);
     }
 
     #[test]

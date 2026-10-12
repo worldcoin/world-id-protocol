@@ -101,6 +101,7 @@ hex = { workspace = true }
 ruint = { workspace = true }
 rand = { workspace = true }
 mockito = { workspace = true }
+test-case = { workspace = true }
 testcontainers = { workspace = true }
 world-id-test-utils = { workspace = true }
 
