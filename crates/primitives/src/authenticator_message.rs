@@ -84,12 +84,14 @@ pub enum Outcome<R, D = Value> {
         /// The ID of the request that succeeded.
         id: Id,
         /// The method-defined result.
+        // Keep the field required even when R is nullable; serde otherwise defaults it.
         #[serde(deserialize_with = "Deserialize::deserialize")]
         result: R,
     },
     /// A failed invocation, optionally correlated with a request.
     Error {
         /// The request ID, or null when the failure cannot be correlated.
+        // Keep the field required even though Option would otherwise default it to None.
         #[serde(deserialize_with = "Deserialize::deserialize")]
         id: Option<Id>,
         /// The method failure.
@@ -430,7 +432,7 @@ pub enum DeeplinkError {
     MalformedParameter,
 }
 
-/// Dispatches the enum through a single-entry map so Ciborium cannot read a bare discriminator's
+/// Dispatches [`Outcome`] through a single-entry map so Ciborium cannot read a bare discriminator's
 /// body from another CBOR item. Serde's map dispatcher also requires struct-variant map bodies.
 fn deserialize_outcome<'de, D, T>(deserializer: D) -> Result<T, D::Error>
 where
