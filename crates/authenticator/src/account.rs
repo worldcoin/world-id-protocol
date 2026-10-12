@@ -30,6 +30,32 @@ pub struct AccountSnapshot {
     pub signature_nonce: U256,
     /// The account's registered authenticators.
     pub authenticators: AccountAuthenticators,
+    /// The registry's `getMaxAuthenticators()`, or `None` when no RPC is configured.
+    pub max_authenticators: Option<usize>,
+}
+
+impl AccountSnapshot {
+    /// Returns the lowest slot a new authenticator would be inserted at, or `None` if every slot
+    /// below the registry's `getMaxAuthenticators()` is taken.
+    ///
+    /// Slots are also bounded by [`MAX_AUTHENTICATOR_KEYS`], the size of the key set. Without
+    /// [`max_authenticators`](Self::max_authenticators), that is the only bound, and the registry
+    /// rejects a slot above its limit.
+    #[must_use]
+    pub fn lowest_free_pubkey_id(&self) -> Option<u32> {
+        let key_set = &self.authenticators.key_set;
+        let slot = key_set
+            .iter()
+            .position(Option::is_none)
+            .unwrap_or(key_set.len());
+        let limit = self
+            .max_authenticators
+            .map_or(MAX_AUTHENTICATOR_KEYS, |max| {
+                max.min(MAX_AUTHENTICATOR_KEYS)
+            });
+        (slot < limit)
+            .then(|| u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"))
+    }
 }
 
 /// An `InsertAuthenticator` operation accepted by the gateway.
@@ -76,7 +102,8 @@ impl Authenticator {
     /// The authenticator slots, the off-chain signer commitment and the recovery counter come
     /// from the same indexed account state (the indexer's `/authenticators` endpoint). The
     /// signature nonce is read separately, from the registry when an RPC URL is configured and
-    /// from the indexer otherwise.
+    /// from the indexer otherwise. The registry's `getMaxAuthenticators()` is read only when an
+    /// RPC URL is configured.
     ///
     /// An operation signed from a stale snapshot cannot land: the registry checks both the nonce
     /// and the old commitment, so it reverts instead.
@@ -89,10 +116,21 @@ impl Authenticator {
         let authenticators =
             Self::fetch_authenticators_for(self.leaf_index(), &self.config, &self.indexer_client)
                 .await?;
+        let max_authenticators = match self.registry() {
+            Some(registry) => Some(
+                registry
+                    .getMaxAuthenticators()
+                    .call()
+                    .await?
+                    .saturating_to::<usize>(),
+            ),
+            None => None,
+        };
         Ok(AccountSnapshot {
             leaf_index: self.leaf_index(),
             signature_nonce,
             authenticators,
+            max_authenticators,
         })
     }
 
@@ -107,7 +145,8 @@ impl Authenticator {
     ///   or its commitment does not match its public keys.
     /// - [`AuthenticatorError::PrimitiveError`] if `class` is an Admin Authenticator with the zero
     ///   address, which the registry would record as a Proving Authenticator.
-    /// - [`AuthenticatorError::MaxAuthenticatorsReached`] if the snapshot has no free slot.
+    /// - [`AuthenticatorError::MaxAuthenticatorsReached`] if the snapshot has no free slot below
+    ///   the registry's limit.
     /// - [`AuthenticatorError::GatewayError`] if the gateway rejects the operation, e.g. because
     ///   the snapshot is stale or the address is already registered.
     /// - Other errors if signing or a network call fails.
@@ -135,6 +174,9 @@ impl Authenticator {
                 "off-chain signer commitment does not match the public key set",
             ));
         }
+        snapshot
+            .lowest_free_pubkey_id()
+            .ok_or(AuthenticatorError::MaxAuthenticatorsReached)?;
         self.submit_insert_authenticator(
             snapshot.signature_nonce,
             snapshot.authenticators.offchain_signer_commitment,
@@ -384,21 +426,6 @@ impl AccountAuthenticators {
                 | (U256::from(pubkey_id) << 192)
                 | U256::from(leaf_index),
         )
-    }
-
-    /// Returns the lowest slot a new authenticator would be inserted at, or `None` if all
-    /// [`MAX_AUTHENTICATOR_KEYS`] slots are taken.
-    ///
-    /// The registry may be configured with a lower limit, in which case it rejects the slot.
-    #[must_use]
-    pub fn lowest_free_pubkey_id(&self) -> Option<u32> {
-        let slot = self
-            .key_set
-            .iter()
-            .position(Option::is_none)
-            .unwrap_or(self.key_set.len());
-        (slot < MAX_AUTHENTICATOR_KEYS)
-            .then(|| u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"))
     }
 }
 
