@@ -39,6 +39,13 @@ In `HttpOnly` mode the tree is not versioned; instead a background loop polls th
 
 The HTTP server serves inclusion proofs for public keys. It is backed by the shared DB and in-memory tree. An optional periodic sanity check (`SANITY_CHECK_INTERVAL_SECS`) calls `isValidRoot` on the registry contract to verify the in-memory root is still valid on-chain.
 
+The `/packed-account` endpoint reads both packed account data and the current recovery counter
+from the registry. Recovery revocation therefore does not depend on database catch-up. An
+unknown authenticator returns HTTP 400 with `account_does_not_exist`; an authenticator revoked
+by recovery returns HTTP 403 with `authenticator_revoked`. Clients must not treat revocation as
+permission to register another World ID. RPC failures return a server error rather than
+authorizing the authenticator from cached database state.
+
 ### Reorg Handling
 
 Reorgs are detected during batch commit in two ways:
@@ -92,3 +99,17 @@ cp .env.example .env
 ```
 docker compose -f services/docker-compose.yml up
 ```
+
+### Integration tests
+
+Integration tests use a disposable PostgreSQL container by default. To use an existing local
+test server instead, set `WORLD_ID_INDEXER_TEST_DATABASE_URL` to its connection URL and run:
+
+```sh
+cargo test -p world-id-indexer --features integration-tests --test test_get_packed_account
+```
+
+The supplied database is used only to connect to the server. Each test creates and drops its
+own `test_db_<uuid>` database, so the test user needs database-creation privileges. Foundry
+(`forge` and `anvil`) must also be installed. If contract artifacts have already been built,
+set `CONTRACTS_PREBUILT=1` to reuse them.
