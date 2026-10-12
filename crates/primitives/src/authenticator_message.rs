@@ -2,7 +2,8 @@
 //! defined in [WIP-105](https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-105.md).
 //!
 //! Use [`Request::encode`]/[`Request::decode`] and [`Response::encode`]/[`Response::decode`]
-//! for CBOR at transport boundaries. Decoding enforces message size, nesting and framing limits; typed requests and responses validate their own fields.
+//! for CBOR at transport boundaries. Decoding enforces message size, nesting and framing limits;
+//! typed requests and responses validate their own fields.
 //! Deeplinks are `worldid://` URIs represented by [`Deeplink`].
 
 use std::{borrow::Cow, fmt, str::FromStr};
