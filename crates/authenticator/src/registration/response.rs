@@ -118,9 +118,9 @@ pub enum VaultFormat {
     WalletkitPlaintextV1,
 }
 
-/// The machine-readable reason a registration failed, carried directly in `error.code`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// The machine-readable reason a registration failed, carried as its [`code`](Self::code) in
+/// `error.code`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RegistrationErrorReason {
     /// A field is missing or malformed, or a key or address is invalid.
     InvalidParams,
@@ -159,7 +159,8 @@ impl RegistrationErrorReason {
         }
     }
 
-    /// Recognizes a registration error code, preserving unknown codes at the envelope layer.
+    /// Returns the reason with the error code `code`, or `None` for a code that WIP-109 does not
+    /// define. An unknown code stays available in the [`ErrorObject`].
     #[must_use]
     pub fn from_code(code: &str) -> Option<Self> {
         match code {
