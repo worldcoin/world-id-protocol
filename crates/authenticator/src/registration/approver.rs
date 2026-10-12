@@ -560,7 +560,12 @@ impl CheckedRegistration {
                 Ok(GatewayRequestState::Queued | GatewayRequestState::Batching) => {}
                 Err(error) => {
                     failed_polls += 1;
-                    tracing::debug!(request = %log_tag(&self.incoming.channel.request_id), %error, failed_polls, "failed to poll gateway request");
+                    tracing::warn!(
+                        request = %log_tag(&self.incoming.channel.request_id),
+                        %error,
+                        failed_polls,
+                        "failed to poll the gateway request"
+                    );
                 }
             }
             let delay = delays.next().unwrap_or(Duration::from_secs(8));
@@ -597,7 +602,11 @@ impl CheckedRegistration {
                         return Ok(slot);
                     }
                 }
-                Err(error) => tracing::debug!(%error, "failed to refresh finalized registration"),
+                Err(error) => tracing::warn!(
+                    request = %log_tag(&self.incoming.channel.request_id),
+                    %error,
+                    "failed to refresh the account state after the insertion"
+                ),
             }
             let delay = delays.next().unwrap_or(Duration::from_secs(8));
             if before(deadline, sleep(delay)).await.is_none() {
