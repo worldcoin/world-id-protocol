@@ -28,8 +28,9 @@ fn wip_201_signed_digest_matches_spec() {
     // WIP-201 Appendix A1, "With an AAT": https://github.com/worldcoin/world-id-protocol/pull/979
     let field =
         |hex: &str| FieldElement::from(Fq::from_be_bytes_mod_order(&hex::decode(hex).unwrap()));
+    // WIP-201 pins t=16, so reserve the full rate and zero-pad its 11 claims.
     let digest = poseidon::hash(
-        DomainSeparator::<11>::new(b"WORLD-ID/WIP-201/SIGN"),
+        DomainSeparator::<15>::new(b"WORLD-ID/WIP-201/SIGN"),
         [
             1_783_446_000u64.into(),
             field("21e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c415"),
@@ -42,6 +43,10 @@ fn wip_201_signed_digest_matches_spec() {
             0x0013_0000_07d6_0102u64.into(),
             1u64.into(),
             field("2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d"),
+            FieldElement::ZERO,
+            FieldElement::ZERO,
+            FieldElement::ZERO,
+            FieldElement::ZERO,
         ],
     );
 

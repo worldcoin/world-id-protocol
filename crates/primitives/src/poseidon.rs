@@ -161,7 +161,7 @@ impl VariableLengthDomainSeparator {
 /// Hashes the `N` field elements of a message under its domain separator.
 ///
 /// The permutation width is the smallest WIP-100 width larger than `N` (so
-/// `N + 1` rounded up to one of `2, 3, 4, 8, 16`); unused rate slots are zero.
+/// `N + 1` rounded up to one of `2, 3, 4, 8, 12, 16`); unused rate slots are zero.
 /// Since `N` comes from the separator, the width is fixed by the message's
 /// definition and cannot vary with runtime data.
 ///
@@ -187,6 +187,7 @@ pub fn hash<const N: usize>(ds: DomainSeparator<N>, inputs: [FieldElement; N]) -
         2 => hash_padded(ds, &inputs, poseidon2::bn254::t3::permutation_in_place),
         3 => hash_padded(ds, &inputs, poseidon2::bn254::t4::permutation_in_place),
         4..=7 => hash_padded(ds, &inputs, poseidon2::bn254::t8::permutation_in_place),
+        8..=11 => hash_padded(ds, &inputs, poseidon2::bn254::t12::permutation_in_place),
         _ => hash_padded(ds, &inputs, poseidon2::bn254::t16::permutation_in_place),
     }
 }
@@ -328,10 +329,10 @@ mod tests {
         assert_width!(4, 8, t8);
         assert_width!(5, 8, t8);
         assert_width!(6, 8, t8);
-        assert_width!(8, 16, t16);
-        assert_width!(9, 16, t16);
-        assert_width!(10, 16, t16);
-        assert_width!(11, 16, t16);
+        assert_width!(8, 12, t12);
+        assert_width!(9, 12, t12);
+        assert_width!(10, 12, t12);
+        assert_width!(11, 12, t12);
         assert_width!(12, 16, t16);
         assert_width!(13, 16, t16);
         assert_width!(15, 16, t16);
