@@ -118,6 +118,12 @@ impl<'de> Deserialize<'de> for RegistrationErrorData {
 /// `error.code`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RegistrationErrorReason {
+    /// The request is not valid CBOR (WIP-105 §3.1.4).
+    ParseError,
+    /// The request envelope or its ID is invalid (WIP-105 §3.1.4).
+    InvalidRequest,
+    /// The request is for another method (WIP-105 §3.1.4).
+    MethodNotFound,
     /// A field is missing or malformed, or a key or address is invalid.
     InvalidParams,
     /// The Approving Authenticator does not accept the requested name.
@@ -139,7 +145,10 @@ pub enum RegistrationErrorReason {
 }
 
 impl RegistrationErrorReason {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 12] = [
+        Self::ParseError,
+        Self::InvalidRequest,
+        Self::MethodNotFound,
         Self::InvalidParams,
         Self::InvalidName,
         Self::InternalError,
@@ -155,6 +164,9 @@ impl RegistrationErrorReason {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
+            Self::ParseError => "parse_error",
+            Self::InvalidRequest => "invalid_request",
+            Self::MethodNotFound => "method_not_found",
             Self::InvalidParams => "invalid_params",
             Self::InvalidName => "invalid_name",
             Self::InternalError => "internal_error",
@@ -189,6 +201,9 @@ impl RegistrationErrorReason {
 
     const fn message(self) -> &'static str {
         match self {
+            Self::ParseError => "Parse error",
+            Self::InvalidRequest => "Invalid request",
+            Self::MethodNotFound => "Method not found",
             Self::InvalidParams => "Invalid params",
             Self::InvalidName => "Name not accepted",
             Self::InternalError => "Internal error",
@@ -478,6 +493,9 @@ mod tests {
         );
     }
 
+    #[test_case(ParseError, "parse_error"; "parse_error")]
+    #[test_case(InvalidRequest, "invalid_request"; "invalid_request")]
+    #[test_case(MethodNotFound, "method_not_found"; "method_not_found")]
     #[test_case(InvalidParams, "invalid_params"; "invalid_params")]
     #[test_case(InvalidName, "invalid_name"; "invalid_name")]
     #[test_case(InternalError, "internal_error"; "internal_error")]
