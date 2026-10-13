@@ -80,6 +80,7 @@ telemetry-batteries = "0.3"
 tikv-jemallocator = "0.6"
 ruint = { version = "1.20", features = ["ark-ff-06"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.3.0" }
+percent-encoding = "2.3"
 rand = "0.8.6"
 rand_chacha = "0.3"
 rustls = { version = "0.23", features = ["ring"] }
@@ -113,6 +114,7 @@ metrics = "0.24"
 metrics-util = "0.20"
 secrecy = "0.10"
 mockito = "1"
+cbor-diag = "0.1.12"
 ciborium = "0.2"
 arrayvec = "0.7"
 async-stream = "0.3"
