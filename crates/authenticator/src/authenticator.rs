@@ -848,7 +848,7 @@ fn ws_connector() -> Connector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{error::AuthenticatorError, traits::OnchainKeyRepresentable};
+    use crate::{AccountSnapshot, error::AuthenticatorError, traits::OnchainKeyRepresentable};
     use alloy::primitives::{U256, address};
     use test_case::test_case;
     use world_id_primitives::MAX_AUTHENTICATOR_KEYS;
@@ -1375,6 +1375,71 @@ mod tests {
                 Err(AuthenticatorError::AccountDoesNotExist)
             )),
         }
+    }
+
+    fn assert_send_static<F: Future + Send + 'static>(_future: &F) {}
+
+    /// UniFFI exports async functions only if their futures are `Send`, so these futures must be
+    /// `Send + 'static` when built from owned values.
+    #[test]
+    fn account_futures_are_send_and_static() {
+        let config = config_with_indexer("http://indexer.example.com".to_string());
+        let authenticator = Arc::new(proving_authenticator(config.clone()));
+        let snapshot = AccountSnapshot {
+            leaf_index: LEAF_INDEX,
+            signature_nonce: U256::ZERO,
+            authenticators: authenticators_response(&[Some((own_pubkey(), Address::ZERO))], 3)
+                .try_into()
+                .unwrap(),
+            max_authenticators: None,
+        };
+
+        assert_send_static(&{
+            let config = config.clone();
+            async move {
+                Authenticator::init_with_leaf_index(
+                    &SEED,
+                    LEAF_INDEX,
+                    config,
+                    dummy_zk_artifact_source(),
+                )
+                .await
+            }
+        });
+        assert_send_static(&{
+            let config = config.clone();
+            async move { Authenticator::fetch_account_authenticators(LEAF_INDEX, &config).await }
+        });
+        assert_send_static(&{
+            let authenticator = Arc::clone(&authenticator);
+            async move { authenticator.fetch_leaf_index_of(ADMIN).await }
+        });
+        assert_send_static(&{
+            let authenticator = Arc::clone(&authenticator);
+            async move { authenticator.fetch_packed_account_data().await }
+        });
+        assert_send_static(&{
+            let authenticator = Arc::clone(&authenticator);
+            async move { authenticator.fetch_account_snapshot().await }
+        });
+        assert_send_static(&{
+            let authenticator = Arc::clone(&authenticator);
+            async move {
+                authenticator
+                    .insert_authenticator(test_pubkey(1), ADMIN)
+                    .await
+            }
+        });
+        assert_send_static(&{
+            let authenticator = Arc::clone(&authenticator);
+            async move {
+                authenticator
+                    .insert_authenticator_from_snapshot(&snapshot, test_pubkey(1), ADMIN)
+                    .await
+            }
+        });
+        let mut authenticator = proving_authenticator(config);
+        assert_send_static(&async move { authenticator.refresh_packed_account_data().await });
     }
 
     #[tokio::test]
