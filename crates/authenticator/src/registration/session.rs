@@ -50,7 +50,8 @@ const SEALED_OVERHEAD: usize = 1143;
 pub struct RequestId([u8; 32]);
 
 impl RequestId {
-    /// Returns the raw HKDF output, as committed to in the registration digest.
+    /// Returns the raw HKDF output, as committed to in the
+    /// [`RegistrationDigest`](super::RegistrationDigest).
     #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
@@ -373,7 +374,7 @@ impl fmt::Debug for TransportKey {
 ///
 /// It determines the bridge [`RequestId`] and combines with the [`PairingCode`] to derive the
 /// [`TransportKey`]. It travels to the Approving Authenticator inside
-/// the Pairing URI, which therefore is a bearer secret.
+/// the [`PairingUri`](super::PairingUri), which therefore is a bearer secret.
 #[derive(Clone, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct PairingSecret([u8; 32]);
 
