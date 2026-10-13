@@ -175,3 +175,14 @@ world-id-relay = { path = "services/relay" }
 # With opt-level 2 the same deserialization completes in seconds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Deterministic release build used for the reproducible OPRF node image
+# (services/oprf-node/Dockerfile). codegen-units>1 and incremental builds are
+# documented sources of nondeterministic output; strip drops debuginfo that
+# embeds build paths.
+[profile.reproducible]
+inherits = "release"
+codegen-units = 1
+incremental = false
+debug = false
+strip = true

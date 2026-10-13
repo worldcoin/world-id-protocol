@@ -35,9 +35,8 @@ jobs:
       id-token: write
       packages: write
       attestations: write
-    uses: ./.github/workflows/build-docker.yml
+    uses: ./.github/workflows/build-docker-oprf-node.yml
     with:
-      service: oprf-node
       version: ${{ needs.prepare.outputs.version }}
     secrets: inherit
 
