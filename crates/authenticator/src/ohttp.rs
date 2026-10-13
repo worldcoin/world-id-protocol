@@ -4,7 +4,7 @@ use ohttp::ClientRequest;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
-use crate::AuthenticatorError;
+use crate::{AuthenticatorError, service_client::REQUEST_TIMEOUT};
 
 /// Configuration for routing requests through a single OHTTP relay endpoint.
 ///
@@ -153,6 +153,7 @@ impl OhttpClient {
         let resp = self
             .client
             .post(&self.relay_url)
+            .timeout(REQUEST_TIMEOUT)
             .header("content-type", "message/ohttp-req")
             .body(enc_request)
             .send()
