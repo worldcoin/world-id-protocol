@@ -159,7 +159,7 @@ impl RegistrationRequester {
             RequestedClass::Proving => None,
         };
         let pairing_secret = PairingSecret::generate()?;
-        let code = PairingCode::generate()?;
+        let code = PairingCode::generate();
         let secrets = SessionSecrets {
             transport_key: pairing_secret.transport_key(&code)?,
             response_key: ResponseSecretKey::generate()?,
