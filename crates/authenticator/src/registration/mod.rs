@@ -31,7 +31,7 @@ pub use request::{
 };
 pub use response::{
     KnownAuthenticator, MAX_VAULT_SIZE, RegisterResponseMessage, RegistrationErrorData,
-    RegistrationErrorReason, RegistrationResult, Vault, VaultFormat, decode_response,
+    RegistrationErrorReason, RegistrationResult, Vault, decode_response,
 };
 pub use session::{
     EncryptedPayload, PairingCode, PairingSecret, RequestId, ResponsePublicKey, ResponseSecretKey,

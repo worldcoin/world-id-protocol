@@ -16,15 +16,6 @@ use super::{MAX_RESPONSE_SIZE, reject_tags};
 /// response fits the message-bridge's 5 MiB body limit (WIP-109 §3.6.2).
 pub const MAX_VAULT_SIZE: usize = 3_670_016;
 
-/// The format of a [`Vault`].
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum VaultFormat {
-    /// The output of WalletKit's `export_vault_for_backup`, to be imported with
-    /// `merge_vault_from_backup`.
-    #[serde(rename = "walletkit_plaintext_v1")]
-    WalletkitPlaintextV1,
-}
-
 /// A credential vault export.
 ///
 /// The vault holds the account's credentials and the associated data from their issuers, which
@@ -32,8 +23,10 @@ pub enum VaultFormat {
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Vault {
-    /// The format of `data`.
-    pub format: VaultFormat,
+    /// The format of `data`, a CBOR text string. This crate does not interpret it; the consumer
+    /// of the vault decides which formats it accepts. Untrusted text with no length limit of its
+    /// own; the message size limit bounds it.
+    pub format: String,
     /// The vault bytes, a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes on the wire.
     #[serde(with = "vault_data")]
     pub data: Zeroizing<Vec<u8>>,
@@ -393,15 +386,25 @@ mod tests {
         Value::Map(entries)
     }
 
-    /// A CBOR `result` whose vault has the format `walletkit_plaintext_v1` and the given `data`.
-    fn result_with_vault_data(data: Value) -> Value {
+    /// The vault format used by these tests.
+    const FORMAT: &str = "sqlite_v1";
+
+    /// A CBOR `result` whose vault has the given `format` and `data`.
+    fn result_with_vault(format: Value, data: Value) -> Value {
         result_with(
             "vault",
-            Value::Map(vec![
-                ("format".into(), "walletkit_plaintext_v1".into()),
-                ("data".into(), data),
-            ]),
+            Value::Map(vec![("format".into(), format), ("data".into(), data)]),
         )
+    }
+
+    /// A CBOR `result` whose vault has the format [`FORMAT`] and the given `data`.
+    fn result_with_vault_data(data: Value) -> Value {
+        result_with_vault(FORMAT.into(), data)
+    }
+
+    /// A CBOR `result` whose vault has the given `format` and valid `data`.
+    fn result_with_vault_format(format: Value) -> Value {
+        result_with_vault(format, Value::Bytes(b"SQLite".to_vec()))
     }
 
     /// A CBOR `result` that also names one known authenticator at `known_pubkey_id`.
@@ -443,7 +446,7 @@ mod tests {
                 name: "phone".to_string(),
             }],
             vault: Some(Vault {
-                format: VaultFormat::WalletkitPlaintextV1,
+                format: FORMAT.to_string(),
                 data: b"SQLite".to_vec().into(),
             }),
         };
@@ -460,7 +463,7 @@ mod tests {
             (
                 "vault".into(),
                 Value::Map(vec![
-                    ("format".into(), "walletkit_plaintext_v1".into()),
+                    ("format".into(), FORMAT.into()),
                     ("data".into(), Value::Bytes(b"SQLite".to_vec())),
                 ]),
             ),
@@ -645,6 +648,11 @@ mod tests {
                 "expected a CBOR byte string"; "tagged vault data")]
     #[test_case(result_with_vault_data(Value::Array(vec![0x53.into(), 0x51.into()])),
                 "expected a CBOR byte string"; "vault data as integers")]
+    #[test_case(result_with_vault_format(Value::Bytes(FORMAT.as_bytes().to_vec())),
+                "invalid type: bytes"; "vault format as bytes")]
+    #[test_case(result_with_vault_format(1.into()), "invalid type: integer"; "integer vault format")]
+    #[test_case(result_with_vault_format(Value::Tag(0, Box::new(FORMAT.into()))),
+                "must not contain CBOR tags"; "tagged vault format")]
     #[test_case(result_with("unknown", true.into()), "unknown field `unknown`"; "unknown field")]
     fn result_rejects_other_cbor_types_and_tags(result: Value, error: &str) {
         let rejection = decode_result(result).unwrap_err().to_string();
@@ -658,7 +666,7 @@ mod tests {
             pubkey_id: 1,
             authenticators: Vec::new(),
             vault: Some(Vault {
-                format: VaultFormat::WalletkitPlaintextV1,
+                format: FORMAT.to_string(),
                 data: vec![0; size].into(),
             }),
         };
