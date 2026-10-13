@@ -10,6 +10,8 @@ use std::{borrow::Cow, fmt, str::FromStr};
 
 use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
 
+use crate::serde_utils::deserialize_present;
+
 mod cbor;
 mod response;
 mod uri;
@@ -464,18 +466,6 @@ pub enum DeeplinkError {
     /// A parameter is not `key=value`, has an empty key, or is not valid percent-encoded UTF-8.
     #[error("deeplink parameters must be percent-encoded `key=value` pairs")]
     MalformedParameter,
-}
-
-/// Preserves the distinction between an absent field and a present value, including null.
-/// With `serde(default)`, absence becomes `None`; a present value is parsed as `T` and wrapped in
-/// `Some`. This preserves nullable parameters and error data, while rejecting a null request ID
-/// because `Id` itself does not accept null. Deserializing `Option<T>` would treat both as absent.
-fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
-where
-    D: Deserializer<'de>,
-    T: Deserialize<'de>,
-{
-    T::deserialize(deserializer).map(Some)
 }
 
 const fn is_valid_method_name(name: &str) -> bool {
