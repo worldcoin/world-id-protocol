@@ -8,7 +8,7 @@ use aes_gcm::{
 };
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use hkdf::Hkdf;
-use rand::{RngCore as _, rngs::OsRng};
+use rand::{Rng as _, RngCore as _, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 use world_id_primitives::authenticator_message::Id;
@@ -86,25 +86,12 @@ pub struct PairingCode([u8; 6]);
 impl PairingCode {
     /// Generates a code from the operating system CSPRNG, independently of the pairing secret.
     ///
-    /// # Errors
+    /// # Panics
     ///
-    /// Returns [`TransportError::Rng`] if the operating system CSPRNG is unavailable.
-    pub fn generate() -> Result<Self, TransportError> {
-        let mut code = Zeroizing::new([0; 6]);
-        for letter in code.iter_mut() {
-            loop {
-                let mut byte = [0];
-                OsRng
-                    .try_fill_bytes(&mut byte)
-                    .map_err(|_| TransportError::Rng)?;
-                // Bytes from 234 = 9 × 26 up are redrawn, so every letter has exactly nine bytes.
-                if byte[0] < 234 {
-                    *letter = b'A' + byte[0] % 26;
-                    break;
-                }
-            }
-        }
-        Ok(Self(*code))
+    /// Panics if the operating system CSPRNG is unavailable.
+    #[must_use]
+    pub fn generate() -> Self {
+        Self(std::array::from_fn(|_| OsRng.gen_range(b'A'..=b'Z')))
     }
 
     /// Exposes the secret code for display after the bridge reports `retrieved`.
@@ -533,7 +520,7 @@ mod tests {
 
     #[test]
     fn generated_pairing_code_is_six_uppercase_letters() {
-        let code = PairingCode::generate().unwrap();
+        let code = PairingCode::generate();
         assert_eq!(code.as_str().len(), 6);
         assert!(code.as_str().bytes().all(|b| b.is_ascii_uppercase()));
     }
