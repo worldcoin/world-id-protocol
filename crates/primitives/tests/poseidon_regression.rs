@@ -7,6 +7,8 @@
 //! `key_set`'s decimal literal). A mistake in either the layout or a
 //! [`ds`](world_id_primitives::poseidon::ds) constant therefore fails this test
 //! rather than silently changing the wire format.
+//!
+//! Also checks the WIP-201 signed digest against its published test vector.
 
 use std::str::FromStr as _;
 
@@ -18,7 +20,36 @@ use world_id_primitives::SessionId;
 use world_id_primitives::{
     AuthenticatorPublicKeySet, Credential, FieldElement, MAX_AUTHENTICATOR_KEYS,
     authenticator::oprf_query_digest,
+    poseidon::{self, DomainSeparator},
 };
+
+#[test]
+fn wip_201_signed_digest_matches_spec() {
+    // WIP-201 Appendix A1, "With an AAT": https://github.com/worldcoin/world-id-protocol/pull/979
+    let field =
+        |hex: &str| FieldElement::from(Fq::from_be_bytes_mod_order(&hex::decode(hex).unwrap()));
+    let digest = poseidon::hash(
+        DomainSeparator::<11>::new(b"WORLD-ID/WIP-201/SIGN"),
+        [
+            1_783_446_000u64.into(),
+            field("21e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c415"),
+            field("010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b"),
+            field("2abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d"),
+            FieldElement::ZERO,
+            1_928_118u64.into(),
+            42u64.into(),
+            field("14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8"),
+            0x0013_0000_07d6_0102u64.into(),
+            1u64.into(),
+            field("2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d"),
+        ],
+    );
+
+    assert_eq!(
+        digest,
+        field("229f44f2caa18f609df2c1819223d778ef8b08a30ce9de589dbe754275e123bd")
+    );
+}
 
 /// The pre-refactor layout: domain separator in slot 0, inputs in the rate, digest
 /// squeezed from slot 1.
