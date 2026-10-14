@@ -1,4 +1,5 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
 use testcontainers_modules::{redis::Redis, testcontainers::ContainerAsync};
@@ -14,6 +15,20 @@ use world_id_test_utils::anvil::TestAnvil;
 /// key, not a real secret.
 pub(crate) const GW_PRIVATE_KEY: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+
+/// Returns the registry encoding of a valid authenticator public key derived from `seed`.
+#[allow(dead_code)]
+pub(crate) fn authenticator_pubkey(seed: u32) -> U256 {
+    let mut private_key = [0u8; 32];
+    private_key[..4].copy_from_slice(&seed.to_le_bytes());
+    let pubkey = EdDSAPrivateKey::from_bytes(private_key).public();
+    U256::from_le_bytes(
+        pubkey
+            .to_compressed_bytes()
+            .expect("public key must compress"),
+    )
+}
+
 /// A running gateway + anvil + Redis stack for integration tests.
 ///
 /// All three variants of the test-gateway setup share this struct.  The

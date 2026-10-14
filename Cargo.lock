@@ -1081,6 +1081,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "03918c3dbd7701a85c6b9887732e2921175f26c350b4563841d0958c21d57e6d"
 
 [[package]]
+name = "argon2"
+version = "0.5.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3610892ee6e0cbce8ae2700349fcf8f98adb0dbfbee85aec3c9179d29cc072"
+dependencies = [
+ "base64ct",
+ "blake2 0.10.6",
+ "cpufeatures 0.2.17",
+ "zeroize",
+]
+
+[[package]]
 name = "ark-bls12-381"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2871,6 +2883,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "cbor-diag"
+version = "0.1.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc245b6ecd09b23901a4fbad1ad975701fd5061ceaef6afa93a2d70605a64429"
+dependencies = [
+ "bs58",
+ "chrono",
+ "data-encoding",
+ "half",
+ "nom",
+ "num-bigint 0.4.6",
+ "num-rational",
+ "num-traits",
+ "separator",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4333,7 +4364,7 @@ checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "alloy",
  "eyre",
@@ -5573,7 +5604,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "legacy-recovery-migration"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "alloy",
  "clap",
@@ -7614,6 +7645,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "quantum-box"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb7283ace318fb11a5d8730ec2914c111d00588527a09902c142e8c0c229bf52"
+dependencies = [
+ "base64 0.22.1",
+ "getrandom 0.4.1",
+ "hpke",
+ "thiserror 2.0.18",
+ "x-wing",
+ "zeroize",
+]
+
+[[package]]
 name = "quick-error"
 version = "1.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8959,6 +9004,12 @@ name = "send_wrapper"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd0b0ec5f1c1ca621c432a25813d8d60c88abe6d3e08a3eb9cf37d97a0fe3d73"
+
+[[package]]
+name = "separator"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f97841a747eef040fcd2e7b3b9a220a7205926e60488e673d9e4926d27772ce5"
 
 [[package]]
 name = "serde"
@@ -12176,10 +12227,12 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
+ "aes-gcm",
  "alloy",
  "anyhow",
+ "argon2",
  "ark-serialize 0.6.0",
  "axum",
  "backon",
@@ -12189,8 +12242,10 @@ dependencies = [
  "getrandom 0.2.17",
  "getrandom 0.4.1",
  "hex",
+ "hkdf 0.13.0",
  "mockito",
  "ohttp",
+ "quantum-box",
  "rand 0.8.6",
  "reqwest 0.13.2",
  "ruint",
@@ -12198,10 +12253,12 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
  "taceo-oprf",
+ "test-case",
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
@@ -12210,11 +12267,12 @@ dependencies = [
  "world-id-proof",
  "world-id-registries",
  "world-id-test-utils",
+ "zeroize",
 ]
 
 [[package]]
 name = "world-id-core"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "alloy",
  "backon",
@@ -12262,7 +12320,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-flamingo"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "ark-ff 0.6.0",
  "coset",
@@ -12363,7 +12421,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "alloy",
  "ark-ff 0.6.0",
@@ -12448,7 +12506,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -12457,12 +12515,14 @@ dependencies = [
  "ark-ff 0.6.0",
  "ark-serialize 0.6.0",
  "arrayvec",
+ "cbor-diag",
  "ciborium",
  "embed-doc-image",
  "eyre",
  "getrandom 0.4.1",
  "hex",
  "k256 0.13.4",
+ "percent-encoding",
  "provekit-common",
  "rand 0.8.6",
  "ruint",
@@ -12478,6 +12538,7 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-oprf",
  "taceo-poseidon2",
+ "test-case",
  "thiserror 2.0.18",
  "url",
  "utoipa",
@@ -12486,7 +12547,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -12523,7 +12584,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-registries"
-version = "0.14.1"
+version = "0.15.0"
 dependencies = [
  "alloy",
  "anyhow",
