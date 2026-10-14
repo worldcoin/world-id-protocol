@@ -164,7 +164,7 @@ impl VariableLengthDomainSeparator {
 
 /// Hashes the `N` field elements of a message under its domain separator.
 ///
-/// The permutation width is the smallest supported width larger than `N` (so
+/// The permutation width is the smallest WIP-100 width larger than `N` (so
 /// `N + 1` rounded up to one of `2, 3, 4, 8, 12, 16`); unused rate slots are zero.
 /// Since `N` comes from the separator, the width is fixed by the message's
 /// definition and cannot vary with runtime data.
@@ -332,10 +332,14 @@ mod tests {
         // Remaining widths and the zero-padded arities within each.
         assert_width!(1, 2, t2);
         assert_width!(4, 8, t8);
+        assert_width!(5, 8, t8);
         assert_width!(6, 8, t8);
         assert_width!(8, 12, t12);
+        assert_width!(9, 12, t12);
+        assert_width!(10, 12, t12);
         assert_width!(11, 12, t12);
         assert_width!(12, 16, t16);
+        assert_width!(13, 16, t16);
         assert_width!(15, 16, t16);
     }
 

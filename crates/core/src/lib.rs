@@ -12,6 +12,7 @@ pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 pub use world_id_authenticator::{
     AccountAuthenticators, Authenticator, AuthenticatorError, CredentialInput,
     InitializingAuthenticator, OhttpClientConfig, OnchainKeyRepresentable, ProofResult,
+    registration,
 };
 
 /// Re-export registry contract bindings for convenience
