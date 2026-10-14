@@ -9,6 +9,7 @@ pub use account::{AccountAuthenticators, AccountSnapshot};
 mod init;
 mod prove;
 mod recovery;
+pub mod registration;
 mod traits;
 pub use init::InitializingAuthenticator;
 pub use traits::OnchainKeyRepresentable;
