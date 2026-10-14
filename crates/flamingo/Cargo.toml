@@ -13,14 +13,19 @@ repository.workspace = true
 [dependencies]
 ark-babyjubjub = { workspace = true }
 ark-ff = { workspace = true }
+base64 = { workspace = true }
+ciborium = { workspace = true }
 coset = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
+p256 = { workspace = true, features = ["ecdsa"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 world-id-primitives = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
-sha2 = { workspace = true }
 
 [lints]
 workspace = true
