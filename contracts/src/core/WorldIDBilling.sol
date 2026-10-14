@@ -83,9 +83,9 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
     uint256 internal constant TOKEN_UNIT = 10 ** TOKEN_DECIMALS;
 
-    uint256 internal constant PERIOD_START_OFFSET = 14 hours;
+    uint256 internal constant AOE_OFFSET = 12 hours;
 
-    uint256 internal constant PERIOD_END_OFFSET = 12 hours;
+    uint256 internal constant PERIOD_OVERLAP = 26 hours;
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -226,7 +226,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     /// @inheritdoc IWorldIDBilling
     function getBillingPeriod(uint64 timestamp) external pure virtual returns (uint64 periodStart, uint64 periodEnd) {
         periodStart = _monthStart(timestamp);
-        periodEnd = SafeCast.toUint64(_addMonths(periodStart, 1) + PERIOD_END_OFFSET);
+        periodEnd = _addMonths(periodStart, 1);
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -296,10 +296,10 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         uint256[5] calldata proof
     ) internal returns (bool) {
         _validateScope(scope);
-        if (
-            block.timestamp + PERIOD_START_OFFSET < scope.periodStart
-                || block.timestamp >= _addMonths(scope.periodStart, 1) + PERIOD_END_OFFSET
-        ) revert PeriodNotCurrent();
+        if (block.timestamp + PERIOD_OVERLAP < scope.periodStart || block.timestamp >= _addMonths(scope.periodStart, 1))
+        {
+            revert PeriodNotCurrent();
+        }
 
         mapping(uint256 => bool) storage nonces = usedNonces[scope.rpId][scope.periodStart];
         if (nonces[authorization.nonce]) revert NonceAlreadyUsed();
@@ -417,10 +417,11 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     //                     CALENDAR MATH                      //
     ////////////////////////////////////////////////////////////
 
-    /// @dev 00:00:00 UTC on the first day of the month containing `timestamp`.
+    /// @dev 00:00:00 AoE (12:00:00 UTC) on the first day of the month containing `timestamp`.
     function _monthStart(uint256 timestamp) internal pure returns (uint64) {
-        (uint256 year, uint256 month,) = DateTimeLib.timestampToDate(timestamp);
-        return SafeCast.toUint64(DateTimeLib.dateToTimestamp(year, month, 1));
+        if (timestamp < AOE_OFFSET) revert BillingPeriodBeforeUnixEpoch();
+        (uint256 year, uint256 month,) = DateTimeLib.timestampToDate(timestamp - AOE_OFFSET);
+        return SafeCast.toUint64(DateTimeLib.dateToTimestamp(year, month, 1) + AOE_OFFSET);
     }
 
     /// @dev `periodStart + months`; exact because `periodStart` is always the 1st of a month.
