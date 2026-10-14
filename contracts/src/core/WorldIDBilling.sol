@@ -21,7 +21,7 @@ import {IWIP101} from "./interfaces/IWIP101.sol";
 
 /// @title WorldIDBilling
 /// @author World Contributors
-/// @notice Sells per-RP, per-UTC-month registration capacity in WLD and records billing nullifiers (WIP-107).
+/// @notice Sells prorated monthly registration capacity in WLD with a 26-hour overlap (WIP-107).
 /// @custom:security-contact security@toolsforhumanity.com
 contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTransient, IWorldIDBilling {
     using SafeERC20 for IERC20;
@@ -82,6 +82,10 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     uint8 public constant TOKEN_DECIMALS = 18;
 
     uint256 internal constant TOKEN_UNIT = 10 ** TOKEN_DECIMALS;
+
+    uint256 internal constant PERIOD_START_OFFSET = 14 hours;
+
+    uint256 internal constant PERIOD_END_OFFSET = 12 hours;
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -213,13 +217,16 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
         uint256 usdPerWld = _verifiedUsdPerWld();
         uint256 usdTotal = capacityAmount * pricePerWorldID;
-        return Math.mulDiv(usdTotal, TOKEN_UNIT, usdPerWld, Math.Rounding.Ceil);
+        uint256 monthEnd = _addMonths(scope.periodStart, 1);
+        uint256 duration = monthEnd - scope.periodStart;
+        uint256 remaining = monthEnd - Math.max(block.timestamp, scope.periodStart);
+        return Math.mulDiv(usdTotal, remaining * TOKEN_UNIT, duration * usdPerWld, Math.Rounding.Ceil);
     }
 
     /// @inheritdoc IWorldIDBilling
     function getBillingPeriod(uint64 timestamp) external pure virtual returns (uint64 periodStart, uint64 periodEnd) {
         periodStart = _monthStart(timestamp);
-        periodEnd = _addMonths(periodStart, 1);
+        periodEnd = SafeCast.toUint64(_addMonths(periodStart, 1) + PERIOD_END_OFFSET);
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -289,8 +296,10 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         uint256[5] calldata proof
     ) internal returns (bool) {
         _validateScope(scope);
-        // Registration is limited to the current period; purchases may run ahead.
-        if (scope.periodStart != _monthStart(block.timestamp)) revert PeriodNotCurrent();
+        if (
+            block.timestamp + PERIOD_START_OFFSET < scope.periodStart
+                || block.timestamp >= _addMonths(scope.periodStart, 1) + PERIOD_END_OFFSET
+        ) revert PeriodNotCurrent();
 
         mapping(uint256 => bool) storage nonces = usedNonces[scope.rpId][scope.periodStart];
         if (nonces[authorization.nonce]) revert NonceAlreadyUsed();

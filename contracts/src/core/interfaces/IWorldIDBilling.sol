@@ -11,7 +11,7 @@ interface IWorldIDBilling {
     //                        STRUCTS                         //
     ////////////////////////////////////////////////////////////
 
-    /// @notice Identifies one deployment, RP and UTC calendar month.
+    /// @notice Identifies one deployment, RP and UTC calendar month; registration overlaps adjacent months.
     struct BillingContext {
         uint256 chainId;
         address billingContract;
@@ -93,7 +93,7 @@ interface IWorldIDBilling {
     //                   PUBLIC FUNCTIONS                     //
     ////////////////////////////////////////////////////////////
 
-    /// @notice WLD base units charged for `capacityAmount` at the current verified rate.
+    /// @notice WLD base units charged at the verified rate, prorated by seconds remaining in the UTC month.
     function quotePurchase(BillingContext calldata scope, uint256 capacityAmount)
         external
         view
@@ -130,7 +130,7 @@ interface IWorldIDBilling {
     /// @notice Whether an authorization nonce was consumed for the RP and period.
     function usedNonces(uint64 rpId, uint64 periodStart, uint256 nonce) external view returns (bool);
 
-    /// @notice UTC month containing `timestamp`; `periodEnd` is exclusive.
+    /// @notice UTC month identifier and exclusive end at next month's 00:00 UTC−12; registration starts at UTC+14.
     function getBillingPeriod(uint64 timestamp) external view returns (uint64 periodStart, uint64 periodEnd);
 
     /// @notice Billing OPRF action for `scope` (WIP-107 §4.2).
