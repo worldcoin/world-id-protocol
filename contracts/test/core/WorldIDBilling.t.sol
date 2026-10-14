@@ -202,10 +202,10 @@ interface IERC165Like {
 ////////////////////////////////////////////////////////////
 
 contract WorldIDBillingTest is Test {
-    uint64 constant OCT_2026 = 1790812800;
-    uint64 constant NOV_2026 = 1793491200;
-    uint64 constant DEC_2026 = 1796083200;
-    uint64 constant JAN_2027 = 1798761600;
+    uint64 constant OCT_2026 = 1790812800 + 12 hours;
+    uint64 constant NOV_2026 = 1793491200 + 12 hours;
+    uint64 constant DEC_2026 = 1796083200 + 12 hours;
+    uint64 constant JAN_2027 = 1798761600 + 12 hours;
     uint64 constant NOW = OCT_2026 + 5 days + 12 hours;
 
     uint64 constant RP_ID = 42;
@@ -336,29 +336,30 @@ contract WorldIDBillingTest is Test {
         _assertPeriod(OCT_2026, OCT_2026, NOV_2026);
         _assertPeriod(NOV_2026 - 1, OCT_2026, NOV_2026);
         _assertPeriod(DEC_2026 + 30 days, DEC_2026, JAN_2027);
-        _assertPeriod(1709164800, 1706745600, 1709251200); // 2024-02-29 (leap day)
-        _assertPeriod(1832976000 + 28 days, 1832976000, 1835481600); // 2028-02-29
-        _assertPeriod(0, 0, 2678400);
+        _assertPeriod(1709164800, 1706745600 + 12 hours, 1709251200 + 12 hours); // 2024-02-29 (leap day)
+        _assertPeriod(1832976000 + 28 days, 1832976000 + 12 hours, 1835481600 + 12 hours); // 2028-02-29
+        _assertPeriod(NOV_2026 - 12 hours, OCT_2026, NOV_2026);
+        _assertPeriod(NOV_2026, NOV_2026, DEC_2026);
     }
 
     function _assertPeriod(uint64 timestamp, uint64 start, uint64 end) internal view {
         (uint64 periodStart, uint64 periodEnd) = billing.getBillingPeriod(timestamp);
         assertEq(periodStart, start, "start");
-        assertEq(periodEnd, end + 12 hours, "end");
+        assertEq(periodEnd, end, "end");
     }
 
     function testFuzz_GetBillingPeriod_ContainsTimestamp(uint64 timestamp) public view {
-        timestamp = uint64(bound(timestamp, 0, 253402300799)); // through 9999-12-31
+        timestamp = uint64(bound(timestamp, 12 hours, 253402300799)); // through 9999-12-31
         (uint64 periodStart, uint64 periodEnd) = billing.getBillingPeriod(timestamp);
         assertLe(periodStart, timestamp);
         assertGt(periodEnd, timestamp);
-        assertGe(periodEnd - periodStart - 12 hours, 28 days);
-        assertLe(periodEnd - periodStart - 12 hours, 31 days);
-        assertEq(periodStart % 1 days, 0);
+        assertGe(periodEnd - periodStart, 28 days);
+        assertLe(periodEnd - periodStart, 31 days);
+        assertEq(periodStart % 1 days, 12 hours);
         (uint64 again,) = billing.getBillingPeriod(periodStart);
         assertEq(again, periodStart, "canonical");
         (uint64 next,) = billing.getBillingPeriod(periodEnd);
-        assertEq(next, periodEnd - 12 hours, "next canonical");
+        assertEq(next, periodEnd, "next canonical");
     }
 
     function test_BillingAction_MatchesSpec() public view {
@@ -370,24 +371,39 @@ contract WorldIDBillingTest is Test {
         assertEq(expected >> 248, 0, "uniqueness prefix");
     }
 
+    function test_GetBillingPeriod_RejectsUnrepresentablePeriod() public {
+        vm.expectRevert(IWorldIDBilling.BillingPeriodBeforeUnixEpoch.selector);
+        billing.getBillingPeriod(12 hours - 1);
+        _assertPeriod(12 hours, 12 hours, 2678400 + 12 hours);
+    }
+
+    function test_Quote_ProratesUntilAoeMonthEnd() public {
+        vm.warp(NOV_2026 - 12 hours);
+        priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
+        assertEq(billing.quotePurchase(_scope(OCT_2026), 10), 4032258064516130);
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 0.25e18);
+        _buy(OCT_2026, 10);
+        assertEq(wld.balanceOf(feeRecipient), 4032258064516130);
+    }
+
     function test_Register_OverlapBoundaries() public {
         _buy(OCT_2026, 1);
         _buy(NOV_2026, 2);
         IWorldIDBilling.BillingContext memory october = _scope(OCT_2026);
         IWorldIDBilling.BillingContext memory november = _scope(NOV_2026);
 
-        vm.warp(NOV_2026 - 14 hours - 1);
+        vm.warp(NOV_2026 - 26 hours - 1);
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(november);
         vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
         billing.register(november, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof());
 
-        vm.warp(NOV_2026 - 14 hours);
+        vm.warp(NOV_2026 - 26 hours);
         auth = _authorize(november);
         assertTrue(
             billing.register(november, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof())
         );
 
-        vm.warp(NOV_2026 + 12 hours - 1);
+        vm.warp(NOV_2026 - 1);
         auth = _authorize(october);
         assertTrue(
             billing.register(october, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof())
@@ -395,7 +411,7 @@ contract WorldIDBillingTest is Test {
         assertTrue(billing.isRegistered(RP_ID, OCT_2026, NULLIFIER));
         assertTrue(billing.isRegistered(RP_ID, NOV_2026, NULLIFIER));
 
-        vm.warp(NOV_2026 + 12 hours);
+        vm.warp(NOV_2026);
         auth = _authorize(october);
         vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
         billing.register(october, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof());
@@ -410,7 +426,7 @@ contract WorldIDBillingTest is Test {
         priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
         _buy(DEC_2026, 1);
         _buy(JAN_2027, 1);
-        vm.warp(JAN_2027);
+        vm.warp(JAN_2027 - 12 hours);
 
         IWorldIDBilling.Registration[] memory entries = new IWorldIDBilling.Registration[](1);
         IWorldIDBilling.BillingContext memory december = _scope(DEC_2026);
@@ -427,19 +443,19 @@ contract WorldIDBillingTest is Test {
         assertEq(decemberCount, 1);
         assertEq(januaryCount, 1);
 
-        vm.warp(JAN_2027 + 12 hours);
+        vm.warp(JAN_2027);
         vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
         billing.registerMany(december, entries);
     }
 
     function test_Register_OverlapAcrossLeapMonthBoundary() public {
-        uint64 february = 1706745600;
-        uint64 march = 1709251200;
+        uint64 february = 1706745600 + 12 hours;
+        uint64 march = 1709251200 + 12 hours;
         vm.warp(february);
         priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
         _buy(february, 1);
         _buy(march, 1);
-        vm.warp(march - 14 hours);
+        vm.warp(march - 26 hours);
 
         IWorldIDBilling.BillingContext memory scope = _scope(february);
         assertTrue(
@@ -499,10 +515,10 @@ contract WorldIDBillingTest is Test {
     }
 
     function test_Quote_OverlapDoesNotChangeProration() public {
-        vm.warp(NOV_2026 - 14 hours);
+        vm.warp(NOV_2026 - 26 hours);
         priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
         assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 0.25e18);
-        assertEq(billing.quotePurchase(_scope(OCT_2026), 10), 4704301075268818);
+        assertEq(billing.quotePurchase(_scope(OCT_2026), 10), 8736559139784947);
 
         vm.warp(NOV_2026 - 1);
         priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
@@ -542,7 +558,7 @@ contract WorldIDBillingTest is Test {
         uint256 usdPrice,
         uint256 wldPrice
     ) public {
-        uint64[4] memory starts = [uint64(1675209600), 1706745600, NOV_2026, OCT_2026];
+        uint64[4] memory starts = [uint64(1675209600 + 12 hours), 1706745600 + 12 hours, NOV_2026, OCT_2026];
         uint256[4] memory durations = [uint256(28 days), 29 days, 30 days, 31 days];
         uint256 index = monthIndex % starts.length;
         uint64 start = starts[index];
@@ -588,7 +604,7 @@ contract WorldIDBillingTest is Test {
 
         vm.prank(rp);
         vm.expectRevert(IWorldIDBilling.PeriodOutsidePurchaseWindow.selector);
-        billing.purchaseCapacity(_scope(1788220800), 1, type(uint256).max); // 2026-09-01
+        billing.purchaseCapacity(_scope(1788220800 + 12 hours), 1, type(uint256).max); // 2026-09-01
     }
 
     function test_Purchase_RejectsInvalidContext() public {
@@ -625,11 +641,11 @@ contract WorldIDBillingTest is Test {
         priceSource.set(USD_PER_WLD, uint64(block.timestamp));
         _buy(DEC_2026, 1);
         _buy(JAN_2027, 1);
-        _buy(1801440000, 1); // 2027-02-01
+        _buy(1801440000 + 12 hours, 1); // 2027-02-01
 
         vm.prank(rp);
         vm.expectRevert(IWorldIDBilling.PeriodOutsidePurchaseWindow.selector);
-        billing.purchaseCapacity(_scope(1803859200), 1, type(uint256).max); // 2027-03-01
+        billing.purchaseCapacity(_scope(1803859200 + 12 hours), 1, type(uint256).max); // 2027-03-01
     }
 
     function test_Purchase_RejectsAboveMax() public {
