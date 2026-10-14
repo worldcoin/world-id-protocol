@@ -344,7 +344,7 @@ contract WorldIDBillingTest is Test {
     function _assertPeriod(uint64 timestamp, uint64 start, uint64 end) internal view {
         (uint64 periodStart, uint64 periodEnd) = billing.getBillingPeriod(timestamp);
         assertEq(periodStart, start, "start");
-        assertEq(periodEnd, end, "end");
+        assertEq(periodEnd, end + 12 hours, "end");
     }
 
     function testFuzz_GetBillingPeriod_ContainsTimestamp(uint64 timestamp) public view {
@@ -352,13 +352,13 @@ contract WorldIDBillingTest is Test {
         (uint64 periodStart, uint64 periodEnd) = billing.getBillingPeriod(timestamp);
         assertLe(periodStart, timestamp);
         assertGt(periodEnd, timestamp);
-        assertGe(periodEnd - periodStart, 28 days);
-        assertLe(periodEnd - periodStart, 31 days);
+        assertGe(periodEnd - periodStart - 12 hours, 28 days);
+        assertLe(periodEnd - periodStart - 12 hours, 31 days);
         assertEq(periodStart % 1 days, 0);
         (uint64 again,) = billing.getBillingPeriod(periodStart);
         assertEq(again, periodStart, "canonical");
         (uint64 next,) = billing.getBillingPeriod(periodEnd);
-        assertEq(next, periodEnd, "next canonical");
+        assertEq(next, periodEnd - 12 hours, "next canonical");
     }
 
     function test_BillingAction_MatchesSpec() public view {
@@ -370,17 +370,102 @@ contract WorldIDBillingTest is Test {
         assertEq(expected >> 248, 0, "uniqueness prefix");
     }
 
+    function test_Register_OverlapBoundaries() public {
+        _buy(OCT_2026, 1);
+        _buy(NOV_2026, 2);
+        IWorldIDBilling.BillingContext memory october = _scope(OCT_2026);
+        IWorldIDBilling.BillingContext memory november = _scope(NOV_2026);
+
+        vm.warp(NOV_2026 - 14 hours - 1);
+        IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(november);
+        vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
+        billing.register(november, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof());
+
+        vm.warp(NOV_2026 - 14 hours);
+        auth = _authorize(november);
+        assertTrue(
+            billing.register(november, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof())
+        );
+
+        vm.warp(NOV_2026 + 12 hours - 1);
+        auth = _authorize(october);
+        assertTrue(
+            billing.register(october, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof())
+        );
+        assertTrue(billing.isRegistered(RP_ID, OCT_2026, NULLIFIER));
+        assertTrue(billing.isRegistered(RP_ID, NOV_2026, NULLIFIER));
+
+        vm.warp(NOV_2026 + 12 hours);
+        auth = _authorize(october);
+        vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
+        billing.register(october, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof());
+        auth = _authorize(november);
+        assertTrue(
+            billing.register(november, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER + 1, _proof())
+        );
+    }
+
+    function test_RegisterMany_OverlapAcrossYearBoundary() public {
+        vm.warp(DEC_2026 + 10 days);
+        priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
+        _buy(DEC_2026, 1);
+        _buy(JAN_2027, 1);
+        vm.warp(JAN_2027);
+
+        IWorldIDBilling.Registration[] memory entries = new IWorldIDBilling.Registration[](1);
+        IWorldIDBilling.BillingContext memory december = _scope(DEC_2026);
+        entries[0] = _entry(december, NULLIFIER);
+        entries[0].expiresAtMin = uint64(vm.getBlockTimestamp());
+        assertTrue(billing.registerMany(december, entries)[0]);
+
+        IWorldIDBilling.BillingContext memory january = _scope(JAN_2027);
+        entries[0] = _entry(january, NULLIFIER);
+        entries[0].expiresAtMin = uint64(vm.getBlockTimestamp());
+        assertTrue(billing.registerMany(january, entries)[0]);
+        (, uint256 decemberCount) = billing.periods(RP_ID, DEC_2026);
+        (, uint256 januaryCount) = billing.periods(RP_ID, JAN_2027);
+        assertEq(decemberCount, 1);
+        assertEq(januaryCount, 1);
+
+        vm.warp(JAN_2027 + 12 hours);
+        vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
+        billing.registerMany(december, entries);
+    }
+
+    function test_Register_OverlapAcrossLeapMonthBoundary() public {
+        uint64 february = 1706745600;
+        uint64 march = 1709251200;
+        vm.warp(february);
+        priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
+        _buy(february, 1);
+        _buy(march, 1);
+        vm.warp(march - 14 hours);
+
+        IWorldIDBilling.BillingContext memory scope = _scope(february);
+        assertTrue(
+            billing.register(
+                scope, _authorize(scope), ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof()
+            )
+        );
+        scope = _scope(march);
+        assertTrue(
+            billing.register(
+                scope, _authorize(scope), ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof()
+            )
+        );
+    }
+
     ////////////////////////////////////////////////////////////
     //                       PURCHASES                        //
     ////////////////////////////////////////////////////////////
 
     function test_Quote_ExactAndRoundsUp() public {
         // 10 * $0.05 / $2 = 0.25 WLD
-        assertEq(billing.quotePurchase(_scope(OCT_2026), 10), 0.25e18);
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 0.25e18);
 
         priceSource.set(3e18, NOW);
         // 1 * $0.05 / $3 = 0.0166.. WLD, rounded up
-        assertEq(billing.quotePurchase(_scope(OCT_2026), 1), 16666666666666667);
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 1), 16666666666666667);
     }
 
     function test_RejectsNon18DecimalToken() public {
@@ -397,13 +482,91 @@ contract WorldIDBillingTest is Test {
         new ERC1967Proxy(address(implementation), initData);
     }
 
+    function test_Quote_ProratesPurchaseAndTopUp() public {
+        vm.warp(NOV_2026 + 20 days);
+        priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 83333333333333334);
+        _buy(NOV_2026, 10);
+        assertEq(wld.balanceOf(feeRecipient), 83333333333333334);
+
+        vm.warp(NOV_2026 + 21 days);
+        priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
+        _buy(NOV_2026, 5);
+        assertEq(wld.balanceOf(feeRecipient), 83333333333333334 + 0.0375e18);
+        (uint256 capacity, uint256 count) = billing.periods(RP_ID, NOV_2026);
+        assertEq(capacity, 15);
+        assertEq(count, 0);
+    }
+
+    function test_Quote_OverlapDoesNotChangeProration() public {
+        vm.warp(NOV_2026 - 14 hours);
+        priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 0.25e18);
+        assertEq(billing.quotePurchase(_scope(OCT_2026), 10), 4704301075268818);
+
+        vm.warp(NOV_2026 - 1);
+        priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
+        assertEq(billing.quotePurchase(_scope(OCT_2026), 10), 93339307049);
+
+        vm.warp(NOV_2026);
+        priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 0.25e18);
+        vm.expectRevert(IWorldIDBilling.PeriodOutsidePurchaseWindow.selector);
+        billing.quotePurchase(_scope(OCT_2026), 10);
+    }
+
+    function test_Quote_RoundsUpOnce() public {
+        billing.setPricePerWorldID(21);
+        vm.warp(NOV_2026 + 18 days);
+        priceSource.set(10e18, vm.getBlockTimestamp());
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 1), 1);
+
+        billing.setPricePerWorldID(5);
+        vm.warp(NOV_2026 + 10 days);
+        priceSource.set(3e18, vm.getBlockTimestamp());
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 1), 2);
+    }
+
+    function test_Quote_FullPrecisionProration() public {
+        billing.setPricePerWorldID(1e18);
+        vm.warp(OCT_2026 + 31 days / 2);
+        priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
+        uint256 capacity = 1 << 180;
+        assertEq(billing.quotePurchase(_scope(OCT_2026), capacity), capacity * 1e18 / 4);
+    }
+
+    function testFuzz_Quote_ProratesCalendarMonths(
+        uint8 monthIndex,
+        uint256 elapsed,
+        uint256 capacity,
+        uint256 usdPrice,
+        uint256 wldPrice
+    ) public {
+        uint64[4] memory starts = [uint64(1675209600), 1706745600, NOV_2026, OCT_2026];
+        uint256[4] memory durations = [uint256(28 days), 29 days, 30 days, 31 days];
+        uint256 index = monthIndex % starts.length;
+        uint64 start = starts[index];
+        uint256 duration = durations[index];
+        elapsed = bound(elapsed, 0, duration - 1);
+        capacity = bound(capacity, 1, 1e12);
+        usdPrice = bound(usdPrice, 1, 1e18);
+        wldPrice = bound(wldPrice, 1, 1e20);
+        vm.warp(start + elapsed);
+        priceSource.set(wldPrice, vm.getBlockTimestamp());
+        billing.setPricePerWorldID(usdPrice);
+
+        uint256 numerator = capacity * usdPrice * (duration - elapsed) * 1e18;
+        uint256 denominator = duration * wldPrice;
+        assertEq(billing.quotePurchase(_scope(start), capacity), (numerator + denominator - 1) / denominator);
+    }
+
     function test_Purchase_TransfersAndAddsCapacity() public {
         vm.expectEmit(address(billing));
-        emit IWorldIDBilling.CapacityPurchased(RP_ID, OCT_2026, rp, 10, 0.25e18);
+        emit IWorldIDBilling.CapacityPurchased(RP_ID, OCT_2026, rp, 10, 205645161290322581);
         vm.prank(rp);
-        billing.purchaseCapacity(_scope(OCT_2026), 10, 0.25e18);
+        billing.purchaseCapacity(_scope(OCT_2026), 10, 205645161290322581);
 
-        assertEq(wld.balanceOf(feeRecipient), 0.25e18);
+        assertEq(wld.balanceOf(feeRecipient), 205645161290322581);
         (uint256 capacity, uint256 count) = billing.periods(RP_ID, OCT_2026);
         assertEq(capacity, 10);
         assertEq(count, 0);
@@ -471,8 +634,12 @@ contract WorldIDBillingTest is Test {
 
     function test_Purchase_RejectsAboveMax() public {
         vm.prank(rp);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDBilling.MaxWldAmountExceeded.selector, 0.25e18, 0.25e18 - 1));
-        billing.purchaseCapacity(_scope(OCT_2026), 10, 0.25e18 - 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IWorldIDBilling.MaxWldAmountExceeded.selector, 205645161290322581, 205645161290322581 - 1
+            )
+        );
+        billing.purchaseCapacity(_scope(OCT_2026), 10, 205645161290322581 - 1);
     }
 
     function test_Purchase_RejectsBadPrices() public {
@@ -505,11 +672,11 @@ contract WorldIDBillingTest is Test {
     function test_Quote_NormalizesFeedDecimals() public {
         priceSource.setDecimals(8);
         priceSource.set(2e8, NOW);
-        assertEq(billing.quotePurchase(_scope(OCT_2026), 10), 0.25e18);
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 0.25e18);
 
         priceSource.setDecimals(20);
         priceSource.set(2e20, NOW);
-        assertEq(billing.quotePurchase(_scope(OCT_2026), 10), 0.25e18);
+        assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 0.25e18);
     }
 
     function test_Purchase_BadPriceKeepsExistingCapacity() public {
@@ -528,7 +695,11 @@ contract WorldIDBillingTest is Test {
         token.mint(rp, 1e18);
         vm.startPrank(rp);
         token.approve(address(feeBilling), type(uint256).max);
-        vm.expectRevert(abi.encodeWithSelector(IWorldIDBilling.FeeTransferMismatch.selector, 0.25e18, 0.25e18 - 1));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IWorldIDBilling.FeeTransferMismatch.selector, 205645161290322581, 205645161290322581 - 1
+            )
+        );
         feeBilling.purchaseCapacity(
             IWorldIDBilling.BillingContext(block.chainid, address(feeBilling), RP_ID, OCT_2026), 10, 1e18
         );
@@ -536,10 +707,10 @@ contract WorldIDBillingTest is Test {
     }
 
     function test_Purchase_PriceChangeKeepsEarlierCapacity() public {
-        _buy(OCT_2026, 4);
+        _buy(NOV_2026, 4);
         billing.setPricePerWorldID(1e18);
-        _buy(OCT_2026, 1);
-        (uint256 capacity,) = billing.periods(RP_ID, OCT_2026);
+        _buy(NOV_2026, 1);
+        (uint256 capacity,) = billing.periods(RP_ID, NOV_2026);
         assertEq(capacity, 5);
         assertEq(wld.balanceOf(feeRecipient), 0.1e18 + 0.5e18);
     }
