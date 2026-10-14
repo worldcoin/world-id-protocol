@@ -1,4 +1,7 @@
-use crate::{config::AppState, error::IndexerErrorResponse};
+use crate::{
+    config::AppState,
+    error::{IndexerErrorBody, IndexerErrorResponse},
+};
 use axum::{Json, extract::State};
 use world_id_primitives::api_types::{
     IndexerAuthenticatorsResponse, IndexerErrorCode, IndexerQueryRequest,
@@ -16,6 +19,9 @@ use world_id_primitives::api_types::{
     request_body = IndexerQueryRequest,
     responses(
         (status = 200, body = IndexerAuthenticatorsResponse),
+        (status = 400, description = "Leaf index is 0", body = IndexerErrorBody),
+        (status = 404, description = "No account exists at the given leaf index", body = IndexerErrorBody),
+        (status = 500, description = "Database error, or the indexed authenticator slots are inconsistent", body = IndexerErrorBody),
     ),
     tag = "indexer"
 )]
