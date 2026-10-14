@@ -81,6 +81,16 @@ impl AccountAuthenticators {
         ))
     }
 
+    /// Returns the lowest slot a new authenticator would take: a removed slot, or the slot after
+    /// the last key. `None` if the key set is full.
+    ///
+    /// The registry may allow fewer slots than the key set holds;
+    /// [`Authenticator::insert_authenticator_at`] checks that limit.
+    #[must_use]
+    pub fn lowest_free_pubkey_id(&self) -> Option<u32> {
+        lowest_free_slot(&self.key_set)
+    }
+
     /// Returns the registry's packed account data for `pubkey` on `leaf_index`: the recovery
     /// counter, the slot and the leaf index. `None` if `pubkey` is not registered.
     #[must_use]
@@ -157,34 +167,6 @@ impl TryFrom<IndexerAuthenticatorsResponse> for AccountAuthenticators {
     }
 }
 
-/// A view of an account to sign an account operation from. See
-/// [`Authenticator::fetch_account_snapshot`].
-#[derive(Clone, Debug)]
-pub struct AccountSnapshot {
-    /// The account the snapshot belongs to.
-    pub leaf_index: u64,
-    /// The account's signature nonce.
-    pub signature_nonce: U256,
-    /// The account's registered authenticators.
-    pub authenticators: AccountAuthenticators,
-    /// The registry's `getMaxAuthenticators()`, or `None` when no RPC is configured.
-    pub max_authenticators: Option<usize>,
-}
-
-impl AccountSnapshot {
-    /// Returns the lowest slot a new authenticator would be inserted at, or `None` if every slot
-    /// below the registry's `getMaxAuthenticators()` is taken.
-    ///
-    /// Slots are also bounded by [`MAX_AUTHENTICATOR_KEYS`], the size of the key set. Without
-    /// [`max_authenticators`](Self::max_authenticators), that is the only bound, and the registry
-    /// rejects a slot above its limit.
-    #[must_use]
-    pub fn lowest_free_pubkey_id(&self) -> Option<u32> {
-        let limit = self.max_authenticators.unwrap_or(MAX_AUTHENTICATOR_KEYS);
-        lowest_free_slot(&self.authenticators.key_set, limit)
-    }
-}
-
 impl Authenticator {
     /// Inserts a new authenticator to the account, at the lowest free slot of its current key set.
     ///
@@ -201,12 +183,10 @@ impl Authenticator {
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
     ) -> Result<GatewayRequestId, AuthenticatorError> {
-        let nonce = self.signing_nonce().await?;
         let key_set = self.fetch_authenticator_pubkeys().await?;
-        let pubkey_id = lowest_free_slot(&key_set, MAX_AUTHENTICATOR_KEYS)
-            .ok_or(AuthenticatorError::MaxAuthenticatorsReached)?;
-        self.submit_insert_authenticator(
-            nonce,
+        let pubkey_id =
+            lowest_free_slot(&key_set).ok_or(AuthenticatorError::MaxAuthenticatorsReached)?;
+        self.insert_authenticator_at(
             &key_set,
             pubkey_id,
             new_authenticator_pubkey,
@@ -215,82 +195,94 @@ impl Authenticator {
         .await
     }
 
-    /// Fetches the account state needed to sign an account operation.
+    /// Inserts a new authenticator at `pubkey_id`, signing the change from `key_set`, the
+    /// account's current key set.
     ///
-    /// The authenticator slots, the off-chain signer commitment and the recovery counter come
-    /// from the same indexed account state (the indexer's `/authenticators` endpoint). The
-    /// signature nonce is read separately, from the registry when an RPC URL is configured and
-    /// from the indexer otherwise. The registry's `getMaxAuthenticators()` is read only when an
-    /// RPC URL is configured.
+    /// Use it to insert into a key set the caller has already checked, e.g. one from
+    /// [`Authenticator::fetch_authenticators`]. If `key_set` is stale, the registry rejects the
+    /// operation, because it checks the old off-chain signer commitment.
     ///
-    /// An operation signed from a stale snapshot cannot land: the registry checks both the nonce
-    /// and the old commitment, so it reverts instead.
-    ///
-    /// # Errors
-    /// Returns an error if a network call fails, or if the indexer returns malformed or
-    /// inconsistent slots.
-    pub async fn fetch_account_snapshot(&self) -> Result<AccountSnapshot, AuthenticatorError> {
-        let signature_nonce = self.signing_nonce().await?;
-        let authenticators =
-            Self::fetch_authenticators_for(self.leaf_index(), &self.config, &self.indexer_client)
-                .await?;
-        let max_authenticators = match self.registry() {
-            Some(registry) => Some(
-                registry
-                    .getMaxAuthenticators()
-                    .call()
-                    .await?
-                    .saturating_to::<usize>(),
-            ),
-            None => None,
-        };
-        Ok(AccountSnapshot {
-            leaf_index: self.leaf_index(),
-            signature_nonce,
-            authenticators,
-            max_authenticators,
-        })
-    }
-
-    /// Inserts a new authenticator at the snapshot's
-    /// [`lowest_free_pubkey_id`](AccountSnapshot::lowest_free_pubkey_id), signing the operation
-    /// with the snapshot's nonce and off-chain signer commitment.
-    ///
+    /// `pubkey_id` must be free in `key_set`: a removed slot, or the slot after the last key.
     /// `new_authenticator_address` is the new authenticator's management key for an Admin
     /// Authenticator, or the zero address for a Proving Authenticator (WIP-104).
     ///
     /// Returns the gateway request to track the operation with.
     ///
     /// # Errors
-    /// - [`AuthenticatorError::InvalidAccountSnapshot`] if the snapshot belongs to another
-    ///   account.
-    /// - [`AuthenticatorError::MaxAuthenticatorsReached`] if the snapshot has no free slot below
-    ///   the registry's limit.
+    /// - [`AuthenticatorError::MaxAuthenticatorsReached`] if `pubkey_id` is not below the
+    ///   registry's `getMaxAuthenticators()`. The limit is read only when an RPC URL is
+    ///   configured.
+    /// - [`AuthenticatorError::PrimitiveError`] if `pubkey_id` is taken or past the slot after
+    ///   the last key.
     /// - [`AuthenticatorError::GatewayError`] if the gateway rejects the operation, e.g. because
-    ///   the snapshot is stale or the address is already registered.
+    ///   `key_set` is stale or the address is already registered.
     /// - Other errors if signing or a network call fails.
-    pub async fn insert_authenticator_from_snapshot(
+    pub async fn insert_authenticator_at(
         &self,
-        snapshot: &AccountSnapshot,
+        key_set: &AuthenticatorPublicKeySet,
+        pubkey_id: u32,
         new_authenticator_pubkey: EdDSAPublicKey,
         new_authenticator_address: Address,
     ) -> Result<GatewayRequestId, AuthenticatorError> {
-        if snapshot.leaf_index != self.leaf_index() {
-            return Err(AuthenticatorError::InvalidAccountSnapshot(
-                "snapshot belongs to a different account",
-            ));
+        let slot = pubkey_id as usize;
+        if key_set.get(slot).is_some() {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "pubkey_id".to_string(),
+                reason: format!("slot {pubkey_id} is taken"),
+            }
+            .into());
         }
-        let pubkey_id = snapshot
-            .lowest_free_pubkey_id()
-            .ok_or(AuthenticatorError::MaxAuthenticatorsReached)?;
-        self.submit_insert_authenticator(
-            snapshot.signature_nonce,
-            &snapshot.authenticators.key_set,
-            pubkey_id,
-            new_authenticator_pubkey,
+        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
+        let old_offchain_signer_commitment = key_set.leaf_hash();
+        let mut new_key_set = key_set.clone();
+        if slot == new_key_set.len() {
+            new_key_set.try_push(new_authenticator_pubkey)?;
+        } else {
+            new_key_set.try_set_at_index(slot, new_authenticator_pubkey)?;
+        }
+        let new_offchain_signer_commitment = new_key_set.leaf_hash();
+
+        if let Some(registry) = self.registry() {
+            let max_authenticators = registry.getMaxAuthenticators().call().await?;
+            if U256::from(pubkey_id) >= max_authenticators {
+                return Err(AuthenticatorError::MaxAuthenticatorsReached);
+            }
+        }
+        let leaf_index = self.leaf_index();
+        let nonce = self.signing_nonce().await?;
+
+        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
+
+        let signature = sign_insert_authenticator(
+            &self.signer.onchain_signer(),
+            leaf_index,
             new_authenticator_address,
+            pubkey_id,
+            encoded_offchain_pubkey,
+            new_offchain_signer_commitment.into(),
+            nonce,
+            &eip712_domain,
         )
-        .await
+        .map_err(|e| {
+            AuthenticatorError::Generic(format!("Failed to sign insert authenticator: {e}"))
+        })?;
+
+        let req = InsertAuthenticatorRequest {
+            leaf_index,
+            new_authenticator_address,
+            pubkey_id,
+            new_authenticator_pubkey: encoded_offchain_pubkey,
+            old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
+            new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
+            signature,
+            nonce,
+        };
+
+        let body: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(self.config.gateway_url(), "/insert-authenticator", &req)
+            .await?;
+        Ok(body.request_id)
     }
 
     /// Updates an existing authenticator slot with a new authenticator.
@@ -434,75 +426,16 @@ impl Authenticator {
             .await?;
         Ok(body.status)
     }
-
-    /// Signs and submits an `InsertAuthenticator` operation that adds `new_authenticator_pubkey`
-    /// to `key_set` at `pubkey_id`.
-    ///
-    /// `pubkey_id` must be free in `key_set`: a removed slot or the slot after the last key, as
-    /// [`lowest_free_slot`] returns.
-    async fn submit_insert_authenticator(
-        &self,
-        nonce: U256,
-        key_set: &AuthenticatorPublicKeySet,
-        pubkey_id: u32,
-        new_authenticator_pubkey: EdDSAPublicKey,
-        new_authenticator_address: Address,
-    ) -> Result<GatewayRequestId, AuthenticatorError> {
-        let leaf_index = self.leaf_index();
-        let encoded_offchain_pubkey = new_authenticator_pubkey.to_ethereum_representation()?;
-        let old_offchain_signer_commitment = key_set.leaf_hash();
-        let mut new_key_set = key_set.clone();
-        let slot = pubkey_id as usize;
-        if slot == new_key_set.len() {
-            new_key_set.try_push(new_authenticator_pubkey)?;
-        } else {
-            new_key_set.try_set_at_index(slot, new_authenticator_pubkey)?;
-        }
-        let new_offchain_signer_commitment = new_key_set.leaf_hash();
-
-        let eip712_domain = domain(self.config.chain_id(), *self.config.registry_address());
-
-        let signature = sign_insert_authenticator(
-            &self.signer.onchain_signer(),
-            leaf_index,
-            new_authenticator_address,
-            pubkey_id,
-            encoded_offchain_pubkey,
-            new_offchain_signer_commitment.into(),
-            nonce,
-            &eip712_domain,
-        )
-        .map_err(|e| {
-            AuthenticatorError::Generic(format!("Failed to sign insert authenticator: {e}"))
-        })?;
-
-        let req = InsertAuthenticatorRequest {
-            leaf_index,
-            new_authenticator_address,
-            pubkey_id,
-            new_authenticator_pubkey: encoded_offchain_pubkey,
-            old_offchain_signer_commitment: old_offchain_signer_commitment.into(),
-            new_offchain_signer_commitment: new_offchain_signer_commitment.into(),
-            signature,
-            nonce,
-        };
-
-        let body: GatewayStatusResponse = self
-            .gateway_client
-            .post_json(self.config.gateway_url(), "/insert-authenticator", &req)
-            .await?;
-        Ok(body.request_id)
-    }
 }
 
 /// Returns the lowest slot of `key_set` a new key would take, a removed slot or the slot after
-/// the last key, or `None` if the key set is full or that slot is not below `limit`.
-fn lowest_free_slot(key_set: &AuthenticatorPublicKeySet, limit: usize) -> Option<u32> {
+/// the last key, or `None` if the key set is full.
+fn lowest_free_slot(key_set: &AuthenticatorPublicKeySet) -> Option<u32> {
     let slot = key_set
         .iter()
         .position(Option::is_none)
         .unwrap_or(key_set.len());
-    (slot < limit.min(MAX_AUTHENTICATOR_KEYS))
+    (slot < MAX_AUTHENTICATOR_KEYS)
         .then(|| u32::try_from(slot).expect("a slot below MAX_AUTHENTICATOR_KEYS fits in u32"))
 }
 
@@ -637,27 +570,16 @@ mod tests {
         ));
     }
 
-    #[test_case(&[], None => Some(0); "an empty account")]
-    #[test_case(&[Some(1)], None => Some(1); "the slot after the last key")]
-    #[test_case(&[Some(1), None, Some(2)], Some(2) => Some(1); "a removed slot below the limit")]
-    #[test_case(&[Some(1)], Some(1) => None; "the registry limit reached")]
-    #[test_case(&[Some(1), Some(2), Some(3), Some(4), Some(5), Some(6), Some(7)], None => None; "a full key set")]
-    #[test_case(&[Some(1), Some(2), Some(3), Some(4), Some(5), Some(6), Some(7)], Some(96) => None; "a full key set below a higher registry limit")]
-    fn lowest_free_pubkey_id(
-        key_seeds: &[Option<u8>],
-        max_authenticators: Option<usize>,
-    ) -> Option<u32> {
+    #[test_case(&[] => Some(0); "an empty account")]
+    #[test_case(&[Some(1)] => Some(1); "the slot after the last key")]
+    #[test_case(&[Some(1), None, Some(2)] => Some(1); "a removed slot")]
+    #[test_case(&[Some(1), Some(2), Some(3), Some(4), Some(5), Some(6), Some(7)] => None; "a full key set")]
+    fn lowest_free_pubkey_id(key_seeds: &[Option<u8>]) -> Option<u32> {
         let slots: Vec<_> = key_seeds
             .iter()
             .map(|seed| seed.map(|seed| (seed, Address::ZERO)))
             .collect();
-        AccountSnapshot {
-            leaf_index: LEAF_INDEX,
-            signature_nonce: U256::ZERO,
-            authenticators: authenticators(&slots),
-            max_authenticators,
-        }
-        .lowest_free_pubkey_id()
+        authenticators(&slots).lowest_free_pubkey_id()
     }
 
     /// An Admin Authenticator of the account at `leaf_index` whose gateway is `server`.
@@ -691,21 +613,22 @@ mod tests {
         }
     }
 
-    fn snapshot(max_authenticators: Option<usize>) -> AccountSnapshot {
-        AccountSnapshot {
-            leaf_index: LEAF_INDEX,
-            signature_nonce: U256::from(7),
-            authenticators: authenticators(&[Some((1, ADMIN))]),
-            max_authenticators,
-        }
+    /// Answers the indexer's `/signature-nonce` with 7.
+    async fn mock_signature_nonce(server: &mut mockito::ServerGuard) -> mockito::Mock {
+        server
+            .mock("POST", "/signature-nonce")
+            .with_header("content-type", "application/json")
+            .with_body(serde_json::json!({ "signature_nonce": "0x7" }).to_string())
+            .create_async()
+            .await
     }
 
     #[test_case(&[Some(1)], 1, &[Some(1), Some(2)]; "after the last key")]
     #[test_case(&[Some(1), None, Some(3)], 1, &[Some(1), Some(2), Some(3)]; "into a removed slot")]
     #[tokio::test]
-    async fn insertion_signs_the_new_key_set_with_the_snapshots_nonce_and_commitment(
+    async fn insertion_signs_the_new_key_set_with_the_old_commitment(
         key_seeds: &[Option<u8>],
-        expected_pubkey_id: u32,
+        pubkey_id: u32,
         new_key_seeds: &[Option<u8>],
     ) {
         let mut server = mockito::Server::new_async().await;
@@ -714,12 +637,7 @@ mod tests {
             .iter()
             .map(|seed| seed.map(|seed| (seed, ADMIN)))
             .collect();
-        let snapshot = AccountSnapshot {
-            leaf_index: LEAF_INDEX,
-            signature_nonce: U256::from(7),
-            authenticators: authenticators(&slots),
-            max_authenticators: None,
-        };
+        let authenticators = authenticators(&slots);
         let new_commitment: U256 = AuthenticatorPublicKeySet::from_sparse_encoded_pubkeys(
             new_key_seeds
                 .iter()
@@ -729,15 +647,16 @@ mod tests {
         .unwrap()
         .leaf_hash()
         .into();
+        let _nonce = mock_signature_nonce(&mut server).await;
         let submission = server
             .mock("POST", "/insert-authenticator")
             .match_body(mockito::Matcher::PartialJson(serde_json::json!({
                 "leaf_index": "0x2a",
-                "pubkey_id": format!("{expected_pubkey_id:#x}"),
+                "pubkey_id": format!("{pubkey_id:#x}"),
                 "new_authenticator_address": Address::ZERO,
                 "new_authenticator_pubkey": format!("{:#x}", encoded_pubkey(2)),
                 "old_offchain_signer_commitment":
-                    format!("{:#x}", snapshot.authenticators.offchain_signer_commitment()),
+                    format!("{:#x}", authenticators.offchain_signer_commitment()),
                 "new_offchain_signer_commitment": format!("{new_commitment:#x}"),
                 "nonce": "0x7",
             })))
@@ -745,7 +664,7 @@ mod tests {
             .with_header("content-type", "application/json")
             .with_body(
                 serde_json::json!({
-                    "request_id": "insert-snapshot",
+                    "request_id": "insert-at",
                     "kind": "insert_authenticator",
                     "status": { "state": "queued" },
                 })
@@ -755,16 +674,23 @@ mod tests {
             .await;
 
         let request_id = authenticator
-            .insert_authenticator_from_snapshot(&snapshot, pubkey(2), Address::ZERO)
+            .insert_authenticator_at(
+                authenticators.key_set(),
+                pubkey_id,
+                pubkey(2),
+                Address::ZERO,
+            )
             .await
             .unwrap();
 
-        assert_eq!(request_id.as_str(), "insert-snapshot");
+        assert_eq!(request_id.as_str(), "insert-at");
         submission.assert_async().await;
     }
 
+    #[test_case(0; "a taken slot")]
+    #[test_case(2; "a slot past the one after the last key")]
     #[tokio::test]
-    async fn insertion_refuses_a_full_snapshot_without_submitting() {
+    async fn insertion_refuses_a_slot_that_is_not_free_without_submitting(pubkey_id: u32) {
         let mut server = mockito::Server::new_async().await;
         let authenticator = admin_authenticator(&server, LEAF_INDEX);
         let no_submission = server
@@ -774,34 +700,15 @@ mod tests {
             .await;
 
         let result = authenticator
-            .insert_authenticator_from_snapshot(&snapshot(Some(1)), pubkey(2), Address::ZERO)
+            .insert_authenticator_at(
+                authenticators(&[Some((1, ADMIN))]).key_set(),
+                pubkey_id,
+                pubkey(2),
+                Address::ZERO,
+            )
             .await;
 
-        assert!(matches!(
-            result,
-            Err(AuthenticatorError::MaxAuthenticatorsReached)
-        ));
-        no_submission.assert_async().await;
-    }
-
-    #[tokio::test]
-    async fn insertion_refuses_another_accounts_snapshot_without_submitting() {
-        let mut server = mockito::Server::new_async().await;
-        let authenticator = admin_authenticator(&server, LEAF_INDEX + 1);
-        let no_submission = server
-            .mock("POST", "/insert-authenticator")
-            .expect(0)
-            .create_async()
-            .await;
-
-        let result = authenticator
-            .insert_authenticator_from_snapshot(&snapshot(None), pubkey(2), Address::ZERO)
-            .await;
-
-        assert!(matches!(
-            result,
-            Err(AuthenticatorError::InvalidAccountSnapshot(_))
-        ));
+        assert!(matches!(result, Err(AuthenticatorError::PrimitiveError(_))));
         no_submission.assert_async().await;
     }
 }

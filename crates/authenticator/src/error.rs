@@ -22,10 +22,6 @@ pub enum AuthenticatorError {
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 
-    /// A supplied account snapshot belongs to another account.
-    #[error("Invalid account snapshot: {0}")]
-    InvalidAccountSnapshot(&'static str),
-
     /// The account has no free authenticator slot.
     #[error("The account has no free authenticator slot.")]
     MaxAuthenticatorsReached,

@@ -648,6 +648,22 @@ impl Authenticator {
         Ok(authenticators)
     }
 
+    /// Fetches the registered authenticators of this authenticator's account, as
+    /// [`Authenticator::fetch_account_authenticators`] does, with this authenticator's clients.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if the indexer does not know the account, or
+    ///   its indexed state predates the account's latest recovery.
+    /// - Other errors if a network call fails or the indexer returns an invalid account state.
+    pub async fn fetch_authenticators(&self) -> Result<AccountAuthenticators, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let authenticators =
+            Self::fetch_authenticators_for(leaf_index, &self.config, &self.indexer_client).await?;
+        Self::ensure_no_later_recovery(self.registry().as_deref(), leaf_index, &authenticators)
+            .await?;
+        Ok(authenticators)
+    }
+
     /// Fetches the registered authenticators of the account at `leaf_index` from the indexer's
     /// `/authenticators` endpoint.
     pub(crate) async fn fetch_authenticators_for(
@@ -848,7 +864,7 @@ fn ws_connector() -> Connector {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{AccountSnapshot, error::AuthenticatorError, traits::OnchainKeyRepresentable};
+    use crate::{error::AuthenticatorError, traits::OnchainKeyRepresentable};
     use alloy::primitives::{U256, address};
     use test_case::test_case;
     use world_id_primitives::MAX_AUTHENTICATOR_KEYS;
@@ -1377,6 +1393,30 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn insertion_refuses_a_slot_at_the_registry_limit() {
+        let mut server = mockito::Server::new_async().await;
+        let _limit = mock_registry_call::<WorldIdRegistry::getMaxAuthenticatorsCall>(
+            &mut server,
+            U256::from(1),
+        )
+        .await;
+        let authenticator = proving_authenticator(config_with_rpc(&server));
+        let authenticators: AccountAuthenticators =
+            authenticators_response(&[Some((own_pubkey(), Address::ZERO))], 3)
+                .try_into()
+                .unwrap();
+
+        let result = authenticator
+            .insert_authenticator_at(authenticators.key_set(), 1, test_pubkey(1), ADMIN)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::MaxAuthenticatorsReached)
+        ));
+    }
+
     fn assert_send_static<F: Future + Send + 'static>(_future: &F) {}
 
     /// UniFFI exports async functions only if their futures are `Send`, so these futures must be
@@ -1385,14 +1425,10 @@ mod tests {
     fn account_futures_are_send_and_static() {
         let config = config_with_indexer("http://indexer.example.com".to_string());
         let authenticator = Arc::new(proving_authenticator(config.clone()));
-        let snapshot = AccountSnapshot {
-            leaf_index: LEAF_INDEX,
-            signature_nonce: U256::ZERO,
-            authenticators: authenticators_response(&[Some((own_pubkey(), Address::ZERO))], 3)
+        let authenticators: AccountAuthenticators =
+            authenticators_response(&[Some((own_pubkey(), Address::ZERO))], 3)
                 .try_into()
-                .unwrap(),
-            max_authenticators: None,
-        };
+                .unwrap();
 
         assert_send_static(&{
             let config = config.clone();
@@ -1420,7 +1456,7 @@ mod tests {
         });
         assert_send_static(&{
             let authenticator = Arc::clone(&authenticator);
-            async move { authenticator.fetch_account_snapshot().await }
+            async move { authenticator.fetch_authenticators().await }
         });
         assert_send_static(&{
             let authenticator = Arc::clone(&authenticator);
@@ -1434,7 +1470,7 @@ mod tests {
             let authenticator = Arc::clone(&authenticator);
             async move {
                 authenticator
-                    .insert_authenticator_from_snapshot(&snapshot, test_pubkey(1), ADMIN)
+                    .insert_authenticator_at(authenticators.key_set(), 1, test_pubkey(1), ADMIN)
                     .await
             }
         });
