@@ -5,10 +5,8 @@
 //! Assertion Token (AAT) is signed by that `assertion_key` (`ES256`) for a single request. Both are
 //! CWTs in a fixed deterministic CBOR layout.
 //!
-//! [`verify`](crate::authenticator_assertion::verify) performs every check of WIP-106 §3.8 on
-//! [`AuthenticatorAssertionPublicInputs`](crate::authenticator_assertion::AuthenticatorAssertionPublicInputs)
-//! and [`AuthenticatorAssertionPrivateInputs`](crate::authenticator_assertion::AuthenticatorAssertionPrivateInputs),
-//! the same split as the Noir `verify_assertion`.
+//! `verify` performs every check of WIP-106 §3.8 on `AuthenticatorAssertionPublicInputs` and
+//! `AuthenticatorAssertionPrivateInputs`, the same split as the Noir `verify_assertion`.
 
 use crate::{
     FieldElement,
