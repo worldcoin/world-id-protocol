@@ -303,13 +303,13 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
         mapping(uint256 => bool) storage nonces = usedNonces[scope.rpId][scope.periodStart];
         if (nonces[authorization.nonce]) revert NonceAlreadyUsed();
-        nonces[authorization.nonce] = true;
 
         uint256 billingAction = getBillingAction(scope);
         (uint160 oprfKeyId, address signer) = RP_REGISTRY.getOprfKeyIdAndSigner(scope.rpId);
         if (authorization.oprfKeyId != oprfKeyId) revert OprfKeyMismatch();
 
         _verifyAuthorization(authorization, signer, billingAction);
+        nonces[authorization.nonce] = true;
 
         // Uniqueness Proof with signal, genesis minimum and session set to zero (WIP-107 §4.3.1).
         WORLD_ID_VERIFIER.verifyProofAndSignals(
