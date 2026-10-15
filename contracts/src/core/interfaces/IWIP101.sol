@@ -10,6 +10,10 @@ import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
  */
 interface IWIP101 is IERC165 {
     error RpInvalidRequest(uint256 code);
+    error Wip101DataOnEoa();
+    error Wip101Unsupported();
+    error Wip101DataTooLong();
+    error Wip101Rejected();
 
     /// @notice Returns `0x35dbc8de` when the RP authorizes the request.
     function verifyRpRequest(
