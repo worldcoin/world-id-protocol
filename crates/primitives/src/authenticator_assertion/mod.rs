@@ -1,24 +1,24 @@
 //! Authenticator Assertions (WIP-106).
 //!
-//! An Authenticator Assertion Token (AAT) is signed by an Authenticator Provider's
-//! `authenticator_provider_key` after verifying platform integrity evidence for a single
-//! request. The request is bound through a blinded commitment, see
-//! [`request_commitment`].
+//! A Trust Anchor Key Token (TAKT) is signed by an Authenticator Provider's `trust_anchor_key`
+//! and attests a device-bound `assertion_key`. An Authenticator Assertion Token (AAT) is signed by
+//! that `assertion_key` for a single request. Both are `ES256` CWTs in a fixed deterministic CBOR
+//! layout.
 //!
-//! [`SignedAuthenticatorAssertionToken`] is what the Authenticator receives from the
-//! Authenticator Provider, as a CWT. A Rust verifier, e.g. inside a TEE, does not take the
-//! token but [`AuthenticatorAssertionPublicInputs`] and
-//! [`AuthenticatorAssertionPrivateInputs`], the same split as the Noir `verify_aat`. The
-//! Authenticator derives the private inputs from the token with
-//! [`SignedAuthenticatorAssertionToken::into_private_inputs`]; the verifier derives the public
-//! inputs it reports with [`AuthenticatorAssertionPrivateInputs::public_inputs`].
+//! [`verify`](crate::authenticator_assertion::verify) performs every check of WIP-106 §3.8 on
+//! [`AuthenticatorAssertionPublicInputs`](crate::authenticator_assertion::AuthenticatorAssertionPublicInputs)
+//! and [`AuthenticatorAssertionPrivateInputs`](crate::authenticator_assertion::AuthenticatorAssertionPrivateInputs),
+//! the same split as the Noir `verify_assertion`.
 
-use crate::{
-    FieldElement,
-    poseidon::{self, ds},
+use crate::FieldElement;
+use p256::ecdsa::{
+    Signature, SigningKey, VerifyingKey,
+    signature::{Signer, Verifier},
 };
-use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
-use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+
+/// Maximum remaining lifetime `exp - now` of a TAKT, in seconds.
+pub const MAX_TAKT_LIFETIME_SECS: u32 = 604_800;
 
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub const MAX_AAT_LIFETIME_SECS: u32 = 1800;
@@ -26,25 +26,28 @@ pub const MAX_AAT_LIFETIME_SECS: u32 = 1800;
 /// Maximum value of `sec_meta` (3-bit bitmask).
 pub const MAX_SEC_META: u8 = 0x7;
 
-/// `eat_profile` claim value (RFC 9711 §4.3.2) of an AAT.
-pub const EAT_PROFILE: &str = "https://world.org/eat/aat/v1";
+/// `eat_profile` claim value (RFC 9711 §4.3.2) of a TAKT.
+pub const EAT_PROFILE_TAKT: &str = "https://world.org/eat/takt/v1";
 
-/// COSE algorithm identifier for `BabyJubJub-EdDSA-Poseidon2` over an AAT (WIP-106).
-pub const COSE_ALG_AAT: i64 = -65537;
+/// `eat_profile` claim value (RFC 9711 §4.3.2) of an AAT.
+pub const EAT_PROFILE_AAT: &str = "https://world.org/eat/aat/v1";
 
 /// Smallest `exp` whose deterministic CBOR encoding is a 4-byte uint.
 const MIN_EXP: u32 = 1 << 16;
 
-/// Protected header `{1: -65537}` as a CBOR byte string.
-const PROTECTED: [u8; 8] = [0x47, 0xa1, 0x01, 0x3a, 0x00, 0x01, 0x00, 0x00];
+/// Length in bytes of the TAKT claims set.
+const TAKT_PAYLOAD_LEN: usize = 133;
 
-/// Length in bytes of the CWT claims set.
-const PAYLOAD_LEN: usize = 89;
+/// Length in bytes of the AAT claims set.
+const AAT_PAYLOAD_LEN: usize = 130;
+
+/// AAT protected header `{1: -7}`.
+const AAT_PROTECTED: [u8; 3] = [0xa1, 0x01, 0x26];
 
 /// Platform of the Authenticator.
 ///
-/// The known identifiers; `sec_flags` carries the raw byte so unknown values pass through
-/// to the RP's allowlist, as in the circuit.
+/// The known identifiers; `sec_flags` carries the raw byte so unknown values pass through to
+/// the RP's allowlist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum Platform {
@@ -64,10 +67,10 @@ impl From<Platform> for u8 {
     }
 }
 
-/// Class of integrity evidence the Authenticator Provider verified for a request.
+/// Where the `assertion_key` is generated and stored.
 ///
-/// The known identifiers, not a trust ranking; `sec_flags` carries the raw byte so
-/// unknown values pass through to the RP's allowlist, as in the circuit.
+/// The known identifiers, not a trust ranking; `sec_flags` carries the raw byte so unknown
+/// values pass through to the RP's allowlist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SecLevel {
@@ -75,12 +78,12 @@ pub enum SecLevel {
     Unspecified = 0,
     /// Hardware-bound key attested by the platform manufacturer (e.g. App Attest).
     HardwareKey = 1,
-    /// Platform integrity verdict without a hardware-bound key (e.g. Play Integrity).
-    PlatformVerdict = 3,
+    /// Non-extractable platform key with a platform integrity verdict (e.g. Play Integrity).
+    PlatformKey = 3,
     /// Internally verified (only authorized parties, e.g. internal developers).
     InternallyVerified = 5,
-    /// User-bound credential without environment integrity (e.g. a passkey).
-    UserBound = 10,
+    /// Software key, user-bound, without environment integrity (e.g. a browser-held key).
+    Software = 10,
 }
 
 impl From<SecLevel> for u8 {
@@ -89,10 +92,8 @@ impl From<SecLevel> for u8 {
     }
 }
 
-/// User presence the Authenticator reported and the Authenticator Provider signed in
-/// `sec_flags`; values are identifiers, not an order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(into = "u8", try_from = "u8")]
+/// User presence the Authenticator reports in an AAT; values are identifiers, not an order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum UserPresence {
     /// Undetermined.
@@ -128,20 +129,19 @@ impl TryFrom<u8> for UserPresence {
     }
 }
 
-/// Security attributes carried in `sec_flags`. Fields are private so every value packs into
-/// its own bit range.
+/// Security attributes of an `assertion_key`, carried in the TAKT's `sec_flags`. Fields are
+/// private so every value packs into its own bit range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SecFlags {
     platform: u8,
     sec_level: u8,
     build_version: u32,
     sec_meta: u8,
-    user_presence: UserPresence,
 }
 
 impl SecFlags {
-    /// Creates security flags. `platform`, `sec_level` and `build_version` fill their bit
-    /// ranges by type; unknown identifiers are kept for the RP to allowlist.
+    /// Creates security flags. Unknown `platform` and `sec_level` identifiers are kept for the RP
+    /// to allowlist.
     ///
     /// # Errors
     /// [`AssertionError::SecMetaTooLarge`] if `sec_meta` carries more than 3 bits.
@@ -150,7 +150,6 @@ impl SecFlags {
         sec_level: u8,
         build_version: u32,
         sec_meta: u8,
-        user_presence: UserPresence,
     ) -> Result<Self, AssertionError> {
         if sec_meta > MAX_SEC_META {
             return Err(AssertionError::SecMetaTooLarge(sec_meta));
@@ -160,7 +159,6 @@ impl SecFlags {
             sec_level,
             build_version,
             sec_meta,
-            user_presence,
         })
     }
 
@@ -170,13 +168,13 @@ impl SecFlags {
         self.platform
     }
 
-    /// Class of integrity evidence verified for the request (see [`SecLevel`]).
+    /// Where the `assertion_key` is generated and stored (see [`SecLevel`]).
     #[must_use]
     pub const fn sec_level(&self) -> u8 {
         self.sec_level
     }
 
-    /// Monotonic version of the Authenticator build that produced the evidence.
+    /// Monotonic version of the Authenticator build that requested the TAKT.
     #[must_use]
     pub const fn build_version(&self) -> u32 {
         self.build_version
@@ -188,48 +186,36 @@ impl SecFlags {
         self.sec_meta
     }
 
-    /// User presence (see [`UserPresence`]).
-    #[must_use]
-    pub const fn user_presence(&self) -> UserPresence {
-        self.user_presence
-    }
-
-    /// Unpacks `sec_flags`. Unknown `platform` and `sec_level` values are kept as is, for
-    /// the RP to allowlist.
+    /// Unpacks `sec_flags`.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidSecFlags`] on reserved bits or a reserved `user_presence`.
-    pub fn unpack(packed: u64) -> Result<Self, AssertionError> {
-        let [reserved, top, v3, v2, v1, v0, sec_level, platform] = packed.to_be_bytes();
-        // `top` holds bits 48-55: `sec_meta` (48-50), `user_presence` (51-53), reserved (54-55).
-        if reserved != 0 || top >> 6 != 0 {
-            return Err(AssertionError::InvalidSecFlags(packed));
+    /// [`AssertionError::InvalidSecFlags`] if bits 51 and above are set.
+    pub const fn unpack(packed: u64) -> Result<Self, AssertionError> {
+        if packed >> 51 != 0 {
+            return Err(AssertionError::InvalidSecFlags);
         }
-        let user_presence = UserPresence::try_from(top >> 3)
-            .map_err(|_| AssertionError::InvalidSecFlags(packed))?;
+        let [_, top, v3, v2, v1, v0, sec_level, platform] = packed.to_be_bytes();
         Ok(Self {
             platform,
             sec_level,
             build_version: u32::from_be_bytes([v3, v2, v1, v0]),
-            sec_meta: top & MAX_SEC_META,
-            user_presence,
+            sec_meta: top,
         })
     }
 
     /// Packs the sub-fields LSB-first: `platform` (bits 0-7), `sec_level` (8-15),
-    /// `build_version` (16-47), `sec_meta` (48-50), `user_presence` (51-53).
+    /// `build_version` (16-47), `sec_meta` (48-50).
     #[must_use]
     pub fn pack(&self) -> u64 {
         u64::from(self.platform)
             | (u64::from(self.sec_level) << 8)
             | (u64::from(self.build_version) << 16)
             | (u64::from(self.sec_meta) << 48)
-            | (u64::from(u8::from(self.user_presence)) << 51)
     }
 }
 
-/// Errors that can occur when building an Authenticator Assertion Token.
-#[derive(Debug, thiserror::Error)]
+/// Errors when building or decoding a TAKT or an AAT.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum AssertionError {
     /// `sec_meta` exceeds the 3-bit limit.
     #[error("sec_meta must carry at most 3 bits of data, got {0:#b}")]
@@ -237,92 +223,150 @@ pub enum AssertionError {
     /// `exp` can not use the fixed 4-byte CBOR uint encoding.
     #[error("exp {0} must be in [2^16, 2^32) for its fixed-width encoding")]
     ExpirationOutOfRange(u32),
-    /// `sec_flags` has reserved bits set.
-    #[error("invalid sec_flags {0:#x}")]
-    InvalidSecFlags(u64),
-    /// `presence` is a reserved value.
-    #[error("presence values 5 and above are reserved, got {0}")]
+    /// `exp` is not in `(now, now + max_lifetime]` at issuance.
+    #[error("exp {exp} must be in (now, now + max lifetime] at issuance, now is {now}")]
+    LifetimeOutOfRange {
+        /// Issuance time as seconds since the Unix epoch.
+        now: u32,
+        /// The requested expiration.
+        exp: u32,
+    },
+    /// `sec_flags` has reserved bits set. Carries no value, as `sec_flags` holds the private
+    /// `build_version`.
+    #[error("sec_flags bits 51 and above are reserved")]
+    InvalidSecFlags,
+    /// `user_presence` is a reserved value.
+    #[error("user_presence values 5 and above are reserved, got {0}")]
     ReservedPresence(u8),
-    /// The bytes are not the canonical CWT encoding of an AAT.
-    #[error("not a canonical AAT encoding: {0}")]
+    /// The bytes are not the canonical CWT encoding of the token.
+    #[error("not a canonical encoding: {0}")]
     InvalidEncoding(&'static str),
-    /// Key or signature material could not be encoded or decoded.
-    #[error("invalid key material: {0}")]
-    KeyEncoding(String),
 }
 
-/// A signed AAT, as decoded from its CWT encoding.
-#[derive(Debug, Clone)]
-pub struct SignedAuthenticatorAssertionToken {
-    /// The signed token values.
-    pub token: AuthenticatorAssertionToken,
-    /// The signature by the `authenticator_provider_key`.
-    pub signature: EdDSASignature,
-    /// The `kid` hint from the unprotected header, if present. Untrusted.
-    pub kid: Option<[u8; 32]>,
-}
-
-/// Computes the request commitment `aat_commitment = H_8(DS_REQ; aud, nonce, cdh, blind)`.
-///
-/// Only `aat_commitment` is sent to the Authenticator Provider; `blind` MUST be fresh and uniformly random.
+/// Computes the `kid` of a P-256 key: its SHA-256 COSE Key Thumbprint (RFC 9679).
 #[must_use]
-pub fn request_commitment(
-    aud: FieldElement,
-    nonce: FieldElement,
-    cdh: FieldElement,
-    blind: FieldElement,
-) -> FieldElement {
-    poseidon::hash(
-        ds::AUTHENTICATOR_ASSERTION_REQUEST,
-        [aud, nonce, cdh, blind],
-    )
+pub fn kid(key: &VerifyingKey) -> [u8; 32] {
+    Sha256::digest(cose_key(key)).into()
 }
 
-/// Computes the signed message `H_4(DS_AAT; exp, aat_commitment, sec_flags)` from raw claims.
-#[must_use]
-pub fn message_hash(exp: u32, aat_commitment: FieldElement, sec_flags: u64) -> FieldElement {
-    poseidon::hash(
-        ds::AUTHENTICATOR_ASSERTION_TOKEN,
-        [
-            FieldElement::from(u64::from(exp)),
-            aat_commitment,
-            FieldElement::from(sec_flags),
-        ],
-    )
+/// Encodes a P-256 key as the EC2 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}`.
+fn cose_key(key: &VerifyingKey) -> [u8; 75] {
+    let point = key.to_encoded_point(false);
+    let mut out = [0u8; 75];
+    out[..8].copy_from_slice(&[0xa4, 0x01, 0x02, 0x20, 0x01, 0x21, 0x58, 0x20]);
+    out[8..40].copy_from_slice(point.x().expect("uncompressed point"));
+    out[40..43].copy_from_slice(&[0x22, 0x58, 0x20]);
+    out[43..].copy_from_slice(point.y().expect("uncompressed point"));
+    out
 }
 
-/// An Authenticator Assertion Token (AAT, WIP-106), before signing.
-#[derive(Debug, Clone, Copy)]
-pub struct AuthenticatorAssertionToken {
+/// Encodes a CBOR byte string header for `len` bytes, in its shortest form.
+fn bstr_header(len: usize) -> Vec<u8> {
+    match len {
+        0..=23 => vec![0x40 | len as u8],
+        24..=255 => vec![0x58, len as u8],
+        _ => unreachable!("WIP-106 byte strings are shorter than 256 bytes"),
+    }
+}
+
+/// The COSE `Sig_structure` (RFC 9052 §4.4) with an empty `external_aad`.
+fn sig_structure(protected: &[u8], payload: &[u8]) -> Vec<u8> {
+    let mut out = vec![0x84, 0x6a];
+    out.extend_from_slice(b"Signature1");
+    out.extend(bstr_header(protected.len()));
+    out.extend_from_slice(protected);
+    out.push(0x40);
+    out.extend(bstr_header(payload.len()));
+    out.extend_from_slice(payload);
+    out
+}
+
+/// Signs `payload` with `ES256` and encodes an untagged `COSE_Sign1` with an empty unprotected
+/// header.
+fn sign1(key: &SigningKey, protected: &[u8], payload: &[u8]) -> Vec<u8> {
+    let signature: Signature = key.sign(&sig_structure(protected, payload));
+    let mut out = vec![0x84];
+    out.extend(bstr_header(protected.len()));
+    out.extend_from_slice(protected);
+    out.push(0xa0);
+    out.extend(bstr_header(payload.len()));
+    out.extend_from_slice(payload);
+    out.extend_from_slice(&[0x58, 0x40]);
+    out.extend_from_slice(&signature.to_bytes());
+    out
+}
+
+/// Splits an untagged `COSE_Sign1` with an empty unprotected header into its protected header,
+/// payload and signature, rejecting any other layout.
+fn open_sign1(
+    cwt: &[u8],
+    protected_len: usize,
+    payload_len: usize,
+) -> Result<(&[u8], &[u8], Signature), AssertionError> {
+    let header = |len| bstr_header(len);
+    let rest = cwt
+        .strip_prefix(&[0x84])
+        .and_then(|r| r.strip_prefix(header(protected_len).as_slice()))
+        .ok_or(AssertionError::InvalidEncoding("protected header"))?;
+    let (protected, rest) = rest
+        .split_at_checked(protected_len)
+        .ok_or(AssertionError::InvalidEncoding("protected header"))?;
+    let rest = rest
+        .strip_prefix(&[0xa0])
+        .ok_or(AssertionError::InvalidEncoding("unprotected header"))?;
+    let rest = rest
+        .strip_prefix(header(payload_len).as_slice())
+        .ok_or(AssertionError::InvalidEncoding("payload"))?;
+    let (payload, rest) = rest
+        .split_at_checked(payload_len)
+        .ok_or(AssertionError::InvalidEncoding("payload"))?;
+    let signature = rest
+        .strip_prefix(&[0x58, 0x40])
+        .and_then(|r| Signature::from_slice(r).ok())
+        .ok_or(AssertionError::InvalidEncoding("signature"))?;
+    Ok((protected, payload, signature))
+}
+
+/// Checks `now < exp <= now + max_lifetime` at issuance, and the fixed `exp` encoding.
+const fn check_issuance(now: u32, exp: u32, max_lifetime: u32) -> Result<(), AssertionError> {
+    if exp <= now || exp - now > max_lifetime {
+        return Err(AssertionError::LifetimeOutOfRange { now, exp });
+    }
+    if exp < MIN_EXP {
+        return Err(AssertionError::ExpirationOutOfRange(exp));
+    }
+    Ok(())
+}
+
+/// A Trust Anchor Key Token (TAKT, WIP-106 §3.4), before signing. `Debug` prints none of its
+/// values, as a verifier MUST keep the `assertion_key` and `exp` confidential.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct TrustAnchorKeyToken {
     exp: u32,
-    aat_commitment: FieldElement,
+    assertion_key: VerifyingKey,
     sec_flags: SecFlags,
 }
 
-impl AuthenticatorAssertionToken {
-    /// Creates an Authenticator Assertion Token from validated claims.
+impl TrustAnchorKeyToken {
+    /// Creates a TAKT for issuance at `now`.
     ///
     /// # Errors
-    /// [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
+    /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_TAKT_LIFETIME_SECS`,
+    /// and [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
     pub const fn new(
+        now: u32,
         exp: u32,
-        aat_commitment: FieldElement,
+        assertion_key: VerifyingKey,
         sec_flags: SecFlags,
     ) -> Result<Self, AssertionError> {
-        if exp < MIN_EXP {
-            return Err(AssertionError::ExpirationOutOfRange(exp));
+        if let Err(e) = check_issuance(now, exp, MAX_TAKT_LIFETIME_SECS) {
+            return Err(e);
         }
         Ok(Self {
             exp,
-            aat_commitment,
+            assertion_key,
             sec_flags,
         })
-    }
-
-    /// Computes the signed message `H_4(DS_AAT; exp, aat_commitment, sec_flags)`.
-    #[must_use]
-    pub fn message_hash(&self) -> FieldElement {
-        message_hash(self.exp, self.aat_commitment, self.sec_flags.pack())
     }
 
     /// Expiration as seconds since the Unix epoch.
@@ -331,307 +375,393 @@ impl AuthenticatorAssertionToken {
         self.exp
     }
 
-    /// The request commitment.
+    /// The attested `assertion_key`.
     #[must_use]
-    pub const fn aat_commitment(&self) -> FieldElement {
-        self.aat_commitment
+    pub const fn assertion_key(&self) -> &VerifyingKey {
+        &self.assertion_key
     }
 
-    /// The security flags.
+    /// The security attributes of the `assertion_key`.
     #[must_use]
     pub const fn sec_flags(&self) -> SecFlags {
         self.sec_flags
     }
 
-    /// Signs the token with the `authenticator_provider_key` and returns its CWT encoding, with the `kid` hint.
+    /// Signs the TAKT with the `trust_anchor_key` and returns its CWT encoding.
+    #[must_use]
+    pub fn sign(&self, trust_anchor_key: &SigningKey) -> Vec<u8> {
+        sign1(
+            trust_anchor_key,
+            &Self::protected(&kid(trust_anchor_key.verifying_key())),
+            &self.payload(),
+        )
+    }
+
+    /// Decodes a TAKT and verifies its signature under `trust_anchor_key`.
     ///
     /// # Errors
-    /// [`AssertionError::KeyEncoding`] if the signature or key can not be compressed.
-    pub fn sign(
-        &self,
-        authenticator_provider_key: &EdDSAPrivateKey,
-    ) -> Result<Vec<u8>, AssertionError> {
-        let signature = authenticator_provider_key
-            .sign(*self.message_hash())
-            .to_compressed_bytes()
-            .map_err(|e| AssertionError::KeyEncoding(e.to_string()))?;
-        let kid = authenticator_provider_key
-            .public()
-            .to_compressed_bytes()
-            .map_err(|e| AssertionError::KeyEncoding(e.to_string()))?;
+    /// [`TokenError::Encoding`] on any encoding but the canonical one, or a `kid` that is not
+    /// the thumbprint of `trust_anchor_key`; [`TokenError::Signature`] if the signature does not
+    /// verify.
+    pub fn verify(cwt: &[u8], trust_anchor_key: &VerifyingKey) -> Result<Self, TokenError> {
+        let (protected, payload, signature) = open_sign1(cwt, 38, TAKT_PAYLOAD_LEN)?;
+        if protected != Self::protected(&kid(trust_anchor_key)) {
+            return Err(AssertionError::InvalidEncoding("TAKT protected header").into());
+        }
+        let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
+        let mut point = [0u8; 65];
+        point[0] = 0x04;
+        point[1..33].copy_from_slice(&payload[18..50]);
+        point[33..].copy_from_slice(&payload[53..85]);
+        let assertion_key = VerifyingKey::from_sec1_bytes(&point)
+            .map_err(|_| AssertionError::InvalidEncoding("assertion_key"))?;
+        let sec_flags = SecFlags::unpack(u64::from_be_bytes(
+            payload[125..133].try_into().expect("8 bytes"),
+        ))?;
+        if exp < MIN_EXP {
+            return Err(AssertionError::ExpirationOutOfRange(exp).into());
+        }
+        let takt = Self {
+            exp,
+            assertion_key,
+            sec_flags,
+        };
+        if takt.payload() != payload {
+            return Err(AssertionError::InvalidEncoding("TAKT claims").into());
+        }
+        trust_anchor_key
+            .verify(&sig_structure(protected, payload), &signature)
+            .map_err(|_| TokenError::Signature)?;
+        Ok(takt)
+    }
 
-        let mut cwt = vec![0x84];
-        cwt.extend_from_slice(&PROTECTED);
-        cwt.extend_from_slice(&[0xa1, 0x04, 0x58, 0x20]);
-        cwt.extend_from_slice(&kid);
-        cwt.extend_from_slice(&[0x58, 0x59]);
-        cwt.extend_from_slice(&self.payload());
-        cwt.extend_from_slice(&[0x58, 0x40]);
-        cwt.extend_from_slice(&signature);
-        Ok(cwt)
+    /// The protected header `{1: -7, 4: kid}`.
+    fn protected(kid: &[u8; 32]) -> [u8; 38] {
+        let mut out = [0u8; 38];
+        out[..6].copy_from_slice(&[0xa2, 0x01, 0x26, 0x04, 0x58, 0x20]);
+        out[6..].copy_from_slice(kid);
+        out
     }
 
     /// The CWT claims set in deterministic CBOR.
-    fn payload(&self) -> [u8; PAYLOAD_LEN] {
-        let mut payload = [0u8; PAYLOAD_LEN];
-        let mut parts: Vec<&[u8]> = Vec::with_capacity(8);
-        let exp = self.exp.to_be_bytes();
-        let aat_commitment = self.aat_commitment.to_be_bytes();
-        let sec_flags = self.sec_flags.pack().to_be_bytes();
-        parts.push(&[0xa4, 0x04, 0x1a]);
-        parts.push(&exp);
-        parts.push(&[0x0a, 0x58, 0x20]);
-        parts.push(&aat_commitment);
-        parts.push(&[0x19, 0x01, 0x09, 0x78, 0x1c]);
-        parts.push(EAT_PROFILE.as_bytes());
-        parts.push(&[0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48]);
-        parts.push(&sec_flags);
-        let mut offset = 0;
-        for part in parts {
-            payload[offset..offset + part.len()].copy_from_slice(part);
-            offset += part.len();
-        }
-        debug_assert_eq!(offset, PAYLOAD_LEN);
-        payload
+    fn payload(&self) -> [u8; TAKT_PAYLOAD_LEN] {
+        let mut out = [0u8; TAKT_PAYLOAD_LEN];
+        let key = cose_key(&self.assertion_key);
+        out[..3].copy_from_slice(&[0xa4, 0x04, 0x1a]);
+        out[3..7].copy_from_slice(&self.exp.to_be_bytes());
+        out[7..10].copy_from_slice(&[0x08, 0xa1, 0x01]);
+        out[10..85].copy_from_slice(&key);
+        out[85..90].copy_from_slice(&[0x19, 0x01, 0x09, 0x78, 0x1d]);
+        out[90..119].copy_from_slice(EAT_PROFILE_TAKT.as_bytes());
+        out[119..125].copy_from_slice(&[0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48]);
+        out[125..].copy_from_slice(&self.sec_flags.pack().to_be_bytes());
+        out
     }
 }
 
-impl SignedAuthenticatorAssertionToken {
-    /// Decodes an AAT from its CWT encoding, rejecting anything but the canonical encoding.
-    ///
-    /// Does not verify the signature.
+impl std::fmt::Debug for TrustAnchorKeyToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TrustAnchorKeyToken")
+            .finish_non_exhaustive()
+    }
+}
+
+/// An Authenticator Assertion Token (AAT, WIP-106 §3.5), before signing. `Debug` prints none of
+/// its values.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct AuthenticatorAssertionToken {
+    aud: u64,
+    exp: u32,
+    nonce: FieldElement,
+    cdh: FieldElement,
+    user_presence: UserPresence,
+}
+
+impl AuthenticatorAssertionToken {
+    /// Creates an AAT for issuance at `now`.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidEncoding`] on a non-canonical encoding, or the claim validation
-    /// errors of [`AuthenticatorAssertionToken::new`] and [`SecFlags::unpack`].
-    pub fn decode(cwt: &[u8]) -> Result<Self, AssertionError> {
-        let rest = cwt
-            .strip_prefix(&[0x84])
-            .and_then(|r| r.strip_prefix(&PROTECTED))
-            .ok_or(AssertionError::InvalidEncoding("header"))?;
-        let (kid, rest) = if let Some(r) = rest.strip_prefix(&[0xa0]) {
-            (None, r)
-        } else {
-            let r = rest
-                .strip_prefix(&[0xa1, 0x04, 0x58, 0x20])
-                .ok_or(AssertionError::InvalidEncoding("unprotected header"))?;
-            let (kid, r) = r
-                .split_at_checked(32)
-                .ok_or(AssertionError::InvalidEncoding("kid"))?;
-            (Some(<[u8; 32]>::try_from(kid).expect("split at 32")), r)
-        };
-        let rest = rest
-            .strip_prefix(&[0x58, 0x59])
-            .ok_or(AssertionError::InvalidEncoding("payload"))?;
-        let (payload, rest) = rest
-            .split_at_checked(PAYLOAD_LEN)
-            .ok_or(AssertionError::InvalidEncoding("payload"))?;
-        let signature = rest
-            .strip_prefix(&[0x58, 0x40])
-            .and_then(|r| <[u8; 64]>::try_from(r).ok())
-            .ok_or(AssertionError::InvalidEncoding("signature"))?;
-
-        let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
-        let aat_commitment =
-            FieldElement::from_be_bytes(payload[10..42].try_into().expect("32 bytes"))
-                .map_err(|_| AssertionError::InvalidEncoding("non-canonical aat_commitment"))?;
-        let sec_flags = SecFlags::unpack(u64::from_be_bytes(
-            payload[81..89].try_into().expect("8 bytes"),
-        ))?;
-        let token = AuthenticatorAssertionToken::new(exp, aat_commitment, sec_flags)?;
-        if token.payload() != payload {
-            return Err(AssertionError::InvalidEncoding("claims"));
+    /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_AAT_LIFETIME_SECS`,
+    /// and [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
+    pub const fn new(
+        now: u32,
+        aud: u64,
+        exp: u32,
+        nonce: FieldElement,
+        cdh: FieldElement,
+        user_presence: UserPresence,
+    ) -> Result<Self, AssertionError> {
+        if let Err(e) = check_issuance(now, exp, MAX_AAT_LIFETIME_SECS) {
+            return Err(e);
         }
-        let signature = EdDSASignature::from_compressed_bytes(signature)
-            .map_err(|e| AssertionError::KeyEncoding(e.to_string()))?;
         Ok(Self {
-            token,
-            signature,
-            kid,
+            aud,
+            exp,
+            nonce,
+            cdh,
+            user_presence,
         })
     }
 
-    /// Turns the token into the private inputs of a verifier, given the signing key and the
-    /// opening of its request commitment. The token's `aat_commitment` is dropped: a verifier
-    /// recomputes it.
+    /// Expiration as seconds since the Unix epoch.
     #[must_use]
-    pub fn into_private_inputs(
-        self,
-        authenticator_provider_key: EdDSAPublicKey,
-        cdh: FieldElement,
-        blind: FieldElement,
-    ) -> AuthenticatorAssertionPrivateInputs {
-        AuthenticatorAssertionPrivateInputs {
-            authenticator_provider_key,
-            exp: self.token.exp,
-            sec_flags: self.token.sec_flags.pack(),
-            sig: self.signature,
-            cdh,
-            blind,
+    pub const fn exp(&self) -> u32 {
+        self.exp
+    }
+
+    /// The user presence the Authenticator reports.
+    #[must_use]
+    pub const fn user_presence(&self) -> UserPresence {
+        self.user_presence
+    }
+
+    /// Signs the AAT with the `assertion_key` and returns its CWT encoding.
+    #[must_use]
+    pub fn sign(&self, assertion_key: &SigningKey) -> Vec<u8> {
+        sign1(assertion_key, &AAT_PROTECTED, &self.payload())
+    }
+
+    /// Decodes an AAT and verifies its signature under `assertion_key`.
+    ///
+    /// # Errors
+    /// [`TokenError::Encoding`] on any encoding but the canonical one; [`TokenError::Signature`]
+    /// if the signature does not verify.
+    pub fn verify(cwt: &[u8], assertion_key: &VerifyingKey) -> Result<Self, TokenError> {
+        let (protected, payload, signature) = open_sign1(cwt, 3, AAT_PAYLOAD_LEN)?;
+        if protected != AAT_PROTECTED {
+            return Err(AssertionError::InvalidEncoding("AAT protected header").into());
         }
+        let field = |range: std::ops::Range<usize>, name| {
+            FieldElement::from_be_bytes(payload[range].try_into().expect("32 bytes"))
+                .map_err(|_| AssertionError::InvalidEncoding(name))
+        };
+        let aud = u64::from_be_bytes(payload[3..11].try_into().expect("8 bytes"));
+        let exp = u32::from_be_bytes(payload[13..17].try_into().expect("4 bytes"));
+        let nonce = field(20..52, "non-canonical nonce")?;
+        let cdh = field(92..124, "non-canonical cdh")?;
+        let user_presence = UserPresence::try_from(payload[129])?;
+        if exp < MIN_EXP {
+            return Err(AssertionError::ExpirationOutOfRange(exp).into());
+        }
+        let aat = Self {
+            aud,
+            exp,
+            nonce,
+            cdh,
+            user_presence,
+        };
+        if aat.payload() != payload {
+            return Err(AssertionError::InvalidEncoding("AAT claims").into());
+        }
+        assertion_key
+            .verify(&sig_structure(protected, payload), &signature)
+            .map_err(|_| TokenError::Signature)?;
+        Ok(aat)
+    }
+
+    /// The CWT claims set in deterministic CBOR.
+    fn payload(&self) -> [u8; AAT_PAYLOAD_LEN] {
+        let mut out = [0u8; AAT_PAYLOAD_LEN];
+        out[..3].copy_from_slice(&[0xa6, 0x03, 0x48]);
+        out[3..11].copy_from_slice(&self.aud.to_be_bytes());
+        out[11..13].copy_from_slice(&[0x04, 0x1a]);
+        out[13..17].copy_from_slice(&self.exp.to_be_bytes());
+        out[17..20].copy_from_slice(&[0x0a, 0x58, 0x20]);
+        out[20..52].copy_from_slice(&self.nonce.to_be_bytes());
+        out[52..57].copy_from_slice(&[0x19, 0x01, 0x09, 0x78, 0x1c]);
+        out[57..85].copy_from_slice(EAT_PROFILE_AAT.as_bytes());
+        out[85..92].copy_from_slice(&[0x3a, 0x00, 0x01, 0x38, 0x7f, 0x58, 0x20]);
+        out[92..124].copy_from_slice(&self.cdh.to_be_bytes());
+        out[124..129].copy_from_slice(&[0x3a, 0x00, 0x01, 0x38, 0x80]);
+        out[129] = self.user_presence.into();
+        out
     }
 }
 
-/// Computes `authenticator_provider_key_hash = H_3(DS_KEY; x, y)`, the value circuits and RPs
-/// identify an `authenticator_provider_key` by.
-#[must_use]
-pub fn authenticator_provider_key_hash(key: &EdDSAPublicKey) -> FieldElement {
-    poseidon::hash(
-        ds::AUTHENTICATOR_PROVIDER_KEY,
-        [FieldElement::from(key.pk.x), FieldElement::from(key.pk.y)],
-    )
+impl std::fmt::Debug for AuthenticatorAssertionToken {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthenticatorAssertionToken")
+            .finish_non_exhaustive()
+    }
 }
 
-/// The public inputs of AAT verification (WIP-106 section 3.7). A verifier outside a circuit
-/// reports them as its output.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// Why a single token failed to decode or verify.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum TokenError {
+    /// The token is not encoded as WIP-106 requires.
+    #[error(transparent)]
+    Encoding(#[from] AssertionError),
+    /// The signature does not verify.
+    #[error("invalid signature")]
+    Signature,
+}
+
+/// The public inputs of WIP-106 §3.8 verification. A verifier reveals only these.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuthenticatorAssertionPublicInputs {
-    /// Hash of the Authenticator Provider's key, see [`authenticator_provider_key_hash`].
-    pub authenticator_provider_key_hash: FieldElement,
-    /// Current time as seconds since the Unix epoch, from the verifier's clock.
+    /// The Authenticator Provider's key, supplied by the RP.
+    pub trust_anchor_key: VerifyingKey,
+    /// Current time as seconds since the Unix epoch.
     pub now: u32,
     /// The `rpId` of the request.
-    pub aud: FieldElement,
+    pub aud: u64,
     /// The nonce of the request.
     pub nonce: FieldElement,
     /// Platform of the Authenticator (see [`Platform`]).
     pub platform: u8,
-    /// Class of integrity evidence verified for the request (see [`SecLevel`]).
+    /// Where the `assertion_key` is stored (see [`SecLevel`]).
     pub sec_level: u8,
     /// Provider-defined 3-bit bitmask.
     pub sec_meta: u8,
-    /// User presence signed by the Authenticator Provider.
+    /// User presence the Authenticator reports.
     pub user_presence: UserPresence,
     /// Minimum `build_version` the RP accepts.
     pub min_build_version: u32,
 }
 
-/// The private inputs of AAT verification (WIP-106 section 3.7): the signing key, the token's
-/// claims and signature, and the opening of its request commitment. A verifier MUST keep them
-/// confidential.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// The private inputs of WIP-106 §3.8 verification. A verifier MUST keep them confidential;
+/// `Debug` prints none of them.
+#[derive(Clone, PartialEq, Eq)]
 pub struct AuthenticatorAssertionPrivateInputs {
-    /// The key that signed the AAT.
-    pub authenticator_provider_key: EdDSAPublicKey,
-    /// Expiration as seconds since the Unix epoch.
-    pub exp: u32,
-    /// Packed security attributes (see [`SecFlags`]).
-    pub sec_flags: u64,
-    /// The signature by the `authenticator_provider_key`.
-    pub sig: EdDSASignature,
-    /// Client data hash binding the AAT to its upstream use; `0` is nil.
+    /// The TAKT's CWT encoding.
+    pub takt: Vec<u8>,
+    /// The AAT's CWT encoding.
+    pub aat: Vec<u8>,
+    /// Client data hash, computed by the verifier as the consuming specification defines.
     pub cdh: FieldElement,
-    /// Blinding factor of the request commitment.
-    pub blind: FieldElement,
+}
+
+impl std::fmt::Debug for AuthenticatorAssertionPrivateInputs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AuthenticatorAssertionPrivateInputs")
+            .finish_non_exhaustive()
+    }
 }
 
 impl AuthenticatorAssertionPrivateInputs {
-    /// Derives the public inputs a verifier outside a circuit reports, from the request values
-    /// it was given and the key and `sec_flags` it holds. Run [`verify_aat`] on the result.
+    /// Derives the public inputs a verifier reports from the tokens, given the request values
+    /// and the RP's minimum. Run [`verify`] on the result.
     ///
     /// # Errors
-    /// [`VerificationError::InvalidSecFlags`] on reserved bits or a reserved `user_presence`.
+    /// [`VerificationError::Takt`] or [`VerificationError::Aat`] if a token fails to decode or
+    /// verify.
     pub fn public_inputs(
         &self,
+        trust_anchor_key: VerifyingKey,
         now: u32,
-        aud: FieldElement,
+        aud: u64,
         nonce: FieldElement,
         min_build_version: u32,
     ) -> Result<AuthenticatorAssertionPublicInputs, VerificationError> {
-        let flags = SecFlags::unpack(self.sec_flags)
-            .map_err(|_| VerificationError::InvalidSecFlags(self.sec_flags))?;
+        let takt = TrustAnchorKeyToken::verify(&self.takt, &trust_anchor_key)
+            .map_err(VerificationError::Takt)?;
+        let aat = AuthenticatorAssertionToken::verify(&self.aat, takt.assertion_key())
+            .map_err(VerificationError::Aat)?;
+        let flags = takt.sec_flags();
         Ok(AuthenticatorAssertionPublicInputs {
-            authenticator_provider_key_hash: authenticator_provider_key_hash(
-                &self.authenticator_provider_key,
-            ),
+            trust_anchor_key,
             now,
             aud,
             nonce,
             platform: flags.platform,
             sec_level: flags.sec_level,
             sec_meta: flags.sec_meta,
-            user_presence: flags.user_presence,
+            user_presence: aat.user_presence,
             min_build_version,
         })
     }
 }
 
-/// Why an AAT failed verification. One variant per WIP-106 section 3.7 constraint.
+/// Why verification failed. One variant per WIP-106 §3.8 check; carries no private value.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum VerificationError {
     /// The request nonce is `0`.
     #[error("nonce must not be 0")]
     ZeroNonce,
-    /// The key does not hash to `authenticator_provider_key_hash`.
-    #[error("authenticator_provider_key does not match its hash")]
-    KeyHashMismatch,
-    /// The signature does not verify: forged, or the request inputs do not open `aat_commitment`.
-    #[error("invalid signature")]
-    InvalidSignature,
-    /// `now >= exp`.
-    #[error("token is expired")]
-    Expired,
-    /// `exp - now > MAX_AAT_LIFETIME_SECS`.
-    #[error("token lifetime exceeds maximum")]
-    LifetimeExceeded,
-    /// `sec_flags` has reserved bits set or a reserved `user_presence`.
-    #[error("invalid sec_flags {0:#x}")]
-    InvalidSecFlags(u64),
-    /// `sec_flags` does not pack the public `platform`, `sec_level`, `sec_meta` and `user_presence`.
+    /// The TAKT is not canonical, or its signature does not verify under `trust_anchor_key`.
+    #[error("invalid TAKT: {0}")]
+    Takt(TokenError),
+    /// The AAT is not canonical, or its signature does not verify under the attested key.
+    #[error("invalid AAT: {0}")]
+    Aat(TokenError),
+    /// `now >= exp` for the TAKT.
+    #[error("TAKT is expired")]
+    TaktExpired,
+    /// `exp - now > MAX_TAKT_LIFETIME_SECS` for the TAKT.
+    #[error("TAKT lifetime exceeds maximum")]
+    TaktLifetimeExceeded,
+    /// `now >= exp` for the AAT.
+    #[error("AAT is expired")]
+    AatExpired,
+    /// `exp - now > MAX_AAT_LIFETIME_SECS` for the AAT.
+    #[error("AAT lifetime exceeds maximum")]
+    AatLifetimeExceeded,
+    /// The AAT's `aud`, `nonce` or `cdh` differs from the input.
+    #[error("AAT is not bound to this request")]
+    RequestMismatch,
+    /// The TAKT's `platform`, `sec_level` or `sec_meta` differs from the public input.
     #[error("sec_flags do not match the public security flags")]
     SecFlagsMismatch,
+    /// The AAT's `user_presence` differs from the public input.
+    #[error("user_presence does not match the public input")]
+    UserPresenceMismatch,
     /// `build_version < min_build_version`.
     #[error("build_version below minimum")]
     BuildVersionBelowMinimum,
 }
 
-/// Verifies an AAT outside a circuit, e.g. inside a TEE, with the checks of WIP-106
-/// section 3.7 in the order of the Noir `verify_aat`.
-///
-/// Canonical `sig` scalars and points are guaranteed by their types' deserialization.
+/// Checks `now < exp` and `exp - now <= max_lifetime`.
+const fn fresh(now: u32, exp: u32, max_lifetime: u32) -> Result<(), bool> {
+    if now >= exp {
+        return Err(true);
+    }
+    if exp - now > max_lifetime {
+        return Err(false);
+    }
+    Ok(())
+}
+
+/// Verifies a TAKT and an AAT with every check of WIP-106 §3.8, in the order of the Noir
+/// `verify_assertion`.
 ///
 /// # Errors
-/// [`VerificationError`] for the first failing constraint.
-pub fn verify_aat(
+/// [`VerificationError`] for the first failing check.
+pub fn verify(
     public: &AuthenticatorAssertionPublicInputs,
     private: &AuthenticatorAssertionPrivateInputs,
 ) -> Result<(), VerificationError> {
     if public.nonce == FieldElement::ZERO {
         return Err(VerificationError::ZeroNonce);
     }
-    if authenticator_provider_key_hash(&private.authenticator_provider_key)
-        != public.authenticator_provider_key_hash
+    let takt = TrustAnchorKeyToken::verify(&private.takt, &public.trust_anchor_key)
+        .map_err(VerificationError::Takt)?;
+    let aat = AuthenticatorAssertionToken::verify(&private.aat, takt.assertion_key())
+        .map_err(VerificationError::Aat)?;
+    fresh(public.now, takt.exp, MAX_TAKT_LIFETIME_SECS).map_err(|expired| {
+        if expired {
+            VerificationError::TaktExpired
+        } else {
+            VerificationError::TaktLifetimeExceeded
+        }
+    })?;
+    fresh(public.now, aat.exp, MAX_AAT_LIFETIME_SECS).map_err(|expired| {
+        if expired {
+            VerificationError::AatExpired
+        } else {
+            VerificationError::AatLifetimeExceeded
+        }
+    })?;
+    if (aat.aud, aat.nonce, aat.cdh) != (public.aud, public.nonce, private.cdh) {
+        return Err(VerificationError::RequestMismatch);
+    }
+    let flags = takt.sec_flags;
+    if (flags.platform, flags.sec_level, flags.sec_meta)
+        != (public.platform, public.sec_level, public.sec_meta)
     {
-        return Err(VerificationError::KeyHashMismatch);
-    }
-    let aat_commitment = request_commitment(public.aud, public.nonce, private.cdh, private.blind);
-    let message = message_hash(private.exp, aat_commitment, private.sec_flags);
-    if !private
-        .authenticator_provider_key
-        .verify(*message, &private.sig)
-    {
-        return Err(VerificationError::InvalidSignature);
-    }
-    if public.now >= private.exp {
-        return Err(VerificationError::Expired);
-    }
-    if private.exp - public.now > MAX_AAT_LIFETIME_SECS {
-        return Err(VerificationError::LifetimeExceeded);
-    }
-    let flags = SecFlags::unpack(private.sec_flags)
-        .map_err(|_| VerificationError::InvalidSecFlags(private.sec_flags))?;
-    if (
-        flags.platform,
-        flags.sec_level,
-        flags.sec_meta,
-        flags.user_presence,
-    ) != (
-        public.platform,
-        public.sec_level,
-        public.sec_meta,
-        public.user_presence,
-    ) {
         return Err(VerificationError::SecFlagsMismatch);
+    }
+    if aat.user_presence != public.user_presence {
+        return Err(VerificationError::UserPresenceMismatch);
     }
     if flags.build_version < public.min_build_version {
         return Err(VerificationError::BuildVersionBelowMinimum);

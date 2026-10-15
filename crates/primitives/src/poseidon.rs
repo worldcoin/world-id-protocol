@@ -54,15 +54,6 @@ pub mod ds {
     pub const OPRF_PROOF: DomainSeparator<3> = DomainSeparator::new(b"World ID Proof");
     /// Separates the message an authenticator signs for an ownership proof (WIP-103).
     pub const OWNERSHIP_PROOF: DomainSeparator<3> = DomainSeparator::new(b"WIP103");
-    /// Separates the request commitment of an authenticator assertion (WIP-106).
-    pub const AUTHENTICATOR_ASSERTION_REQUEST: DomainSeparator<4> =
-        DomainSeparator::new(b"WORLD-ID/WIP-106/REQ");
-    /// Separates the message signed for an authenticator assertion token (WIP-106).
-    pub const AUTHENTICATOR_ASSERTION_TOKEN: DomainSeparator<3> =
-        DomainSeparator::new(b"WORLD-ID/WIP-106/AAT");
-    /// Separates the hash of an Authenticator Provider key (WIP-106).
-    pub const AUTHENTICATOR_PROVIDER_KEY: DomainSeparator<2> =
-        DomainSeparator::new(b"WORLD-ID/WIP-106/KEY");
     /// Separates the message a new authenticator signs to prove it holds the key it asks to
     /// register: the lowered registration digest (WIP-109).
     pub const AUTHENTICATOR_REGISTRATION: DomainSeparator<2> =
@@ -244,7 +235,7 @@ mod tests {
 
     /// The raw tag of every constant in [`ds`], across both separator types, to keep
     /// the collision and length checks exhaustive.
-    const ALL_TAGS: [&[u8]; 13] = [
+    const ALL_TAGS: [&[u8]; 10] = [
         ds::CREDENTIAL_V1.as_bytes(),
         ds::CREDENTIAL_SUB.as_bytes(),
         ds::SESSION_COMMITMENT.as_bytes(),
@@ -252,9 +243,6 @@ mod tests {
         ds::OPRF_QUERY.as_bytes(),
         ds::OPRF_PROOF.as_bytes(),
         ds::OWNERSHIP_PROOF.as_bytes(),
-        ds::AUTHENTICATOR_ASSERTION_REQUEST.as_bytes(),
-        ds::AUTHENTICATOR_ASSERTION_TOKEN.as_bytes(),
-        ds::AUTHENTICATOR_PROVIDER_KEY.as_bytes(),
         ds::AUTHENTICATOR_REGISTRATION.as_bytes(),
         ds::CLAIMS_HASH_V1.as_bytes(),
         ds::ASSOCIATED_DATA_V1.as_bytes(),
@@ -284,20 +272,6 @@ mod tests {
         assert_eq!(
             ds::AUTHENTICATOR_KEY_SET.as_field_element(),
             FieldElement::from(105_702_839_725_298_824_521_994_315_u128),
-        );
-        // Above `u128::MAX`, so parsed from the decimal literals in `authenticator-assertion/src/lib.nr`.
-        let decimal = |s: &str| FieldElement::from(<Fq as std::str::FromStr>::from_str(s).unwrap());
-        assert_eq!(
-            ds::AUTHENTICATOR_ASSERTION_TOKEN.as_field_element(),
-            decimal("498451125091886891258088867850510460821031698772"),
-        );
-        assert_eq!(
-            ds::AUTHENTICATOR_ASSERTION_REQUEST.as_field_element(),
-            decimal("498451125091886891258088867850510460821032813905"),
-        );
-        assert_eq!(
-            ds::AUTHENTICATOR_PROVIDER_KEY.as_field_element(),
-            decimal("498451125091886891258088867850510460821032355161"),
         );
     }
 
