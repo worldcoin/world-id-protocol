@@ -6,6 +6,27 @@ use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use world_id_primitives::ServiceEndpoint;
 
+/// Builds the HTTP client for the gateway, the indexer and the RPC.
+///
+/// A native client trusts only the bundled Mozilla roots: reqwest's default platform verifier
+/// panics on Android unless it was initialized through JNI. A browser client uses the browser's
+/// TLS.
+///
+/// # Errors
+/// Returns [`AuthenticatorError::NetworkError`] if the TLS backend cannot be initialized.
+pub(crate) fn default_http_client() -> Result<reqwest::Client, AuthenticatorError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = reqwest::Client::builder().tls_certs_only(
+        webpki_root_certs::TLS_SERVER_ROOT_CERTS
+            .iter()
+            .map(|cert| reqwest::Certificate::from_der(cert))
+            .collect::<Result<Vec<_>, _>>()?,
+    );
+    #[cfg(target_arch = "wasm32")]
+    let builder = reqwest::Client::builder();
+    Ok(builder.build()?)
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ServiceKind {
     Gateway,
@@ -186,5 +207,21 @@ impl ServiceClient {
                 }
             ))
         })
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bundled_roots_verify_public_tls() {
+        let response = default_http_client()
+            .unwrap()
+            .get("https://rpc.worldchain-sepolia.worldcoin.org")
+            .send()
+            .await;
+
+        assert!(response.is_ok(), "{response:?}");
     }
 }
