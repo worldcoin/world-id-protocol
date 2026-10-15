@@ -19,3 +19,4 @@
 - [WIP-109: Authenticator Registration](WIPs/wip-109.md)
 - [WIP-110: Message Bridge](WIPs/wip-110.md)
 - [WIP-116: Seeded Sessions](WIPs/wip-116.md)
+- [WIP-117: Bound Uniqueness Proofs](WIPs/wip-117.md)
