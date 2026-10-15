@@ -16,15 +16,25 @@ use world_id_primitives::ServiceEndpoint;
 /// Returns [`AuthenticatorError::NetworkError`] if the TLS backend cannot be initialized.
 pub(crate) fn default_http_client() -> Result<reqwest::Client, AuthenticatorError> {
     #[cfg(not(target_arch = "wasm32"))]
-    let builder = reqwest::Client::builder().tls_certs_only(
-        webpki_root_certs::TLS_SERVER_ROOT_CERTS
-            .iter()
-            .map(|cert| reqwest::Certificate::from_der(cert))
-            .collect::<Result<Vec<_>, _>>()?,
-    );
+    {
+        http_client_trusting(webpki_root_certs::TLS_SERVER_ROOT_CERTS)
+    }
     #[cfg(target_arch = "wasm32")]
-    let builder = reqwest::Client::builder();
-    Ok(builder.build()?)
+    {
+        Ok(reqwest::Client::builder().build()?)
+    }
+}
+
+/// Builds a native HTTP client that trusts only `roots`.
+#[cfg(not(target_arch = "wasm32"))]
+fn http_client_trusting(
+    roots: &[rustls::pki_types::CertificateDer<'_>],
+) -> Result<reqwest::Client, AuthenticatorError> {
+    let roots = roots
+        .iter()
+        .map(|cert| reqwest::Certificate::from_der(cert))
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(reqwest::Client::builder().tls_certs_only(roots).build()?)
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -213,15 +223,83 @@ impl ServiceClient {
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
+    use rcgen::{BasicConstraints, CertificateParams, CertifiedIssuer, IsCa, KeyPair};
+    use rustls::pki_types::CertificateDer;
+    use std::sync::Arc;
+    use tokio::{
+        io::{AsyncReadExt, AsyncWriteExt},
+        net::TcpListener,
+    };
+    use tokio_rustls::TlsAcceptor;
+
+    /// Serves HTTPS on `127.0.0.1` with a leaf certificate signed by a fresh CA, and returns
+    /// the server URL and the CA certificate.
+    async fn serve_tls() -> (String, CertificateDer<'static>) {
+        let mut ca_params = CertificateParams::new(Vec::<String>::new()).unwrap();
+        ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+        let ca = CertifiedIssuer::self_signed(ca_params, KeyPair::generate().unwrap()).unwrap();
+
+        let leaf_key = KeyPair::generate().unwrap();
+        let leaf = CertificateParams::new(vec!["127.0.0.1".to_string()])
+            .unwrap()
+            .signed_by(&leaf_key, &ca)
+            .unwrap();
+
+        let config = rustls::ServerConfig::builder_with_provider(Arc::new(
+            rustls::crypto::ring::default_provider(),
+        ))
+        .with_safe_default_protocol_versions()
+        .unwrap()
+        .with_no_client_auth()
+        .with_single_cert(vec![leaf.der().clone()], leaf_key.into())
+        .unwrap();
+        let acceptor = TlsAcceptor::from(Arc::new(config));
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("https://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                // A rejected handshake only ends this connection.
+                let Ok(mut stream) = acceptor.accept(stream).await else {
+                    continue;
+                };
+                let mut request = [0; 1024];
+                let _ = stream.read(&mut request).await;
+                let _ = stream
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nconnection: close\r\n\r\n")
+                    .await;
+                let _ = stream.shutdown().await;
+            }
+        });
+
+        (url, ca.der().clone())
+    }
 
     #[tokio::test]
-    async fn bundled_roots_verify_public_tls() {
-        let response = default_http_client()
-            .unwrap()
-            .get("https://rpc.worldchain-sepolia.worldcoin.org")
-            .send()
-            .await;
+    async fn trusted_root_verifies_server() {
+        let (url, ca) = serve_tls().await;
 
-        assert!(response.is_ok(), "{response:?}");
+        let response = http_client_trusting(&[ca])
+            .unwrap()
+            .get(&url)
+            .send()
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn default_client_rejects_root_outside_bundle() {
+        let (url, _) = serve_tls().await;
+
+        let err = default_http_client()
+            .unwrap()
+            .get(&url)
+            .send()
+            .await
+            .unwrap_err();
+
+        assert!(format!("{err:?}").contains("UnknownIssuer"), "{err:?}");
     }
 }

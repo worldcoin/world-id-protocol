@@ -103,8 +103,11 @@ hex = { workspace = true }
 ruint = { workspace = true }
 rand = { workspace = true }
 mockito = { workspace = true }
+rcgen = { workspace = true }
 test-case = { workspace = true }
 testcontainers = { workspace = true }
+tokio = { workspace = true, features = ["io-util"] }
+tokio-rustls = { workspace = true }
 world-id-test-utils = { workspace = true }
 
 
