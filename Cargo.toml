@@ -106,6 +106,7 @@ reqwest = { version = "0.13", default-features = false, features = [
   "rustls",
 ] }
 uuid = { version = "1" }
+webpki-root-certs = "1.0"
 webpki-roots = "1.0"
 zeroize = "1"
 zstd = "0.13"
