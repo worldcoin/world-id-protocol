@@ -3,7 +3,7 @@
 ## Packages
 
 - `ownership-proof/` — Proof of Ownership (WIP-103).
-- `authenticator-assertion/` — WIP-106 Trust Anchor Key Token and Authenticator Assertion Token verification (`ES256`). **🚧 Warning. This is WIP and in active development, things may change significantly.**
+- `authenticator-assertion/` — WIP-106 Trust Anchor Key Token (`BabyJubJub-EdDSA-Poseidon2`) and Authenticator Assertion Token (`ES256`) verification. **🚧 Warning. This is WIP and in active development, things may change significantly.**
 
 ## Consuming `authenticator-assertion`
 

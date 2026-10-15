@@ -1,12 +1,18 @@
 //! WARNING. This library as well as its defining spec (WIP-106) are in active development.
 //!
-//! Verifies a Trust Anchor Key Token (TAKT) and an Authenticator Assertion Token (AAT): two `ES256`
-//! CWTs. The TAKT is signed by the Authenticator Provider's `trust_anchor_key` and attests the
-//! `assertion_key`, which signs the AAT for a single request.
+//! Verifies a Trust Anchor Key Token (TAKT) and an Authenticator Assertion Token (AAT). The TAKT
+//! is signed by the Authenticator Provider's `trust_anchor_key` (`BabyJubJub-EdDSA-Poseidon2`) over
+//! `H_8(DS_TAKT; exp, x_hi, x_lo, y_hi, y_lo, sec_flags)` and attests the `assertion_key`, which
+//! signs the AAT (`ES256`) for a single request.
 
 use bigcurve::curves::secp256r1::{Secp256r1_Fq, Secp256r1_Fr};
 use bignum::BigNum;
+use eddsa_poseidon2::{
+    BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
+    verify_eddsa_poseidon2,
+};
 use noir_ecdsa::ecdsa::verify_secp256r1_ecdsa;
+use poseidon2::bn254::permutation;
 
 mod tests;
 
@@ -15,8 +21,9 @@ pub global MAX_TAKT_LIFETIME: Field = 604800;
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub global MAX_AAT_LIFETIME: Field = 1800;
 
-/// Length of the TAKT's COSE `Sig_structure`: 55-byte prefix and 133-byte claims set.
-global TAKT_SIG_STRUCTURE_LEN: u32 = 188;
+global DS_TAKT: Field = 127603488023523044162070750169730677970184433650516; // b"WORLD-ID/WIP-106/TAKT"
+global DS_KEY: Field = 498451125091886891258088867850510460821032355161; // b"WORLD-ID/WIP-106/KEY"
+
 /// Length of the AAT's COSE `Sig_structure`: 19-byte prefix and 130-byte claims set.
 global AAT_SIG_STRUCTURE_LEN: u32 = 149;
 
@@ -29,9 +36,8 @@ global HALF_N: [u8; 32] = [
 /// The public inputs of WIP-106 section 3.8 verification. The caller MUST expose every field as a
 /// public input of its circuit.
 pub struct AuthenticatorAssertionPublicInputs {
-    /// The Authenticator Provider's P-256 key (big-endian x, y), supplied by the RP.
-    pub trust_anchor_key_x: [u8; 32],
-    pub trust_anchor_key_y: [u8; 32],
+    /// `H_3(DS_KEY; x, y)` of the Authenticator Provider's key, supplied by the RP.
+    pub trust_anchor_key_hash: Field,
     /// Current time as seconds since the Unix epoch.
     pub now: Field,
     /// The `rpId` of the request.
@@ -54,6 +60,8 @@ pub struct AuthenticatorAssertionPublicInputs {
 /// that the public inputs do not fix. How `cdh` is bound to the surrounding proof is the
 /// caller's obligation.
 pub struct AuthenticatorAssertionPrivateInputs {
+    /// The key that signed the TAKT (affine x, y).
+    pub trust_anchor_key: [Field; 2],
     /// Expiration of the TAKT, as seconds since the Unix epoch.
     pub takt_exp: Field,
     /// The attested `assertion_key` (big-endian x, y).
@@ -61,8 +69,10 @@ pub struct AuthenticatorAssertionPrivateInputs {
     pub assertion_key_y: [u8; 32],
     /// Packed security attributes of the `assertion_key`.
     pub sec_flags: Field,
-    /// The TAKT's `ES256` signature (`r || s`).
-    pub takt_signature: [u8; 64],
+    /// The TAKT's EdDSA signature scalar component.
+    pub takt_sig_s: Field,
+    /// The TAKT's EdDSA signature point component (affine x, y).
+    pub takt_sig_r: [Field; 2],
     /// Expiration of the AAT, as seconds since the Unix epoch.
     pub aat_exp: Field,
     /// The AAT's `ES256` signature (`r || s`).
@@ -71,8 +81,8 @@ pub struct AuthenticatorAssertionPrivateInputs {
     pub cdh: Field,
 }
 
-/// Verifies a TAKT and an AAT against the public inputs. The request values and the public flags
-/// are written into the signed templates, so the signatures bind them.
+/// Verifies a TAKT and an AAT against the public inputs. The AAT's request values and
+/// `user_presence` are written into its signed template, so its signature binds them.
 pub fn verify_assertion(
     public: AuthenticatorAssertionPublicInputs,
     private: AuthenticatorAssertionPrivateInputs,
@@ -80,13 +90,17 @@ pub fn verify_assertion(
     assert(public.nonce != 0, "nonce must not be 0");
     assert(public.user_presence < 5, "user_presence values 5 and above are reserved");
 
-    let takt = takt_sig_structure(public, private);
+    let key = private.trust_anchor_key;
     assert(
-        verify_es256(
-            public.trust_anchor_key_x,
-            public.trust_anchor_key_y,
-            sha256::digest(takt),
-            private.takt_signature,
+        permutation::t3([DS_KEY, key[0], key[1]])[1] == public.trust_anchor_key_hash,
+        "trust_anchor_key does not match its hash",
+    );
+    assert(
+        verify_eddsa_poseidon2(
+            BabyJubJubPointInSubgroup::new(key[0], key[1]),
+            BabyJubJubScalarFieldElement::new(private.takt_sig_s),
+            BabyJubJubPoint::new(private.takt_sig_r[0], private.takt_sig_r[1]),
+            takt_message(private),
         ),
         "invalid TAKT signature",
     );
@@ -176,18 +190,15 @@ fn write<let N: u32, let M: u32>(msg: &mut [u8; N], offset: u32, bytes: [u8; M])
     }
 }
 
-/// The EC2 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}` of a P-256 key.
-fn cose_key(x: [u8; 32], y: [u8; 32]) -> [u8; 75] {
-    let mut key = [0; 75];
-    write(
-        &mut key,
-        0,
-        [0xa4, 0x01, 0x02, 0x20, 0x01, 0x21, 0x58, 0x20],
-    );
-    write(&mut key, 8, x);
-    write(&mut key, 40, [0x22, 0x58, 0x20]);
-    write(&mut key, 43, y);
-    key
+/// Splits a 32-byte big-endian P-256 coordinate into its high and low 128-bit limbs.
+fn limbs(coordinate: [u8; 32]) -> (Field, Field) {
+    let mut hi = [0; 16];
+    let mut lo = [0; 16];
+    for i in 0..16 {
+        hi[i] = coordinate[i];
+        lo[i] = coordinate[16 + i];
+    }
+    (Field::from_be_bytes(hi), Field::from_be_bytes(lo))
 }
 
 /// Asserts `exp` takes a 4-byte CBOR uint (`2^16 <= exp < 2^32`) and returns its bytes.
@@ -197,47 +208,15 @@ fn exp_bytes(exp: Field) -> [u8; 4] {
     bytes
 }
 
-/// The COSE `Sig_structure` prefix `["Signature1", ...` shared by both tokens.
-fn signature1_prefix<let N: u32>(msg: &mut [u8; N]) {
-    msg[0] = 0x84; // array(4)
-    msg[1] = 0x6a; // text(10)
-    write(msg, 2, "Signature1".as_bytes());
-}
-
-/// Rebuilds the TAKT's `Sig_structure`: protected header `{1: -7, 4: kid}`, empty
-/// `external_aad`, and the claims `exp`, `cnf`, `eat_profile` and `sec_flags`.
-fn takt_sig_structure(
-    public: AuthenticatorAssertionPublicInputs,
-    private: AuthenticatorAssertionPrivateInputs,
-) -> [u8; TAKT_SIG_STRUCTURE_LEN] {
-    let mut msg = [0; TAKT_SIG_STRUCTURE_LEN];
-    signature1_prefix(&mut msg);
-    let kid = sha256::digest(
-        cose_key(public.trust_anchor_key_x, public.trust_anchor_key_y),
-    );
-    write(
-        &mut msg,
-        12,
-        [0x58, 0x26, 0xa2, 0x01, 0x26, 0x04, 0x58, 0x20],
-    );
-    write(&mut msg, 20, kid);
-    write(&mut msg, 52, [0x40, 0x58, 0x85]);
-
-    // Claims set, in deterministic CBOR key order.
-    write(&mut msg, 55, [0xa4, 0x04, 0x1a]);
-    write(&mut msg, 58, exp_bytes(private.takt_exp));
-    write(&mut msg, 62, [0x08, 0xa1, 0x01]);
-    write(
-        &mut msg,
-        65,
-        cose_key(private.assertion_key_x, private.assertion_key_y),
-    );
-    write(&mut msg, 140, [0x19, 0x01, 0x09, 0x78, 0x1d]);
-    write(&mut msg, 145, "https://world.org/eat/takt/v1".as_bytes());
-    write(&mut msg, 174, [0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48]);
-    let sec_flags: [u8; 8] = private.sec_flags.to_be_bytes();
-    write(&mut msg, 180, sec_flags);
-    msg
+/// Computes the TAKT's signed message `H_8(DS_TAKT; exp, x_hi, x_lo, y_hi, y_lo, sec_flags)`.
+/// `sec_flags` is range-checked in `assert_sec_flags`.
+fn takt_message(private: AuthenticatorAssertionPrivateInputs) -> Field {
+    let _ = exp_bytes(private.takt_exp);
+    let (x_hi, x_lo) = limbs(private.assertion_key_x);
+    let (y_hi, y_lo) = limbs(private.assertion_key_y);
+    permutation::t8(
+        [DS_TAKT, private.takt_exp, x_hi, x_lo, y_hi, y_lo, private.sec_flags, 0],
+    )[1]
 }
 
 /// Rebuilds the AAT's `Sig_structure`: protected header `{1: -7}`, empty `external_aad`, and the
@@ -247,7 +226,9 @@ fn aat_sig_structure(
     private: AuthenticatorAssertionPrivateInputs,
 ) -> [u8; AAT_SIG_STRUCTURE_LEN] {
     let mut msg = [0; AAT_SIG_STRUCTURE_LEN];
-    signature1_prefix(&mut msg);
+    msg[0] = 0x84; // array(4)
+    msg[1] = 0x6a; // text(10)
+    write(&mut msg, 2, "Signature1".as_bytes());
     write(&mut msg, 12, [0x43, 0xa1, 0x01, 0x26, 0x40, 0x58, 0x82]);
 
     // Claims set, in deterministic CBOR key order. The 8-byte decomposition bounds `aud` to `u64`.

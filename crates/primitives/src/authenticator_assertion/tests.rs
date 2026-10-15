@@ -1,20 +1,27 @@
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use p256::ecdsa::{Signature, SigningKey};
 
 use super::*;
 
 /// WIP-201 Appendix A1; shared with `crates/proof/noir/authenticator-assertion/src/tests.nr`.
-const TAKT_HEX: &str = "845826a20126045820fd65f050c9c3b53337cf17eee589eb11a81a91c55ac10aa48361c0508d959e4da05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d601025840d6e8303773aeb9c7b04e602e7a3ec822fc34f72609eed01814cd7c34877a664973519aa5e952b74b72fd05918587b52d61bdffd2d8728705d78f41ac06b42bd7";
+const TAKT_HEX: &str = "8447a1013a00010000a10458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d9875885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
 const AAT_HEX: &str = "8443a10126a05882a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582006559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a443461503a00013880025840480fd81ee950f3df613d1e4f333a441ae4f7db080efed620e77199cd37e44d151f4897dfafb0ed67b59afa6b00a55b43b25fe8f7d58ecd183c8bb0ce838b55a8";
-const KID_HEX: &str = "fd65f050c9c3b53337cf17eee589eb11a81a91c55ac10aa48361c0508d959e4d";
+const KEY_HASH_HEX: &str = "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
 const CDH_HEX: &str = "06559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a44346150";
 
 const NOW: u32 = 1_783_446_000;
 const TAKT_EXP: u32 = NOW + 86_400;
 const AAT_EXP: u32 = 1_783_446_925;
 const AUD: u64 = 1_928_118;
+/// Offset of the claims set in a TAKT with the `kid` hint.
+const TAKT_PAYLOAD: usize = 1 + 1 + 7 + 36 + 2;
 
-fn trust_anchor_key() -> SigningKey {
-    SigningKey::from_bytes(&[0x07; 32].into()).unwrap()
+fn trust_anchor_key() -> EdDSAPrivateKey {
+    EdDSAPrivateKey::from_bytes([0x07; 32])
+}
+
+fn key_hash() -> FieldElement {
+    FieldElement::from_be_bytes(&hex::decode(KEY_HASH_HEX).unwrap().try_into().unwrap()).unwrap()
 }
 
 fn assertion_key() -> SigningKey {
@@ -50,7 +57,7 @@ fn inputs() -> (
     AuthenticatorAssertionPrivateInputs,
 ) {
     let public = AuthenticatorAssertionPublicInputs {
-        trust_anchor_key: *trust_anchor_key().verifying_key(),
+        trust_anchor_key_hash: key_hash(),
         now: NOW,
         aud: AUD,
         nonce: 42u64.into(),
@@ -61,7 +68,8 @@ fn inputs() -> (
         min_build_version: 2006,
     };
     let private = AuthenticatorAssertionPrivateInputs {
-        takt: takt().sign(&trust_anchor_key()),
+        trust_anchor_key: trust_anchor_key().public(),
+        takt: takt().sign(&trust_anchor_key()).unwrap(),
         aat: aat().sign(&assertion_key()),
         cdh: cdh(),
     };
@@ -71,10 +79,28 @@ fn inputs() -> (
 #[test]
 fn tokens_match_spec_vectors() {
     assert_eq!(
-        hex::encode(kid(trust_anchor_key().verifying_key())),
-        KID_HEX
+        trust_anchor_key_hash(&trust_anchor_key().public()),
+        key_hash()
     );
-    assert_eq!(hex::encode(takt().sign(&trust_anchor_key())), TAKT_HEX);
+    let takt_cwt = takt().sign(&trust_anchor_key()).unwrap();
+    // The Noir fixture's message and signature; EdDSA signing is deterministic.
+    let signature = trust_anchor_key().sign(*takt().message_hash());
+    assert_eq!(
+        takt().message_hash().to_string(),
+        "0x17a7e201265aef7edbe89f804b16ff8c98a7f87e1da7ed566bcaa91340053879"
+    );
+    assert_eq!(
+        signature.s.to_string(),
+        "2397240400038770518390470117102122304061354532851818695499495078413578208938"
+    );
+    assert_eq!(
+        (signature.r.x.to_string(), signature.r.y.to_string()),
+        (
+            "15307277759014775981403811608064749853061020498219662916284177626515398769025".into(),
+            "2390252300984025142885518919517646868494177410033079022009450775404847994778".into()
+        )
+    );
+    assert_eq!(hex::encode(takt_cwt), TAKT_HEX);
     assert_eq!(hex::encode(aat().sign(&assertion_key())), AAT_HEX);
     assert_eq!(sec_flags().pack(), 0x0003_0000_07d6_0102);
 }
@@ -84,17 +110,17 @@ fn verify_accepts_spec_vectors() {
     let (public, private) = inputs();
     assert_eq!(verify(&public, &private), Ok(()));
     assert_eq!(
-        private.public_inputs(public.trust_anchor_key, NOW, AUD, public.nonce, 2006),
+        private.public_inputs(NOW, AUD, public.nonce, 2006),
         Ok(public)
     );
 }
 
 #[test]
 fn tokens_round_trip() {
-    let takt_cwt = takt().sign(&trust_anchor_key());
+    let takt_cwt = takt().sign(&trust_anchor_key()).unwrap();
     let aat_cwt = aat().sign(&assertion_key());
     assert_eq!(
-        TrustAnchorKeyToken::verify(&takt_cwt, trust_anchor_key().verifying_key()),
+        TrustAnchorKeyToken::verify(&takt_cwt, &trust_anchor_key().public()),
         Ok(takt())
     );
     assert_eq!(
@@ -135,23 +161,26 @@ fn verify_rejects_each_check() {
         ZeroNonce,
     );
 
-    // A key other than the signer: its thumbprint does not match the TAKT's `kid`.
-    let other = SigningKey::from_bytes(&[0x08; 32].into()).unwrap();
+    // A key that did not sign the TAKT, with or without its hash as the public input.
+    let other_key = EdDSAPrivateKey::from_bytes([0x08; 32]).public();
+    let with_other_key = AuthenticatorAssertionPrivateInputs {
+        trust_anchor_key: other_key.clone(),
+        ..private.clone()
+    };
+    check(public, &with_other_key, KeyHashMismatch);
     check(
-        with_public(&|p| p.trust_anchor_key = *other.verifying_key()),
-        &private,
-        Takt(TokenError::Encoding(AssertionError::InvalidEncoding(
-            "TAKT protected header",
-        ))),
+        with_public(&|p| p.trust_anchor_key_hash = trust_anchor_key_hash(&other_key)),
+        &with_other_key,
+        Takt(TokenError::Signature),
     );
+    // A tampered `exp` byte changes the signed message.
     let mut forged = private.clone();
-    let last = forged.takt.len() - 1;
-    forged.takt[last] ^= 1;
+    forged.takt[TAKT_PAYLOAD + 6] ^= 1;
     check(public, &forged, Takt(TokenError::Signature));
 
     // An AAT signed by a key the TAKT does not attest.
     let mut unattested = private.clone();
-    unattested.aat = aat().sign(&other);
+    unattested.aat = aat().sign(&SigningKey::from_bytes(&[0x08; 32].into()).unwrap());
     check(public, &unattested, Aat(TokenError::Signature));
 
     // Freshness, at both boundaries of both tokens.
@@ -174,7 +203,8 @@ fn verify_rejects_each_check() {
             exp: NOW + MAX_TAKT_LIFETIME_SECS + 1,
             ..takt()
         }
-        .sign(&trust_anchor_key()),
+        .sign(&trust_anchor_key())
+        .unwrap(),
         ..private.clone()
     };
     check(public, &long_takt, TaktLifetimeExceeded);
@@ -214,13 +244,12 @@ fn verify_rejects_each_check() {
 
 #[test]
 fn non_canonical_encodings_rejected() {
-    let takt_key = *trust_anchor_key().verifying_key();
+    let takt_key = trust_anchor_key().public();
     let aat_key = *assertion_key().verifying_key();
-    let takt_cwt = takt().sign(&trust_anchor_key());
+    let takt_cwt = takt().sign(&trust_anchor_key()).unwrap();
     let aat_cwt = aat().sign(&assertion_key());
     let decode_aat = |cwt: &[u8]| AuthenticatorAssertionToken::verify(cwt, &aat_key);
-    // Payload offsets after the `COSE_Sign1` framing.
-    let takt_payload = 1 + 2 + 38 + 1 + 2;
+    // Payload offset after the `COSE_Sign1` framing.
     let aat_payload = 1 + 1 + 3 + 1 + 2;
 
     let mut trailing = aat_cwt.clone();
@@ -274,9 +303,24 @@ fn non_canonical_encodings_rejected() {
         TokenError::Encoding(AssertionError::InvalidEncoding("AAT claims"))
     );
 
+    // A TAKT without the `kid` hint decodes; any other unprotected header does not.
+    let mut without_kid = takt_cwt[..9].to_vec();
+    without_kid.push(0xa0);
+    without_kid.extend_from_slice(&takt_cwt[TAKT_PAYLOAD - 2..]);
+    assert_eq!(
+        TrustAnchorKeyToken::verify(&without_kid, &takt_key),
+        Ok(takt())
+    );
+    let mut other_header = takt_cwt.clone();
+    other_header[10] = 0x05;
+    assert_eq!(
+        TrustAnchorKeyToken::verify(&other_header, &takt_key).unwrap_err(),
+        TokenError::Encoding(AssertionError::InvalidEncoding("unprotected header"))
+    );
+
     // TAKT `sec_flags` bit 51.
     let mut flags = takt_cwt.clone();
-    flags[takt_payload + 126] |= 0x08;
+    flags[TAKT_PAYLOAD + 126] |= 0x08;
     assert_eq!(
         TrustAnchorKeyToken::verify(&flags, &takt_key).unwrap_err(),
         TokenError::Encoding(AssertionError::InvalidSecFlags)
@@ -284,7 +328,7 @@ fn non_canonical_encodings_rejected() {
 
     // TAKT `cnf` key not on the curve.
     let mut key = takt_cwt;
-    key[takt_payload + 18] ^= 1;
+    key[TAKT_PAYLOAD + 18] ^= 1;
     assert_eq!(
         TrustAnchorKeyToken::verify(&key, &takt_key).unwrap_err(),
         TokenError::Encoding(AssertionError::InvalidEncoding("assertion_key"))

@@ -1,21 +1,24 @@
 //! Authenticator Assertions (WIP-106).
 //!
 //! A Trust Anchor Key Token (TAKT) is signed by an Authenticator Provider's `trust_anchor_key`
-//! and attests a device-bound `assertion_key`. An Authenticator Assertion Token (AAT) is signed by
-//! that `assertion_key` for a single request. Both are `ES256` CWTs in a fixed deterministic CBOR
-//! layout.
+//! (`BabyJubJub-EdDSA-Poseidon2`) and attests a device-bound `assertion_key`. An Authenticator
+//! Assertion Token (AAT) is signed by that `assertion_key` (`ES256`) for a single request. Both are
+//! CWTs in a fixed deterministic CBOR layout.
 //!
 //! [`verify`](crate::authenticator_assertion::verify) performs every check of WIP-106 §3.8 on
 //! [`AuthenticatorAssertionPublicInputs`](crate::authenticator_assertion::AuthenticatorAssertionPublicInputs)
 //! and [`AuthenticatorAssertionPrivateInputs`](crate::authenticator_assertion::AuthenticatorAssertionPrivateInputs),
 //! the same split as the Noir `verify_assertion`.
 
-use crate::FieldElement;
+use crate::{
+    FieldElement,
+    poseidon::{self, ds},
+};
+use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use p256::ecdsa::{
     Signature, SigningKey, VerifyingKey,
     signature::{Signer, Verifier},
 };
-use sha2::{Digest, Sha256};
 
 /// Maximum remaining lifetime `exp - now` of a TAKT, in seconds.
 pub const MAX_TAKT_LIFETIME_SECS: u32 = 604_800;
@@ -40,6 +43,12 @@ const TAKT_PAYLOAD_LEN: usize = 133;
 
 /// Length in bytes of the AAT claims set.
 const AAT_PAYLOAD_LEN: usize = 130;
+
+/// COSE algorithm identifier for `BabyJubJub-EdDSA-Poseidon2` over a TAKT (WIP-106).
+pub const COSE_ALG_TAKT: i64 = -65537;
+
+/// TAKT protected header `{1: -65537}`.
+const TAKT_PROTECTED: [u8; 7] = [0xa1, 0x01, 0x3a, 0x00, 0x01, 0x00, 0x00];
 
 /// AAT protected header `{1: -7}`.
 const AAT_PROTECTED: [u8; 3] = [0xa1, 0x01, 0x26];
@@ -241,12 +250,29 @@ pub enum AssertionError {
     /// The bytes are not the canonical CWT encoding of the token.
     #[error("not a canonical encoding: {0}")]
     InvalidEncoding(&'static str),
+    /// Key or signature material could not be encoded.
+    #[error("invalid key material: {0}")]
+    KeyEncoding(String),
 }
 
-/// Computes the `kid` of a P-256 key: its SHA-256 COSE Key Thumbprint (RFC 9679).
+/// Computes `trust_anchor_key_hash = H_3(DS_KEY; x, y)`, the value circuits and RPs identify a
+/// `trust_anchor_key` by.
 #[must_use]
-pub fn kid(key: &VerifyingKey) -> [u8; 32] {
-    Sha256::digest(cose_key(key)).into()
+pub fn trust_anchor_key_hash(key: &EdDSAPublicKey) -> FieldElement {
+    poseidon::hash(
+        ds::TRUST_ANCHOR_KEY,
+        [FieldElement::from(key.pk.x), FieldElement::from(key.pk.y)],
+    )
+}
+
+/// Splits a 32-byte big-endian P-256 coordinate into its high and low 128-bit limbs.
+fn limbs(coordinate: &[u8]) -> [FieldElement; 2] {
+    let half = |range: std::ops::Range<usize>| {
+        FieldElement::from(u128::from_be_bytes(
+            coordinate[range].try_into().expect("16 bytes"),
+        ))
+    };
+    [half(0..16), half(16..32)]
 }
 
 /// Encodes a P-256 key as the EC2 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}`.
@@ -281,50 +307,57 @@ fn sig_structure(protected: &[u8], payload: &[u8]) -> Vec<u8> {
     out
 }
 
-/// Signs `payload` with `ES256` and encodes an untagged `COSE_Sign1` with an empty unprotected
-/// header.
-fn sign1(key: &SigningKey, protected: &[u8], payload: &[u8]) -> Vec<u8> {
-    let signature: Signature = key.sign(&sig_structure(protected, payload));
+/// Encodes an untagged `COSE_Sign1`.
+fn encode_sign1(
+    protected: &[u8],
+    unprotected: &[u8],
+    payload: &[u8],
+    signature: &[u8; 64],
+) -> Vec<u8> {
     let mut out = vec![0x84];
     out.extend(bstr_header(protected.len()));
     out.extend_from_slice(protected);
-    out.push(0xa0);
+    out.extend_from_slice(unprotected);
     out.extend(bstr_header(payload.len()));
     out.extend_from_slice(payload);
     out.extend_from_slice(&[0x58, 0x40]);
-    out.extend_from_slice(&signature.to_bytes());
+    out.extend_from_slice(signature);
     out
 }
 
-/// Splits an untagged `COSE_Sign1` with an empty unprotected header into its protected header,
-/// payload and signature, rejecting any other layout.
-fn open_sign1(
-    cwt: &[u8],
-    protected_len: usize,
+/// Splits an untagged `COSE_Sign1` into its payload and signature, rejecting any other protected
+/// header than `protected` and any unprotected header but an empty one or, if `kid_hint`, a
+/// 32-byte `kid`.
+fn open_sign1<'a>(
+    cwt: &'a [u8],
+    protected: &[u8],
+    kid_hint: bool,
     payload_len: usize,
-) -> Result<(&[u8], &[u8], Signature), AssertionError> {
-    let header = |len| bstr_header(len);
+) -> Result<(&'a [u8], [u8; 64]), AssertionError> {
     let rest = cwt
         .strip_prefix(&[0x84])
-        .and_then(|r| r.strip_prefix(header(protected_len).as_slice()))
+        .and_then(|r| r.strip_prefix(bstr_header(protected.len()).as_slice()))
+        .and_then(|r| r.strip_prefix(protected))
         .ok_or(AssertionError::InvalidEncoding("protected header"))?;
-    let (protected, rest) = rest
-        .split_at_checked(protected_len)
-        .ok_or(AssertionError::InvalidEncoding("protected header"))?;
+    let rest = match rest.strip_prefix(&[0xa0]) {
+        Some(rest) => rest,
+        None if kid_hint => rest
+            .strip_prefix(&[0xa1, 0x04, 0x58, 0x20])
+            .and_then(|r| r.get(32..))
+            .ok_or(AssertionError::InvalidEncoding("unprotected header"))?,
+        None => return Err(AssertionError::InvalidEncoding("unprotected header")),
+    };
     let rest = rest
-        .strip_prefix(&[0xa0])
-        .ok_or(AssertionError::InvalidEncoding("unprotected header"))?;
-    let rest = rest
-        .strip_prefix(header(payload_len).as_slice())
+        .strip_prefix(bstr_header(payload_len).as_slice())
         .ok_or(AssertionError::InvalidEncoding("payload"))?;
     let (payload, rest) = rest
         .split_at_checked(payload_len)
         .ok_or(AssertionError::InvalidEncoding("payload"))?;
     let signature = rest
         .strip_prefix(&[0x58, 0x40])
-        .and_then(|r| Signature::from_slice(r).ok())
+        .and_then(|r| <[u8; 64]>::try_from(r).ok())
         .ok_or(AssertionError::InvalidEncoding("signature"))?;
-    Ok((protected, payload, signature))
+    Ok((payload, signature))
 }
 
 /// Checks `now < exp <= now + max_lifetime` at issuance, and the fixed `exp` encoding.
@@ -353,15 +386,13 @@ impl TrustAnchorKeyToken {
     /// # Errors
     /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_TAKT_LIFETIME_SECS`,
     /// and [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
-    pub const fn new(
+    pub fn new(
         now: u32,
         exp: u32,
         assertion_key: VerifyingKey,
         sec_flags: SecFlags,
     ) -> Result<Self, AssertionError> {
-        if let Err(e) = check_issuance(now, exp, MAX_TAKT_LIFETIME_SECS) {
-            return Err(e);
-        }
+        check_issuance(now, exp, MAX_TAKT_LIFETIME_SECS)?;
         Ok(Self {
             exp,
             assertion_key,
@@ -387,27 +418,59 @@ impl TrustAnchorKeyToken {
         self.sec_flags
     }
 
-    /// Signs the TAKT with the `trust_anchor_key` and returns its CWT encoding.
+    /// Computes the signed message `H_8(DS_TAKT; exp, x_hi, x_lo, y_hi, y_lo, sec_flags)`, with
+    /// the `assertion_key` coordinates split into 128-bit limbs.
     #[must_use]
-    pub fn sign(&self, trust_anchor_key: &SigningKey) -> Vec<u8> {
-        sign1(
-            trust_anchor_key,
-            &Self::protected(&kid(trust_anchor_key.verifying_key())),
-            &self.payload(),
+    pub fn message_hash(&self) -> FieldElement {
+        let point = self.assertion_key.to_encoded_point(false);
+        let [x_hi, x_lo] = limbs(point.x().expect("uncompressed point"));
+        let [y_hi, y_lo] = limbs(point.y().expect("uncompressed point"));
+        poseidon::hash(
+            ds::TRUST_ANCHOR_KEY_TOKEN,
+            [
+                u64::from(self.exp).into(),
+                x_hi,
+                x_lo,
+                y_hi,
+                y_lo,
+                self.sec_flags.pack().into(),
+            ],
         )
     }
 
-    /// Decodes a TAKT and verifies its signature under `trust_anchor_key`.
+    /// Signs the TAKT with the `trust_anchor_key` and returns its CWT encoding, with the `kid`
+    /// hint.
     ///
     /// # Errors
-    /// [`TokenError::Encoding`] on any encoding but the canonical one, or a `kid` that is not
-    /// the thumbprint of `trust_anchor_key`; [`TokenError::Signature`] if the signature does not
-    /// verify.
-    pub fn verify(cwt: &[u8], trust_anchor_key: &VerifyingKey) -> Result<Self, TokenError> {
-        let (protected, payload, signature) = open_sign1(cwt, 38, TAKT_PAYLOAD_LEN)?;
-        if protected != Self::protected(&kid(trust_anchor_key)) {
-            return Err(AssertionError::InvalidEncoding("TAKT protected header").into());
-        }
+    /// [`AssertionError::KeyEncoding`] if the signature or key can not be compressed.
+    pub fn sign(&self, trust_anchor_key: &EdDSAPrivateKey) -> Result<Vec<u8>, AssertionError> {
+        let key_encoding = |e: eyre::Report| AssertionError::KeyEncoding(e.to_string());
+        let signature = trust_anchor_key
+            .sign(*self.message_hash())
+            .to_compressed_bytes()
+            .map_err(key_encoding)?;
+        let kid = trust_anchor_key
+            .public()
+            .to_compressed_bytes()
+            .map_err(key_encoding)?;
+        let mut unprotected = vec![0xa1, 0x04, 0x58, 0x20];
+        unprotected.extend_from_slice(&kid);
+        Ok(encode_sign1(
+            &TAKT_PROTECTED,
+            &unprotected,
+            &self.payload(),
+            &signature,
+        ))
+    }
+
+    /// Decodes a TAKT and verifies its signature under `trust_anchor_key`. The `kid` hint is
+    /// ignored.
+    ///
+    /// # Errors
+    /// [`TokenError::Encoding`] on any encoding but the canonical one; [`TokenError::Signature`]
+    /// if the signature does not verify.
+    pub fn verify(cwt: &[u8], trust_anchor_key: &EdDSAPublicKey) -> Result<Self, TokenError> {
+        let (payload, signature) = open_sign1(cwt, &TAKT_PROTECTED, true, TAKT_PAYLOAD_LEN)?;
         let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
         let mut point = [0u8; 65];
         point[0] = 0x04;
@@ -429,18 +492,13 @@ impl TrustAnchorKeyToken {
         if takt.payload() != payload {
             return Err(AssertionError::InvalidEncoding("TAKT claims").into());
         }
-        trust_anchor_key
-            .verify(&sig_structure(protected, payload), &signature)
-            .map_err(|_| TokenError::Signature)?;
+        // Canonical `s` and `R` are enforced by deserialization and `verify`.
+        let signature = EdDSASignature::from_compressed_bytes(signature)
+            .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
+        if !trust_anchor_key.verify(*takt.message_hash(), &signature) {
+            return Err(TokenError::Signature);
+        }
         Ok(takt)
-    }
-
-    /// The protected header `{1: -7, 4: kid}`.
-    fn protected(kid: &[u8; 32]) -> [u8; 38] {
-        let mut out = [0u8; 38];
-        out[..6].copy_from_slice(&[0xa2, 0x01, 0x26, 0x04, 0x58, 0x20]);
-        out[6..].copy_from_slice(kid);
-        out
     }
 
     /// The CWT claims set in deterministic CBOR.
@@ -483,7 +541,7 @@ impl AuthenticatorAssertionToken {
     /// # Errors
     /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_AAT_LIFETIME_SECS`,
     /// and [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
-    pub const fn new(
+    pub fn new(
         now: u32,
         aud: u64,
         exp: u32,
@@ -491,9 +549,7 @@ impl AuthenticatorAssertionToken {
         cdh: FieldElement,
         user_presence: UserPresence,
     ) -> Result<Self, AssertionError> {
-        if let Err(e) = check_issuance(now, exp, MAX_AAT_LIFETIME_SECS) {
-            return Err(e);
-        }
+        check_issuance(now, exp, MAX_AAT_LIFETIME_SECS)?;
         Ok(Self {
             aud,
             exp,
@@ -518,7 +574,14 @@ impl AuthenticatorAssertionToken {
     /// Signs the AAT with the `assertion_key` and returns its CWT encoding.
     #[must_use]
     pub fn sign(&self, assertion_key: &SigningKey) -> Vec<u8> {
-        sign1(assertion_key, &AAT_PROTECTED, &self.payload())
+        let payload = self.payload();
+        let signature: Signature = assertion_key.sign(&sig_structure(&AAT_PROTECTED, &payload));
+        encode_sign1(
+            &AAT_PROTECTED,
+            &[0xa0],
+            &payload,
+            &signature.to_bytes().into(),
+        )
     }
 
     /// Decodes an AAT and verifies its signature under `assertion_key`.
@@ -527,10 +590,9 @@ impl AuthenticatorAssertionToken {
     /// [`TokenError::Encoding`] on any encoding but the canonical one; [`TokenError::Signature`]
     /// if the signature does not verify.
     pub fn verify(cwt: &[u8], assertion_key: &VerifyingKey) -> Result<Self, TokenError> {
-        let (protected, payload, signature) = open_sign1(cwt, 3, AAT_PAYLOAD_LEN)?;
-        if protected != AAT_PROTECTED {
-            return Err(AssertionError::InvalidEncoding("AAT protected header").into());
-        }
+        let (payload, signature) = open_sign1(cwt, &AAT_PROTECTED, false, AAT_PAYLOAD_LEN)?;
+        let signature = Signature::from_slice(&signature)
+            .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
         let field = |range: std::ops::Range<usize>, name| {
             FieldElement::from_be_bytes(payload[range].try_into().expect("32 bytes"))
                 .map_err(|_| AssertionError::InvalidEncoding(name))
@@ -554,7 +616,7 @@ impl AuthenticatorAssertionToken {
             return Err(AssertionError::InvalidEncoding("AAT claims").into());
         }
         assertion_key
-            .verify(&sig_structure(protected, payload), &signature)
+            .verify(&sig_structure(&AAT_PROTECTED, payload), &signature)
             .map_err(|_| TokenError::Signature)?;
         Ok(aat)
     }
@@ -599,8 +661,9 @@ pub enum TokenError {
 /// The public inputs of WIP-106 §3.8 verification. A verifier reveals only these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuthenticatorAssertionPublicInputs {
-    /// The Authenticator Provider's key, supplied by the RP.
-    pub trust_anchor_key: VerifyingKey,
+    /// Hash of the Authenticator Provider's key, see [`trust_anchor_key_hash`]; the RP checks it
+    /// against its allowlist.
+    pub trust_anchor_key_hash: FieldElement,
     /// Current time as seconds since the Unix epoch.
     pub now: u32,
     /// The `rpId` of the request.
@@ -623,6 +686,8 @@ pub struct AuthenticatorAssertionPublicInputs {
 /// `Debug` prints none of them.
 #[derive(Clone, PartialEq, Eq)]
 pub struct AuthenticatorAssertionPrivateInputs {
+    /// The key that signed the TAKT.
+    pub trust_anchor_key: EdDSAPublicKey,
     /// The TAKT's CWT encoding.
     pub takt: Vec<u8>,
     /// The AAT's CWT encoding.
@@ -639,27 +704,26 @@ impl std::fmt::Debug for AuthenticatorAssertionPrivateInputs {
 }
 
 impl AuthenticatorAssertionPrivateInputs {
-    /// Derives the public inputs a verifier reports from the tokens, given the request values
-    /// and the RP's minimum. Run [`verify`] on the result.
+    /// Derives the public inputs a verifier reports from the key and tokens it holds, given the
+    /// request values and the RP's minimum. Run [`verify`] on the result.
     ///
     /// # Errors
     /// [`VerificationError::Takt`] or [`VerificationError::Aat`] if a token fails to decode or
     /// verify.
     pub fn public_inputs(
         &self,
-        trust_anchor_key: VerifyingKey,
         now: u32,
         aud: u64,
         nonce: FieldElement,
         min_build_version: u32,
     ) -> Result<AuthenticatorAssertionPublicInputs, VerificationError> {
-        let takt = TrustAnchorKeyToken::verify(&self.takt, &trust_anchor_key)
+        let takt = TrustAnchorKeyToken::verify(&self.takt, &self.trust_anchor_key)
             .map_err(VerificationError::Takt)?;
         let aat = AuthenticatorAssertionToken::verify(&self.aat, takt.assertion_key())
             .map_err(VerificationError::Aat)?;
         let flags = takt.sec_flags();
         Ok(AuthenticatorAssertionPublicInputs {
-            trust_anchor_key,
+            trust_anchor_key_hash: trust_anchor_key_hash(&self.trust_anchor_key),
             now,
             aud,
             nonce,
@@ -678,6 +742,9 @@ pub enum VerificationError {
     /// The request nonce is `0`.
     #[error("nonce must not be 0")]
     ZeroNonce,
+    /// The `trust_anchor_key` does not hash to `trust_anchor_key_hash`.
+    #[error("trust_anchor_key does not match its hash")]
+    KeyHashMismatch,
     /// The TAKT is not canonical, or its signature does not verify under `trust_anchor_key`.
     #[error("invalid TAKT: {0}")]
     Takt(TokenError),
@@ -733,7 +800,10 @@ pub fn verify(
     if public.nonce == FieldElement::ZERO {
         return Err(VerificationError::ZeroNonce);
     }
-    let takt = TrustAnchorKeyToken::verify(&private.takt, &public.trust_anchor_key)
+    if trust_anchor_key_hash(&private.trust_anchor_key) != public.trust_anchor_key_hash {
+        return Err(VerificationError::KeyHashMismatch);
+    }
+    let takt = TrustAnchorKeyToken::verify(&private.takt, &private.trust_anchor_key)
         .map_err(VerificationError::Takt)?;
     let aat = AuthenticatorAssertionToken::verify(&private.aat, takt.assertion_key())
         .map_err(VerificationError::Aat)?;
