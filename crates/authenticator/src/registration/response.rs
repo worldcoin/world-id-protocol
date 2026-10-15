@@ -116,7 +116,8 @@ impl<'de> Deserialize<'de> for RegistrationErrorData {
 
 /// The machine-readable reason a registration failed, carried as its [`code`](Self::code) in
 /// `error.code`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::EnumString, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
 pub enum RegistrationErrorReason {
     /// The request is not valid CBOR (WIP-105 §3.1.4).
     ParseError,
@@ -145,45 +146,17 @@ pub enum RegistrationErrorReason {
 }
 
 impl RegistrationErrorReason {
-    const ALL: [Self; 12] = [
-        Self::ParseError,
-        Self::InvalidRequest,
-        Self::MethodNotFound,
-        Self::InvalidParams,
-        Self::InvalidName,
-        Self::InternalError,
-        Self::UserRejected,
-        Self::NotAuthorized,
-        Self::AuthenticatorConflict,
-        Self::MaxAuthenticatorsReached,
-        Self::OperationFailed,
-        Self::OutcomeUnknown,
-    ];
-
     /// Returns the stable message error code for this reason.
     #[must_use]
-    pub const fn code(self) -> &'static str {
-        match self {
-            Self::ParseError => "parse_error",
-            Self::InvalidRequest => "invalid_request",
-            Self::MethodNotFound => "method_not_found",
-            Self::InvalidParams => "invalid_params",
-            Self::InvalidName => "invalid_name",
-            Self::InternalError => "internal_error",
-            Self::UserRejected => "user_rejected",
-            Self::NotAuthorized => "not_authorized",
-            Self::AuthenticatorConflict => "authenticator_conflict",
-            Self::MaxAuthenticatorsReached => "max_authenticators_reached",
-            Self::OperationFailed => "operation_failed",
-            Self::OutcomeUnknown => "outcome_unknown",
-        }
+    pub fn code(self) -> &'static str {
+        self.into()
     }
 
     /// Returns the reason with the error code `code`, or `None` for a code that WIP-109 does not
     /// define. An unknown code stays available in the [`ErrorObject`].
     #[must_use]
     pub fn from_code(code: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|reason| reason.code() == code)
+        code.parse().ok()
     }
 
     /// Builds the message error object for this reason, with an optional implementation-specific
