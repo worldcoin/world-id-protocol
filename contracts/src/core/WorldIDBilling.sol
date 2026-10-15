@@ -384,15 +384,17 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
         // Matches the OPRF node: a signer without code is an EOA; with code it must be WIP-101.
         if (signer.code.length == 0) {
-            if (authorization.wip101Data.length != 0) revert Wip101DataOnEoa();
+            if (authorization.wip101Data.length != 0) revert IWIP101.Wip101DataOnEoa();
             bytes memory message =
                 abi.encodePacked(AUTHORIZATION_VERSION, authorization.nonce, createdAt, expiresAt, billingAction);
             (address recovered, ECDSA.RecoverError err,) =
                 ECDSA.tryRecover(MessageHashUtils.toEthSignedMessageHash(message), authorization.signature);
             if (err != ECDSA.RecoverError.NoError || recovered != signer) revert InvalidRpSignature();
         } else {
-            if (authorization.wip101Data.length > MAX_WIP101_DATA_LENGTH) revert Wip101DataTooLong();
-            if (!ERC165Checker.supportsInterface(signer, type(IWIP101).interfaceId)) revert Wip101Unsupported();
+            if (authorization.wip101Data.length > MAX_WIP101_DATA_LENGTH) revert IWIP101.Wip101DataTooLong();
+            if (!ERC165Checker.supportsInterface(signer, type(IWIP101).interfaceId)) {
+                revert IWIP101.Wip101Unsupported();
+            }
             // Low-level call so malformed return data maps to `Wip101Rejected` instead of a decode revert.
             (bool ok, bytes memory result) = signer.staticcall(
                 abi.encodeCall(
@@ -408,7 +410,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
                 )
             );
             if (!ok || result.length != 32 || bytes32(result) != bytes32(IWIP101.verifyRpRequest.selector)) {
-                revert Wip101Rejected();
+                revert IWIP101.Wip101Rejected();
             }
         }
     }

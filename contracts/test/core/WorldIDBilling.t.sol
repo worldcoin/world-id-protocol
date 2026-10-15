@@ -995,7 +995,7 @@ contract WorldIDBillingTest is Test {
 
         auth = _authorize(scope);
         auth.wip101Data = hex"01";
-        vm.expectRevert(IWorldIDBilling.Wip101DataOnEoa.selector);
+        vm.expectRevert(IWIP101.Wip101DataOnEoa.selector);
         _register(auth, NULLIFIER);
     }
 
@@ -1039,28 +1039,28 @@ contract WorldIDBillingTest is Test {
 
         auth = _authorize(scope);
         auth.wip101Data = new bytes(1025);
-        vm.expectRevert(IWorldIDBilling.Wip101DataTooLong.selector);
+        vm.expectRevert(IWIP101.Wip101DataTooLong.selector);
         _register(auth, NULLIFIER + 1);
 
         contractSigner.setMode(Wip101Signer.Mode.WrongMagic);
         auth = _authorize(scope);
-        vm.expectRevert(IWorldIDBilling.Wip101Rejected.selector);
+        vm.expectRevert(IWIP101.Wip101Rejected.selector);
         _register(auth, NULLIFIER + 1);
 
         contractSigner.setMode(Wip101Signer.Mode.Revert);
         auth = _authorize(scope);
-        vm.expectRevert(IWorldIDBilling.Wip101Rejected.selector);
+        vm.expectRevert(IWIP101.Wip101Rejected.selector);
         _register(auth, NULLIFIER + 1);
 
         rpRegistry.set(RP_ID, OPRF_KEY_ID, address(new MalformedWip101Signer()), true);
         auth = _authorize(scope);
-        vm.expectRevert(IWorldIDBilling.Wip101Rejected.selector);
+        vm.expectRevert(IWIP101.Wip101Rejected.selector);
         _register(auth, NULLIFIER + 1);
         rpRegistry.set(RP_ID, OPRF_KEY_ID, address(contractSigner), true);
 
         contractSigner.setMode(Wip101Signer.Mode.NoInterface);
         auth = _authorize(scope);
-        vm.expectRevert(IWorldIDBilling.Wip101Unsupported.selector);
+        vm.expectRevert(IWIP101.Wip101Unsupported.selector);
         _register(auth, NULLIFIER + 1);
     }
 

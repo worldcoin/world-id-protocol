@@ -71,10 +71,6 @@ interface IWorldIDBilling {
     error RequestExpired();
     error OprfKeyMismatch();
     error InvalidRpSignature();
-    error Wip101DataOnEoa();
-    error Wip101Unsupported();
-    error Wip101DataTooLong();
-    error Wip101Rejected();
     error CapacityExhausted();
 
     ////////////////////////////////////////////////////////////
