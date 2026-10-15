@@ -4,6 +4,7 @@
 use std::{
     env,
     io::{BufRead as _, BufReader},
+    os::unix::process::ExitStatusExt as _,
     process::{Command, Stdio},
     thread,
     time::{Duration, Instant},
@@ -54,12 +55,19 @@ fn anvil_exits_when_spawning_process_is_killed() {
     let anvil_pid = stdout
         .lines()
         .map_while(Result::ok)
-        .find_map(|line| line.strip_prefix(PID_PREFIX).map(str::to_owned))
+        // With one test thread, libtest prints `test <name> ... ` on the same line first.
+        .find_map(|line| line.split_once(PID_PREFIX).map(|(_, pid)| pid.to_owned()))
         .expect("child exited before reporting the anvil PID");
 
     // SIGKILL, so no destructor runs in the child.
     child.kill().expect("failed to kill child");
-    child.wait().expect("failed to wait for child");
+    let status = child.wait().expect("failed to wait for child");
+    // Otherwise the child timed out and dropped `TestAnvil` itself, which proves nothing.
+    assert_eq!(
+        status.signal(),
+        Some(9),
+        "child was not killed by SIGKILL: {status}"
+    );
 
     let deadline = Instant::now() + timeout;
     while is_running(&anvil_pid) {
