@@ -12254,6 +12254,7 @@ dependencies = [
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
+ "webpki-root-certs 1.0.6",
  "webpki-roots 1.0.6",
  "world-id-primitives",
  "world-id-proof",

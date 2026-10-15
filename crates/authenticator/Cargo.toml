@@ -84,6 +84,7 @@ alloy = { workspace = true, features = ["reqwest-rustls-tls"] }
 reqwest = { workspace = true, features = ["rustls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 rustls = { workspace = true }
+webpki-root-certs = { workspace = true }
 webpki-roots = { workspace = true }
 world-id-proof = { workspace = true }
 
