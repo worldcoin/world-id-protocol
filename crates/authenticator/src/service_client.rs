@@ -14,16 +14,24 @@ pub(crate) const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::fro
 
 /// Builds the HTTP client for the gateway, the indexer, OHTTP relays and the RPC.
 ///
-/// A native client bounds connection setup with [`CONNECT_TIMEOUT`] and every request with
-/// [`REQUEST_TIMEOUT`]. A browser client cannot be bounded client-wide, so gateway, indexer and
-/// OHTTP relay requests also set [`REQUEST_TIMEOUT`] on each request; RPC requests from a browser
-/// are bounded only by the browser.
+/// A native client trusts only the bundled Mozilla roots: reqwest's default platform verifier
+/// panics on Android unless it was initialized through JNI. It bounds connection setup with
+/// [`CONNECT_TIMEOUT`] and every request with [`REQUEST_TIMEOUT`]. A browser client uses the
+/// browser's TLS and cannot be bounded client-wide, so gateway, indexer and OHTTP relay requests
+/// also set [`REQUEST_TIMEOUT`] on each request; RPC requests from a browser are bounded only by
+/// the browser.
 ///
 /// # Errors
 /// Returns [`AuthenticatorError::NetworkError`] if the TLS backend cannot be initialized.
 pub(crate) fn default_http_client() -> Result<reqwest::Client, AuthenticatorError> {
     #[cfg(not(target_arch = "wasm32"))]
     let builder = reqwest::Client::builder()
+        .tls_certs_only(
+            webpki_root_certs::TLS_SERVER_ROOT_CERTS
+                .iter()
+                .map(|cert| reqwest::Certificate::from_der(cert))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
         .connect_timeout(CONNECT_TIMEOUT)
         .timeout(REQUEST_TIMEOUT);
     #[cfg(target_arch = "wasm32")]
@@ -216,5 +224,21 @@ impl ServiceClient {
                 }
             ))
         })
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bundled_roots_verify_public_tls() {
+        let response = default_http_client()
+            .unwrap()
+            .get("https://rpc.worldchain-sepolia.worldcoin.org")
+            .send()
+            .await;
+
+        assert!(response.is_ok(), "{response:?}");
     }
 }
