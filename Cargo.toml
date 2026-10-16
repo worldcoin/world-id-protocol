@@ -23,7 +23,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.14.1"
+version = "0.15.0"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -69,7 +69,9 @@ eyre = "0.6"
 futures = "0.3"
 groth16-material = { package = "taceo-groth16-material", version = "0.4.2", default-features = false }
 hex = { version = "0.4" }
-ohttp = { version = "0.7", default-features = false }
+hkdf = "0.13"
+aes-gcm = "0.11"
+ohttp = { version = "0.8", default-features = false }
 bhttp = "0.7"
 itertools = "0.15"
 k256 = { version = "0.13" }
@@ -80,6 +82,8 @@ telemetry-batteries = "0.3"
 tikv-jemallocator = "0.6"
 ruint = { version = "1.20", features = ["ark-ff-06"] }
 poseidon2 = { package = "taceo-poseidon2", version = "0.3.0" }
+percent-encoding = "2.3"
+quantum-box = "0.2"
 rand = "0.8.6"
 rand_chacha = "0.3"
 rustls = { version = "0.23", features = ["ring"] }
@@ -102,6 +106,7 @@ reqwest = { version = "0.13", default-features = false, features = [
   "rustls",
 ] }
 uuid = { version = "1" }
+webpki-root-certs = "1.0"
 webpki-roots = "1.0"
 zeroize = "1"
 zstd = "0.13"
@@ -113,7 +118,9 @@ metrics = "0.24"
 metrics-util = "0.20"
 secrecy = "0.10"
 mockito = "1"
+cbor-diag = "0.1.12"
 ciborium = "0.2"
+argon2 = { version = "0.5", default-features = false, features = ["zeroize"] }
 arrayvec = "0.7"
 async-stream = "0.3"
 async-trait = "0.1"
@@ -124,10 +131,9 @@ clap = "4.5.59"
 config = "0.15.19"
 dotenvy = "0.15"
 futures-util = "0.3"
-getrandom = "0.3"
-# `rand` 0.8's `OsRng` still uses `getrandom` 0.2, while OHTTP/HPKE uses 0.3.
+getrandom = "0.4"
+# `rand` 0.8's `OsRng` still uses `getrandom` 0.2.
 getrandom-02 = { package = "getrandom", version = "0.2" }
-getrandom-04 = { package = "getrandom", version = "0.4" }
 governor = "0.10.4"
 http = "1"
 humantime = "2"
@@ -158,12 +164,12 @@ tower = "0.5.3"
 p256 = { version = "0.13.2", default-features = false }
 
 # Internal
-world-id-core = { version = "0.14.1", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.14.1", path = "crates/issuer" }
-world-id-proof = { version = "0.14.1", path = "crates/proof" }
-world-id-registries = { version = "0.14.1", path = "crates/registries" }
-world-id-authenticator = { version = "0.14.1", path = "crates/authenticator" }
-world-id-primitives = { version = "0.14.1", path = "crates/primitives", default-features = false }
+world-id-core = { version = "0.15.0", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.15.0", path = "crates/issuer" }
+world-id-proof = { version = "0.15.0", path = "crates/proof" }
+world-id-registries = { version = "0.15.0", path = "crates/registries" }
+world-id-authenticator = { version = "0.15.0", path = "crates/authenticator" }
+world-id-primitives = { version = "0.15.0", path = "crates/primitives" }
 world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
 world-id-test-utils = { path = "crates/test-utils" }
 world-id-services-common = { path = "services/common", version = "0.1.0" }

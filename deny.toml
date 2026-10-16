@@ -30,7 +30,6 @@ allow = [
     "ISC",
     "MIT",
     "MPL-2.0",                        # Although this is copyleft, it is scoped to modifying the original files
-    "OpenSSL",
     "Unicode-3.0",
     "Unlicense",
     "Zlib",

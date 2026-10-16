@@ -57,6 +57,16 @@ backon = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+
+# WIP-109 authenticator registration
+aes-gcm = { workspace = true }
+argon2 = { workspace = true }
+ciborium = { workspace = true }
+hkdf = { workspace = true }
+quantum-box = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
 
 # OHTTP
 ohttp = { workspace = true, features = ["client", "rust-hpke"] }
@@ -74,14 +84,15 @@ alloy = { workspace = true, features = ["reqwest-rustls-tls"] }
 reqwest = { workspace = true, features = ["rustls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 rustls = { workspace = true }
+webpki-root-certs = { workspace = true }
 webpki-roots = { workspace = true }
 world-id-proof = { workspace = true }
 
-# Enable the JS backends used by OHTTP/HPKE (`getrandom` 0.3) and
-# `rand` 0.8's `OsRng` (`getrandom` 0.2) on wasm32-unknown-unknown.
+# Enable JS randomness for OHTTP and the protocol's rand 0.8 stack.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
 getrandom-02 = { workspace = true, features = ["js"] }
+quantum-box = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 axum = { workspace = true }
@@ -92,6 +103,7 @@ hex = { workspace = true }
 ruint = { workspace = true }
 rand = { workspace = true }
 mockito = { workspace = true }
+test-case = { workspace = true }
 testcontainers = { workspace = true }
 world-id-test-utils = { workspace = true }
 

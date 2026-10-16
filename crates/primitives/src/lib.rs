@@ -18,15 +18,19 @@ use std::{
 
 #[cfg(target_arch = "wasm32")]
 use getrandom as _;
-#[cfg(target_arch = "wasm32")]
-use getrandom_04 as _;
 
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 
+/// Authenticator Assertion Tokens (WIP-106): issuance, encoding and verification outside circuits.
+pub mod authenticator_assertion;
+
+pub mod authenticator_message;
+
 mod key_set;
 pub use key_set::{
     AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
+    decode_authenticator_pubkey,
 };
 
 /// Contains the global configuration for interacting with the World ID Protocol.
@@ -50,7 +54,9 @@ pub mod merkle;
 pub mod api_types;
 
 /// Contains types specifically related to the OPRF services.
+#[cfg(feature = "protocol")]
 pub mod oprf;
+#[cfg(feature = "protocol")]
 pub use oprf::{OprfPrefix, OprfPrefixedFieldElement};
 
 /// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
@@ -58,11 +64,15 @@ mod nullifier;
 pub use nullifier::Nullifier;
 
 /// Contains types relevant for Session Proofs.
+#[cfg(feature = "protocol")]
 mod session;
+#[cfg(feature = "protocol")]
 pub use session::{SessionId, SessionNullifier, SessionRef};
 
 /// Contains the quintessential zero-knowledge proof type.
+#[cfg(feature = "protocol")]
 pub mod proof;
+#[cfg(feature = "protocol")]
 pub use proof::{OwnershipProof, ZeroKnowledgeProof};
 
 /// Contains types specifically related to relying parties.
@@ -71,17 +81,22 @@ pub mod rp;
 pub mod serde_utils;
 
 /// Contains signer primitives for on-chain and off-chain signatures.
+#[cfg(feature = "protocol")]
 mod signer;
+#[cfg(feature = "protocol")]
 pub use signer::Signer;
 
 /// Contains request/response types and validation helpers for RP proof requests.
+#[cfg(feature = "protocol")]
 pub mod request;
+#[cfg(feature = "protocol")]
 pub use request::{
     ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
     ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+#[cfg(feature = "protocol")]
 pub use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 
 /// The scalar field used in the World ID Protocol.

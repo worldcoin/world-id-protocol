@@ -3,6 +3,7 @@
 # World ID
 
 [![Protocol documentation](https://github.com/worldcoin/world-id-protocol/actions/workflows/docs.yml/badge.svg)](https://worldcoin.github.io/world-id-protocol/)
+[![Crates.io](https://img.shields.io/crates/v/world-id-core.svg)](https://crates.io/crates/world-id-core)
 
 World ID is a protocol built to enable anonymous proof of human (PoH) at global scale and to complement existing identity systems. World ID allows individuals to prove things about themselves — like they are a real and unique human, not a bot — without revealing any personal information. [Read more about World ID][website].
 
