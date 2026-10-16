@@ -48,11 +48,9 @@ const AAT_PAYLOAD_LEN: usize = 163;
 /// COSE algorithm identifier for `BabyJubJub-EdDSA-Poseidon2` over a TAKT (WIP-106).
 pub const COSE_ALG_TAKT: i64 = -65537;
 
-/// TAKT protected header `{1: -65537}`.
-const TAKT_PROTECTED: [u8; 7] = [0xa1, 0x01, 0x3a, 0x00, 0x01, 0x00, 0x00];
-
-/// Prefix of the TAKT unprotected header `{4: kid}`, followed by the 32-byte `kid`.
-const TAKT_UNPROTECTED_PREFIX: [u8; 4] = [0xa1, 0x04, 0x58, 0x20];
+/// Prefix of the TAKT protected header `{1: -65537, 4: kid}`, followed by the 32-byte `kid`.
+const TAKT_PROTECTED_PREFIX: [u8; 10] =
+    [0xa2, 0x01, 0x3a, 0x00, 0x01, 0x00, 0x00, 0x04, 0x58, 0x20];
 
 /// AAT protected header `{1: -7}`.
 const AAT_PROTECTED: [u8; 3] = [0xa1, 0x01, 0x26];
@@ -404,12 +402,10 @@ fn encode_sign1(
 }
 
 /// Splits an untagged `COSE_Sign1` into its payload and signature, rejecting any other protected
-/// header than `protected` and any unprotected header but `{4: kid}` with a 32-byte `kid` if
-/// `kid`, or an empty one otherwise. The `kid` itself is not checked.
+/// header than `protected` and any unprotected header but an empty one.
 fn open_sign1<'a>(
     cwt: &'a [u8],
     protected: &[u8],
-    kid: bool,
     payload_len: usize,
 ) -> Result<(&'a [u8], [u8; 64]), AssertionError> {
     let rest = cwt
@@ -417,13 +413,9 @@ fn open_sign1<'a>(
         .and_then(|r| r.strip_prefix(bstr_header(protected.len()).as_slice()))
         .and_then(|r| r.strip_prefix(protected))
         .ok_or(AssertionError::InvalidEncoding("protected header"))?;
-    let rest = if kid {
-        rest.strip_prefix(&TAKT_UNPROTECTED_PREFIX)
-            .and_then(|r| r.get(32..))
-    } else {
-        rest.strip_prefix(&[0xa0])
-    }
-    .ok_or(AssertionError::InvalidEncoding("unprotected header"))?;
+    let rest = rest
+        .strip_prefix(&[0xa0])
+        .ok_or(AssertionError::InvalidEncoding("unprotected header"))?;
     let rest = rest
         .strip_prefix(bstr_header(payload_len).as_slice())
         .ok_or(AssertionError::InvalidEncoding("payload"))?;
@@ -515,8 +507,7 @@ impl TrustAnchorKeyToken {
         )
     }
 
-    /// Signs the TAKT with the `trust_anchor_key` and returns its CWT encoding, with the `kid` of
-    /// the `trust_anchor_key` in the unprotected header.
+    /// Signs the TAKT with the `trust_anchor_key` and returns its CWT encoding.
     ///
     /// # Errors
     /// [`AssertionError::KeyEncoding`] if the signature or key can not be compressed.
@@ -530,24 +521,25 @@ impl TrustAnchorKeyToken {
             .public()
             .to_compressed_bytes()
             .map_err(key_encoding)?;
-        let mut unprotected = TAKT_UNPROTECTED_PREFIX.to_vec();
-        unprotected.extend_from_slice(&kid);
         Ok(encode_sign1(
-            &TAKT_PROTECTED,
-            &unprotected,
+            &Self::protected(&kid),
+            &[0xa0],
             &self.payload(),
             &signature,
         ))
     }
 
-    /// Decodes a TAKT and verifies its signature under `trust_anchor_key`. The `kid` only tells
-    /// the holder which key signed the TAKT and is ignored.
+    /// Decodes a TAKT and verifies its signature under `trust_anchor_key`.
     ///
     /// # Errors
-    /// [`TokenError::Encoding`] on any encoding but the canonical one; [`TokenError::Signature`]
-    /// if the signature does not verify.
+    /// [`TokenError::Encoding`] on any encoding but the canonical one, including a protected
+    /// header whose `kid` is not that of `trust_anchor_key`; [`TokenError::Signature`] if the
+    /// signature does not verify.
     pub fn verify(cwt: &[u8], trust_anchor_key: &EdDSAPublicKey) -> Result<Self, TokenError> {
-        let (payload, signature) = open_sign1(cwt, &TAKT_PROTECTED, true, TAKT_PAYLOAD_LEN)?;
+        let kid = trust_anchor_key
+            .to_compressed_bytes()
+            .map_err(|e| AssertionError::KeyEncoding(e.to_string()))?;
+        let (payload, signature) = open_sign1(cwt, &Self::protected(&kid), TAKT_PAYLOAD_LEN)?;
         let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
         let mut point = [0u8; 65];
         point[0] = 0x04;
@@ -576,6 +568,16 @@ impl TrustAnchorKeyToken {
             return Err(TokenError::Signature);
         }
         Ok(takt)
+    }
+
+    /// The protected header `{1: -65537, 4: kid}`. The EdDSA signature over `message` does not
+    /// cover these bytes; they are authenticated implicitly, as `alg` is fixed and `kid` must be
+    /// the key the signature verifies under.
+    fn protected(kid: &[u8; 32]) -> [u8; 42] {
+        let mut out = [0u8; 42];
+        out[..10].copy_from_slice(&TAKT_PROTECTED_PREFIX);
+        out[10..].copy_from_slice(kid);
+        out
     }
 
     /// The CWT claims set in deterministic CBOR.
@@ -667,7 +669,7 @@ impl AuthenticatorAssertionToken {
     /// [`TokenError::Encoding`] on any encoding but the canonical one; [`TokenError::Signature`]
     /// if the signature does not verify.
     pub fn verify(cwt: &[u8], assertion_key: &VerifyingKey) -> Result<Self, TokenError> {
-        let (payload, signature) = open_sign1(cwt, &AAT_PROTECTED, false, AAT_PAYLOAD_LEN)?;
+        let (payload, signature) = open_sign1(cwt, &AAT_PROTECTED, AAT_PAYLOAD_LEN)?;
         let signature = Signature::from_slice(&signature)
             .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
         let field = |range: std::ops::Range<usize>, name| {
