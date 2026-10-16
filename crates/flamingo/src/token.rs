@@ -25,7 +25,7 @@ const CLAIM_EAT_PROFILE: i64 = 265;
 const CLAIM_COMPARED_ENTRY_HASH: i64 = -90_000;
 const CLAIM_AUD: i64 = -90_004;
 const CLAIM_NONCE: i64 = -90_005;
-const CLAIM_AUTHENTICATOR_PROVIDER_KEY_HASH: i64 = -90_006;
+const CLAIM_TRUST_ANCHOR_KEY_HASH: i64 = -90_006;
 const CLAIM_AAT_FLAGS: i64 = -90_007;
 const CLAIM_HAS_AAT: i64 = -90_008;
 const CLAIM_NOW: i64 = -90_009;
@@ -51,9 +51,10 @@ pub enum TokenError {
 /// The public values of a verified AAT.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AatClaims {
-    /// WIP-106 hash of the `authenticator_provider_key`.
-    pub authenticator_provider_key_hash: FieldElement,
-    /// `sec_flags` layout with `min_build_version` in place of `build_version`.
+    /// WIP-106 hash of the `trust_anchor_key` that signed the TAKT.
+    pub trust_anchor_key_hash: FieldElement,
+    /// `sec_flags` layout with `min_build_version` in place of `build_version`, and
+    /// `authenticator_meta` in bits 52-56.
     pub aat_flags: u64,
     /// The AAT's `now`, in seconds since the Unix epoch.
     pub now: u32,
@@ -62,7 +63,7 @@ pub struct AatClaims {
 impl AatClaims {
     /// The values a token carries without an AAT.
     const ZERO: Self = Self {
-        authenticator_provider_key_hash: FieldElement::ZERO,
+        trust_anchor_key_hash: FieldElement::ZERO,
         aat_flags: 0,
         now: 0,
     };
@@ -85,7 +86,7 @@ pub struct FlamingoClaims {
 
 impl FlamingoClaims {
     /// The signed digest, `H_16(DS_SIGN; now, compared_entry_hash_0..3, aud, nonce,
-    /// authenticator_provider_key_hash, aat_flags, has_aat, engine_config_hash)`.
+    /// trust_anchor_key_hash, aat_flags, has_aat, engine_config_hash)`.
     #[must_use]
     pub fn digest(&self) -> FieldElement {
         let aat = self.aat.unwrap_or(AatClaims::ZERO);
@@ -102,7 +103,7 @@ impl FlamingoClaims {
                 c3,
                 self.aud,
                 self.nonce,
-                aat.authenticator_provider_key_hash,
+                aat.trust_anchor_key_hash,
                 aat.aat_flags.into(),
                 u64::from(self.aat.is_some()).into(),
                 self.engine_config_hash,
@@ -146,10 +147,7 @@ impl FlamingoClaims {
         entries.extend([
             field(CLAIM_AUD, self.aud),
             field(CLAIM_NONCE, self.nonce),
-            field(
-                CLAIM_AUTHENTICATOR_PROVIDER_KEY_HASH,
-                aat.authenticator_provider_key_hash,
-            ),
+            field(CLAIM_TRUST_ANCHOR_KEY_HASH, aat.trust_anchor_key_hash),
             uint(CLAIM_AAT_FLAGS, aat.aat_flags),
             uint(CLAIM_HAS_AAT, u64::from(self.aat.is_some())),
             uint(CLAIM_NOW, u64::from(aat.now)),
@@ -192,7 +190,7 @@ impl FlamingoClaims {
             *hash = field(CLAIM_COMPARED_ENTRY_HASH - k)?;
         }
         let aat = AatClaims {
-            authenticator_provider_key_hash: field(CLAIM_AUTHENTICATOR_PROVIDER_KEY_HASH)?,
+            trust_anchor_key_hash: field(CLAIM_TRUST_ANCHOR_KEY_HASH)?,
             aat_flags: uint(CLAIM_AAT_FLAGS)?,
             now: u32::try_from(uint(CLAIM_NOW)?).map_err(|_| TokenError::Malformed)?,
         };

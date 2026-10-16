@@ -4,8 +4,10 @@ use world_id_primitives::EdDSAPrivateKey;
 // WIP-201 Appendix A1, "With an AAT".
 const PAYLOAD: &str = "a66568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d6574614068706970656c696e65016c72656c656173655f6861736858202a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a706d617463685f7374726963746e65737302";
 const CDH: &str = "06559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a44346150";
-const AAT_SIG: &str = "c16ec4215ef7b7b26655ddbf5858e008027aec5326da024ca89c605981e25b249797ee4fb67583591217114e3ba7d9e470e0abada652ec27236992a5854c0a04";
-const PROVIDER_KEY_HASH: &str = "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
+const TAKT: &str = "8447a1013a00010000a10458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d9875885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
+const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582006559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a443461503a000138805820000000000000000000000000000000000000000000000000000000000000000a5840c9deddf6657d8d624fc90f035ca1818de26d24aeb9becd946877d7a9f37520ad605b173c60660179227e019370ae9ea824b35f26fefb5b7592b2ab1865263d27";
+const TRUST_ANCHOR_KEY_HASH: &str =
+    "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
 const COMPARED: [&str; 3] = [
     "21e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c415",
     "010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b",
@@ -36,17 +38,13 @@ fn payload() -> Payload {
 }
 
 fn aat_inputs() -> AatInputs {
-    let mut blind = [0u8; 32];
-    blind[31] = 7;
     AatInputs {
-        authenticator_provider_key: EdDSAPrivateKey::from_bytes([0x07; 32])
+        trust_anchor_key: EdDSAPrivateKey::from_bytes([0x07; 32])
             .public()
             .to_compressed_bytes()
             .unwrap(),
-        exp: 1_783_446_925,
-        sec_flags: 0x0013_0000_07d6_0102,
-        sig: hex::decode(AAT_SIG).unwrap().try_into().unwrap(),
-        blind: FieldElement::from_be_bytes(&blind).unwrap(),
+        takt: hex::decode(TAKT).unwrap(),
+        aat: hex::decode(AAT).unwrap(),
         now: 1_783_446_000,
         min_build_version: 2006,
     }
@@ -79,12 +77,24 @@ fn verifies_the_vector_aat() {
     assert_eq!(
         claims,
         AatClaims {
-            authenticator_provider_key_hash: hex_field(PROVIDER_KEY_HASH),
-            aat_flags: 0x0013_0000_07d6_0102,
+            trust_anchor_key_hash: hex_field(TRUST_ANCHOR_KEY_HASH),
+            aat_flags: 0x00a3_0000_07d6_0102,
             now: 1_783_446_000,
         }
     );
     assert_eq!(request(None).verify_aat(), Ok(None));
+}
+
+#[test]
+fn rejects_an_aud_above_u64() {
+    let request = Request::new(
+        FieldElement::from(u128::from(u64::MAX) + 1),
+        42u64.into(),
+        &payload(),
+        Some(aat_inputs()),
+    )
+    .unwrap();
+    assert_eq!(request.verify_aat(), Err(RequestError::OutOfBounds("aud")));
 }
 
 #[test]

@@ -4,11 +4,11 @@
 //! only the canonical encoding, so `cdh` and every party see the same bytes.
 
 use ciborium::Value;
-use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+use eddsa_babyjubjub::EdDSAPublicKey;
 use sha2::{Digest as _, Sha256};
 use world_id_primitives::{
     FieldElement,
-    authenticator_assertion::{AuthenticatorAssertionPrivateInputs, VerificationError, verify_aat},
+    authenticator_assertion::{AuthenticatorAssertionPrivateInputs, VerificationError, verify},
 };
 
 use crate::{
@@ -26,7 +26,7 @@ pub enum RequestError {
     /// A field is outside the bounds of WIP-201 §3.2.
     #[error("{0} out of bounds")]
     OutOfBounds(&'static str),
-    /// The AAT failed a WIP-106 §3.7 check.
+    /// The TAKT and AAT failed a WIP-106 §3.8 check.
     #[error("AAT rejected: {0}")]
     AatRejected(VerificationError),
 }
@@ -127,7 +127,8 @@ impl Request {
     /// Verifies the AAT, if any, against this request and returns the claims it yields.
     ///
     /// # Errors
-    /// Returns [`RequestError::AatRejected`] if any WIP-106 §3.7 check fails.
+    /// Returns [`RequestError::AatRejected`] if any WIP-106 §3.8 check fails, and
+    /// [`RequestError::OutOfBounds`] for an `aud` not below `2^64`.
     pub fn verify_aat(&self) -> Result<Option<AatClaims>, RequestError> {
         self.aat_inputs
             .as_ref()
@@ -320,74 +321,75 @@ impl Entry {
     }
 }
 
-/// The AAT and the RP's minimum build, as the Authenticator sends them (WIP-201 §3.3).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// The TAKT, the AAT and the RP's minimum build, as the Authenticator sends them (WIP-201 §3.3).
+#[derive(Clone, PartialEq, Eq)]
 pub struct AatInputs {
-    /// Compressed Authenticator Provider key.
-    pub authenticator_provider_key: [u8; 32],
-    /// Expiration, in seconds since the Unix epoch.
-    pub exp: u32,
-    /// Packed WIP-106 security flags.
-    pub sec_flags: u64,
-    /// Compressed signature by `authenticator_provider_key`.
-    pub sig: [u8; 64],
-    /// Blinding factor of the AAT's request commitment.
-    pub blind: FieldElement,
+    /// Compressed `trust_anchor_key` that signed the TAKT.
+    pub trust_anchor_key: [u8; 32],
+    /// The TAKT's CWT encoding.
+    pub takt: Vec<u8>,
+    /// The AAT's CWT encoding.
+    pub aat: Vec<u8>,
     /// Current time, in seconds since the Unix epoch; the RP checks it against its own clock.
     pub now: u32,
     /// The RP's minimum `build_version`; `0` sets no minimum.
     pub min_build_version: u32,
 }
 
+impl std::fmt::Debug for AatInputs {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AatInputs").finish_non_exhaustive()
+    }
+}
+
 impl AatInputs {
-    /// Verifies the AAT for a request with `cdh` and returns the claims a token carries.
+    /// Verifies the TAKT and AAT for a request with `cdh` and returns the claims a token carries.
     ///
     /// # Errors
-    /// Returns [`RequestError::AatRejected`] if any WIP-106 §3.7 check fails, and
-    /// [`RequestError::Malformed`] for an undecodable key or signature.
+    /// Returns [`RequestError::AatRejected`] if any WIP-106 §3.8 check fails,
+    /// [`RequestError::OutOfBounds`] for an `aud` not below `2^64`, and
+    /// [`RequestError::Malformed`] for an undecodable key.
     pub fn verify(
         &self,
         aud: FieldElement,
         nonce: FieldElement,
         cdh: FieldElement,
     ) -> Result<AatClaims, RequestError> {
-        let malformed = || RequestError::Malformed("aat_inputs");
+        let aud_bytes = aud.to_be_bytes();
+        if aud_bytes[..24].iter().any(|b| *b != 0) {
+            return Err(RequestError::OutOfBounds("aud"));
+        }
+        let aud = u64::from_be_bytes(aud_bytes[24..].try_into().expect("8 bytes"));
         let private = AuthenticatorAssertionPrivateInputs {
-            authenticator_provider_key: EdDSAPublicKey::from_compressed_bytes(
-                self.authenticator_provider_key,
-            )
-            .map_err(|_| malformed())?,
-            exp: self.exp,
-            sec_flags: self.sec_flags,
-            sig: EdDSASignature::from_compressed_bytes(self.sig).map_err(|_| malformed())?,
+            trust_anchor_key: EdDSAPublicKey::from_compressed_bytes(self.trust_anchor_key)
+                .map_err(|_| RequestError::Malformed("aat_inputs"))?,
+            takt: self.takt.clone(),
+            aat: self.aat.clone(),
             cdh,
-            blind: self.blind,
         };
         let public = private
             .public_inputs(self.now, aud, nonce, self.min_build_version)
             .map_err(RequestError::AatRejected)?;
-        verify_aat(&public, &private).map_err(RequestError::AatRejected)?;
+        verify(&public, &private).map_err(RequestError::AatRejected)?;
         Ok(AatClaims {
-            authenticator_provider_key_hash: public.authenticator_provider_key_hash,
+            trust_anchor_key_hash: public.trust_anchor_key_hash,
             aat_flags: u64::from(public.platform)
                 | (u64::from(public.sec_level) << 8)
                 | (u64::from(public.min_build_version) << 16)
                 | (u64::from(public.sec_meta) << 48)
-                | (u64::from(u8::from(public.user_presence)) << 51),
+                | (u64::from(public.authenticator_meta.pack()) << 52),
             now: public.now,
         })
     }
 
-    fn to_value(self) -> Value {
+    fn to_value(&self) -> Value {
         cbor::map(vec![
             (
-                "authenticator_provider_key",
-                Value::Bytes(self.authenticator_provider_key.to_vec()),
+                "trust_anchor_key",
+                Value::Bytes(self.trust_anchor_key.to_vec()),
             ),
-            ("exp", Value::Integer(self.exp.into())),
-            ("sec_flags", Value::Integer(self.sec_flags.into())),
-            ("sig", Value::Bytes(self.sig.to_vec())),
-            ("blind", field(self.blind)),
+            ("takt", Value::Bytes(self.takt.clone())),
+            ("aat", Value::Bytes(self.aat.clone())),
             ("now", Value::Integer(self.now.into())),
             (
                 "min_build_version",
@@ -400,23 +402,18 @@ impl AatInputs {
         let malformed = || RequestError::Malformed("aat_inputs");
         let mut fields = Fields::of(value).ok_or_else(malformed)?;
         let aat = Self {
-            authenticator_provider_key: fields
-                .take("authenticator_provider_key")
+            trust_anchor_key: fields
+                .take("trust_anchor_key")
                 .and_then(cbor::array)
                 .ok_or_else(malformed)?,
-            exp: fields
-                .take("exp")
-                .and_then(|v| cbor::uint(&v))
+            takt: fields
+                .take("takt")
+                .and_then(|v| v.into_bytes().ok())
                 .ok_or_else(malformed)?,
-            sec_flags: fields
-                .take("sec_flags")
-                .and_then(|v| cbor::uint(&v))
+            aat: fields
+                .take("aat")
+                .and_then(|v| v.into_bytes().ok())
                 .ok_or_else(malformed)?,
-            sig: fields
-                .take("sig")
-                .and_then(cbor::array)
-                .ok_or_else(malformed)?,
-            blind: take_field(&mut fields, "blind").ok_or_else(malformed)?,
             now: fields
                 .take("now")
                 .and_then(|v| cbor::uint(&v))
