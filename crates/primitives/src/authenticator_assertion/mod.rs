@@ -49,11 +49,17 @@ const AAT_PAYLOAD_LEN: usize = 163;
 pub const COSE_ALG_TAKT: i64 = -65537;
 
 /// Prefix of the TAKT protected header `{1: -65537, 4: kid}`, followed by the 32-byte `kid`.
-const TAKT_PROTECTED_PREFIX: [u8; 10] =
-    [0xa2, 0x01, 0x3a, 0x00, 0x01, 0x00, 0x00, 0x04, 0x58, 0x20];
+const TAKT_PROTECTED_PREFIX: [u8; 10] = [
+    0xa2, // map(2)
+    0x01, 0x3a, 0x00, 0x01, 0x00, 0x00, // alg (1): -65537
+    0x04, 0x58, 0x20, // kid (4): bstr(32)
+];
 
 /// AAT protected header `{1: -7}`.
-const AAT_PROTECTED: [u8; 3] = [0xa1, 0x01, 0x26];
+const AAT_PROTECTED: [u8; 3] = [
+    0xa1, // map(1)
+    0x01, 0x26, // alg (1): -7
+];
 
 /// Platform of the Authenticator.
 ///
@@ -355,8 +361,10 @@ fn limbs(coordinate: &[u8]) -> [FieldElement; 2] {
 fn cose_key(key: &VerifyingKey) -> [u8; 75] {
     let point = key.to_encoded_point(false);
     let mut out = [0u8; 75];
+    // map(4), kty (1): EC2 (2), crv (-1): P-256 (1), x (-2): bstr(32)
     out[..8].copy_from_slice(&[0xa4, 0x01, 0x02, 0x20, 0x01, 0x21, 0x58, 0x20]);
     out[8..40].copy_from_slice(point.x().expect("uncompressed point"));
+    // y (-3): bstr(32)
     out[40..43].copy_from_slice(&[0x22, 0x58, 0x20]);
     out[43..].copy_from_slice(point.y().expect("uncompressed point"));
     out
@@ -365,7 +373,9 @@ fn cose_key(key: &VerifyingKey) -> [u8; 75] {
 /// Encodes a CBOR byte string header for `len` bytes, in its shortest form.
 fn bstr_header(len: usize) -> Vec<u8> {
     match len {
+        // bstr, length in the initial byte
         0..=23 => vec![0x40 | len as u8],
+        // bstr, length in the next byte
         24..=255 => vec![0x58, len as u8],
         _ => unreachable!("WIP-106 byte strings are shorter than 256 bytes"),
     }
@@ -373,10 +383,12 @@ fn bstr_header(len: usize) -> Vec<u8> {
 
 /// The COSE `Sig_structure` (RFC 9052 §4.4) with an empty `external_aad`.
 fn sig_structure(protected: &[u8], payload: &[u8]) -> Vec<u8> {
+    // array(4), context: text(10) "Signature1"
     let mut out = vec![0x84, 0x6a];
     out.extend_from_slice(b"Signature1");
     out.extend(bstr_header(protected.len()));
     out.extend_from_slice(protected);
+    // external_aad: bstr(0)
     out.push(0x40);
     out.extend(bstr_header(payload.len()));
     out.extend_from_slice(payload);
@@ -390,12 +402,14 @@ fn encode_sign1(
     payload: &[u8],
     signature: &[u8; 64],
 ) -> Vec<u8> {
+    // array(4)
     let mut out = vec![0x84];
     out.extend(bstr_header(protected.len()));
     out.extend_from_slice(protected);
     out.extend_from_slice(unprotected);
     out.extend(bstr_header(payload.len()));
     out.extend_from_slice(payload);
+    // signature: bstr(64)
     out.extend_from_slice(&[0x58, 0x40]);
     out.extend_from_slice(signature);
     out
@@ -409,10 +423,12 @@ fn open_sign1<'a>(
     payload_len: usize,
 ) -> Result<(&'a [u8], [u8; 64]), AssertionError> {
     let rest = cwt
+        // array(4)
         .strip_prefix(&[0x84])
         .and_then(|r| r.strip_prefix(bstr_header(protected.len()).as_slice()))
         .and_then(|r| r.strip_prefix(protected))
         .ok_or(AssertionError::InvalidEncoding("protected header"))?;
+    // Empty unprotected header: map(0).
     let rest = rest
         .strip_prefix(&[0xa0])
         .ok_or(AssertionError::InvalidEncoding("unprotected header"))?;
@@ -422,6 +438,7 @@ fn open_sign1<'a>(
     let (payload, rest) = rest
         .split_at_checked(payload_len)
         .ok_or(AssertionError::InvalidEncoding("payload"))?;
+    // signature: bstr(64)
     let signature = rest
         .strip_prefix(&[0x58, 0x40])
         .and_then(|r| <[u8; 64]>::try_from(r).ok())
@@ -542,6 +559,7 @@ impl TrustAnchorKeyToken {
         let (payload, signature) = open_sign1(cwt, &Self::protected(&kid), TAKT_PAYLOAD_LEN)?;
         let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
         let mut point = [0u8; 65];
+        // SEC1 uncompressed point tag
         point[0] = 0x04;
         point[1..33].copy_from_slice(&payload[18..50]);
         point[33..].copy_from_slice(&payload[53..85]);
@@ -584,12 +602,16 @@ impl TrustAnchorKeyToken {
     fn payload(&self) -> [u8; TAKT_PAYLOAD_LEN] {
         let mut out = [0u8; TAKT_PAYLOAD_LEN];
         let key = cose_key(&self.assertion_key);
+        // map(4), exp (4): uint32
         out[..3].copy_from_slice(&[0xa4, 0x04, 0x1a]);
         out[3..7].copy_from_slice(&self.exp.to_be_bytes());
+        // cnf (8): map(1), COSE_Key (1)
         out[7..10].copy_from_slice(&[0x08, 0xa1, 0x01]);
         out[10..85].copy_from_slice(&key);
+        // eat_profile (265): text(29)
         out[85..90].copy_from_slice(&[0x19, 0x01, 0x09, 0x78, 0x1d]);
         out[90..119].copy_from_slice(EAT_PROFILE_TAKT.as_bytes());
+        // sec_flags (-70000): bstr(8)
         out[119..125].copy_from_slice(&[0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48]);
         out[125..].copy_from_slice(&self.sec_flags.pack().to_be_bytes());
         out
@@ -706,16 +728,22 @@ impl AuthenticatorAssertionToken {
     /// The CWT claims set in deterministic CBOR.
     fn payload(&self) -> [u8; AAT_PAYLOAD_LEN] {
         let mut out = [0u8; AAT_PAYLOAD_LEN];
+        // map(6), aud (3): bstr(8)
         out[..3].copy_from_slice(&[0xa6, 0x03, 0x48]);
         out[3..11].copy_from_slice(&self.aud.to_be_bytes());
+        // exp (4): uint32
         out[11..13].copy_from_slice(&[0x04, 0x1a]);
         out[13..17].copy_from_slice(&self.exp.to_be_bytes());
+        // nonce (10): bstr(32)
         out[17..20].copy_from_slice(&[0x0a, 0x58, 0x20]);
         out[20..52].copy_from_slice(&self.nonce.to_be_bytes());
+        // eat_profile (265): text(28)
         out[52..57].copy_from_slice(&[0x19, 0x01, 0x09, 0x78, 0x1c]);
         out[57..85].copy_from_slice(EAT_PROFILE_AAT.as_bytes());
+        // cdh (-80000): bstr(32)
         out[85..92].copy_from_slice(&[0x3a, 0x00, 0x01, 0x38, 0x7f, 0x58, 0x20]);
         out[92..124].copy_from_slice(&self.cdh.to_be_bytes());
+        // authenticator_meta (-80001): bstr(32)
         out[124..131].copy_from_slice(&[0x3a, 0x00, 0x01, 0x38, 0x80, 0x58, 0x20]);
         out[131..].copy_from_slice(&self.authenticator_meta.to_field_bytes());
         out

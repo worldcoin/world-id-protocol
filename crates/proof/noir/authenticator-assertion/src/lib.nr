@@ -230,23 +230,29 @@ fn aat_sig_structure(
     msg[0] = 0x84; // array(4)
     msg[1] = 0x6a; // text(10)
     write(&mut msg, 2, "Signature1".as_bytes());
+    // protected: bstr(3) {1: -7}, external_aad: bstr(0), payload: bstr(163)
     write(&mut msg, 12, [0x43, 0xa1, 0x01, 0x26, 0x40, 0x58, 0xa3]);
 
     // Claims set, in deterministic CBOR key order. The 8-byte decomposition bounds `aud` to `u64`.
     let aud: [u8; 8] = public.aud.to_be_bytes();
     let nonce: [u8; 32] = public.nonce.to_be_bytes();
     let cdh: [u8; 32] = private.cdh.to_be_bytes();
+    // map(6), aud (3): bstr(8)
     write(&mut msg, 19, [0xa6, 0x03, 0x48]);
     write(&mut msg, 22, aud);
+    // exp (4): uint32
     write(&mut msg, 30, [0x04, 0x1a]);
     write(&mut msg, 32, exp_bytes(private.aat_exp));
+    // nonce (10): bstr(32)
     write(&mut msg, 36, [0x0a, 0x58, 0x20]);
     write(&mut msg, 39, nonce);
+    // eat_profile (265): text(28)
     write(&mut msg, 71, [0x19, 0x01, 0x09, 0x78, 0x1c]);
     write(&mut msg, 76, "https://world.org/eat/aat/v1".as_bytes());
+    // cdh (-80000): bstr(32)
     write(&mut msg, 104, [0x3a, 0x00, 0x01, 0x38, 0x7f, 0x58, 0x20]);
     write(&mut msg, 111, cdh);
-    // `authenticator_meta` as a 32-byte field element; its upper 31 bytes stay zero.
+    // authenticator_meta (-80001): bstr(32), a field element whose upper 31 bytes stay zero
     write(&mut msg, 143, [0x3a, 0x00, 0x01, 0x38, 0x80, 0x58, 0x20]);
     msg[181] = public.authenticator_meta;
     msg
