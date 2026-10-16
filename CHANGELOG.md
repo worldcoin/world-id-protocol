@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.15.0...world-id-primitives-v0.15.1) - 2026-10-16
+
+### Added
+
+- *(indexer)* add POST /authenticators ([#1104](https://github.com/worldcoin/world-id-protocol/pull/1104))
+- *(primitives)* add strict CBOR serde adapters and the WIP-109 signature separator ([#1095](https://github.com/worldcoin/world-id-protocol/pull/1095))
+- *(primitives)* add CBOR authenticator messages ([#1059](https://github.com/worldcoin/world-id-protocol/pull/1059))
+- *(authenticator)* add WIP-109 registration response ([#1060](https://github.com/worldcoin/world-id-protocol/pull/1060))
+- *(authenticator)* add WIP-109 registration request and pairing URI ([#1097](https://github.com/worldcoin/world-id-protocol/pull/1097))
+- *(authenticator)* add WIP-109 pairing session and transport encryption ([#1096](https://github.com/worldcoin/world-id-protocol/pull/1096))
+
+### Fixed
+
+- docs for poseidon2 t=12 permutation ([#1092](https://github.com/worldcoin/world-id-protocol/pull/1092))
+- *(authenticator)* trust bundled roots in the HTTP client ([#1109](https://github.com/worldcoin/world-id-protocol/pull/1109))
+
+### Other
+
+- *(authenticator)* derive RegistrationErrorReason codes with strum ([#1103](https://github.com/worldcoin/world-id-protocol/pull/1103))
+
 ## [0.15.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.1...world-id-primitives-v0.15.0) - 2026-10-06
 
 ### Added
