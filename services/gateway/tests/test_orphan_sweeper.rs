@@ -22,7 +22,7 @@ use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
 mod common;
-use crate::common::{GW_PRIVATE_KEY, wait_for_finalized, wait_http_ready};
+use crate::common::{GW_PRIVATE_KEY, authenticator_pubkey, wait_for_finalized, wait_http_ready};
 
 async fn setup_redis(redis_url: &str) -> ConnectionManager {
     let client = redis::Client::open(redis_url).expect("Failed to create Redis client");
@@ -616,7 +616,7 @@ async fn sweep_submitted_with_real_receipt() {
     let body = world_id_primitives::api_types::CreateAccountRequest {
         recovery_address: Some(wallet_addr),
         authenticator_addresses: vec![address!("0x2222222222222222222222222222222222222222")],
-        authenticator_pubkeys: vec![U256::from(100)],
+        authenticator_pubkeys: vec![authenticator_pubkey(100)],
         offchain_signer_commitment: U256::from(1),
     };
 

@@ -14,7 +14,7 @@ use crate::{
         IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
         IndexerQueryRequest, IndexerSignatureNonceResponse, ServiceApiError,
     },
-    service_client::{ServiceClient, ServiceKind},
+    service_client::{ServiceClient, ServiceKind, default_http_client},
 };
 use world_id_primitives::{Credential, FieldElement, ProofResponse, Signer};
 
@@ -136,19 +136,18 @@ impl Authenticator {
         zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
+        let http_client = default_http_client()?;
 
         let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
             config.rpc_url().map(|rpc_url| {
                 let provider = alloy::providers::ProviderBuilder::new()
                     .with_chain_id(config.chain_id())
-                    .connect_http(rpc_url.clone());
+                    .connect_reqwest(http_client.clone(), rpc_url.clone());
                 Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
                     *config.registry_address(),
                     alloy::providers::Provider::erased(provider),
                 ))
             });
-
-        let http_client = reqwest::Client::new();
 
         let indexer_client =
             ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
@@ -202,7 +201,7 @@ impl Authenticator {
         recovery_address: Option<Address>,
     ) -> Result<InitializingAuthenticator, AuthenticatorError> {
         let gateway_client = ServiceClient::new(
-            reqwest::Client::new(),
+            default_http_client()?,
             ServiceKind::Gateway,
             config.gateway(),
         )?;
@@ -231,7 +230,7 @@ impl Authenticator {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 let gateway_client = ServiceClient::new(
-                    reqwest::Client::new(),
+                    default_http_client()?,
                     ServiceKind::Gateway,
                     config.gateway(),
                 )?;

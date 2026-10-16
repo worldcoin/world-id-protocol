@@ -1,0 +1,673 @@
+//! The response to a `worldid_auth_v1_register` request (WIP-109 §3.6.2 and §3.6.3).
+
+use std::fmt;
+
+use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+use world_id_primitives::{
+    MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
+    authenticator_message::{ErrorObject, MessageError, Response, Value},
+    serde_utils::deserialize_present,
+};
+use zeroize::Zeroizing;
+
+use super::{MAX_RESPONSE_SIZE, reject_tags};
+
+/// The largest [`Vault::data`] a registration response carries: 3.5 MiB, so that the encrypted
+/// response fits the message-bridge's 5 MiB body limit (WIP-109 §3.6.2).
+pub const MAX_VAULT_SIZE: usize = 3_670_016;
+
+/// A credential vault export.
+///
+/// The vault holds the account's credentials and the associated data from their issuers, which
+/// may include biometric data. Its bytes are zeroized on drop.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Vault {
+    /// The format of `data`, a CBOR text string. This crate does not interpret it; the consumer
+    /// of the vault decides which formats it accepts. Untrusted text with no length limit of its
+    /// own; the message size limit bounds it.
+    pub format: String,
+    /// The vault bytes, a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes on the wire.
+    #[serde(with = "vault_data")]
+    pub data: Zeroizing<Vec<u8>>,
+}
+
+impl fmt::Debug for Vault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Vault")
+            .field("format", &self.format)
+            .field("len", &self.data.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// The name of one of the account's other authenticators.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KnownAuthenticator {
+    /// The slot of the authenticator, below [`MAX_AUTHENTICATOR_KEYS`].
+    #[serde(with = "pubkey_id")]
+    pub pubkey_id: u32,
+    /// The name the Approving Authenticator knows it by. Untrusted text with no length limit of
+    /// its own (WIP-109 §3.6.2); the message size limit bounds it.
+    pub name: String,
+}
+
+/// The result of a successful registration: where the new authenticator was inserted, and the
+/// credentials it needs to generate proofs.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RegistrationResult {
+    /// The index of the account the authenticator was registered on, from 1 to 2^30 − 1.
+    #[serde(with = "leaf_index")]
+    pub leaf_index: u64,
+    /// The slot the authenticator was inserted at, below [`MAX_AUTHENTICATOR_KEYS`].
+    #[serde(with = "pubkey_id")]
+    pub pubkey_id: u32,
+    /// Names of the account's other authenticators known to the Approving Authenticator.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub authenticators: Vec<KnownAuthenticator>,
+    /// The account's credential vault, unless the user or Approving Authenticator policy
+    /// excluded it.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    pub vault: Option<Vault>,
+}
+
+/// The `data` member of a registration error.
+///
+/// WIP-109 §3.6.3 lets `error.data` be a map with a `detail` text string. Any other `data`
+/// decodes too, as no detail. Repeated `detail` keys are rejected (WIP-105 §3.1.1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct RegistrationErrorData {
+    /// Optional implementation-specific detail, e.g. a gateway error code.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for RegistrationErrorData {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let detail = match Value::deserialize(deserializer)? {
+            Value::Map(entries) => {
+                let mut detail = None;
+                let mut detail_seen = false;
+                for (key, value) in entries {
+                    if key.as_text() != Some("detail") {
+                        continue;
+                    }
+                    if detail_seen {
+                        return Err(D::Error::duplicate_field("detail"));
+                    }
+                    detail_seen = true;
+                    if let Value::Text(text) = value {
+                        detail = Some(text);
+                    }
+                }
+                detail
+            }
+            _ => None,
+        };
+        Ok(Self { detail })
+    }
+}
+
+/// The machine-readable reason a registration failed, carried as its [`code`](Self::code) in
+/// `error.code`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, strum::EnumString, strum::IntoStaticStr)]
+#[strum(serialize_all = "snake_case")]
+pub enum RegistrationErrorReason {
+    /// The request is not valid CBOR (WIP-105 §3.1.4).
+    ParseError,
+    /// The request envelope or its ID is invalid (WIP-105 §3.1.4).
+    InvalidRequest,
+    /// The request is for another method (WIP-105 §3.1.4).
+    MethodNotFound,
+    /// A field is missing or malformed, or a key or address is invalid.
+    InvalidParams,
+    /// The Approving Authenticator does not accept the requested name.
+    InvalidName,
+    /// The Approving Authenticator could not complete the request for another reason.
+    InternalError,
+    /// The user declined.
+    UserRejected,
+    /// The Approving Authenticator is not an Admin Authenticator of the account.
+    NotAuthorized,
+    /// The key or address is already registered, but not as requested.
+    AuthenticatorConflict,
+    /// The account has no free authenticator slot.
+    MaxAuthenticatorsReached,
+    /// The `InsertAuthenticator` operation definitively failed.
+    OperationFailed,
+    /// The operation was submitted, but its outcome could not be determined in time.
+    OutcomeUnknown,
+}
+
+impl RegistrationErrorReason {
+    /// Returns the stable message error code for this reason.
+    #[must_use]
+    pub fn code(self) -> &'static str {
+        self.into()
+    }
+
+    /// Returns the reason with the error code `code`, or `None` for a code that WIP-109 does not
+    /// define. An unknown code stays available in the [`ErrorObject`].
+    #[must_use]
+    pub fn from_code(code: &str) -> Option<Self> {
+        code.parse().ok()
+    }
+
+    /// Builds the message error object for this reason, with an optional implementation-specific
+    /// `detail`.
+    #[must_use]
+    pub fn into_error(self, detail: Option<String>) -> ErrorObject<RegistrationErrorData> {
+        ErrorObject {
+            code: self.code().into(),
+            message: self.message().to_string(),
+            data: detail.map(|detail| RegistrationErrorData {
+                detail: Some(detail),
+            }),
+        }
+    }
+
+    const fn message(self) -> &'static str {
+        match self {
+            Self::ParseError => "Parse error",
+            Self::InvalidRequest => "Invalid request",
+            Self::MethodNotFound => "Method not found",
+            Self::InvalidParams => "Invalid params",
+            Self::InvalidName => "Name not accepted",
+            Self::InternalError => "Internal error",
+            Self::UserRejected => "User rejected the registration",
+            Self::NotAuthorized => "Not an Admin Authenticator of the account",
+            Self::AuthenticatorConflict => "Authenticator already registered differently",
+            Self::MaxAuthenticatorsReached => "No free authenticator slot",
+            Self::OperationFailed => "InsertAuthenticator operation failed",
+            Self::OutcomeUnknown => "InsertAuthenticator outcome unknown",
+        }
+    }
+}
+
+/// The registration response as sent over the bridge.
+///
+/// Decode it with [`decode_response`], which also rejects the CBOR tags in a `result` that
+/// deserializing the message directly would skip.
+pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErrorData>;
+
+/// Decodes a registration response from the plaintext of
+/// [`TransportKey::decrypt_response`](super::TransportKey::decrypt_response).
+///
+/// The plaintext must hold a single WIP-105 response of at most 3.5 MiB plus 4 KiB (WIP-109
+/// §3.5). Its `result` must be a [`RegistrationResult`] without CBOR tags at any depth. An
+/// error's `data` is read as [`RegistrationErrorData`], which rejects duplicate `detail` keys.
+/// Matching the `id`
+/// against the request is up to the caller.
+///
+/// # Errors
+///
+/// Returns a [`MessageError`] if the plaintext is too large, is not a single CBOR value, or does
+/// not match the response schema.
+pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, MessageError> {
+    let response: RegisterResponseMessage =
+        RegisterResponseMessage::decode(plaintext, MAX_RESPONSE_SIZE)?;
+    if matches!(response, Response::Error { .. }) {
+        return Ok(response);
+    }
+    // Neither pass suffices alone: typed decoding skips tags, and a `Value` turns bignums into
+    // plain integers, which only the typed `deserialize_unsigned` rejects. The `Value` copy may
+    // hold the vault, so it is wiped before the tag check can return.
+    let mut raw: Response<Value, Value> = Response::decode(plaintext, MAX_RESPONSE_SIZE)?;
+    if let Response::Success { result, .. } = &mut raw {
+        wipe_byte_strings(result);
+        reject_tags(result)?;
+    }
+    Ok(response)
+}
+
+/// Wipes every byte string in `value`, which may hold a copy of the vault.
+fn wipe_byte_strings(value: &mut Value) {
+    match value {
+        Value::Bytes(bytes) => zeroize::Zeroize::zeroize(bytes),
+        Value::Tag(_, value) => wipe_byte_strings(value),
+        Value::Array(values) => values.iter_mut().for_each(wipe_byte_strings),
+        Value::Map(entries) => entries.iter_mut().for_each(|(key, value)| {
+            wipe_byte_strings(key);
+            wipe_byte_strings(value);
+        }),
+        _ => {}
+    }
+}
+
+/// Account indices run from 1 to 2^30 − 1; index 0 is reserved (WIP-100 §3.8, §5.1).
+mod leaf_index {
+    use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
+
+    use world_id_primitives::serde_utils::cbor::deserialize_unsigned;
+
+    use super::TREE_DEPTH;
+
+    const fn is_valid(index: u64) -> bool {
+        index != 0 && index < 1 << TREE_DEPTH
+    }
+
+    pub(super) fn serialize<S: Serializer>(index: &u64, serializer: S) -> Result<S::Ok, S::Error> {
+        if !is_valid(*index) {
+            return Err(S::Error::custom("leaf index out of range"));
+        }
+        serializer.serialize_u64(*index)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+        let index = deserialize_unsigned(deserializer)?;
+        if !is_valid(index) {
+            return Err(D::Error::custom("leaf index out of range"));
+        }
+        Ok(index)
+    }
+}
+
+/// Authenticator slots are below the registry's `getMaxAuthenticators()` (WIP-109 §3.6.2). Decoding
+/// checks [`MAX_AUTHENTICATOR_KEYS`], the most slots an account's key set holds; the Requesting
+/// Authenticator checks the actual slot against the registry.
+mod pubkey_id {
+    use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
+
+    use world_id_primitives::serde_utils::cbor::deserialize_unsigned;
+
+    use super::MAX_AUTHENTICATOR_KEYS;
+
+    fn is_valid(slot: u32) -> bool {
+        usize::try_from(slot).is_ok_and(|slot| slot < MAX_AUTHENTICATOR_KEYS)
+    }
+
+    pub(super) fn serialize<S: Serializer>(slot: &u32, serializer: S) -> Result<S::Ok, S::Error> {
+        if !is_valid(*slot) {
+            return Err(S::Error::custom("pubkey_id out of range"));
+        }
+        serializer.serialize_u32(*slot)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<u32, D::Error> {
+        let slot = deserialize_unsigned(deserializer)?;
+        if !is_valid(slot) {
+            return Err(D::Error::custom("pubkey_id out of range"));
+        }
+        Ok(slot)
+    }
+}
+
+/// The vault bytes as a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes (WIP-109 §3.6.2).
+mod vault_data {
+    use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
+    use world_id_primitives::serde_utils::cbor;
+    use zeroize::Zeroizing;
+
+    use super::MAX_VAULT_SIZE;
+
+    const TOO_LARGE: &str = "vault data exceeds 3.5 MiB";
+
+    pub(super) fn serialize<S: Serializer>(data: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
+        if data.len() > MAX_VAULT_SIZE {
+            return Err(S::Error::custom(TOO_LARGE));
+        }
+        serializer.serialize_bytes(data)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Zeroizing<Vec<u8>>, D::Error> {
+        let data = Zeroizing::new(cbor::deserialize_byte_string(deserializer)?);
+        if data.len() > MAX_VAULT_SIZE {
+            return Err(D::Error::custom(TOO_LARGE));
+        }
+        Ok(data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use test_case::test_case;
+
+    use super::{RegistrationErrorReason::*, *};
+
+    /// Decodes the result of a response whose CBOR `result` is `result`.
+    fn decode_result(result: Value) -> Result<RegistrationResult, MessageError> {
+        let response = Response::<Value, Value>::success("request".into(), result);
+        let decoded = decode_response(&response.encode().unwrap())?;
+        let Response::Success { result, .. } = decoded else {
+            panic!("expected a successful response");
+        };
+        Ok(result)
+    }
+
+    /// Decodes an `operation_failed` error response whose CBOR `error.data` is `data`.
+    fn decode_error_with_data(data: Value) -> ErrorObject<RegistrationErrorData> {
+        let error = ErrorObject::new(
+            "operation_failed",
+            "InsertAuthenticator operation failed",
+            Some(data),
+        );
+        let response = Response::<Value, Value>::error(Some("request".into()), error);
+        let decoded = decode_response(&response.encode().unwrap()).unwrap();
+        let Response::Error { error, .. } = decoded else {
+            panic!("expected an error response");
+        };
+        error
+    }
+
+    /// A CBOR `result` with the given indexes and no other fields.
+    fn result_with_indexes(leaf_index: Value, pubkey_id: Value) -> Value {
+        Value::Map(vec![
+            ("leaf_index".into(), leaf_index),
+            ("pubkey_id".into(), pubkey_id),
+        ])
+    }
+
+    /// A CBOR `result` with a valid `leaf_index` and `pubkey_id` and `field` set to `value`.
+    fn result_with(field: &str, value: Value) -> Value {
+        let Value::Map(mut entries) = result_with_indexes(42.into(), 1.into()) else {
+            unreachable!("the result is a map")
+        };
+        entries.push((field.into(), value));
+        Value::Map(entries)
+    }
+
+    /// The vault format used by these tests.
+    const FORMAT: &str = "sqlite_v1";
+
+    /// A CBOR `result` whose vault has the given `format` and `data`.
+    fn result_with_vault(format: Value, data: Value) -> Value {
+        result_with(
+            "vault",
+            Value::Map(vec![("format".into(), format), ("data".into(), data)]),
+        )
+    }
+
+    /// A CBOR `result` whose vault has the format [`FORMAT`] and the given `data`.
+    fn result_with_vault_data(data: Value) -> Value {
+        result_with_vault(FORMAT.into(), data)
+    }
+
+    /// A CBOR `result` whose vault has the given `format` and valid `data`.
+    fn result_with_vault_format(format: Value) -> Value {
+        result_with_vault(format, Value::Bytes(b"SQLite".to_vec()))
+    }
+
+    /// A CBOR `result` that also names one known authenticator at `known_pubkey_id`.
+    fn result_with_known(leaf_index: u64, pubkey_id: u32, known_pubkey_id: u32) -> Value {
+        let Value::Map(mut entries) = result_with_indexes(leaf_index.into(), pubkey_id.into())
+        else {
+            unreachable!("the result is a map")
+        };
+        entries.push((
+            "authenticators".into(),
+            Value::Array(vec![Value::Map(vec![
+                ("pubkey_id".into(), known_pubkey_id.into()),
+                ("name".into(), "phone".into()),
+            ])]),
+        ));
+        Value::Map(entries)
+    }
+
+    /// The [`RegistrationResult`] of [`result_with_known`].
+    fn known_result(leaf_index: u64, pubkey_id: u32, known_pubkey_id: u32) -> RegistrationResult {
+        RegistrationResult {
+            leaf_index,
+            pubkey_id,
+            authenticators: vec![KnownAuthenticator {
+                pubkey_id: known_pubkey_id,
+                name: "phone".to_string(),
+            }],
+            vault: None,
+        }
+    }
+
+    #[test]
+    fn result_uses_unsigned_indexes_and_raw_vault_bytes() {
+        let result = RegistrationResult {
+            leaf_index: 42,
+            pubkey_id: 1,
+            authenticators: vec![KnownAuthenticator {
+                pubkey_id: 0,
+                name: "phone".to_string(),
+            }],
+            vault: Some(Vault {
+                format: FORMAT.to_string(),
+                data: b"SQLite".to_vec().into(),
+            }),
+        };
+        let wire = Value::Map(vec![
+            ("leaf_index".into(), 42.into()),
+            ("pubkey_id".into(), 1.into()),
+            (
+                "authenticators".into(),
+                Value::Array(vec![Value::Map(vec![
+                    ("pubkey_id".into(), 0.into()),
+                    ("name".into(), "phone".into()),
+                ])]),
+            ),
+            (
+                "vault".into(),
+                Value::Map(vec![
+                    ("format".into(), FORMAT.into()),
+                    ("data".into(), Value::Bytes(b"SQLite".to_vec())),
+                ]),
+            ),
+        ]);
+        assert_eq!(Value::serialized(&result).unwrap(), wire);
+        assert_eq!(decode_result(wire).unwrap(), result);
+
+        let response = RegisterResponseMessage::success("request".into(), result);
+        assert_eq!(
+            decode_response(&response.encode().unwrap()).unwrap(),
+            response
+        );
+    }
+
+    #[test_case(ParseError, "parse_error"; "parse_error")]
+    #[test_case(InvalidRequest, "invalid_request"; "invalid_request")]
+    #[test_case(MethodNotFound, "method_not_found"; "method_not_found")]
+    #[test_case(InvalidParams, "invalid_params"; "invalid_params")]
+    #[test_case(InvalidName, "invalid_name"; "invalid_name")]
+    #[test_case(InternalError, "internal_error"; "internal_error")]
+    #[test_case(UserRejected, "user_rejected"; "user_rejected")]
+    #[test_case(NotAuthorized, "not_authorized"; "not_authorized")]
+    #[test_case(AuthenticatorConflict, "authenticator_conflict"; "authenticator_conflict")]
+    #[test_case(MaxAuthenticatorsReached, "max_authenticators_reached";
+                "max_authenticators_reached")]
+    #[test_case(OperationFailed, "operation_failed"; "operation_failed")]
+    #[test_case(OutcomeUnknown, "outcome_unknown"; "outcome_unknown")]
+    fn error_reasons_use_the_wip_109_codes(reason: RegistrationErrorReason, code: &str) {
+        assert_eq!(reason.code(), code);
+        assert_eq!(RegistrationErrorReason::from_code(code), Some(reason));
+    }
+
+    #[test]
+    fn an_unknown_error_code_has_no_reason() {
+        assert_eq!(RegistrationErrorReason::from_code("future_error"), None);
+    }
+
+    #[test]
+    fn into_error_carries_the_code_and_optional_detail() {
+        let error = RegistrationErrorReason::OperationFailed
+            .into_error(Some("transaction_reverted".into()));
+        assert_eq!(error.code, "operation_failed");
+        assert_eq!(
+            error.data.unwrap().detail.as_deref(),
+            Some("transaction_reverted")
+        );
+        assert!(
+            RegistrationErrorReason::UserRejected
+                .into_error(None)
+                .data
+                .is_none()
+        );
+    }
+
+    #[test_case(Value::Map(vec![("detail".into(), "transaction_reverted".into())]),
+                Some("transaction_reverted"); "detail")]
+    #[test_case(Value::Map(vec![
+                    ("detail".into(), "transaction_reverted".into()),
+                    ("revert_data".into(), Value::Bytes(vec![1])),
+                ]),
+                Some("transaction_reverted"); "detail and another field")]
+    #[test_case(Value::Map(vec![("other".into(), "x".into())]), None; "map without detail")]
+    #[test_case(Value::Map(vec![("detail".into(), Value::Null)]), None; "null detail")]
+    #[test_case(Value::Map(vec![("detail".into(), 7.into())]), None; "integer detail")]
+    #[test_case(Value::Map(vec![("detail".into(), Value::Tag(0, Box::new("x".into())))]),
+                None; "tagged detail")]
+    #[test_case(Value::Tag(0, Box::new(Value::Map(vec![("detail".into(), "x".into())]))),
+                None; "tagged map")]
+    #[test_case(Value::Null, None; "null")]
+    #[test_case(Value::Tag(2, Box::new(Value::Bytes(vec![7]))), None; "bignum data")]
+    #[test_case("transaction_reverted".into(), None; "text")]
+    fn error_data_never_hides_the_error(data: Value, detail: Option<&str>) {
+        let error = decode_error_with_data(data);
+        assert_eq!(error.code, "operation_failed");
+        assert_eq!(error.data.unwrap().detail.as_deref(), detail);
+    }
+
+    #[test]
+    fn decode_response_rejects_duplicate_error_data() {
+        let response = Value::Map(vec![
+            ("version".into(), "1.0".into()),
+            ("id".into(), "request".into()),
+            (
+                "error".into(),
+                Value::Map(vec![
+                    ("code".into(), "operation_failed".into()),
+                    ("message".into(), "Registration failed".into()),
+                    ("data".into(), Value::Null),
+                    ("data".into(), Value::Null),
+                ]),
+            ),
+        ]);
+        let mut encoded = Vec::new();
+        ciborium::into_writer(&response, &mut encoded).unwrap();
+        let error = decode_response(&encoded).unwrap_err().to_string();
+        assert!(error.contains("duplicate field `data`"), "{error}");
+    }
+
+    #[test_case("first".into(), "second".into(); "two text details")]
+    #[test_case(Value::Null, "second".into(); "null then text")]
+    #[test_case("first".into(), Value::Null; "text then null")]
+    #[test_case(7.into(), Value::Null; "two nontext details")]
+    fn decode_response_rejects_duplicate_detail(first: Value, second: Value) {
+        let error = ErrorObject::new(
+            "operation_failed",
+            "InsertAuthenticator operation failed",
+            Some(Value::Map(vec![
+                ("detail".into(), first),
+                ("detail".into(), second),
+            ])),
+        );
+        let response = Response::<Value, Value>::error(Some("request".into()), error);
+        let error = decode_response(&response.encode().unwrap())
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("duplicate field `detail`"), "{error}");
+    }
+
+    #[test_case(1, 0, 6; "lowest leaf index")]
+    #[test_case((1 << 30) - 1, 6, 0; "highest leaf index")]
+    fn indexes_in_range_round_trip(leaf_index: u64, pubkey_id: u32, known_pubkey_id: u32) {
+        let result = known_result(leaf_index, pubkey_id, known_pubkey_id);
+        let wire = result_with_known(leaf_index, pubkey_id, known_pubkey_id);
+        assert_eq!(Value::serialized(&result).unwrap(), wire);
+        assert_eq!(decode_result(wire).unwrap(), result);
+    }
+
+    #[test_case(0, 1, 0, "leaf index out of range"; "reserved leaf index")]
+    #[test_case(1 << 30, 1, 0, "leaf index out of range"; "leaf index past the tree")]
+    #[test_case(42, 7, 0, "pubkey_id out of range"; "slot past the key set")]
+    #[test_case(42, 1, 7, "pubkey_id out of range"; "known slot past the key set")]
+    fn indexes_out_of_range_are_neither_decoded_nor_encoded(
+        leaf_index: u64,
+        pubkey_id: u32,
+        known_pubkey_id: u32,
+        error: &str,
+    ) {
+        let wire = result_with_known(leaf_index, pubkey_id, known_pubkey_id);
+        let decoding = decode_result(wire).unwrap_err().to_string();
+        assert!(decoding.contains(error), "{decoding}");
+        let result = known_result(leaf_index, pubkey_id, known_pubkey_id);
+        let encoding = Value::serialized(&result).unwrap_err().to_string();
+        assert!(encoding.contains(error), "{encoding}");
+    }
+
+    #[test]
+    fn known_authenticator_names_have_no_length_limit() {
+        let name = "n".repeat(200);
+        let result = decode_result(result_with(
+            "authenticators",
+            Value::Array(vec![Value::Map(vec![
+                ("pubkey_id".into(), 0.into()),
+                ("name".into(), name.clone().into()),
+            ])]),
+        ))
+        .unwrap();
+        assert_eq!(result.authenticators[0].name, name);
+    }
+
+    #[test_case(Value::Tag(0, result_with_indexes(42.into(), 1.into()).into()),
+                "must not contain CBOR tags"; "tagged result")]
+    #[test_case(result_with_indexes("0x2a".into(), 1.into()),
+                "expected a CBOR unsigned integer"; "text leaf index")]
+    #[test_case(result_with_indexes((-1).into(), 1.into()),
+                "expected a CBOR unsigned integer"; "negative leaf index")]
+    #[test_case(result_with_indexes(Value::Tag(2, Box::new(Value::Bytes(vec![42]))), 1.into()),
+                "expected a CBOR unsigned integer"; "bignum leaf index")]
+    #[test_case(result_with_indexes(42.into(), Value::Float(1.0)),
+                "expected a CBOR unsigned integer"; "float pubkey id")]
+    #[test_case(result_with_indexes(42.into(), Value::Tag(0, Box::new(1.into()))),
+                "expected a CBOR unsigned integer"; "tagged pubkey id")]
+    #[test_case(result_with_indexes(42.into(), (u64::from(u32::MAX) + 1).into()),
+                "exceeds the field width"; "pubkey id wider than u32")]
+    #[test_case(result_with("authenticators", Value::Array(vec![Value::Map(vec![
+                    ("pubkey_id".into(), 0.into()),
+                    ("name".into(), Value::Tag(0, Box::new("phone".into()))),
+                ])])),
+                "must not contain CBOR tags"; "tagged known name")]
+    #[test_case(result_with("authenticators", Value::Null),
+                "invalid type: null"; "null authenticators")]
+    #[test_case(result_with("vault", Value::Null), "invalid type: null"; "null vault")]
+    #[test_case(result_with_vault_data("U1FMaXRl".into()),
+                "expected a CBOR byte string"; "text vault data")]
+    #[test_case(result_with_vault_data(Value::Tag(64, Box::new(Value::Bytes(b"SQLite".to_vec())))),
+                "expected a CBOR byte string"; "tagged vault data")]
+    #[test_case(result_with_vault_data(Value::Array(vec![0x53.into(), 0x51.into()])),
+                "expected a CBOR byte string"; "vault data as integers")]
+    #[test_case(result_with_vault_format(Value::Bytes(FORMAT.as_bytes().to_vec())),
+                "invalid type: bytes"; "vault format as bytes")]
+    #[test_case(result_with_vault_format(1.into()), "invalid type: integer"; "integer vault format")]
+    #[test_case(result_with_vault_format(Value::Tag(0, Box::new(FORMAT.into()))),
+                "must not contain CBOR tags"; "tagged vault format")]
+    #[test_case(result_with("unknown", true.into()), "unknown field `unknown`"; "unknown field")]
+    fn result_rejects_other_cbor_types_and_tags(result: Value, error: &str) {
+        let rejection = decode_result(result).unwrap_err().to_string();
+        assert!(rejection.contains(error), "{rejection}");
+    }
+
+    #[test]
+    fn vault_data_is_limited_to_3_5_mib() {
+        let result = |size| RegistrationResult {
+            leaf_index: 42,
+            pubkey_id: 1,
+            authenticators: Vec::new(),
+            vault: Some(Vault {
+                format: FORMAT.to_string(),
+                data: vec![0; size].into(),
+            }),
+        };
+        let wire = |size| result_with_vault_data(Value::Bytes(vec![0; size]));
+        assert_eq!(
+            decode_result(wire(MAX_VAULT_SIZE)).unwrap(),
+            result(MAX_VAULT_SIZE)
+        );
+        assert!(decode_result(wire(MAX_VAULT_SIZE + 1)).is_err());
+        assert!(Value::serialized(&result(MAX_VAULT_SIZE)).is_ok());
+        assert!(Value::serialized(&result(MAX_VAULT_SIZE + 1)).is_err());
+    }
+}
