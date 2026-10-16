@@ -9,7 +9,7 @@ CONTRACTS_DIR    := ROOT / "contracts"
 # Default PRIVATE_KEY is Anvil account #0 — safe for local use only.
 PRIVATE_KEY      := env_var_or_default("PRIVATE_KEY", "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80")
 WORLDCHAIN_RPC   := env_var_or_default("WORLDCHAIN_PROVIDER", "https://worldchain-mainnet.g.alchemy.com/public")
-WORLDCHAIN_CHAIN := "480"
+WORLDCHAIN_CHAIN := env_var_or_default("WORLDCHAIN_CHAIN", "480")
 VERIFIER_URL     := env_var_or_default("VERIFIER_URL", "https://api.etherscan.io/v2/api?chainid=480")
 CORE_DEPLOY_DIR  := CONTRACTS_DIR / "deployments" / "core"
 XC_DEPLOY_DIR    := CONTRACTS_DIR / "deployments" / "crosschain"
