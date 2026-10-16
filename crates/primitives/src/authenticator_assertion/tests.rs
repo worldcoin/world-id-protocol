@@ -42,7 +42,14 @@ fn sec_flags() -> SecFlags {
 }
 
 fn takt() -> TrustAnchorKeyToken {
-    TrustAnchorKeyToken::new(NOW, TAKT_EXP, *assertion_key().verifying_key(), sec_flags()).unwrap()
+    TrustAnchorKeyToken::new(
+        NOW,
+        TAKT_EXP,
+        u32::MAX,
+        *assertion_key().verifying_key(),
+        sec_flags(),
+    )
+    .unwrap()
 }
 
 fn aat() -> AuthenticatorAssertionToken {
@@ -350,11 +357,29 @@ fn issuance_enforces_lifetimes() {
     let key = *assertion_key().verifying_key();
     for exp in [NOW, NOW - 1, NOW + MAX_TAKT_LIFETIME_SECS + 1] {
         assert_eq!(
-            TrustAnchorKeyToken::new(NOW, exp, key, sec_flags()),
+            TrustAnchorKeyToken::new(NOW, exp, u32::MAX, key, sec_flags()),
             Err(AssertionError::LifetimeOutOfRange { now: NOW, exp })
         );
     }
-    assert!(TrustAnchorKeyToken::new(NOW, NOW + MAX_TAKT_LIFETIME_SECS, key, sec_flags()).is_ok());
+    assert!(
+        TrustAnchorKeyToken::new(
+            NOW,
+            NOW + MAX_TAKT_LIFETIME_SECS,
+            u32::MAX,
+            key,
+            sec_flags()
+        )
+        .is_ok()
+    );
+    // A TAKT can not outlive the key that signs it; `exp == not_after` is allowed.
+    assert_eq!(
+        TrustAnchorKeyToken::new(NOW, TAKT_EXP, TAKT_EXP - 1, key, sec_flags()),
+        Err(AssertionError::ExpirationAfterKeyValidity {
+            exp: TAKT_EXP,
+            not_after: TAKT_EXP - 1
+        })
+    );
+    assert!(TrustAnchorKeyToken::new(NOW, TAKT_EXP, TAKT_EXP, key, sec_flags()).is_ok());
     let aat_at = |exp| {
         AuthenticatorAssertionToken::new(
             NOW,
