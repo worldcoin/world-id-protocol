@@ -24,8 +24,8 @@ pub global MAX_AAT_LIFETIME: Field = 1800;
 global DS_TAKT: Field = 127603488023523044162070750169730677970184433650516; // b"WORLD-ID/WIP-106/TAKT"
 global DS_KEY: Field = 498451125091886891258088867850510460821032355161; // b"WORLD-ID/WIP-106/KEY"
 
-/// Length of the AAT's COSE `Sig_structure`: 19-byte prefix and 130-byte claims set.
-global AAT_SIG_STRUCTURE_LEN: u32 = 149;
+/// Length of the AAT's COSE `Sig_structure`: 19-byte prefix and 163-byte claims set.
+global AAT_SIG_STRUCTURE_LEN: u32 = 182;
 
 /// `(n - 1) / 2` for the P-256 group order `n`, big-endian: the largest low-S scalar.
 global HALF_N: [u8; 32] = [
@@ -48,10 +48,10 @@ pub struct AuthenticatorAssertionPublicInputs {
     pub platform: u8,
     /// Where the `assertion_key` is stored.
     pub sec_level: u8,
-    /// Provider-defined 3-bit bitmask.
+    /// Provider-defined 4-bit bitmask.
     pub sec_meta: u8,
-    /// User presence the Authenticator reports.
-    pub user_presence: u8,
+    /// User presence (bits 0-2) and provider-defined bits (3-4) the Authenticator reports.
+    pub authenticator_meta: u8,
     /// Minimum `build_version` the RP accepts.
     pub min_build_version: u32,
 }
@@ -82,13 +82,14 @@ pub struct AuthenticatorAssertionPrivateInputs {
 }
 
 /// Verifies a TAKT and an AAT against the public inputs. The AAT's request values and
-/// `user_presence` are written into its signed template, so its signature binds them.
+/// `authenticator_meta` are written into its signed template, so its signature binds them.
 pub fn verify_assertion(
     public: AuthenticatorAssertionPublicInputs,
     private: AuthenticatorAssertionPrivateInputs,
 ) {
     assert(public.nonce != 0, "nonce must not be 0");
-    assert(public.user_presence < 5, "user_presence values 5 and above are reserved");
+    assert(public.authenticator_meta < 32, "authenticator_meta bits 5 and above are reserved");
+    assert((public.authenticator_meta & 7) < 5, "user_presence values 5 and above are reserved");
 
     let key = private.trust_anchor_key;
     assert(
@@ -220,7 +221,7 @@ fn takt_message(private: AuthenticatorAssertionPrivateInputs) -> Field {
 }
 
 /// Rebuilds the AAT's `Sig_structure`: protected header `{1: -7}`, empty `external_aad`, and the
-/// claims `aud`, `exp`, `nonce`, `eat_profile`, `cdh` and `user_presence`.
+/// claims `aud`, `exp`, `nonce`, `eat_profile`, `cdh` and `authenticator_meta`.
 fn aat_sig_structure(
     public: AuthenticatorAssertionPublicInputs,
     private: AuthenticatorAssertionPrivateInputs,
@@ -229,7 +230,7 @@ fn aat_sig_structure(
     msg[0] = 0x84; // array(4)
     msg[1] = 0x6a; // text(10)
     write(&mut msg, 2, "Signature1".as_bytes());
-    write(&mut msg, 12, [0x43, 0xa1, 0x01, 0x26, 0x40, 0x58, 0x82]);
+    write(&mut msg, 12, [0x43, 0xa1, 0x01, 0x26, 0x40, 0x58, 0xa3]);
 
     // Claims set, in deterministic CBOR key order. The 8-byte decomposition bounds `aud` to `u64`.
     let aud: [u8; 8] = public.aud.to_be_bytes();
@@ -245,19 +246,19 @@ fn aat_sig_structure(
     write(&mut msg, 76, "https://world.org/eat/aat/v1".as_bytes());
     write(&mut msg, 104, [0x3a, 0x00, 0x01, 0x38, 0x7f, 0x58, 0x20]);
     write(&mut msg, 111, cdh);
-    write(&mut msg, 143, [0x3a, 0x00, 0x01, 0x38, 0x80]);
-    // `user_presence < 5` is a one-byte CBOR uint.
-    msg[148] = public.user_presence;
+    // `authenticator_meta` as a 32-byte field element; its upper 31 bytes stay zero.
+    write(&mut msg, 143, [0x3a, 0x00, 0x01, 0x38, 0x80, 0x58, 0x20]);
+    msg[181] = public.authenticator_meta;
     msg
 }
 
-/// Asserts `sec_flags < 2^51` and that it packs LSB-first `platform` (bits 0-7), `sec_level`
-/// (8-15), `build_version` (16-47) and `sec_meta` (48-50). Returns `build_version`, which must
+/// Asserts `sec_flags < 2^52` and that it packs LSB-first `platform` (bits 0-7), `sec_level`
+/// (8-15), `build_version` (16-47) and `sec_meta` (48-51). Returns `build_version`, which must
 /// stay private.
 fn assert_sec_flags(sec_flags: Field, platform: u8, sec_level: u8, sec_meta: u8) -> u32 {
     // Constrains `sec_flags < 2^56`; `bytes[0]` holds bits 48-55.
     let bytes: [u8; 7] = sec_flags.to_be_bytes();
-    assert(bytes[0] < 8, "sec_flags bits 51 and above are reserved and must be 0");
+    assert(bytes[0] < 16, "sec_flags bits 52 and above are reserved and must be 0");
     assert(
         (bytes[6] == platform) & (bytes[5] == sec_level) & (bytes[0] == sec_meta),
         "sec_flags do not match the public security flags",

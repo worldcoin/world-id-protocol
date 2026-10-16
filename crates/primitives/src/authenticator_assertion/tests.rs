@@ -4,8 +4,8 @@ use p256::ecdsa::{Signature, SigningKey};
 use super::*;
 
 /// WIP-201 Appendix A1; shared with `crates/proof/noir/authenticator-assertion/src/tests.nr`.
-const TAKT_HEX: &str = "8447a1013a00010000a10458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d9875885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
-const AAT_HEX: &str = "8443a10126a05882a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582006559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a443461503a00013880025840480fd81ee950f3df613d1e4f333a441ae4f7db080efed620e77199cd37e44d151f4897dfafb0ed67b59afa6b00a55b43b25fe8f7d58ecd183c8bb0ce838b55a8";
+const TAKT_HEX: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
+const AAT_HEX: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582006559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a443461503a000138805820000000000000000000000000000000000000000000000000000000000000000a5840c9deddf6657d8d624fc90f035ca1818de26d24aeb9becd946877d7a9f37520ad605b173c60660179227e019370ae9ea824b35f26fefb5b7592b2ab1865263d27";
 const KEY_HASH_HEX: &str = "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
 const CDH_HEX: &str = "06559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a44346150";
 
@@ -13,8 +13,8 @@ const NOW: u32 = 1_783_446_000;
 const TAKT_EXP: u32 = NOW + 86_400;
 const AAT_EXP: u32 = 1_783_446_925;
 const AUD: u64 = 1_928_118;
-/// Offset of the claims set in a TAKT with the `kid` hint.
-const TAKT_PAYLOAD: usize = 1 + 1 + 7 + 36 + 2;
+/// Offset of the claims set in a TAKT.
+const TAKT_PAYLOAD: usize = 1 + 2 + 42 + 1 + 2;
 
 fn trust_anchor_key() -> EdDSAPrivateKey {
     EdDSAPrivateKey::from_bytes([0x07; 32])
@@ -32,6 +32,11 @@ fn cdh() -> FieldElement {
     FieldElement::from_be_bytes(&hex::decode(CDH_HEX).unwrap().try_into().unwrap()).unwrap()
 }
 
+/// User presence `PresentVerified` with provider bits `0b01`.
+fn meta() -> AuthenticatorMeta {
+    AuthenticatorMeta::new(UserPresence::PresentVerified, 0b01).unwrap()
+}
+
 fn sec_flags() -> SecFlags {
     SecFlags::new(Platform::Ios.into(), SecLevel::HardwareKey.into(), 2006, 3).unwrap()
 }
@@ -41,15 +46,7 @@ fn takt() -> TrustAnchorKeyToken {
 }
 
 fn aat() -> AuthenticatorAssertionToken {
-    AuthenticatorAssertionToken::new(
-        NOW,
-        AUD,
-        AAT_EXP,
-        42u64.into(),
-        cdh(),
-        UserPresence::PresentVerified,
-    )
-    .unwrap()
+    AuthenticatorAssertionToken::new(NOW, AUD, AAT_EXP, 42u64.into(), cdh(), meta()).unwrap()
 }
 
 fn inputs() -> (
@@ -64,7 +61,7 @@ fn inputs() -> (
         platform: 2,
         sec_level: 1,
         sec_meta: 3,
-        user_presence: UserPresence::PresentVerified,
+        authenticator_meta: meta(),
         min_build_version: 2006,
     };
     let private = AuthenticatorAssertionPrivateInputs {
@@ -163,11 +160,20 @@ fn verify_rejects_each_check() {
 
     // A key that did not sign the TAKT, with or without its hash as the public input.
     let other_key = EdDSAPrivateKey::from_bytes([0x08; 32]).public();
-    let with_other_key = AuthenticatorAssertionPrivateInputs {
+    let mut with_other_key = AuthenticatorAssertionPrivateInputs {
         trust_anchor_key: other_key.clone(),
         ..private.clone()
     };
     check(public, &with_other_key, KeyHashMismatch);
+    check(
+        with_public(&|p| p.trust_anchor_key_hash = trust_anchor_key_hash(&other_key)),
+        &with_other_key,
+        Takt(TokenError::Encoding(AssertionError::InvalidEncoding(
+            "protected header",
+        ))),
+    );
+    // With the other key's `kid`, the failure comes from the signature check.
+    with_other_key.takt[13..45].copy_from_slice(&other_key.to_compressed_bytes().unwrap());
     check(
         with_public(&|p| p.trust_anchor_key_hash = trust_anchor_key_hash(&other_key)),
         &with_other_key,
@@ -231,9 +237,11 @@ fn verify_rejects_each_check() {
     );
     check(with_public(&|p| p.sec_meta = 1), &private, SecFlagsMismatch);
     check(
-        with_public(&|p| p.user_presence = UserPresence::Undetermined),
+        with_public(&|p| {
+            p.authenticator_meta = AuthenticatorMeta::new(UserPresence::PresentVerified, 0).unwrap()
+        }),
         &private,
-        UserPresenceMismatch,
+        AuthenticatorMetaMismatch,
     );
     check(
         with_public(&|p| p.min_build_version = 2007),
@@ -251,6 +259,7 @@ fn non_canonical_encodings_rejected() {
     let decode_aat = |cwt: &[u8]| AuthenticatorAssertionToken::verify(cwt, &aat_key);
     // Payload offset after the `COSE_Sign1` framing.
     let aat_payload = 1 + 1 + 3 + 1 + 2;
+    assert_eq!(aat_payload + 162, aat_cwt.len() - 67);
 
     let mut trailing = aat_cwt.clone();
     trailing.push(0);
@@ -279,13 +288,21 @@ fn non_canonical_encodings_rejected() {
         TokenError::Encoding(AssertionError::InvalidEncoding("non-canonical nonce"))
     );
 
-    // Reserved `user_presence`.
+    // Reserved `user_presence`, reserved `authenticator_meta` bits.
     let mut presence = aat_cwt.clone();
-    presence[aat_payload + 129] = 5;
+    presence[aat_payload + 162] = 5;
     assert_eq!(
         decode_aat(&presence).unwrap_err(),
         TokenError::Encoding(AssertionError::ReservedPresence(5))
     );
+    for (index, value) in [(162, 0x20), (131, 0x01)] {
+        let mut reserved = aat_cwt.clone();
+        reserved[aat_payload + index] = value;
+        assert_eq!(
+            decode_aat(&reserved).unwrap_err(),
+            TokenError::Encoding(AssertionError::InvalidAuthenticatorMeta)
+        );
+    }
 
     // `exp` below 2^16, still a 4-byte uint.
     let mut exp = aat_cwt.clone();
@@ -303,24 +320,17 @@ fn non_canonical_encodings_rejected() {
         TokenError::Encoding(AssertionError::InvalidEncoding("AAT claims"))
     );
 
-    // A TAKT without the `kid` hint decodes; any other unprotected header does not.
-    let mut without_kid = takt_cwt[..9].to_vec();
-    without_kid.push(0xa0);
-    without_kid.extend_from_slice(&takt_cwt[TAKT_PAYLOAD - 2..]);
+    // A TAKT whose `kid` is not that of the verifying key.
+    let mut other_kid = takt_cwt.clone();
+    other_kid[13] ^= 1;
     assert_eq!(
-        TrustAnchorKeyToken::verify(&without_kid, &takt_key),
-        Ok(takt())
-    );
-    let mut other_header = takt_cwt.clone();
-    other_header[10] = 0x05;
-    assert_eq!(
-        TrustAnchorKeyToken::verify(&other_header, &takt_key).unwrap_err(),
-        TokenError::Encoding(AssertionError::InvalidEncoding("unprotected header"))
+        TrustAnchorKeyToken::verify(&other_kid, &takt_key).unwrap_err(),
+        TokenError::Encoding(AssertionError::InvalidEncoding("protected header"))
     );
 
-    // TAKT `sec_flags` bit 51.
+    // TAKT `sec_flags` bit 52.
     let mut flags = takt_cwt.clone();
-    flags[TAKT_PAYLOAD + 126] |= 0x08;
+    flags[TAKT_PAYLOAD + 126] |= 0x10;
     assert_eq!(
         TrustAnchorKeyToken::verify(&flags, &takt_key).unwrap_err(),
         TokenError::Encoding(AssertionError::InvalidSecFlags)
@@ -352,7 +362,7 @@ fn issuance_enforces_lifetimes() {
             exp,
             1u64.into(),
             FieldElement::ZERO,
-            UserPresence::Undetermined,
+            AuthenticatorMeta::new(UserPresence::Undetermined, 0).unwrap(),
         )
     };
     assert!(matches!(
@@ -367,7 +377,7 @@ fn issuance_enforces_lifetimes() {
             0xffff,
             1u64.into(),
             FieldElement::ZERO,
-            UserPresence::Undetermined
+            AuthenticatorMeta::new(UserPresence::Undetermined, 0).unwrap()
         ),
         Err(AssertionError::ExpirationOutOfRange(0xffff))
     );
@@ -376,12 +386,12 @@ fn issuance_enforces_lifetimes() {
 #[test]
 fn sec_flags_pack_and_unpack() {
     assert_eq!(
-        SecFlags::new(2, 1, 2006, 0x8),
-        Err(AssertionError::SecMetaTooLarge(0x8))
+        SecFlags::new(2, 1, 2006, 0x10),
+        Err(AssertionError::SecMetaTooLarge(0x10))
     );
     assert_eq!(SecFlags::unpack(sec_flags().pack()), Ok(sec_flags()));
     assert_eq!(
-        SecFlags::unpack(1 << 51),
+        SecFlags::unpack(1 << 52),
         Err(AssertionError::InvalidSecFlags)
     );
     // Unknown identifiers pass through for the RP to allowlist.
@@ -394,6 +404,12 @@ fn presence_round_trips_through_u8() {
     for value in 0..5u8 {
         assert_eq!(u8::from(UserPresence::try_from(value).unwrap()), value);
     }
+    assert_eq!(meta().pack(), 10);
+    assert_eq!(AuthenticatorMeta::unpack(10), Ok(meta()));
+    assert_eq!(
+        AuthenticatorMeta::new(UserPresence::Undetermined, 4),
+        Err(AssertionError::ProviderBitsTooLarge(4))
+    );
     assert_eq!(
         UserPresence::try_from(5),
         Err(AssertionError::ReservedPresence(5))
@@ -414,6 +430,6 @@ fn debug_hides_confidential_values() {
     }
     assert_eq!(
         VerificationError::Takt(TokenError::Encoding(AssertionError::InvalidSecFlags)).to_string(),
-        "invalid TAKT: sec_flags bits 51 and above are reserved"
+        "invalid TAKT: sec_flags bits 52 and above are reserved"
     );
 }

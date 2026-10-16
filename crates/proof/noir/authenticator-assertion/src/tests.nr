@@ -15,10 +15,10 @@ global ASSERTION_KEY_Y: [u8; 32] = [
     0xc6, 0x6c, 0x11, 0xf2, 0x20, 0x96, 0x0d, 0xe5, 0x94, 0x33, 0x4d, 0xf5, 0x88, 0x77, 0x67, 0x24,
 ];
 global AAT_SIGNATURE: [u8; 64] = [
-    0x48, 0x0f, 0xd8, 0x1e, 0xe9, 0x50, 0xf3, 0xdf, 0x61, 0x3d, 0x1e, 0x4f, 0x33, 0x3a, 0x44, 0x1a,
-    0xe4, 0xf7, 0xdb, 0x08, 0x0e, 0xfe, 0xd6, 0x20, 0xe7, 0x71, 0x99, 0xcd, 0x37, 0xe4, 0x4d, 0x15,
-    0x1f, 0x48, 0x97, 0xdf, 0xaf, 0xb0, 0xed, 0x67, 0xb5, 0x9a, 0xfa, 0x6b, 0x00, 0xa5, 0x5b, 0x43,
-    0xb2, 0x5f, 0xe8, 0xf7, 0xd5, 0x8e, 0xcd, 0x18, 0x3c, 0x8b, 0xb0, 0xce, 0x83, 0x8b, 0x55, 0xa8,
+    0xc9, 0xde, 0xdd, 0xf6, 0x65, 0x7d, 0x8d, 0x62, 0x4f, 0xc9, 0x0f, 0x03, 0x5c, 0xa1, 0x81, 0x8d,
+    0xe2, 0x6d, 0x24, 0xae, 0xb9, 0xbe, 0xcd, 0x94, 0x68, 0x77, 0xd7, 0xa9, 0xf3, 0x75, 0x20, 0xad,
+    0x60, 0x5b, 0x17, 0x3c, 0x60, 0x66, 0x01, 0x79, 0x22, 0x7e, 0x01, 0x93, 0x70, 0xae, 0x9e, 0xa8,
+    0x24, 0xb3, 0x5f, 0x26, 0xfe, 0xfb, 0x5b, 0x75, 0x92, 0xb2, 0xab, 0x18, 0x65, 0x26, 0x3d, 0x27,
 ];
 global TRUST_ANCHOR_KEY: [Field; 2] = [
     19037598474602150174935475944965340829216795940473064039209388058233204431288,
@@ -46,7 +46,8 @@ fn public() -> AuthenticatorAssertionPublicInputs {
         platform: 2,
         sec_level: 1,
         sec_meta: 3,
-        user_presence: 2,
+        // user_presence 2 | provider bits 0b01 << 3
+        authenticator_meta: 10,
         min_build_version: 2006,
     }
 }
@@ -107,7 +108,14 @@ fn test_zero_nonce_rejected() {
 #[test(should_fail_with = "user_presence values 5 and above are reserved")]
 fn test_reserved_user_presence_rejected() {
     let mut public = public();
-    public.user_presence = 5;
+    public.authenticator_meta = 5;
+    verify_assertion(public, private());
+}
+
+#[test(should_fail_with = "authenticator_meta bits 5 and above are reserved")]
+fn test_reserved_authenticator_meta_bits_rejected() {
+    let mut public = public();
+    public.authenticator_meta = 32;
     verify_assertion(public, private());
 }
 
@@ -184,9 +192,9 @@ fn test_wrong_cdh_rejected() {
 }
 
 #[test(should_fail_with = "invalid AAT signature")]
-fn test_wrong_user_presence_rejected() {
+fn test_wrong_authenticator_meta_rejected() {
     let mut public = public();
-    public.user_presence = 0;
+    public.authenticator_meta = 2;
     verify_assertion(public, private());
 }
 
@@ -268,10 +276,10 @@ fn test_build_version_below_minimum_rejected() {
     verify_assertion(public, private());
 }
 
-#[test(should_fail_with = "sec_flags bits 51 and above are reserved and must be 0")]
+#[test(should_fail_with = "sec_flags bits 52 and above are reserved and must be 0")]
 fn test_reserved_sec_flags_bits_rejected() {
     // Exercised directly: a signed TAKT with reserved bits would need the trust anchor's key.
-    let _ = super::assert_sec_flags(0x000B000007D60102, 2, 1, 3);
+    let _ = super::assert_sec_flags(0x0013000007D60102, 2, 1, 3);
 }
 
 #[test(should_fail_with = "exp must take a 4-byte CBOR uint")]

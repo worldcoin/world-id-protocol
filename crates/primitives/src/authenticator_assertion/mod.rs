@@ -24,8 +24,11 @@ pub const MAX_TAKT_LIFETIME_SECS: u32 = 604_800;
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub const MAX_AAT_LIFETIME_SECS: u32 = 1800;
 
-/// Maximum value of `sec_meta` (3-bit bitmask).
-pub const MAX_SEC_META: u8 = 0x7;
+/// Maximum value of `sec_meta` (4-bit bitmask).
+pub const MAX_SEC_META: u8 = 0xF;
+
+/// Maximum value of the provider-defined bits of `authenticator_meta` (2 bits).
+pub const MAX_PROVIDER_BITS: u8 = 0x3;
 
 /// `eat_profile` claim value (RFC 9711 §4.3.2) of a TAKT.
 pub const EAT_PROFILE_TAKT: &str = "https://world.org/eat/takt/v1";
@@ -40,13 +43,14 @@ const MIN_EXP: u32 = 1 << 16;
 const TAKT_PAYLOAD_LEN: usize = 133;
 
 /// Length in bytes of the AAT claims set.
-const AAT_PAYLOAD_LEN: usize = 130;
+const AAT_PAYLOAD_LEN: usize = 163;
 
 /// COSE algorithm identifier for `BabyJubJub-EdDSA-Poseidon2` over a TAKT (WIP-106).
 pub const COSE_ALG_TAKT: i64 = -65537;
 
-/// TAKT protected header `{1: -65537}`.
-const TAKT_PROTECTED: [u8; 7] = [0xa1, 0x01, 0x3a, 0x00, 0x01, 0x00, 0x00];
+/// Prefix of the TAKT protected header `{1: -65537, 4: kid}`, followed by the 32-byte `kid`.
+const TAKT_PROTECTED_PREFIX: [u8; 10] =
+    [0xa2, 0x01, 0x3a, 0x00, 0x01, 0x00, 0x00, 0x04, 0x58, 0x20];
 
 /// AAT protected header `{1: -7}`.
 const AAT_PROTECTED: [u8; 3] = [0xa1, 0x01, 0x26];
@@ -99,7 +103,8 @@ impl From<SecLevel> for u8 {
     }
 }
 
-/// User presence the Authenticator reports in an AAT; values are identifiers, not an order.
+/// User presence the Authenticator reports in an AAT (`authenticator_meta` bits 0-2); values are
+/// identifiers, not an order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum UserPresence {
@@ -109,10 +114,10 @@ pub enum UserPresence {
     NotPresent = 1,
     /// User is present, verified by a liveness or biometric check during this request.
     PresentVerified = 2,
-    /// User was present within the last 7 days.
-    PresentWithin7Days = 3,
     /// User was present within the last 30 days.
-    PresentWithin30Days = 4,
+    PresentWithin30Days = 3,
+    /// User was present within the last 7 days.
+    PresentWithin7Days = 4,
 }
 
 impl From<UserPresence> for u8 {
@@ -129,10 +134,77 @@ impl TryFrom<u8> for UserPresence {
             0 => Ok(Self::Undetermined),
             1 => Ok(Self::NotPresent),
             2 => Ok(Self::PresentVerified),
-            3 => Ok(Self::PresentWithin7Days),
-            4 => Ok(Self::PresentWithin30Days),
+            3 => Ok(Self::PresentWithin30Days),
+            4 => Ok(Self::PresentWithin7Days),
             _ => Err(AssertionError::ReservedPresence(value)),
         }
+    }
+}
+
+/// The AAT's `authenticator_meta`: user presence (bits 0-2) and two provider-defined bits
+/// (3-4). Fields are private so every value packs into its own bit range.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AuthenticatorMeta {
+    user_presence: UserPresence,
+    provider_bits: u8,
+}
+
+impl AuthenticatorMeta {
+    /// Creates `authenticator_meta`.
+    ///
+    /// # Errors
+    /// [`AssertionError::ProviderBitsTooLarge`] if `provider_bits` carries more than 2 bits.
+    pub const fn new(
+        user_presence: UserPresence,
+        provider_bits: u8,
+    ) -> Result<Self, AssertionError> {
+        if provider_bits > MAX_PROVIDER_BITS {
+            return Err(AssertionError::ProviderBitsTooLarge(provider_bits));
+        }
+        Ok(Self {
+            user_presence,
+            provider_bits,
+        })
+    }
+
+    /// User presence the Authenticator reports.
+    #[must_use]
+    pub const fn user_presence(&self) -> UserPresence {
+        self.user_presence
+    }
+
+    /// Provider-defined bits; `0` is the nil value.
+    #[must_use]
+    pub const fn provider_bits(&self) -> u8 {
+        self.provider_bits
+    }
+
+    /// Packs the sub-fields LSB-first: `user_presence` (bits 0-2), provider bits (3-4).
+    #[must_use]
+    pub fn pack(&self) -> u8 {
+        u8::from(self.user_presence) | (self.provider_bits << 3)
+    }
+
+    /// Unpacks `authenticator_meta`.
+    ///
+    /// # Errors
+    /// [`AssertionError::InvalidAuthenticatorMeta`] if bits 5 and above are set, and
+    /// [`AssertionError::ReservedPresence`] for a reserved user presence.
+    pub fn unpack(packed: u8) -> Result<Self, AssertionError> {
+        if packed >> 5 != 0 {
+            return Err(AssertionError::InvalidAuthenticatorMeta);
+        }
+        Ok(Self {
+            user_presence: UserPresence::try_from(packed & 0x7)?,
+            provider_bits: packed >> 3,
+        })
+    }
+
+    /// The claim value, a field element.
+    fn to_field_bytes(self) -> [u8; 32] {
+        let mut out = [0u8; 32];
+        out[31] = self.pack();
+        out
     }
 }
 
@@ -151,7 +223,7 @@ impl SecFlags {
     /// to allowlist.
     ///
     /// # Errors
-    /// [`AssertionError::SecMetaTooLarge`] if `sec_meta` carries more than 3 bits.
+    /// [`AssertionError::SecMetaTooLarge`] if `sec_meta` carries more than 4 bits.
     pub const fn new(
         platform: u8,
         sec_level: u8,
@@ -187,7 +259,7 @@ impl SecFlags {
         self.build_version
     }
 
-    /// Provider-defined 3-bit bitmask.
+    /// Provider-defined 4-bit bitmask.
     #[must_use]
     pub const fn sec_meta(&self) -> u8 {
         self.sec_meta
@@ -196,9 +268,9 @@ impl SecFlags {
     /// Unpacks `sec_flags`.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidSecFlags`] if bits 51 and above are set.
+    /// [`AssertionError::InvalidSecFlags`] if bits 52 and above are set.
     pub const fn unpack(packed: u64) -> Result<Self, AssertionError> {
-        if packed >> 51 != 0 {
+        if packed >> 52 != 0 {
             return Err(AssertionError::InvalidSecFlags);
         }
         let [_, top, v3, v2, v1, v0, sec_level, platform] = packed.to_be_bytes();
@@ -211,7 +283,7 @@ impl SecFlags {
     }
 
     /// Packs the sub-fields LSB-first: `platform` (bits 0-7), `sec_level` (8-15),
-    /// `build_version` (16-47), `sec_meta` (48-50).
+    /// `build_version` (16-47), `sec_meta` (48-51).
     #[must_use]
     pub fn pack(&self) -> u64 {
         u64::from(self.platform)
@@ -224,8 +296,8 @@ impl SecFlags {
 /// Errors when building or decoding a TAKT or an AAT.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum AssertionError {
-    /// `sec_meta` exceeds the 3-bit limit.
-    #[error("sec_meta must carry at most 3 bits of data, got {0:#b}")]
+    /// `sec_meta` exceeds the 4-bit limit.
+    #[error("sec_meta must carry at most 4 bits of data, got {0:#b}")]
     SecMetaTooLarge(u8),
     /// `exp` can not use the fixed 4-byte CBOR uint encoding.
     #[error("exp {0} must be in [2^16, 2^32) for its fixed-width encoding")]
@@ -240,11 +312,17 @@ pub enum AssertionError {
     },
     /// `sec_flags` has reserved bits set. Carries no value, as `sec_flags` holds the private
     /// `build_version`.
-    #[error("sec_flags bits 51 and above are reserved")]
+    #[error("sec_flags bits 52 and above are reserved")]
     InvalidSecFlags,
     /// `user_presence` is a reserved value.
     #[error("user_presence values 5 and above are reserved, got {0}")]
     ReservedPresence(u8),
+    /// The provider bits of `authenticator_meta` exceed the 2-bit limit.
+    #[error("authenticator_meta provider bits must carry at most 2 bits, got {0:#b}")]
+    ProviderBitsTooLarge(u8),
+    /// `authenticator_meta` has bits 5 and above set.
+    #[error("authenticator_meta bits 5 and above are reserved")]
+    InvalidAuthenticatorMeta,
     /// The bytes are not the canonical CWT encoding of the token.
     #[error("not a canonical encoding: {0}")]
     InvalidEncoding(&'static str),
@@ -324,12 +402,10 @@ fn encode_sign1(
 }
 
 /// Splits an untagged `COSE_Sign1` into its payload and signature, rejecting any other protected
-/// header than `protected` and any unprotected header but an empty one or, if `kid_hint`, a
-/// 32-byte `kid`.
+/// header than `protected` and any unprotected header but an empty one.
 fn open_sign1<'a>(
     cwt: &'a [u8],
     protected: &[u8],
-    kid_hint: bool,
     payload_len: usize,
 ) -> Result<(&'a [u8], [u8; 64]), AssertionError> {
     let rest = cwt
@@ -337,14 +413,9 @@ fn open_sign1<'a>(
         .and_then(|r| r.strip_prefix(bstr_header(protected.len()).as_slice()))
         .and_then(|r| r.strip_prefix(protected))
         .ok_or(AssertionError::InvalidEncoding("protected header"))?;
-    let rest = match rest.strip_prefix(&[0xa0]) {
-        Some(rest) => rest,
-        None if kid_hint => rest
-            .strip_prefix(&[0xa1, 0x04, 0x58, 0x20])
-            .and_then(|r| r.get(32..))
-            .ok_or(AssertionError::InvalidEncoding("unprotected header"))?,
-        None => return Err(AssertionError::InvalidEncoding("unprotected header")),
-    };
+    let rest = rest
+        .strip_prefix(&[0xa0])
+        .ok_or(AssertionError::InvalidEncoding("unprotected header"))?;
     let rest = rest
         .strip_prefix(bstr_header(payload_len).as_slice())
         .ok_or(AssertionError::InvalidEncoding("payload"))?;
@@ -436,8 +507,7 @@ impl TrustAnchorKeyToken {
         )
     }
 
-    /// Signs the TAKT with the `trust_anchor_key` and returns its CWT encoding, with the `kid`
-    /// hint.
+    /// Signs the TAKT with the `trust_anchor_key` and returns its CWT encoding.
     ///
     /// # Errors
     /// [`AssertionError::KeyEncoding`] if the signature or key can not be compressed.
@@ -451,24 +521,25 @@ impl TrustAnchorKeyToken {
             .public()
             .to_compressed_bytes()
             .map_err(key_encoding)?;
-        let mut unprotected = vec![0xa1, 0x04, 0x58, 0x20];
-        unprotected.extend_from_slice(&kid);
         Ok(encode_sign1(
-            &TAKT_PROTECTED,
-            &unprotected,
+            &Self::protected(&kid),
+            &[0xa0],
             &self.payload(),
             &signature,
         ))
     }
 
-    /// Decodes a TAKT and verifies its signature under `trust_anchor_key`. The `kid` hint is
-    /// ignored.
+    /// Decodes a TAKT and verifies its signature under `trust_anchor_key`.
     ///
     /// # Errors
-    /// [`TokenError::Encoding`] on any encoding but the canonical one; [`TokenError::Signature`]
-    /// if the signature does not verify.
+    /// [`TokenError::Encoding`] on any encoding but the canonical one, including a `kid` other
+    /// than that of `trust_anchor_key`; [`TokenError::Signature`] if the signature does not
+    /// verify.
     pub fn verify(cwt: &[u8], trust_anchor_key: &EdDSAPublicKey) -> Result<Self, TokenError> {
-        let (payload, signature) = open_sign1(cwt, &TAKT_PROTECTED, true, TAKT_PAYLOAD_LEN)?;
+        let kid = trust_anchor_key
+            .to_compressed_bytes()
+            .map_err(|e| AssertionError::KeyEncoding(e.to_string()))?;
+        let (payload, signature) = open_sign1(cwt, &Self::protected(&kid), TAKT_PAYLOAD_LEN)?;
         let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
         let mut point = [0u8; 65];
         point[0] = 0x04;
@@ -497,6 +568,15 @@ impl TrustAnchorKeyToken {
             return Err(TokenError::Signature);
         }
         Ok(takt)
+    }
+
+    /// The protected header `{1: -65537, 4: kid}`. The signature does not cover it, so `kid` is
+    /// an untrusted hint.
+    fn protected(kid: &[u8; 32]) -> [u8; 42] {
+        let mut out = [0u8; 42];
+        out[..10].copy_from_slice(&TAKT_PROTECTED_PREFIX);
+        out[10..].copy_from_slice(kid);
+        out
     }
 
     /// The CWT claims set in deterministic CBOR.
@@ -530,7 +610,7 @@ pub struct AuthenticatorAssertionToken {
     exp: u32,
     nonce: FieldElement,
     cdh: FieldElement,
-    user_presence: UserPresence,
+    authenticator_meta: AuthenticatorMeta,
 }
 
 impl AuthenticatorAssertionToken {
@@ -545,7 +625,7 @@ impl AuthenticatorAssertionToken {
         exp: u32,
         nonce: FieldElement,
         cdh: FieldElement,
-        user_presence: UserPresence,
+        authenticator_meta: AuthenticatorMeta,
     ) -> Result<Self, AssertionError> {
         check_issuance(now, exp, MAX_AAT_LIFETIME_SECS)?;
         Ok(Self {
@@ -553,7 +633,7 @@ impl AuthenticatorAssertionToken {
             exp,
             nonce,
             cdh,
-            user_presence,
+            authenticator_meta,
         })
     }
 
@@ -563,10 +643,10 @@ impl AuthenticatorAssertionToken {
         self.exp
     }
 
-    /// The user presence the Authenticator reports.
+    /// User presence and provider-defined bits.
     #[must_use]
-    pub const fn user_presence(&self) -> UserPresence {
-        self.user_presence
+    pub const fn authenticator_meta(&self) -> AuthenticatorMeta {
+        self.authenticator_meta
     }
 
     /// Signs the AAT with the `assertion_key` and returns its CWT encoding.
@@ -588,7 +668,7 @@ impl AuthenticatorAssertionToken {
     /// [`TokenError::Encoding`] on any encoding but the canonical one; [`TokenError::Signature`]
     /// if the signature does not verify.
     pub fn verify(cwt: &[u8], assertion_key: &VerifyingKey) -> Result<Self, TokenError> {
-        let (payload, signature) = open_sign1(cwt, &AAT_PROTECTED, false, AAT_PAYLOAD_LEN)?;
+        let (payload, signature) = open_sign1(cwt, &AAT_PROTECTED, AAT_PAYLOAD_LEN)?;
         let signature = Signature::from_slice(&signature)
             .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
         let field = |range: std::ops::Range<usize>, name| {
@@ -599,7 +679,10 @@ impl AuthenticatorAssertionToken {
         let exp = u32::from_be_bytes(payload[13..17].try_into().expect("4 bytes"));
         let nonce = field(20..52, "non-canonical nonce")?;
         let cdh = field(92..124, "non-canonical cdh")?;
-        let user_presence = UserPresence::try_from(payload[129])?;
+        if payload[131..162].iter().any(|b| *b != 0) {
+            return Err(AssertionError::InvalidAuthenticatorMeta.into());
+        }
+        let authenticator_meta = AuthenticatorMeta::unpack(payload[162])?;
         if exp < MIN_EXP {
             return Err(AssertionError::ExpirationOutOfRange(exp).into());
         }
@@ -608,7 +691,7 @@ impl AuthenticatorAssertionToken {
             exp,
             nonce,
             cdh,
-            user_presence,
+            authenticator_meta,
         };
         if aat.payload() != payload {
             return Err(AssertionError::InvalidEncoding("AAT claims").into());
@@ -632,8 +715,8 @@ impl AuthenticatorAssertionToken {
         out[57..85].copy_from_slice(EAT_PROFILE_AAT.as_bytes());
         out[85..92].copy_from_slice(&[0x3a, 0x00, 0x01, 0x38, 0x7f, 0x58, 0x20]);
         out[92..124].copy_from_slice(&self.cdh.to_be_bytes());
-        out[124..129].copy_from_slice(&[0x3a, 0x00, 0x01, 0x38, 0x80]);
-        out[129] = self.user_presence.into();
+        out[124..131].copy_from_slice(&[0x3a, 0x00, 0x01, 0x38, 0x80, 0x58, 0x20]);
+        out[131..].copy_from_slice(&self.authenticator_meta.to_field_bytes());
         out
     }
 }
@@ -672,10 +755,10 @@ pub struct AuthenticatorAssertionPublicInputs {
     pub platform: u8,
     /// Where the `assertion_key` is stored (see [`SecLevel`]).
     pub sec_level: u8,
-    /// Provider-defined 3-bit bitmask.
+    /// Provider-defined 4-bit bitmask.
     pub sec_meta: u8,
-    /// User presence the Authenticator reports.
-    pub user_presence: UserPresence,
+    /// User presence and provider-defined bits the Authenticator reports.
+    pub authenticator_meta: AuthenticatorMeta,
     /// Minimum `build_version` the RP accepts.
     pub min_build_version: u32,
 }
@@ -728,7 +811,7 @@ impl AuthenticatorAssertionPrivateInputs {
             platform: flags.platform,
             sec_level: flags.sec_level,
             sec_meta: flags.sec_meta,
-            user_presence: aat.user_presence,
+            authenticator_meta: aat.authenticator_meta,
             min_build_version,
         })
     }
@@ -767,9 +850,9 @@ pub enum VerificationError {
     /// The TAKT's `platform`, `sec_level` or `sec_meta` differs from the public input.
     #[error("sec_flags do not match the public security flags")]
     SecFlagsMismatch,
-    /// The AAT's `user_presence` differs from the public input.
-    #[error("user_presence does not match the public input")]
-    UserPresenceMismatch,
+    /// The AAT's `authenticator_meta` differs from the public input.
+    #[error("authenticator_meta does not match the public input")]
+    AuthenticatorMetaMismatch,
     /// `build_version < min_build_version`.
     #[error("build_version below minimum")]
     BuildVersionBelowMinimum,
@@ -828,8 +911,8 @@ pub fn verify(
     {
         return Err(VerificationError::SecFlagsMismatch);
     }
-    if aat.user_presence != public.user_presence {
-        return Err(VerificationError::UserPresenceMismatch);
+    if aat.authenticator_meta != public.authenticator_meta {
+        return Err(VerificationError::AuthenticatorMetaMismatch);
     }
     if flags.build_version < public.min_build_version {
         return Err(VerificationError::BuildVersionBelowMinimum);
