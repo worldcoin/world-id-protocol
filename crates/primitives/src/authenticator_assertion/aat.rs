@@ -37,7 +37,7 @@ pub enum UserPresence {
     Undetermined = 0,
     /// User is not present.
     NotPresent = 1,
-    /// User is present, verified by a liveness or biometric check during this request.
+    /// User is present, verified by a biometric check during this request.
     PresentVerified = 2,
     /// User was present within the last 30 days.
     PresentWithin30Days = 3,
