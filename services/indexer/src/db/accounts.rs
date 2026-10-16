@@ -308,12 +308,19 @@ where
         latest_block_number: u64,
         latest_log_index: u64,
     ) -> DBResult<()> {
-        // Ensure arrays are large enough and insert at specific index
+        // `jsonb_set` appends when the index is past the end, so pad both arrays with nulls up
+        // to `pubkey_id` first. Otherwise a sparse insertion would land at the wrong slot.
+        let padded_len = i32::try_from(pubkey_id)
+            .map_err(|_| invalid_field!("pubkey_id", "exceeds the JSON array index range"))?;
         sqlx::query(
             r#"
                 UPDATE accounts SET
-                    authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], to_jsonb($3::text), true),
-                    authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], to_jsonb($4::text), true),
+                    authenticator_addresses = jsonb_set(
+                        authenticator_addresses || to_jsonb(array_fill(NULL::text, ARRAY[GREATEST($8 - jsonb_array_length(authenticator_addresses), 0)])),
+                        $2::text[], to_jsonb($3::text), true),
+                    authenticator_pubkeys = jsonb_set(
+                        authenticator_pubkeys || to_jsonb(array_fill(NULL::text, ARRAY[GREATEST($8 - jsonb_array_length(authenticator_pubkeys), 0)])),
+                        $2::text[], to_jsonb($4::text), true),
                     offchain_signer_commitment = $5,
                     latest_block_number = $6,
                     latest_log_index = $7
@@ -328,6 +335,7 @@ where
             .bind(new_commitment)
             .bind(latest_block_number as i64)
             .bind(latest_log_index as i64)
+            .bind(padded_len)
             .execute(self.executor)
             .await?;
         Ok(())

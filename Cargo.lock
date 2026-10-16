@@ -8573,9 +8573,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.45"
+version = "0.23.46"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d41d731c7d2f962d1ccc364cec258de3c0e93b38c2fb3ba97ac74513048d634"
+checksum = "48e13bd8c0e9365c43cfa5c9e8f9ad49d3c8444926c9aac819e0e4dc503c8fdf"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -12238,6 +12238,7 @@ dependencies = [
  "backon",
  "base64 0.22.1",
  "bhttp",
+ "ciborium",
  "eyre",
  "getrandom 0.2.17",
  "getrandom 0.4.1",
@@ -12254,6 +12255,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
+ "strum 0.27.2",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
  "taceo-groth16-material",
@@ -12262,6 +12264,7 @@ dependencies = [
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
+ "webpki-root-certs 1.0.6",
  "webpki-roots 1.0.6",
  "world-id-primitives",
  "world-id-proof",
@@ -12527,6 +12530,7 @@ dependencies = [
  "getrandom 0.4.1",
  "hex",
  "k256 0.13.4",
+ "p256 0.13.2",
  "percent-encoding",
  "provekit-common",
  "rand 0.8.6",

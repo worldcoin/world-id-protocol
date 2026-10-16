@@ -2,14 +2,16 @@ use crate::error::{IndexerErrorBody, IndexerErrorResponse};
 use axum::{Json, Router, middleware::from_fn, response::IntoResponse};
 use utoipa::OpenApi;
 use world_id_primitives::api_types::{
-    AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse, IndexerPendingRecoveryAgentResponse, IndexerQueryRequest,
-    IndexerRecoveryAgentResponse, IndexerSignatureNonceResponse,
+    AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse,
+    IndexerAuthenticatorsResponse, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
+    IndexerPendingRecoveryAgentResponse, IndexerQueryRequest, IndexerRecoveryAgentResponse,
+    IndexerSignatureNonceResponse,
 };
 use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
 use crate::config::AppState;
 mod get_authenticator_pubkeys;
+mod get_authenticators;
 mod get_packed_account;
 mod get_pending_recovery_agent;
 mod get_recovery_agent;
@@ -21,6 +23,7 @@ mod inclusion_proof;
 #[openapi(
     paths(
         get_authenticator_pubkeys::handler,
+        get_authenticators::handler,
         get_packed_account::handler,
         get_signature_nonce::handler,
         get_recovery_agent::handler,
@@ -29,6 +32,7 @@ mod inclusion_proof;
     ),
     components(schemas(
         IndexerAuthenticatorPubkeysResponse,
+        IndexerAuthenticatorsResponse,
         IndexerPackedAccountRequest,
         IndexerPackedAccountResponse,
         IndexerQueryRequest,
@@ -57,6 +61,10 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
         .route(
             "/authenticator-pubkeys",
             axum::routing::post(get_authenticator_pubkeys::handler),
+        )
+        .route(
+            "/authenticators",
+            axum::routing::post(get_authenticators::handler),
         )
         .route(
             "/packed-account",

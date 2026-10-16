@@ -6,19 +6,22 @@
 //! publishes the encrypted request on the bridge and shows a [`PairingUri`]. An **Approving
 //! Authenticator** (an existing Admin Authenticator) opens the URI, fetches and checks the
 //! request, asks the user for consent, inserts the new authenticator on-chain and answers with a
-//! sealed response, which carries the credential vault.
+//! sealed [`RegistrationResult`], which carries the credential vault.
 //!
 //! This module holds the protocol values and their encodings. Every value derived from the
 //! pairing secret is deterministic. Transport encryption additionally requires the independently
-//! transferred [`PairingCode`]. Requests are encoded with
-//! [`Request::encode`](world_id_primitives::authenticator_message::Request::encode). A received
-//! request's params are decoded with [`RegistrationRequest::from_params`], which adds the WIP-109
-//! payload rules to the WIP-105 envelope.
+//! transferred [`PairingCode`]. Messages are encoded with
+//! [`Request::encode`](world_id_primitives::authenticator_message::Request::encode) and
+//! [`Response::encode`](world_id_primitives::authenticator_message::Response::encode). A received
+//! request's params are decoded with [`RegistrationRequest::from_params`] and a received
+//! response with [`decode_response`], which add the WIP-109 payload rules to the WIP-105
+//! envelope.
 
 use world_id_primitives::authenticator_message::{MessageError, Value};
 
 mod pairing_uri;
 mod request;
+mod response;
 mod session;
 
 pub use pairing_uri::{BridgeDomain, InvalidBridgeDomain, PairingUri, PairingUriError};
@@ -26,14 +29,14 @@ pub use request::{
     AuthenticatorName, MAX_NAME_LEN, NameTooLong, REGISTER_METHOD, RegisterRequestMessage,
     RegistrationDigest, RegistrationRequest,
 };
+pub use response::{
+    KnownAuthenticator, MAX_VAULT_SIZE, RegisterResponseMessage, RegistrationErrorData,
+    RegistrationErrorReason, RegistrationResult, Vault, decode_response,
+};
 pub use session::{
     EncryptedPayload, PairingCode, PairingSecret, RequestId, ResponsePublicKey, ResponseSecretKey,
     TransportError, TransportKey,
 };
-
-/// The largest vault a registration response carries: 3.5 MiB, so that the encrypted response
-/// fits the message-bridge's 5 MiB body limit (WIP-109 §3.6.2).
-pub const MAX_VAULT_SIZE: usize = 3_670_016;
 
 /// The largest encoded request (WIP-109 §3.5).
 const MAX_REQUEST_SIZE: usize = 4 * 1024;
