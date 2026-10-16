@@ -359,7 +359,7 @@ impl AatInputs {
         if aud_bytes[..24].iter().any(|b| *b != 0) {
             return Err(RequestError::OutOfBounds("aud"));
         }
-        let aud = u64::from_be_bytes(aud_bytes[24..].try_into().expect("8 bytes"));
+        let aud = u64::from_be_bytes(std::array::from_fn(|i| aud_bytes[24 + i]));
         let private = AuthenticatorAssertionPrivateInputs {
             trust_anchor_key: EdDSAPublicKey::from_compressed_bytes(self.trust_anchor_key)
                 .map_err(|_| RequestError::Malformed("aat_inputs"))?,
