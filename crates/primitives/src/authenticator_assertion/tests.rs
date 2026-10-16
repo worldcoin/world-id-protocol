@@ -433,3 +433,76 @@ fn debug_hides_confidential_values() {
         "invalid TAKT: sec_flags bits 52 and above are reserved"
     );
 }
+
+/// A generic COSE library reads both tokens as `COSE_Sign1`, and its `Sig_structure` is what the
+/// AAT signs.
+#[test]
+fn coset_reads_both_tokens() {
+    use coset::{
+        AsCborValue, CborSerializable, CoseKey, CoseSign1, KeyType, Label,
+        RegisteredLabelWithPrivate, iana,
+    };
+    use p256::ecdsa::signature::Verifier;
+
+    let takt_cwt = hex::decode(TAKT_HEX).unwrap();
+    let takt = CoseSign1::from_slice(&takt_cwt).unwrap();
+    assert_eq!(
+        takt.protected.header.alg,
+        Some(RegisteredLabelWithPrivate::PrivateUse(COSE_ALG_TAKT))
+    );
+    assert_eq!(
+        takt.protected.header.key_id,
+        trust_anchor_key()
+            .public()
+            .to_compressed_bytes()
+            .unwrap()
+            .to_vec()
+    );
+    assert!(takt.unprotected.is_empty());
+    assert_eq!(takt.clone().to_vec().unwrap(), takt_cwt);
+
+    // The `cnf` claim is an EC2 P-256 `COSE_Key` holding the `assertion_key`.
+    let claims: ciborium::Value = ciborium::from_reader(takt.payload.unwrap().as_slice()).unwrap();
+    let cnf = claims
+        .as_map()
+        .unwrap()
+        .iter()
+        .find(|(k, _)| k.as_integer() == Some(8.into()))
+        .and_then(|(_, v)| v.as_map())
+        .and_then(|m| m.first())
+        .map(|(_, key)| key.clone())
+        .unwrap();
+    let key = CoseKey::from_cbor_value(cnf).unwrap();
+    assert_eq!(key.kty, KeyType::Assigned(iana::KeyType::EC2));
+    let point = assertion_key().verifying_key().to_encoded_point(false);
+    let param = |label: i64| {
+        key.params
+            .iter()
+            .find(|(l, _)| *l == Label::Int(label))
+            .map(|(_, v)| v.clone())
+            .unwrap()
+    };
+    assert_eq!(param(-1), ciborium::Value::Integer(1.into()));
+    assert_eq!(
+        param(-2),
+        ciborium::Value::Bytes(point.x().unwrap().to_vec())
+    );
+    assert_eq!(
+        param(-3),
+        ciborium::Value::Bytes(point.y().unwrap().to_vec())
+    );
+
+    let aat_cwt = hex::decode(AAT_HEX).unwrap();
+    let aat = CoseSign1::from_slice(&aat_cwt).unwrap();
+    assert_eq!(
+        aat.protected.header.alg,
+        Some(RegisteredLabelWithPrivate::Assigned(iana::Algorithm::ES256))
+    );
+    assert_eq!(aat.clone().to_vec().unwrap(), aat_cwt);
+    aat.verify_signature(b"", |signature, tbs| {
+        assertion_key()
+            .verifying_key()
+            .verify(tbs, &Signature::from_slice(signature).unwrap())
+    })
+    .unwrap();
+}
