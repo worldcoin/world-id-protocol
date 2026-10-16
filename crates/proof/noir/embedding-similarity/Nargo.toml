@@ -1,0 +1,12 @@
+[package]
+name = "embedding_similarity"
+type = "bin"
+description = "UNAUDITED. IN ACTIVE DEVELOPMENT, DO NOT USE YET. WIP-202 Proof of Embedding Similarity over a WIP-201 Flamingo Token."
+authors = ["@kilianglas", "@paolodamico"]
+license = "MIT"
+backend = "provekit"
+
+[dependencies]
+# Pinned to the nargo 1.0.0-beta.26 generation, matching ownership-proof and the published provekit crates.
+poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
+eddsa_poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "eddsa_poseidon2" }
