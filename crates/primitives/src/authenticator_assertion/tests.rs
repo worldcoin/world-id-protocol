@@ -4,7 +4,7 @@ use p256::ecdsa::{Signature, SigningKey};
 use super::*;
 
 /// WIP-201 Appendix A1; shared with `crates/proof/noir/authenticator-assertion/src/tests.nr`.
-const TAKT_HEX: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
+const TAKT_HEX: &str = "8447a1013a00010000a10458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d9875885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
 const AAT_HEX: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582006559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a443461503a000138805820000000000000000000000000000000000000000000000000000000000000000a5840c9deddf6657d8d624fc90f035ca1818de26d24aeb9becd946877d7a9f37520ad605b173c60660179227e019370ae9ea824b35f26fefb5b7592b2ab1865263d27";
 const KEY_HASH_HEX: &str = "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
 const CDH_HEX: &str = "06559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a44346150";
@@ -14,7 +14,7 @@ const TAKT_EXP: u32 = NOW + 86_400;
 const AAT_EXP: u32 = 1_783_446_925;
 const AUD: u64 = 1_928_118;
 /// Offset of the claims set in a TAKT.
-const TAKT_PAYLOAD: usize = 1 + 2 + 42 + 1 + 2;
+const TAKT_PAYLOAD: usize = 1 + 1 + 7 + 36 + 2;
 
 fn trust_anchor_key() -> EdDSAPrivateKey {
     EdDSAPrivateKey::from_bytes([0x07; 32])
@@ -160,20 +160,11 @@ fn verify_rejects_each_check() {
 
     // A key that did not sign the TAKT, with or without its hash as the public input.
     let other_key = EdDSAPrivateKey::from_bytes([0x08; 32]).public();
-    let mut with_other_key = AuthenticatorAssertionPrivateInputs {
+    let with_other_key = AuthenticatorAssertionPrivateInputs {
         trust_anchor_key: other_key.clone(),
         ..private.clone()
     };
     check(public, &with_other_key, KeyHashMismatch);
-    check(
-        with_public(&|p| p.trust_anchor_key_hash = trust_anchor_key_hash(&other_key)),
-        &with_other_key,
-        Takt(TokenError::Encoding(AssertionError::InvalidEncoding(
-            "protected header",
-        ))),
-    );
-    // With the other key's `kid`, the failure comes from the signature check.
-    with_other_key.takt[13..45].copy_from_slice(&other_key.to_compressed_bytes().unwrap());
     check(
         with_public(&|p| p.trust_anchor_key_hash = trust_anchor_key_hash(&other_key)),
         &with_other_key,
@@ -320,12 +311,19 @@ fn non_canonical_encodings_rejected() {
         TokenError::Encoding(AssertionError::InvalidEncoding("AAT claims"))
     );
 
-    // A TAKT whose `kid` is not that of the verifying key.
+    // The `kid` is an ignored hint, but it must be present.
     let mut other_kid = takt_cwt.clone();
     other_kid[13] ^= 1;
     assert_eq!(
-        TrustAnchorKeyToken::verify(&other_kid, &takt_key).unwrap_err(),
-        TokenError::Encoding(AssertionError::InvalidEncoding("protected header"))
+        TrustAnchorKeyToken::verify(&other_kid, &takt_key),
+        Ok(takt())
+    );
+    let mut without_kid = takt_cwt[..9].to_vec();
+    without_kid.push(0xa0);
+    without_kid.extend_from_slice(&takt_cwt[TAKT_PAYLOAD - 2..]);
+    assert_eq!(
+        TrustAnchorKeyToken::verify(&without_kid, &takt_key).unwrap_err(),
+        TokenError::Encoding(AssertionError::InvalidEncoding("unprotected header"))
     );
 
     // TAKT `sec_flags` bit 52.
