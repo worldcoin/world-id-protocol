@@ -1,0 +1,64 @@
+#![doc = include_str!("../README.md")]
+
+use ark_babyjubjub::Fq;
+use ark_ff::PrimeField as _;
+use world_id_primitives::{DomainSeparator, FieldElement, poseidon};
+
+mod cbor;
+pub mod manifest;
+pub mod request;
+mod token;
+
+pub use manifest::{EngineMetadata, ManifestError, ReleaseManifest, ReleaseStatus, ResponseSlots};
+pub use request::{AatInputs, Entry, Payload, Request, RequestError};
+pub use token::{
+    AatClaims, COSE_ALG_FLAMINGO_TOKEN, EAT_PROFILE, FlamingoClaims, FlamingoToken, MAX_COMPARED,
+    TokenError,
+};
+
+/// Version of the request map.
+pub const REQUEST_VERSION: u64 = 1;
+/// Entries per request.
+pub const MAX_ENTRIES: usize = 8;
+/// Maximum size of the request-level `hints`, in bytes.
+pub const MAX_HINTS_BYTES: usize = 1024;
+/// Maximum size of one entry's `meta`, in bytes.
+pub const MAX_ENTRY_META_BYTES: usize = 256;
+/// Maximum age of an attestation document at verification, in seconds.
+pub const MAX_ATTESTATION_AGE: u64 = 10_800;
+/// Maximum `debug_report` size, in bytes.
+pub const MAX_DEBUG_REPORT: usize = 65_536;
+/// Domain of the request channel.
+pub const CHANNEL_DOMAIN: &[u8] = b"WORLD-ID/WIP-201/CHANNEL";
+/// Domain of the channel key commitment, including the trailing `0x00`.
+pub const CHANNEL_KEY_DOMAIN: &[u8] = b"WORLD-ID/WIP-201/CHANNEL-KEY\0";
+
+/// Separates the signed digest of a Flamingo Token. The digest runs at `t=16`, so the
+/// separator pins 15 inputs.
+pub const DS_SIGN: DomainSeparator<15> = DomainSeparator::new(b"WORLD-ID/WIP-201/SIGN");
+/// Separates [`engine_config_hash`].
+pub const DS_ENGINE: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/WIP-201/ENGINE");
+
+/// `R(d)`: a 256-bit digest read as a big-endian integer modulo q.
+#[must_use]
+pub fn digest_to_field(digest: &[u8; 32]) -> FieldElement {
+    Fq::from_be_bytes_mod_order(digest).into()
+}
+
+/// `engine_config_hash = H_4(DS_ENGINE; R(release_hash), pipeline, match_strictness)`, the
+/// value RPs allowlist.
+#[must_use]
+pub fn engine_config_hash(
+    release_hash: &[u8; 32],
+    pipeline: u16,
+    match_strictness: u8,
+) -> FieldElement {
+    poseidon::hash(
+        DS_ENGINE,
+        [
+            digest_to_field(release_hash),
+            u64::from(pipeline).into(),
+            u64::from(match_strictness).into(),
+        ],
+    )
+}

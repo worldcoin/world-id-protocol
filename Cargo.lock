@@ -12322,6 +12322,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-flamingo"
+version = "0.15.0"
+dependencies = [
+ "ark-ff 0.6.0",
+ "base64 0.22.1",
+ "ciborium",
+ "coset",
+ "hex",
+ "p256 0.13.2",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "taceo-ark-babyjubjub",
+ "taceo-eddsa-babyjubjub",
+ "thiserror 2.0.18",
+ "world-id-primitives",
+]
+
+[[package]]
 name = "world-id-gateway"
 version = "0.1.4"
 dependencies = [
