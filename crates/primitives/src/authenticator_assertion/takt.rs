@@ -207,18 +207,24 @@ pub struct TrustAnchorKeyToken {
 }
 
 impl TrustAnchorKeyToken {
-    /// Creates a TAKT for issuance at `now`.
+    /// Creates a TAKT for issuance at `now` by a `trust_anchor_key` valid until `not_after`. The
+    /// caller MUST NOT attest the same `assertion_key` with differing `sec_flags` (WIP-106 §3.4).
     ///
     /// # Errors
     /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_TAKT_LIFETIME_SECS`,
-    /// and [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
+    /// [`AssertionError::ExpirationAfterKeyValidity`] if `exp > not_after`, and
+    /// [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
     pub fn new(
         now: u32,
         exp: u32,
+        not_after: u32,
         assertion_key: VerifyingKey,
         sec_flags: SecFlags,
     ) -> Result<Self, AssertionError> {
         check_issuance(now, exp, MAX_TAKT_LIFETIME_SECS)?;
+        if exp > not_after {
+            return Err(AssertionError::ExpirationAfterKeyValidity { exp, not_after });
+        }
         Ok(Self {
             exp,
             assertion_key,

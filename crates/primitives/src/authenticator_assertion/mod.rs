@@ -37,6 +37,14 @@ pub enum AssertionError {
         /// The requested expiration.
         exp: u32,
     },
+    /// A TAKT's `exp` is later than the `not_after` of the `trust_anchor_key` that signs it.
+    #[error("exp {exp} must not be later than the trust_anchor_key's not_after {not_after}")]
+    ExpirationAfterKeyValidity {
+        /// The requested expiration.
+        exp: u32,
+        /// End of the `trust_anchor_key`'s validity window.
+        not_after: u32,
+    },
     /// `sec_flags` has reserved bits set. Carries no value, as `sec_flags` holds the private
     /// `build_version`.
     #[error("sec_flags bits 52 and above are reserved")]
