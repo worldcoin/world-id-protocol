@@ -80,11 +80,15 @@ impl Request {
         cbor::encode(&cbor::map(fields))
     }
 
-    /// Decodes a canonical request and checks its bounds, including the payload's.
+    /// Decodes a canonical request and checks its bounds, including the payload's. Rejects a
+    /// request larger than `max_request_bytes` (WIP-201 §3.2) before parsing it.
     ///
     /// # Errors
     /// Fails for any other encoding, version or shape, or a bound violation.
-    pub fn decode(bytes: &[u8]) -> Result<Self, RequestError> {
+    pub fn decode(bytes: &[u8], max_request_bytes: u64) -> Result<Self, RequestError> {
+        if u64::try_from(bytes.len()).map_or(true, |len| len > max_request_bytes) {
+            return Err(RequestError::OutOfBounds("request"));
+        }
         let malformed = || RequestError::Malformed("request");
         let value: Value = ciborium::from_reader(bytes).map_err(|_| malformed())?;
         let mut fields = Fields::of(value).ok_or_else(malformed)?;

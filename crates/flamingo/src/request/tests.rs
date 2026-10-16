@@ -14,6 +14,9 @@ const COMPARED: [&str; 3] = [
     "2abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d",
 ];
 
+/// A `max_request_bytes` no test request reaches.
+const LIMIT: u64 = 1 << 20;
+
 fn hex_field(hex: &str) -> FieldElement {
     FieldElement::from_be_bytes(&hex::decode(hex).unwrap().try_into().unwrap()).unwrap()
 }
@@ -117,8 +120,24 @@ fn rejects_an_aat_for_another_payload() {
 #[test]
 fn requests_round_trip() {
     for request in [request(None), request(Some(aat_inputs()))] {
-        assert_eq!(Request::decode(&request.encode()), Ok(request));
+        assert_eq!(Request::decode(&request.encode(), LIMIT), Ok(request));
     }
+}
+
+#[test]
+fn rejects_requests_above_the_limit_before_parsing() {
+    let encoded = request(Some(aat_inputs())).encode();
+    let len = u64::try_from(encoded.len()).unwrap();
+    assert!(Request::decode(&encoded, len).is_ok());
+    assert_eq!(
+        Request::decode(&encoded, len - 1),
+        Err(RequestError::OutOfBounds("request"))
+    );
+    // Unparseable bytes above the limit are rejected by size, not by the CBOR decoder.
+    assert_eq!(
+        Request::decode(&[0xff; 64], 63),
+        Err(RequestError::OutOfBounds("request"))
+    );
 }
 
 type Case = (fn(&mut Payload), &'static str);
@@ -198,7 +217,7 @@ fn rejects_non_canonical_or_foreign_encodings() {
         with(&encoded, "payload", Value::Bytes(reversed(&payload))),
     ] {
         assert!(matches!(
-            Request::decode(&bytes),
+            Request::decode(&bytes, LIMIT),
             Err(RequestError::Malformed(_))
         ));
     }
