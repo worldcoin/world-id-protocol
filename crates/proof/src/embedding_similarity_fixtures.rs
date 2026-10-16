@@ -83,11 +83,12 @@ const PLATFORM: u8 = 2;
 const SEC_LEVEL: u8 = 1;
 const MIN_BUILD_VERSION: u32 = 2006;
 const SEC_META: u8 = 3;
-const USER_PRESENCE: u8 = 2;
+/// `user_presence` 2 with provider bits `0b01`.
+const AUTHENTICATOR_META: u8 = 10;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
-const AUTHENTICATOR_PROVIDER_KEY_HASH: &str =
+const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
-const DIGEST_WITH_AAT: &str = "229f44f2caa18f609df2c1819223d778ef8b08a30ce9de589dbe754275e123bd";
+const DIGEST_WITH_AAT: &str = "0f493d3e4f266f81950ad5c9ebe359b2085f1ab82173e7b3d6cff4c30c17fa5e";
 const DIGEST_WITHOUT_AAT: &str = "046b836383d9d9fd350fbed1197e1c1c17f2b187fb6ef1571e5f9b42ec6fc8fc";
 const CREDENTIAL_IMAGE: &[u8] = b"credential image";
 const LIVE_IMAGE: &[u8] = b"live image";
@@ -167,7 +168,7 @@ fn aat_flags() -> u64 {
         + (u64::from(SEC_LEVEL) << 8)
         + (u64::from(MIN_BUILD_VERSION) << 16)
         + (u64::from(SEC_META) << 48)
-        + (u64::from(USER_PRESENCE) << 51)
+        + (u64::from(AUTHENTICATOR_META) << 52)
 }
 
 /// The WIP-201 signed digest of a Flamingo Token over the fixture request.
@@ -178,7 +179,7 @@ fn token_digest(has_aat: bool, compared: [FieldElement; 4]) -> FieldElement {
     claims[1..5].copy_from_slice(&compared);
     claims[5] = FieldElement::from(AUD);
     claims[6] = FieldElement::from(NONCE);
-    claims[7] = aat(from_hex(AUTHENTICATOR_PROVIDER_KEY_HASH));
+    claims[7] = aat(from_hex(TRUST_ANCHOR_KEY_HASH));
     claims[8] = aat(FieldElement::from(aat_flags()));
     claims[9] = FieldElement::from(u64::from(has_aat));
     claims[10] = from_hex(ENGINE_CONFIG_HASH);
@@ -276,7 +277,7 @@ fn render() -> Rendered {
     let chunk_list = list(chunks(&hashes_json).iter().map(|c| dec(**c)));
     let compared_list = list(compared.iter().map(|c| dec(**c)));
     let siblings_list = list(siblings.iter().map(|s| dec(**s)));
-    let apkh = dec(*from_hex(AUTHENTICATOR_PROVIDER_KEY_HASH));
+    let takh = dec(*from_hex(TRUST_ANCHOR_KEY_HASH));
     let engine_config_hash = dec(*from_hex(ENGINE_CONFIG_HASH));
 
     #[rustfmt::skip]
@@ -286,11 +287,11 @@ fn render() -> Rendered {
         ("NOW", "u32", NOW.to_string()),
         ("AUD", "Field", AUD.to_string()),
         ("NONCE", "Field", NONCE.to_string()),
-        ("AUTHENTICATOR_PROVIDER_KEY_HASH", "Field", apkh.clone()),
+        ("TRUST_ANCHOR_KEY_HASH", "Field", takh.clone()),
         ("PLATFORM", "u8", PLATFORM.to_string()),
         ("SEC_LEVEL", "u8", SEC_LEVEL.to_string()),
         ("SEC_META", "u8", SEC_META.to_string()),
-        ("USER_PRESENCE", "u8", USER_PRESENCE.to_string()),
+        ("AUTHENTICATOR_META", "u8", AUTHENTICATOR_META.to_string()),
         ("MIN_BUILD_VERSION", "u32", MIN_BUILD_VERSION.to_string()),
         ("ENGINE_CONFIG_HASH", "Field", engine_config_hash.clone()),
         ("CHALLENGE_HASH", "Field", dec(*compared[2])),
@@ -355,11 +356,11 @@ fn render() -> Rendered {
          aud = \"{AUD}\"\n\
          nonce = \"{NONCE}\"\n\
          has_aat = true\n\
-         authenticator_provider_key_hash = \"{apkh}\"\n\
+         trust_anchor_key_hash = \"{takh}\"\n\
          platform = \"{PLATFORM}\"\n\
          sec_level = \"{SEC_LEVEL}\"\n\
          sec_meta = \"{SEC_META}\"\n\
-         user_presence = \"{USER_PRESENCE}\"\n\
+         authenticator_meta = \"{AUTHENTICATOR_META}\"\n\
          min_build_version = \"{MIN_BUILD_VERSION}\"\n\
          engine_config_hash = \"{engine_config_hash}\"\n\
          challenge_hash = \"{challenge_hash}\"\n\
@@ -462,7 +463,7 @@ fn token_digests_match_the_wip_201_vectors() {
         token_digest(false, compared()),
         from_hex(DIGEST_WITHOUT_AAT)
     );
-    assert_eq!(aat_flags(), 0x0013_0000_07d6_0102);
+    assert_eq!(aat_flags(), 0x00a3_0000_07d6_0102);
 }
 
 /// Pins the domain separators to the integers hardcoded in the Noir package.

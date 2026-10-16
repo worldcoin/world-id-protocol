@@ -9,29 +9,31 @@ pub struct FlamingoTokenPublic {
     pub aud: Field,
     pub nonce: Field,
     pub has_aat: bool,
-    pub authenticator_provider_key_hash: Field,
+    pub trust_anchor_key_hash: Field,
     pub platform: u8,
     pub sec_level: u8,
     pub sec_meta: u8,
-    pub user_presence: u8,
+    pub authenticator_meta: u8,
     pub min_build_version: u32,
     pub engine_config_hash: Field,
 }
 
 /// `aat_flags`, the WIP-106 `sec_flags` layout with `min_build_version` in place of
-/// `build_version`. `sec_meta` and `user_presence` are 3-bit; the types bound the rest.
+/// `build_version` and `authenticator_meta` above it. `sec_meta` is 4-bit and
+/// `authenticator_meta` 5-bit; the types bound the rest.
 pub fn aat_flags(public: FlamingoTokenPublic) -> Field {
-    assert(public.sec_meta < 8, "sec_meta exceeds 3 bits");
-    assert(public.user_presence < 5, "user_presence values 5 to 7 are reserved");
+    assert(public.sec_meta < 16, "sec_meta exceeds 4 bits");
+    assert(public.authenticator_meta < 32, "authenticator_meta exceeds 5 bits");
+    assert((public.authenticator_meta & 7) < 5, "user_presence values 5 to 7 are reserved");
     public.platform as Field
         + 0x100 * public.sec_level as Field
         + 0x10000 * public.min_build_version as Field
         + 0x1000000000000 * public.sec_meta as Field
-        + 0x8000000000000 * public.user_presence as Field
+        + 0x10000000000000 * public.authenticator_meta as Field
 }
 
 /// The signed digest: output element 1 of the Poseidon2 t=16 permutation. Without an
-/// AAT, `now`, `authenticator_provider_key_hash` and `aat_flags` enter as `0`.
+/// AAT, `now`, `trust_anchor_key_hash` and `aat_flags` enter as `0`.
 pub fn digest(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field {
     let has_aat = public.has_aat as Field;
     let h = token.compared_entry_hash;
@@ -44,7 +46,7 @@ pub fn digest(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field 
         h[3],
         public.aud,
         public.nonce,
-        has_aat * public.authenticator_provider_key_hash,
+        has_aat * public.trust_anchor_key_hash,
         has_aat * aat_flags(public),
         has_aat,
         public.engine_config_hash,
@@ -60,11 +62,11 @@ pub fn verify(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field 
     // As in WIP-106, the AAT values are zero when no AAT was verified.
     if !public.has_aat {
         assert(
-            (public.authenticator_provider_key_hash == 0)
+            (public.trust_anchor_key_hash == 0)
                 & (public.platform == 0)
                 & (public.sec_level == 0)
                 & (public.sec_meta == 0)
-                & (public.user_presence == 0)
+                & (public.authenticator_meta == 0)
                 & (public.min_build_version == 0),
             "AAT values must be zero without an AAT",
         );

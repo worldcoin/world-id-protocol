@@ -7,12 +7,12 @@ use crate::{
     hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
     test_fixtures::{
-        AUD, AUTH_SIG, AUTH_SIG_NO_AAT, AUTHENTICATOR_PROVIDER_KEY_HASH, CHALLENGE_HASH, CLAIM_0,
+        AUD, AUTH_SIG, AUTH_SIG_NO_AAT, AUTHENTICATOR_META, CHALLENGE_HASH, CLAIM_0,
         COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
         EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN,
         ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, MERKLE_ROOT, MIN_BUILD_VERSION, NONCE, NOW,
         PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SUB_BLINDING_FACTOR,
-        TOKEN_SIG, TOKEN_SIG_NO_AAT, USER_PK, USER_PRESENCE, VERIFIER_KEY,
+        TOKEN_SIG, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK, VERIFIER_KEY,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
@@ -22,11 +22,11 @@ struct Public {
     aud: Field,
     nonce: Field,
     has_aat: bool,
-    authenticator_provider_key_hash: Field,
+    trust_anchor_key_hash: Field,
     platform: u8,
     sec_level: u8,
     sec_meta: u8,
-    user_presence: u8,
+    authenticator_meta: u8,
     min_build_version: u32,
     engine_config_hash: Field,
     challenge_hash: Field,
@@ -40,11 +40,11 @@ fn public() -> Public {
         aud: AUD,
         nonce: NONCE,
         has_aat: true,
-        authenticator_provider_key_hash: AUTHENTICATOR_PROVIDER_KEY_HASH,
+        trust_anchor_key_hash: TRUST_ANCHOR_KEY_HASH,
         platform: PLATFORM,
         sec_level: SEC_LEVEL,
         sec_meta: SEC_META,
-        user_presence: USER_PRESENCE,
+        authenticator_meta: AUTHENTICATOR_META,
         min_build_version: MIN_BUILD_VERSION,
         engine_config_hash: ENGINE_CONFIG_HASH,
         challenge_hash: CHALLENGE_HASH,
@@ -92,11 +92,11 @@ fn prove(p: Public, inputs: PrivateInputs) {
         p.aud,
         p.nonce,
         p.has_aat,
-        p.authenticator_provider_key_hash,
+        p.trust_anchor_key_hash,
         p.platform,
         p.sec_level,
         p.sec_meta,
-        p.user_presence,
+        p.authenticator_meta,
         p.min_build_version,
         p.engine_config_hash,
         p.challenge_hash,
@@ -114,11 +114,11 @@ fn prove(p: Public, inputs: PrivateInputs) {
 fn public_without_aat() -> Public {
     let mut p = public();
     p.has_aat = false;
-    p.authenticator_provider_key_hash = 0;
+    p.trust_anchor_key_hash = 0;
     p.platform = 0;
     p.sec_level = 0;
     p.sec_meta = 0;
-    p.user_presence = 0;
+    p.authenticator_meta = 0;
     p.min_build_version = 0;
     p
 }
@@ -133,7 +133,15 @@ fn test_rejects_aat_values_without_an_aat() {
 #[test(should_fail_with = "user_presence values 5 to 7 are reserved")]
 fn test_rejects_a_reserved_user_presence() {
     let mut p = public();
-    p.user_presence = 5;
+    // Provider bits 0b01 with user_presence 5.
+    p.authenticator_meta = 13;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "authenticator_meta exceeds 5 bits")]
+fn test_rejects_a_wide_authenticator_meta() {
+    let mut p = public();
+    p.authenticator_meta = 32;
     prove(p, inputs());
 }
 
@@ -215,10 +223,10 @@ fn test_rejects_a_fourth_compared_entry() {
     prove(public(), i);
 }
 
-#[test(should_fail_with = "sec_meta exceeds 3 bits")]
+#[test(should_fail_with = "sec_meta exceeds 4 bits")]
 fn test_rejects_a_wide_sec_meta() {
     let mut p = public();
-    p.sec_meta = 8;
+    p.sec_meta = 16;
     prove(p, inputs());
 }
 
