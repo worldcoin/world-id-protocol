@@ -46,7 +46,7 @@ pub struct AuthenticatorAssertionPublicInputs {
     pub nonce: Field,
     /// Platform of the Authenticator.
     pub platform: u8,
-    /// Where the `assertion_key` is stored.
+    /// Class of integrity evidence verified at TAKT issuance.
     pub sec_level: u8,
     /// Provider-defined 4-bit bitmask.
     pub sec_meta: u8,

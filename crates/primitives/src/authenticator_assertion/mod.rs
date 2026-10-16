@@ -84,7 +84,7 @@ impl From<Platform> for u8 {
     }
 }
 
-/// Where the `assertion_key` is generated and stored.
+/// Class of integrity evidence the Authenticator Provider verified when issuing the TAKT.
 ///
 /// The known identifiers, not a trust ranking; `sec_flags` carries the raw byte so unknown
 /// values pass through to the RP's allowlist.
@@ -95,11 +95,11 @@ pub enum SecLevel {
     Unspecified = 0,
     /// Hardware-bound key attested by the platform manufacturer (e.g. App Attest).
     HardwareKey = 1,
-    /// Non-extractable platform key with a platform integrity verdict (e.g. Play Integrity).
+    /// Platform integrity verdict without a hardware-bound key (e.g. Play Integrity).
     PlatformKey = 3,
-    /// Internally verified (only authorized parties, e.g. internal developers).
+    /// Integrity implied by the Authenticator Provider's internal controls.
     InternallyVerified = 5,
-    /// Software key, user-bound, without environment integrity (e.g. a browser-held key).
+    /// No environment integrity could be verified.
     Software = 10,
 }
 
@@ -253,7 +253,7 @@ impl SecFlags {
         self.platform
     }
 
-    /// Where the `assertion_key` is generated and stored (see [`SecLevel`]).
+    /// Class of integrity evidence verified at TAKT issuance (see [`SecLevel`]).
     #[must_use]
     pub const fn sec_level(&self) -> u8 {
         self.sec_level
@@ -782,7 +782,7 @@ pub struct AuthenticatorAssertionPublicInputs {
     pub nonce: FieldElement,
     /// Platform of the Authenticator (see [`Platform`]).
     pub platform: u8,
-    /// Where the `assertion_key` is stored (see [`SecLevel`]).
+    /// Class of integrity evidence verified at TAKT issuance (see [`SecLevel`]).
     pub sec_level: u8,
     /// Provider-defined 4-bit bitmask.
     pub sec_meta: u8,
