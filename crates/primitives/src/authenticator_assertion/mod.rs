@@ -19,7 +19,7 @@ use p256::ecdsa::{
 };
 
 /// Maximum remaining lifetime `exp - now` of a TAKT, in seconds.
-pub const MAX_TAKT_LIFETIME_SECS: u32 = 604_800;
+pub const MAX_TAKT_LIFETIME_SECS: u32 = 2_592_000;
 
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub const MAX_AAT_LIFETIME_SECS: u32 = 1800;

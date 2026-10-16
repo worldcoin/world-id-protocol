@@ -17,7 +17,7 @@ use poseidon2::bn254::permutation;
 mod tests;
 
 /// Maximum remaining lifetime `exp - now` of a TAKT, in seconds.
-pub global MAX_TAKT_LIFETIME: Field = 604800;
+pub global MAX_TAKT_LIFETIME: Field = 2592000;
 /// Maximum remaining lifetime `exp - now` of an AAT, in seconds.
 pub global MAX_AAT_LIFETIME: Field = 1800;
 
