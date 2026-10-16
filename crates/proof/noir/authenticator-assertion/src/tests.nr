@@ -195,7 +195,7 @@ fn test_build_version_below_minimum_rejected() {
 
 #[test(should_fail)]
 fn test_non_canonical_sig_s_rejected() {
-    // `s + r` satisfies the verification equation but is not a reduced scalar.
+    // Rejects a signature whose `s` is shifted by the subgroup order, so AATs can't be malleated.
     let mut private = private();
     private.sig_s = private.sig_s
         + 2736030358979909402780800718157159386076813972158567259200215660948447373041;
@@ -234,4 +234,9 @@ fn test_sec_flags_above_56_bits_rejected() {
 #[test(should_fail)]
 fn test_now_above_32_bits_rejected() {
     super::assert_fresh(EXP, 0x100000000);
+}
+
+#[test(should_fail)]
+fn test_exp_above_32_bits_rejected() {
+    super::assert_fresh(0x100000000, NOW);
 }
