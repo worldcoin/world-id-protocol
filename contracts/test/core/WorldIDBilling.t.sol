@@ -416,10 +416,10 @@ contract WorldIDBillingTest is Test {
         vm.warp(NOV_2026 - 1);
         auth = _authorize(october);
         assertTrue(
-            billing.register(october, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof())
+            billing.register(october, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER + 2, _proof())
         );
-        assertTrue(billing.isRegistered(RP_ID, OCT_2026, NULLIFIER));
-        assertTrue(billing.isRegistered(RP_ID, NOV_2026, NULLIFIER));
+        assertTrue(billing.isRegistered(NULLIFIER + 2));
+        assertTrue(billing.isRegistered(NULLIFIER));
 
         vm.warp(NOV_2026);
         auth = _authorize(october);
@@ -445,7 +445,7 @@ contract WorldIDBillingTest is Test {
         assertTrue(billing.registerMany(december, entries)[0]);
 
         IWorldIDBilling.BillingContext memory january = _scope(JAN_2027);
-        entries[0] = _entry(january, NULLIFIER);
+        entries[0] = _entry(january, NULLIFIER + 1);
         entries[0].expiresAtMin = uint64(vm.getBlockTimestamp());
         assertTrue(billing.registerMany(january, entries)[0]);
         (, uint256 decemberCount) = billing.periods(RP_ID, DEC_2026);
@@ -476,7 +476,7 @@ contract WorldIDBillingTest is Test {
         scope = _scope(march);
         assertTrue(
             billing.register(
-                scope, _authorize(scope), ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof()
+                scope, _authorize(scope), ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER + 1, _proof()
             )
         );
     }
@@ -759,14 +759,14 @@ contract WorldIDBillingTest is Test {
         vm.expectEmit(address(billing));
         emit IWorldIDBilling.Registered(RP_ID, OCT_2026, NULLIFIER);
         assertTrue(_register(auth, NULLIFIER));
-        assertTrue(billing.isRegistered(RP_ID, OCT_2026, NULLIFIER));
-        assertTrue(billing.usedNonces(RP_ID, OCT_2026, auth.nonce));
+        assertTrue(billing.isRegistered(NULLIFIER));
+        assertTrue(billing.usedNonces(RP_ID, auth.nonce));
 
         // Duplicate succeeds with `false` even when capacity is exhausted and registrations are paused.
         billing.setPaused(true);
         IWorldIDBilling.RegistrationAuthorization memory auth2 = _authorize(scope);
         assertFalse(_register(auth2, NULLIFIER));
-        assertTrue(billing.usedNonces(RP_ID, OCT_2026, auth2.nonce));
+        assertTrue(billing.usedNonces(RP_ID, auth2.nonce));
         (uint256 capacity, uint256 count) = billing.periods(RP_ID, OCT_2026);
         assertEq(capacity, 1);
         assertEq(count, 1);
@@ -826,7 +826,7 @@ contract WorldIDBillingTest is Test {
         (, uint256 count) = billing.periods(RP_ID, OCT_2026);
         assertEq(count, 2);
         for (uint256 i = 0; i < 3; ++i) {
-            assertTrue(billing.usedNonces(RP_ID, OCT_2026, entries[i].authorization.nonce));
+            assertTrue(billing.usedNonces(RP_ID, entries[i].authorization.nonce));
         }
     }
 
@@ -841,8 +841,8 @@ contract WorldIDBillingTest is Test {
         vm.expectRevert(IWorldIDBilling.CapacityExhausted.selector);
         billing.registerMany(scope, entries);
 
-        assertFalse(billing.isRegistered(RP_ID, OCT_2026, NULLIFIER));
-        assertFalse(billing.usedNonces(RP_ID, OCT_2026, entries[0].authorization.nonce));
+        assertFalse(billing.isRegistered(NULLIFIER));
+        assertFalse(billing.usedNonces(RP_ID, entries[0].authorization.nonce));
         (, uint256 count) = billing.periods(RP_ID, OCT_2026);
         assertEq(count, 0);
     }
@@ -908,7 +908,7 @@ contract WorldIDBillingTest is Test {
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(scope);
         vm.expectRevert(IWorldIDBilling.CapacityExhausted.selector);
         _register(auth, NULLIFIER + 1);
-        assertFalse(billing.usedNonces(RP_ID, OCT_2026, auth.nonce), "nonce rolled back");
+        assertFalse(billing.usedNonces(RP_ID, auth.nonce), "nonce rolled back");
     }
 
     function test_Register_NoCapacityWithoutPurchase() public {
@@ -931,7 +931,7 @@ contract WorldIDBillingTest is Test {
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(_scope(OCT_2026));
         vm.expectRevert(Verifier.ProofInvalid.selector);
         _register(auth, NULLIFIER);
-        assertFalse(billing.usedNonces(RP_ID, OCT_2026, auth.nonce));
+        assertFalse(billing.usedNonces(RP_ID, auth.nonce));
         (, uint256 count) = billing.periods(RP_ID, OCT_2026);
         assertEq(count, 0);
     }
@@ -1049,7 +1049,12 @@ contract WorldIDBillingTest is Test {
         IWorldIDBilling.BillingContext memory november = _scope(NOV_2026);
         assertTrue(
             billing.register(
-                november, _authorize(november), ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof()
+                november,
+                _authorize(november),
+                ISSUER_SCHEMA_ID,
+                uint64(vm.getBlockTimestamp()),
+                NULLIFIER + 2,
+                _proof()
             )
         );
         (keyId, key) = billing.getPinnedOprfKey(RP_ID, NOV_2026);
