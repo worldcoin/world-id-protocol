@@ -8,6 +8,8 @@ use alloy::{
     sol_types::{Eip712Domain, SolCall as _, SolEvent as _, SolStruct as _, eip712_domain},
     uint,
 };
+use std::process::{Child, Command, Stdio};
+
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use ark_ff::PrimeField as _;
 use eddsa_babyjubjub::EdDSAPublicKey;
@@ -266,9 +268,49 @@ pub async fn get_latest_chain_commitment(
 // ── TestAnvil ────────────────────────────────────────────────────────────
 
 pub struct TestAnvil {
+    // Declared first so it drops before `instance`; see `AnvilReaper`.
+    _reaper: AnvilReaper,
     pub instance: AnvilInstance,
     pub rpc_url: String,
     pub ws_url: String,
+}
+
+/// Kills anvil when the process that spawned it exits without running destructors.
+///
+/// `AnvilInstance` stops anvil in `Drop`, which never runs if the test process is killed (SIGKILL,
+/// a harness timeout, `panic = "abort"`) or if the instance lives in a static. The orphaned anvil
+/// then keeps mining a block per second and its memory grows without bound.
+///
+/// The reaper is a `sh` child blocked reading a pipe whose write end only this process holds.
+/// When this process exits for any reason, the kernel closes the write end, `read` returns, and
+/// the reaper kills anvil.
+struct AnvilReaper(Child);
+
+impl AnvilReaper {
+    fn spawn(anvil_pid: u32) -> Result<Self> {
+        let child = Command::new("sh")
+            .args([
+                "-c",
+                r#"read -r _; kill -9 "$1" 2>/dev/null"#,
+                "anvil-reaper",
+            ])
+            .arg(anvil_pid.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("failed to start anvil reaper")?;
+        Ok(Self(child))
+    }
+}
+
+impl Drop for AnvilReaper {
+    fn drop(&mut self) {
+        // Stop the reaper before `AnvilInstance` stops and reaps anvil, so the reaper can never
+        // signal a recycled PID. Errors only mean the reaper has already exited.
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 fn rp_registry_domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
@@ -333,14 +375,7 @@ impl TestAnvil {
             .try_spawn()
             .context("failed to start anvil")?;
 
-        let rpc_url = Self::local_url("http", &instance);
-        let ws_url = Self::local_url("ws", &instance);
-
-        Ok(Self {
-            instance,
-            rpc_url,
-            ws_url,
-        })
+        Self::from_instance(instance)
     }
 
     /// Auto-mining variant of [`Self::spawn_with_multicall3`].
@@ -375,10 +410,16 @@ impl TestAnvil {
             .try_spawn()
             .context("failed to start anvil")?;
 
+        Self::from_instance(instance)
+    }
+
+    fn from_instance(instance: AnvilInstance) -> Result<Self> {
+        let reaper = AnvilReaper::spawn(instance.child().id())?;
         let rpc_url = Self::local_url("http", &instance);
         let ws_url = Self::local_url("ws", &instance);
 
         Ok(Self {
+            _reaper: reaper,
             instance,
             rpc_url,
             ws_url,

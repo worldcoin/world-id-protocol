@@ -63,6 +63,10 @@ pub mod ds {
     /// Separates the hash of an Authenticator Provider key (WIP-106).
     pub const AUTHENTICATOR_PROVIDER_KEY: DomainSeparator<2> =
         DomainSeparator::new(b"WORLD-ID/WIP-106/KEY");
+    /// Separates the message a new authenticator signs to prove it holds the key it asks to
+    /// register: the lowered registration digest (WIP-109).
+    pub const AUTHENTICATOR_REGISTRATION: DomainSeparator<2> =
+        DomainSeparator::new(b"WORLD-ID/WIP-109/REGSIG");
     /// Separates the hash of a single raw-bytes credential claim.
     pub const CLAIMS_HASH_V1: VariableLengthDomainSeparator =
         VariableLengthDomainSeparator::new(b"CLAIMS_HASH_V1");
@@ -160,7 +164,7 @@ impl VariableLengthDomainSeparator {
 
 /// Hashes the `N` field elements of a message under its domain separator.
 ///
-/// The permutation width is the smallest supported width larger than `N` (so
+/// The permutation width is the smallest WIP-100 width larger than `N` (so
 /// `N + 1` rounded up to one of `2, 3, 4, 8, 12, 16`); unused rate slots are zero.
 /// Since `N` comes from the separator, the width is fixed by the message's
 /// definition and cannot vary with runtime data.
@@ -240,7 +244,7 @@ mod tests {
 
     /// The raw tag of every constant in [`ds`], across both separator types, to keep
     /// the collision and length checks exhaustive.
-    const ALL_TAGS: [&[u8]; 12] = [
+    const ALL_TAGS: [&[u8]; 13] = [
         ds::CREDENTIAL_V1.as_bytes(),
         ds::CREDENTIAL_SUB.as_bytes(),
         ds::SESSION_COMMITMENT.as_bytes(),
@@ -251,6 +255,7 @@ mod tests {
         ds::AUTHENTICATOR_ASSERTION_REQUEST.as_bytes(),
         ds::AUTHENTICATOR_ASSERTION_TOKEN.as_bytes(),
         ds::AUTHENTICATOR_PROVIDER_KEY.as_bytes(),
+        ds::AUTHENTICATOR_REGISTRATION.as_bytes(),
         ds::CLAIMS_HASH_V1.as_bytes(),
         ds::ASSOCIATED_DATA_V1.as_bytes(),
     ];
@@ -327,10 +332,14 @@ mod tests {
         // Remaining widths and the zero-padded arities within each.
         assert_width!(1, 2, t2);
         assert_width!(4, 8, t8);
+        assert_width!(5, 8, t8);
         assert_width!(6, 8, t8);
         assert_width!(8, 12, t12);
+        assert_width!(9, 12, t12);
+        assert_width!(10, 12, t12);
         assert_width!(11, 12, t12);
         assert_width!(12, 16, t16);
+        assert_width!(13, 16, t16);
         assert_width!(15, 16, t16);
     }
 

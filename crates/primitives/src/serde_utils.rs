@@ -1,8 +1,11 @@
-//! Serialization utilities for numeric API values across the protocol.
+//! Serde helpers shared across the protocol.
 //!
-//! Convention used by helpers in this module:
+//! The `hex_*` modules encode numeric API values as strings:
 //! - serialization always emits `0x`-prefixed hex strings;
 //! - deserialization accepts either decimal (no prefix) or hex (`0x`/`0X` prefix).
+//!
+//! [`deserialize_present`] tells an absent field apart from an explicit null, and [`cbor`] holds
+//! strict deserializers for fields of CBOR messages.
 
 #![allow(clippy::missing_errors_doc)]
 
@@ -316,10 +319,178 @@ pub mod hex_bytes_opt {
     }
 }
 
+/// Deserializes an optional field that, when present, must hold a `T`.
+///
+/// Use it on an `Option<T>` field together with `#[serde(default)]`: an absent field becomes
+/// `None`, and a present value is parsed as `T` and wrapped in `Some`. Unlike the plain
+/// `Option<T>` impl, an explicit null is not read as `None`; it is passed to `T`, which rejects it
+/// unless `T` itself accepts null, as a dynamic value type does.
+///
+/// # Examples
+///
+/// ```
+/// use serde::Deserialize;
+/// use world_id_primitives::serde_utils::deserialize_present;
+///
+/// #[derive(Debug, PartialEq, Deserialize)]
+/// struct Params {
+///     #[serde(default, deserialize_with = "deserialize_present")]
+///     name: Option<String>,
+/// }
+///
+/// let absent: Params = serde_json::from_str("{}").unwrap();
+/// assert_eq!(absent.name, None);
+/// let present: Params = serde_json::from_str(r#"{"name": "phone"}"#).unwrap();
+/// assert_eq!(present.name.as_deref(), Some("phone"));
+/// assert!(serde_json::from_str::<Params>(r#"{"name": null}"#).is_err());
+/// ```
+pub fn deserialize_present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
+
+/// Strict deserializers for CBOR fields that a protocol defines by their major type.
+///
+/// Serde's own impls accept other CBOR encodings of the same value: `Vec<u8>` and byte arrays also
+/// read an array of integers, integers also read bignums (tags 2 and 3), and most impls skip CBOR
+/// tags. These deserializers accept only the defined major type, without a tag.
+///
+/// # Examples
+///
+/// ```
+/// use serde::Deserialize;
+/// use world_id_primitives::{authenticator_message::Value, serde_utils::cbor};
+///
+/// #[derive(Debug, Deserialize)]
+/// struct Slot {
+///     #[serde(deserialize_with = "cbor::deserialize_byte_array")]
+///     key: [u8; 2],
+///     #[serde(deserialize_with = "cbor::deserialize_unsigned")]
+///     index: u32,
+/// }
+///
+/// let slot = |key: Value, index: Value| {
+///     let value = Value::Map(vec![("key".into(), key), ("index".into(), index)]);
+///     let mut bytes = Vec::new();
+///     ciborium::into_writer(&value, &mut bytes).unwrap();
+///     bytes
+/// };
+///
+/// let bytes = slot(Value::Bytes(vec![1, 2]), 7.into());
+/// let valid: Slot = ciborium::from_reader(bytes.as_slice()).unwrap();
+/// assert_eq!((valid.key, valid.index), ([1, 2], 7));
+///
+/// let integers = Value::Array(vec![1.into(), 2.into()]);
+/// let bytes = slot(integers, 7.into());
+/// assert!(ciborium::from_reader::<Slot, _>(bytes.as_slice()).is_err());
+/// let tagged = Value::Tag(0, Box::new(7.into()));
+/// let bytes = slot(Value::Bytes(vec![1, 2]), tagged);
+/// assert!(ciborium::from_reader::<Slot, _>(bytes.as_slice()).is_err());
+/// ```
+pub mod cbor {
+    use std::fmt;
+
+    use serde::{
+        Deserializer,
+        de::{Error as _, Visitor},
+    };
+
+    /// Deserializes a CBOR byte string.
+    ///
+    /// A rejected data item is never collected into a buffer of this function, so a caller that
+    /// moves the result straight into a zeroizing container keeps no other copy of a secret.
+    /// The deserializer's own read buffers are outside its control.
+    ///
+    /// # Errors
+    ///
+    /// Fails for any other CBOR data item, including an array of integers and a tagged byte
+    /// string.
+    pub fn deserialize_byte_string<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Vec<u8>, D::Error> {
+        struct ByteStringVisitor;
+
+        impl Visitor<'_> for ByteStringVisitor {
+            type Value = Vec<u8>;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a CBOR byte string")
+            }
+
+            fn visit_bytes<E>(self, bytes: &[u8]) -> Result<Vec<u8>, E> {
+                Ok(bytes.to_vec())
+            }
+
+            fn visit_byte_buf<E>(self, bytes: Vec<u8>) -> Result<Vec<u8>, E> {
+                Ok(bytes)
+            }
+        }
+
+        // Ciborium skips tags when asked for bytes, but `deserialize_any` passes a tag to
+        // `visit_enum`, which rejects it.
+        deserializer.deserialize_any(ByteStringVisitor)
+    }
+
+    /// Deserializes a CBOR byte string of exactly `N` bytes.
+    ///
+    /// # Errors
+    ///
+    /// Fails like [`deserialize_byte_string`], and if the byte string has another length.
+    pub fn deserialize_byte_array<'de, D: Deserializer<'de>, const N: usize>(
+        deserializer: D,
+    ) -> Result<[u8; N], D::Error> {
+        deserialize_byte_string(deserializer)?
+            .try_into()
+            .map_err(|bytes: Vec<u8>| {
+                D::Error::custom(format!(
+                    "expected a CBOR byte string of {N} bytes, got {}",
+                    bytes.len()
+                ))
+            })
+    }
+
+    /// Deserializes a CBOR unsigned integer that fits in `T`.
+    ///
+    /// # Errors
+    ///
+    /// Fails for any other CBOR data item, including negative integers, floats, bignums and
+    /// other tagged integers, and if the integer does not fit in `T`.
+    pub fn deserialize_unsigned<'de, D, T>(deserializer: D) -> Result<T, D::Error>
+    where
+        D: Deserializer<'de>,
+        T: TryFrom<u64>,
+    {
+        // A `Value` would hide bignums as plain integers. Visited directly, a bignum arrives as a
+        // `u128`, which this visitor rejects.
+        struct UnsignedVisitor;
+
+        impl Visitor<'_> for UnsignedVisitor {
+            type Value = u64;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a CBOR unsigned integer")
+            }
+
+            fn visit_u64<E>(self, value: u64) -> Result<u64, E> {
+                Ok(value)
+            }
+        }
+
+        let value = deserializer.deserialize_any(UnsignedVisitor)?;
+        T::try_from(value).map_err(|_| D::Error::custom("unsigned integer exceeds the field width"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use ciborium::Value;
     use serde::{Deserialize, Serialize};
+    use test_case::test_case;
+
+    use super::*;
 
     #[derive(Debug, PartialEq, Serialize, Deserialize)]
     struct Test {
@@ -411,5 +582,61 @@ mod tests {
 
         let parsed: S = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, s);
+    }
+
+    /// Decodes `T` from the CBOR encoding of `value`.
+    fn from_cbor<T: serde::de::DeserializeOwned>(
+        value: &Value,
+    ) -> Result<T, ciborium::de::Error<std::io::Error>> {
+        let mut encoded = Vec::new();
+        ciborium::into_writer(value, &mut encoded).unwrap();
+        ciborium::from_reader(encoded.as_slice())
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct ByteString(#[serde(deserialize_with = "cbor::deserialize_byte_string")] Vec<u8>);
+
+    #[derive(Debug, Deserialize)]
+    struct ByteArray(#[serde(deserialize_with = "cbor::deserialize_byte_array")] [u8; 2]);
+
+    #[derive(Debug, Deserialize)]
+    struct Unsigned(#[serde(deserialize_with = "cbor::deserialize_unsigned")] u8);
+
+    #[test]
+    fn cbor_byte_strings_accept_a_byte_string() {
+        let bytes = Value::Bytes(vec![1, 2]);
+        assert_eq!(from_cbor::<ByteString>(&bytes).unwrap().0, [1, 2]);
+        assert_eq!(from_cbor::<ByteArray>(&bytes).unwrap().0, [1, 2]);
+    }
+
+    #[test_case(Value::Array(vec![1.into(), 2.into()]); "array of integers")]
+    #[test_case(Value::Tag(64, Box::new(Value::Bytes(vec![1, 2]))); "tagged byte string")]
+    #[test_case(Value::Text("0102".into()); "text")]
+    #[test_case(Value::Null; "null")]
+    fn cbor_byte_strings_reject_other_data_items(invalid: Value) {
+        assert!(from_cbor::<ByteString>(&invalid).is_err());
+        assert!(from_cbor::<ByteArray>(&invalid).is_err());
+    }
+
+    #[test]
+    fn cbor_byte_array_rejects_another_length() {
+        let error = from_cbor::<ByteArray>(&Value::Bytes(vec![1, 2, 3])).unwrap_err();
+        assert!(error.to_string().contains("of 2 bytes, got 3"), "{error}");
+    }
+
+    #[test]
+    fn cbor_unsigned_accepts_an_unsigned_integer_that_fits() {
+        let value = Value::Integer(255.into());
+        assert_eq!(from_cbor::<Unsigned>(&value).unwrap().0, 255);
+    }
+
+    #[test_case(Value::Integer(256.into()); "too wide")]
+    #[test_case(Value::Integer((-1).into()); "negative")]
+    #[test_case(Value::Float(1.0); "float")]
+    #[test_case(Value::Text("1".into()); "text")]
+    #[test_case(Value::Tag(0, Box::new(Value::Integer(1.into()))); "tagged")]
+    #[test_case(Value::Tag(2, Box::new(Value::Bytes(vec![1]))); "bignum")]
+    fn cbor_unsigned_rejects_other_data_items(invalid: Value) {
+        assert!(from_cbor::<Unsigned>(&invalid).is_err());
     }
 }
