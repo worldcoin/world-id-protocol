@@ -218,6 +218,7 @@ contract WorldIDBillingTest is Test {
     uint256 constant USD_PER_WLD = 2e18;
     uint64 constant MAX_PRICE_AGE = 1 hours;
     uint64 constant REQUEST_LIFETIME = 10 minutes;
+    uint64 constant MAX_REQUEST_AGE = 10 minutes;
     uint256 constant EXPIRATION_THRESHOLD = 5 hours;
 
     WorldIDBilling billing;
@@ -274,7 +275,16 @@ contract WorldIDBillingTest is Test {
     function _deploy(address token) internal returns (WorldIDBilling) {
         WorldIDBilling implementation = new WorldIDBilling(address(worldIDVerifier), address(rpRegistry));
         bytes memory initData = abi.encodeCall(
-            WorldIDBilling.initialize, (address(priceSource), token, feeRecipient, PRICE_PER_WORLD_ID, MAX_PRICE_AGE)
+            WorldIDBilling.initialize,
+            (
+                address(priceSource),
+                token,
+                feeRecipient,
+                PRICE_PER_WORLD_ID,
+                MAX_PRICE_AGE,
+                MAX_REQUEST_AGE,
+                REQUEST_LIFETIME
+            )
         );
         return WorldIDBilling(address(new ERC1967Proxy(address(implementation), initData)));
     }
@@ -492,7 +502,15 @@ contract WorldIDBillingTest is Test {
         WorldIDBilling implementation = new WorldIDBilling(address(worldIDVerifier), address(rpRegistry));
         bytes memory initData = abi.encodeCall(
             WorldIDBilling.initialize,
-            (address(priceSource), address(usdcLike), feeRecipient, PRICE_PER_WORLD_ID, MAX_PRICE_AGE)
+            (
+                address(priceSource),
+                address(usdcLike),
+                feeRecipient,
+                PRICE_PER_WORLD_ID,
+                MAX_PRICE_AGE,
+                MAX_REQUEST_AGE,
+                REQUEST_LIFETIME
+            )
         );
         vm.expectRevert(IWorldIDBilling.InvalidTokenDecimals.selector);
         new ERC1967Proxy(address(implementation), initData);
@@ -596,11 +614,10 @@ contract WorldIDBillingTest is Test {
 
     function test_Purchase_Window() public {
         _buy(NOV_2026, 1);
-        _buy(DEC_2026, 1);
 
         vm.prank(rp);
         vm.expectRevert(IWorldIDBilling.PeriodOutsidePurchaseWindow.selector);
-        billing.purchaseCapacity(_scope(JAN_2027), 1, type(uint256).max);
+        billing.purchaseCapacity(_scope(DEC_2026), 1, type(uint256).max);
 
         vm.prank(rp);
         vm.expectRevert(IWorldIDBilling.PeriodOutsidePurchaseWindow.selector);
@@ -641,11 +658,10 @@ contract WorldIDBillingTest is Test {
         priceSource.set(USD_PER_WLD, uint64(block.timestamp));
         _buy(DEC_2026, 1);
         _buy(JAN_2027, 1);
-        _buy(1801440000 + 12 hours, 1); // 2027-02-01
 
         vm.prank(rp);
         vm.expectRevert(IWorldIDBilling.PeriodOutsidePurchaseWindow.selector);
-        billing.purchaseCapacity(_scope(1803859200 + 12 hours), 1, type(uint256).max); // 2027-03-01
+        billing.purchaseCapacity(_scope(1801440000 + 12 hours), 1, type(uint256).max); // 2027-02-01
     }
 
     function test_Purchase_RejectsAboveMax() public {
@@ -968,6 +984,79 @@ contract WorldIDBillingTest is Test {
         auth.signature = _sign(auth, action);
         vm.expectRevert(IWorldIDBilling.RequestExpired.selector);
         _register(auth, NULLIFIER);
+
+        billing.setRequestLimits(60, REQUEST_LIFETIME);
+        auth = _authorize(scope);
+        auth.createdAt = NOW - 61;
+        auth.signature = _sign(auth, action);
+        vm.expectRevert(IWorldIDBilling.RequestTooOld.selector);
+        _register(auth, NULLIFIER);
+
+        auth = _authorize(scope);
+        auth.expiresAt = NOW + REQUEST_LIFETIME + 1;
+        auth.signature = _sign(auth, action);
+        vm.expectRevert(IWorldIDBilling.RequestLifetimeTooLong.selector);
+        _register(auth, NULLIFIER);
+
+        auth = _authorize(scope);
+        auth.createdAt = NOW - 60;
+        auth.expiresAt = auth.createdAt + REQUEST_LIFETIME;
+        auth.signature = _sign(auth, action);
+        assertTrue(_register(auth, NULLIFIER), "limits are inclusive");
+    }
+
+    function test_Register_RejectsOprfKeyIdOtherThanRpId() public {
+        _buy(OCT_2026, 1);
+        rpRegistry.set(RP_ID, OPRF_KEY_ID + 1, signer, true);
+        oprfKeyRegistry.set(OPRF_KEY_ID + 1, 31, 32);
+        IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(_scope(OCT_2026));
+        auth.oprfKeyId = OPRF_KEY_ID + 1;
+        vm.expectRevert(IWorldIDBilling.OprfKeyMismatch.selector);
+        _register(auth, NULLIFIER);
+    }
+
+    function test_Register_PinsOprfKeyPerPeriod() public {
+        _buy(OCT_2026, 2);
+        _buy(NOV_2026, 1);
+        (uint160 keyId, uint256[2] memory key) = billing.getPinnedOprfKey(RP_ID, OCT_2026);
+        assertEq(keyId, 0);
+        assertEq(key[0], 0);
+
+        groth16.setFail(true);
+        IWorldIDBilling.RegistrationAuthorization memory failed = _authorize(_scope(OCT_2026));
+        vm.expectRevert();
+        _register(failed, NULLIFIER);
+        groth16.setFail(false);
+        (keyId,) = billing.getPinnedOprfKey(RP_ID, OCT_2026);
+        assertEq(keyId, 0, "failed registration does not pin");
+
+        vm.expectEmit(address(billing));
+        emit IWorldIDBilling.OprfKeyPinned(RP_ID, OCT_2026, OPRF_KEY_ID);
+        assertTrue(_register(_authorize(_scope(OCT_2026)), NULLIFIER));
+        (keyId, key) = billing.getPinnedOprfKey(RP_ID, OCT_2026);
+        assertEq(keyId, OPRF_KEY_ID);
+        assertEq(key[0], 21);
+        assertEq(key[1], 22);
+
+        oprfKeyRegistry.set(OPRF_KEY_ID, 31, 32);
+        IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(_scope(OCT_2026));
+        vm.expectRevert(IWorldIDBilling.PinnedOprfKeyChanged.selector);
+        _register(auth, NULLIFIER + 1);
+        vm.expectRevert(IWorldIDBilling.PinnedOprfKeyChanged.selector);
+        _register(auth, NULLIFIER);
+
+        vm.warp(NOV_2026 - 26 hours);
+        IWorldIDBilling.BillingContext memory november = _scope(NOV_2026);
+        assertTrue(
+            billing.register(
+                november, _authorize(november), ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof()
+            )
+        );
+        (keyId, key) = billing.getPinnedOprfKey(RP_ID, NOV_2026);
+        assertEq(key[0], 31);
+        assertEq(key[1], 32);
+        (, key) = billing.getPinnedOprfKey(RP_ID, OCT_2026);
+        assertEq(key[0], 21, "earlier pin unchanged");
     }
 
     function test_Register_RejectsBadEoaSignatures() public {
@@ -1105,6 +1194,8 @@ contract WorldIDBillingTest is Test {
         billing.setFeeRecipient(stranger);
         vm.expectRevert(err);
         billing.setPriceSource(stranger);
+        vm.expectRevert(err);
+        billing.setRequestLimits(1, 1);
         vm.stopPrank();
     }
 
@@ -1119,6 +1210,18 @@ contract WorldIDBillingTest is Test {
         billing.setPricePerWorldID(0);
         vm.expectRevert(IWorldIDBilling.InvalidMaxPriceAge.selector);
         billing.setMaxPriceAge(0);
+        vm.expectRevert(IWorldIDBilling.InvalidRequestLimits.selector);
+        billing.setRequestLimits(0, 1);
+        vm.expectRevert(IWorldIDBilling.InvalidRequestLimits.selector);
+        billing.setRequestLimits(1, 0);
+
+        WorldIDBilling implementation = new WorldIDBilling(address(worldIDVerifier), address(rpRegistry));
+        bytes memory initData = abi.encodeCall(
+            WorldIDBilling.initialize,
+            (address(priceSource), address(wld), feeRecipient, PRICE_PER_WORLD_ID, MAX_PRICE_AGE, 0, REQUEST_LIFETIME)
+        );
+        vm.expectRevert(IWorldIDBilling.InvalidRequestLimits.selector);
+        new ERC1967Proxy(address(implementation), initData);
     }
 
     function test_Admin_SettersEmitAndApply() public {
@@ -1126,6 +1229,12 @@ contract WorldIDBillingTest is Test {
         emit IWorldIDBilling.PricePerWorldIDUpdated(PRICE_PER_WORLD_ID, 1e18);
         billing.setPricePerWorldID(1e18);
         assertEq(billing.pricePerWorldID(), 1e18);
+
+        vm.expectEmit(address(billing));
+        emit IWorldIDBilling.RequestLimitsUpdated(MAX_REQUEST_AGE, REQUEST_LIFETIME, 2 minutes, 3 minutes);
+        billing.setRequestLimits(2 minutes, 3 minutes);
+        assertEq(billing.maxRequestAge(), 2 minutes);
+        assertEq(billing.maxRequestLifetime(), 3 minutes);
 
         vm.expectEmit(address(billing));
         emit PausableUpgradeable.Paused(address(this));

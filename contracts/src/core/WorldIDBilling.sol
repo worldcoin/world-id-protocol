@@ -12,6 +12,8 @@ import {ERC165Checker} from "@openzeppelin/contracts/utils/introspection/ERC165C
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import {SafeCast} from "@openzeppelin/contracts/utils/math/SafeCast.sol";
 import {DateTimeLib} from "solady/utils/DateTimeLib.sol";
+import {OprfKeyRegistry} from "oprf-key-registry/src/OprfKeyRegistry.sol";
+import {BabyJubJub} from "oprf-key-registry/src/BabyJubJub.sol";
 import {WorldIDBase} from "./abstract/WorldIDBase.sol";
 import {IWorldIDVerifier} from "./interfaces/IWorldIDVerifier.sol";
 import {IRpRegistry} from "./interfaces/IRpRegistry.sol";
@@ -63,6 +65,15 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     /// @inheritdoc IWorldIDBilling
     mapping(uint64 rpId => mapping(uint64 periodStart => mapping(uint256 nonce => bool))) public usedNonces;
 
+    /// @dev OPRF key pinned by the first registration for each RP and period.
+    mapping(uint64 rpId => mapping(uint64 periodStart => PinnedOprfKey)) internal _pinnedOprfKeys;
+
+    /// @inheritdoc IWorldIDBilling
+    uint64 public maxRequestAge;
+
+    /// @inheritdoc IWorldIDBilling
+    uint64 public maxRequestLifetime;
+
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
@@ -109,13 +120,17 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
      * @param feeRecipient Protocol fee address.
      * @param initialPricePerWorldID USD per World ID per period, scaled by 1e18.
      * @param initialMaxPriceAge Maximum accepted price age in seconds.
+     * @param initialMaxRequestAge Maximum accepted authorization age in seconds; must match the OPRF nodes.
+     * @param initialMaxRequestLifetime Maximum accepted authorization lifetime in seconds; must match the OPRF nodes.
      */
     function initialize(
         address initialPriceSource,
         address feeToken,
         address feeRecipient,
         uint256 initialPricePerWorldID,
-        uint64 initialMaxPriceAge
+        uint64 initialMaxPriceAge,
+        uint64 initialMaxRequestAge,
+        uint64 initialMaxRequestLifetime
     ) public virtual initializer {
         if (initialPriceSource == address(0)) revert ZeroAddress();
         if (feeToken == address(0)) revert ZeroAddress();
@@ -133,6 +148,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         maxPriceAge = initialMaxPriceAge;
         emit PricePerWorldIDUpdated(0, initialPricePerWorldID);
         emit MaxPriceAgeUpdated(0, initialMaxPriceAge);
+        _setRequestLimits(initialMaxRequestAge, initialMaxRequestLifetime);
     }
 
     ////////////////////////////////////////////////////////////
@@ -212,8 +228,8 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         if (capacityAmount == 0) revert ZeroCapacityAmount();
 
         uint256 currentStart = _monthStart(block.timestamp);
-        uint64 secondNext = _addMonths(currentStart, 2);
-        if (scope.periodStart < currentStart || scope.periodStart > secondNext) revert PeriodOutsidePurchaseWindow();
+        uint64 nextStart = _addMonths(currentStart, 1);
+        if (scope.periodStart < currentStart || scope.periodStart > nextStart) revert PeriodOutsidePurchaseWindow();
 
         uint256 usdPerWld = _verifiedUsdPerWld();
         uint256 usdTotal = capacityAmount * pricePerWorldID;
@@ -227,6 +243,17 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     function getBillingPeriod(uint64 timestamp) external pure virtual returns (uint64 periodStart, uint64 periodEnd) {
         periodStart = _monthStart(timestamp);
         periodEnd = _addMonths(periodStart, 1);
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function getPinnedOprfKey(uint64 rpId, uint64 periodStart)
+        external
+        view
+        virtual
+        returns (uint160 oprfKeyId, uint256[2] memory oprfPublicKey)
+    {
+        PinnedOprfKey storage pinned = _pinnedOprfKeys[rpId][periodStart];
+        return (pinned.oprfKeyId, [pinned.x, pinned.y]);
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -276,6 +303,16 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     }
 
     /// @inheritdoc IWorldIDBilling
+    function setRequestLimits(uint64 newMaxRequestAge, uint64 newMaxRequestLifetime)
+        external
+        virtual
+        onlyOwner
+        onlyProxy
+    {
+        _setRequestLimits(newMaxRequestAge, newMaxRequestLifetime);
+    }
+
+    /// @inheritdoc IWorldIDBilling
     function setPaused(bool isPaused) external virtual onlyOwner onlyProxy {
         if (isPaused) _pause();
         else _unpause();
@@ -310,6 +347,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
         _verifyAuthorization(authorization, signer, billingAction);
         nonces[authorization.nonce] = true;
+        _checkPinnedOprfKey(scope, oprfKeyId);
 
         // Uniqueness Proof with signal, genesis minimum and session set to zero (WIP-107 §4.3.1).
         WORLD_ID_VERIFIER.verifyProofAndSignals(
@@ -337,6 +375,31 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         registered[billingNullifier] = true;
         emit Registered(scope.rpId, scope.periodStart, billingNullifier);
         return true;
+    }
+
+    /// @dev Pins the RP's OPRF key on the period's first registration. Later registrations require the same key,
+    ///  because `WORLD_ID_VERIFIER` checks proofs against the registry's current key.
+    function _checkPinnedOprfKey(BillingContext calldata scope, uint160 oprfKeyId) internal {
+        // `WORLD_ID_VERIFIER` reads the key at `uint160(rpId)`, so the pin must cover that key.
+        if (oprfKeyId != uint160(scope.rpId)) revert OprfKeyMismatch();
+        BabyJubJub.Affine memory key =
+            OprfKeyRegistry(WORLD_ID_VERIFIER.getOprfKeyRegistry()).getOprfPublicKey(oprfKeyId);
+        // (0, 0) is not on BabyJubJub, so it marks an unpinned period and is never a valid key.
+        if (key.x == 0 && key.y == 0) revert OprfKeyMismatch();
+        PinnedOprfKey storage pinned = _pinnedOprfKeys[scope.rpId][scope.periodStart];
+        if (pinned.x == 0 && pinned.y == 0) {
+            (pinned.oprfKeyId, pinned.x, pinned.y) = (oprfKeyId, key.x, key.y);
+            emit OprfKeyPinned(scope.rpId, scope.periodStart, oprfKeyId);
+        } else if (pinned.oprfKeyId != oprfKeyId || pinned.x != key.x || pinned.y != key.y) {
+            revert PinnedOprfKeyChanged();
+        }
+    }
+
+    function _setRequestLimits(uint64 newMaxRequestAge, uint64 newMaxRequestLifetime) internal {
+        if (newMaxRequestAge == 0 || newMaxRequestLifetime == 0) revert InvalidRequestLimits();
+        emit RequestLimitsUpdated(maxRequestAge, maxRequestLifetime, newMaxRequestAge, newMaxRequestLifetime);
+        maxRequestAge = newMaxRequestAge;
+        maxRequestLifetime = newMaxRequestLifetime;
     }
 
     function _verifiedUsdPerWld() internal view returns (uint256) {
@@ -381,6 +444,8 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         uint64 expiresAt = authorization.expiresAt;
         if (block.timestamp < createdAt) revert RequestNotYetValid();
         if (block.timestamp >= expiresAt) revert RequestExpired();
+        if (block.timestamp - createdAt > maxRequestAge) revert RequestTooOld();
+        if (expiresAt - createdAt > maxRequestLifetime) revert RequestLifetimeTooLong();
 
         // Matches the OPRF node: a signer without code is an EOA; with code it must be WIP-101.
         if (signer.code.length == 0) {
