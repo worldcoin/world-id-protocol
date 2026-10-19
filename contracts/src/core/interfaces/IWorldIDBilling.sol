@@ -133,14 +133,14 @@ interface IWorldIDBilling {
     //                    VIEW FUNCTIONS                      //
     ////////////////////////////////////////////////////////////
 
-    /// @notice Whether `billingNullifier` is registered for the RP and period.
-    function isRegistered(uint64 rpId, uint64 periodStart, uint256 billingNullifier) external view returns (bool);
+    /// @notice Whether `billingNullifier` is registered; `billingAction` already scopes it to one RP and period.
+    function isRegistered(uint256 billingNullifier) external view returns (bool);
 
     /// @notice Purchased capacity and registration count for the RP and period.
     function periods(uint64 rpId, uint64 periodStart) external view returns (uint256 capacity, uint256 registeredCount);
 
-    /// @notice Whether an authorization nonce was consumed for the RP and period.
-    function usedNonces(uint64 rpId, uint64 periodStart, uint256 nonce) external view returns (bool);
+    /// @notice Whether an authorization nonce was consumed for the RP.
+    function usedNonces(uint64 rpId, uint256 nonce) external view returns (bool);
 
     /// @notice OPRF key pinned for the RP and period; zero until the period's first registration.
     function getPinnedOprfKey(uint64 rpId, uint64 periodStart)

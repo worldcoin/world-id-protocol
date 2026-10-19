@@ -59,11 +59,10 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     mapping(uint64 rpId => mapping(uint64 periodStart => Period)) public periods;
 
     /// @inheritdoc IWorldIDBilling
-    mapping(uint64 rpId => mapping(uint64 periodStart => mapping(uint256 billingNullifier => bool))) public
-        isRegistered;
+    mapping(uint256 billingNullifier => bool) public isRegistered;
 
     /// @inheritdoc IWorldIDBilling
-    mapping(uint64 rpId => mapping(uint64 periodStart => mapping(uint256 nonce => bool))) public usedNonces;
+    mapping(uint64 rpId => mapping(uint256 nonce => bool)) public usedNonces;
 
     /// @dev OPRF key pinned by the first registration for each RP and period.
     mapping(uint64 rpId => mapping(uint64 periodStart => PinnedOprfKey)) internal _pinnedOprfKeys;
@@ -338,7 +337,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
             revert PeriodNotCurrent();
         }
 
-        mapping(uint256 => bool) storage nonces = usedNonces[scope.rpId][scope.periodStart];
+        mapping(uint256 => bool) storage nonces = usedNonces[scope.rpId];
         if (nonces[authorization.nonce]) revert NonceAlreadyUsed();
 
         uint256 billingAction = getBillingAction(scope);
@@ -363,8 +362,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
             proof
         );
 
-        mapping(uint256 => bool) storage registered = isRegistered[scope.rpId][scope.periodStart];
-        if (registered[billingNullifier]) return false;
+        if (isRegistered[billingNullifier]) return false;
 
         // Duplicates above still succeed while paused; only new registrations stop.
         _requireNotPaused();
@@ -372,7 +370,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         if (period.registeredCount >= period.capacity) revert CapacityExhausted();
 
         period.registeredCount += 1;
-        registered[billingNullifier] = true;
+        isRegistered[billingNullifier] = true;
         emit Registered(scope.rpId, scope.periodStart, billingNullifier);
         return true;
     }
