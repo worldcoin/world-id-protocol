@@ -45,6 +45,13 @@ interface IWorldIDBilling {
         uint256 registeredCount;
     }
 
+    /// @notice RP OPRF key pinned by the first registration in a period (WIP-107 §4.3.2).
+    struct PinnedOprfKey {
+        uint160 oprfKeyId;
+        uint256 x;
+        uint256 y;
+    }
+
     ////////////////////////////////////////////////////////////
     //                        ERRORS                          //
     ////////////////////////////////////////////////////////////
@@ -64,12 +71,16 @@ interface IWorldIDBilling {
     error StalePrice(uint256 observedAt);
     error InvalidPricePerWorldID();
     error InvalidMaxPriceAge();
+    error InvalidRequestLimits();
     error InvalidTokenDecimals();
     error InvalidAuthorizationVersion(uint8 version);
     error NonceAlreadyUsed();
     error RequestNotYetValid();
     error RequestExpired();
+    error RequestTooOld();
+    error RequestLifetimeTooLong();
     error OprfKeyMismatch();
+    error PinnedOprfKeyChanged();
     error InvalidRpSignature();
     error CapacityExhausted();
 
@@ -85,6 +96,10 @@ interface IWorldIDBilling {
     event PricePerWorldIDUpdated(uint256 oldPricePerWorldID, uint256 newPricePerWorldID);
     event MaxPriceAgeUpdated(uint64 oldMaxPriceAge, uint64 newMaxPriceAge);
     event PriceSourceUpdated(address oldPriceSource, address newPriceSource);
+    event RequestLimitsUpdated(
+        uint64 oldMaxRequestAge, uint64 oldMaxRequestLifetime, uint64 newMaxRequestAge, uint64 newMaxRequestLifetime
+    );
+    event OprfKeyPinned(uint64 indexed rpId, uint64 indexed periodStart, uint160 oprfKeyId);
 
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
@@ -127,6 +142,12 @@ interface IWorldIDBilling {
     /// @notice Whether an authorization nonce was consumed for the RP and period.
     function usedNonces(uint64 rpId, uint64 periodStart, uint256 nonce) external view returns (bool);
 
+    /// @notice OPRF key pinned for the RP and period; zero until the period's first registration.
+    function getPinnedOprfKey(uint64 rpId, uint64 periodStart)
+        external
+        view
+        returns (uint160 oprfKeyId, uint256[2] memory oprfPublicKey);
+
     /// @notice AoE month containing `timestamp`; `periodEnd` is exclusive and registration opens 26 hours early.
     function getBillingPeriod(uint64 timestamp) external view returns (uint64 periodStart, uint64 periodEnd);
 
@@ -137,6 +158,10 @@ interface IWorldIDBilling {
     function pricePerWorldID() external view returns (uint256);
     /// @notice Maximum accepted age of the WLD/USD price, in seconds.
     function maxPriceAge() external view returns (uint64);
+    /// @notice Maximum accepted `now - createdAt` of an authorization, in seconds; matches the OPRF nodes.
+    function maxRequestAge() external view returns (uint64);
+    /// @notice Maximum accepted `expiresAt - createdAt` of an authorization, in seconds; matches the OPRF nodes.
+    function maxRequestLifetime() external view returns (uint64);
 
     ////////////////////////////////////////////////////////////
     //                    OWNER FUNCTIONS                     //
@@ -146,6 +171,7 @@ interface IWorldIDBilling {
     function setPricePerWorldID(uint256 newPricePerWorldID) external;
     function setMaxPriceAge(uint64 newMaxPriceAge) external;
     function setPriceSource(address newPriceSource) external;
+    function setRequestLimits(uint64 newMaxRequestAge, uint64 newMaxRequestLifetime) external;
 
     /// @notice Pauses new registrations; duplicates and purchases are unaffected.
     function setPaused(bool isPaused) external;
