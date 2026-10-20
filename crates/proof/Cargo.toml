@@ -49,6 +49,9 @@ provekit-common = { workspace = true }
 provekit-prover = { workspace = true }
 acvm = { workspace = true }
 bn254-blackbox-solver = { workspace = true }
+# Decodes `.pkp` files without provekit's C-based zstd/xz bindings.
+lzma-rs = { workspace = true }
+postcard = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
@@ -65,11 +68,6 @@ world-id-primitives = { workspace = true }
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 provekit-verifier = { workspace = true }
 
-# Decodes `.pkp` files without provekit's C-based zstd/xz bindings.
-[target.'cfg(target_arch = "wasm32")'.dependencies]
-lzma-rs = { workspace = true }
-postcard = { workspace = true }
-
 [build-dependencies]
 eyre = { workspace = true }
 reqwest = { workspace = true, features = ["blocking"] }
@@ -82,8 +80,6 @@ provekit-common = { workspace = true }
 provekit-r1cs-compiler = { workspace = true, optional = true }
 
 [dev-dependencies]
-lzma-rs = { workspace = true }
-postcard = { workspace = true }
 test-case = { workspace = true }
 toml = { workspace = true }
 world-id-test-utils = { workspace = true }

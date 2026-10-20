@@ -38,16 +38,12 @@ pub fn load_ownership_prover_from_reader(
 
     let mut bytes = Vec::new();
     reader.read_to_end(&mut bytes)?;
-    #[cfg(not(target_arch = "wasm32"))]
-    let prover = provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()));
-    #[cfg(target_arch = "wasm32")]
-    let prover = deserialize_prover(&bytes);
-    prover
+    deserialize_prover(&bytes)
 }
 
-/// Decodes PKP bytes like `provekit_common::file::deserialize`, which is unavailable on wasm32
-/// because it links the C zstd and xz libraries. ProveKit always writes provers xz-compressed.
-#[cfg(any(target_arch = "wasm32", test))]
+/// Decodes PKP bytes like `provekit_common::file::deserialize`, but in pure Rust: provekit's
+/// decoder links the C zstd and xz libraries, which don't build for wasm32. ProveKit always writes
+/// provers xz-compressed.
 fn deserialize_prover(bytes: &[u8]) -> eyre::Result<provekit_common::Prover> {
     const MAGIC: &[u8] = b"\xDC\xDFOZkp\x01\x00";
     const FORMAT: &[u8] = b"PrvKitPr";
@@ -567,21 +563,20 @@ mod tests {
 
     const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
 
-    /// The wasm32 decoder must produce a prover whose proofs verify.
     #[test]
-    fn test_wasm_prover_decoder_yields_a_working_prover() {
-        let input = ownership_proof_fixture();
-        let (nonce, commitment, context) = (input.nonce, input.expected_commitment, input.context);
+    fn test_prover_decoder_matches_provekit() {
+        let decoded = deserialize_prover(PKP_BYTES).expect("embedded prover decodes");
+        let expected: provekit_common::Prover =
+            provekit_common::file::deserialize(PKP_BYTES).expect("provekit decodes the prover");
 
-        let prover = deserialize_prover(PKP_BYTES).expect("embedded prover decodes");
-        let proof = generate_ownership_proof_with_prover(input, prover).expect("proving succeeds");
-
-        verify_ownership_proof(&proof, nonce, commitment, context, &EmbeddedZkArtifacts)
-            .expect("ownership proof verifies");
+        assert_eq!(
+            postcard::to_allocvec(&decoded).unwrap(),
+            postcard::to_allocvec(&expected).unwrap()
+        );
     }
 
     #[test]
-    fn test_wasm_prover_decoder_rejects_other_files() {
+    fn test_prover_decoder_rejects_other_files() {
         let pkv = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
         assert!(deserialize_prover(pkv).is_err());
         assert!(deserialize_prover(&PKP_BYTES[..20]).is_err());
