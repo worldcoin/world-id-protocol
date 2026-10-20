@@ -183,7 +183,10 @@ pub fn generate_ownership_proof_with_prover(
 /// `Prove::prove` uses and which does not build for wasm32.
 ///
 /// Errors never include witness values: they are private inputs.
-fn solve_witness(
+///
+/// # Errors
+/// Returns [`ProofError::GenerationError`] if the inputs don't satisfy the circuit.
+pub fn solve_witness(
     prover: &provekit_common::Prover,
     input: InputMap,
 ) -> Result<WitnessMap<NoirElement>, ProofError> {
