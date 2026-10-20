@@ -62,11 +62,9 @@ impl ZkArtifactSource for EmbeddedZkArtifacts {
     }
 
     fn ownership_verifier(&self) -> Result<OwnershipVerifier, ZkArtifactError> {
-        // NOTE: Relying on wasm32 as a gate might seem weird here
-        //       but it's because the relevant code from provekit that allows
-        //       deserializing ProveKit artifacts has io/fs dependencies (and some C-based
-        //       libraries) - once that's resolved we should only rely on the
-        //       embed-ownership-verifier feature gate.
+        // NOTE: Verification is native-only. This crate depends on `provekit-verifier` only on
+        //       native targets, and the PKV file is zstd-compressed, which the wasm32 PKP decoder
+        //       in `ownership_proof` does not handle. Browser authenticators only need to prove.
 
         #[cfg(all(not(target_arch = "wasm32"), feature = "embed-ownership-verifier"))]
         {
