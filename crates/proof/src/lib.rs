@@ -38,8 +38,6 @@ use provekit_common::{InputMap, InputValue, NoirElement};
 
 use world_id_primitives::FieldElement;
 
-// TODO: Currently ownership proofs are not supported for WASM targets
-#[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
 pub use provekit_common::{
