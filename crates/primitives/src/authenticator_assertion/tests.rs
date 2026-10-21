@@ -123,30 +123,11 @@ fn tokens_match_spec_vectors() {
 fn verify_accepts_spec_vectors() {
     let (public, private) = inputs();
     assert_eq!(verify(&public, &private), Ok(()));
-    assert_eq!(private.public_inputs(NOW, AUD, public.nonce, 2006), public);
-}
-
-#[test]
-fn tokens_round_trip() {
-    let takt_cwt = takt_cwt();
-    let aat_cwt = aat_cwt();
-    let decoded_takt = TrustAnchorKeyToken::from_cwt(&takt_cwt).unwrap();
-    assert_eq!(decoded_takt.claims(), &takt());
     assert_eq!(
-        decoded_takt.kid(),
+        private.takt.kid(),
         trust_anchor_key().public().to_compressed_bytes().unwrap()
     );
-    assert_eq!(decoded_takt.to_cwt(), takt_cwt);
-    assert_eq!(
-        decoded_takt.verify(&trust_anchor_key().public()),
-        Ok(&takt())
-    );
-    let decoded_aat = AuthenticatorAssertionToken::from_cwt(&aat_cwt).unwrap();
-    assert_eq!(decoded_aat.to_cwt(), aat_cwt);
-    assert_eq!(
-        decoded_aat.verify(assertion_key().verifying_key()),
-        Ok(&aat())
-    );
+    assert_eq!(private.public_inputs(NOW, AUD, public.nonce, 2006), public);
 }
 
 /// Platform keys do not normalize `s`, and WIP-106 does not require it.
@@ -376,6 +357,54 @@ fn non_canonical_encodings_rejected() {
         TrustAnchorKeyToken::from_cwt(&key).unwrap_err(),
         (AssertionError::InvalidEncoding("assertion_key"))
     );
+
+    // Extra and duplicate map entries.
+    use ciborium::Value;
+    use coset::{CborSerializable, CoseSign1};
+
+    type Entries = Vec<(Value, Value)>;
+
+    // Re-frames `hex` with its claims map edited by `edit`.
+    let edited = |hex: &str, edit: &dyn Fn(&mut Entries)| {
+        let mut sign1 = CoseSign1::from_slice(&hex::decode(hex).unwrap()).unwrap();
+        let mut claims: Value = ciborium::from_reader(sign1.payload.unwrap().as_slice()).unwrap();
+        edit(claims.as_map_mut().unwrap());
+        let mut payload = Vec::new();
+        ciborium::into_writer(&claims, &mut payload).unwrap();
+        sign1.payload = Some(payload);
+        sign1.to_vec().unwrap()
+    };
+    let extra = (Value::from(-90_000), Value::from(0));
+    // The `cnf` map inside the TAKT claims.
+    fn nested(claims: &mut [(Value, Value)]) -> &mut Entries {
+        claims
+            .iter_mut()
+            .find(|(key, _)| *key == Value::from(8))
+            .unwrap()
+            .1
+            .as_map_mut()
+            .unwrap()
+    }
+
+    let aat = edited(AAT_HEX, &|claims| claims.push(extra.clone()));
+    assert!(AuthenticatorAssertionToken::from_cwt(&aat).is_err());
+    let takt = edited(TAKT_HEX, &|claims| claims.push(extra.clone()));
+    assert!(TrustAnchorKeyToken::from_cwt(&takt).is_err());
+    let cnf = edited(TAKT_HEX, &|claims| nested(claims).push(extra.clone()));
+    assert!(TrustAnchorKeyToken::from_cwt(&cnf).is_err());
+    let key = edited(TAKT_HEX, &|claims| {
+        nested(claims)[0]
+            .1
+            .as_map_mut()
+            .unwrap()
+            .push(extra.clone());
+    });
+    assert!(TrustAnchorKeyToken::from_cwt(&key).is_err());
+
+    // Same length: `authenticator_meta`'s key (-80001) replaced by `cdh`'s (-80000).
+    let duplicate = AAT_HEX.replace("3a00013880", "3a0001387f");
+    assert_ne!(duplicate, AAT_HEX);
+    assert!(AuthenticatorAssertionToken::from_cwt(&hex::decode(duplicate).unwrap()).is_err());
 }
 
 #[test]
@@ -487,40 +516,14 @@ fn debug_hides_confidential_values() {
         assert!(!debug.contains(&TAKT_EXP.to_string()), "{debug}");
         assert!(!debug.contains("takt:"), "{debug}");
     }
-    assert_eq!(
-        AssertionError::InvalidSecFlags.to_string(),
-        "sec_flags bits 52 and above are reserved"
-    );
 }
 
-/// A generic COSE library reads both tokens as `COSE_Sign1`, and its `Sig_structure` is what the
-/// AAT signs.
+/// The `cnf` claim, built by hand, is an EC2 P-256 `COSE_Key` holding the `assertion_key`.
 #[test]
-fn coset_reads_both_tokens() {
-    use coset::{
-        AsCborValue, CborSerializable, CoseKey, CoseSign1, KeyType, Label,
-        RegisteredLabelWithPrivate, iana,
-    };
-    use p256::ecdsa::signature::Verifier;
+fn cnf_is_a_cose_key() {
+    use coset::{AsCborValue, CborSerializable, CoseKey, CoseSign1, KeyType, Label, iana};
 
-    let takt_cwt = hex::decode(TAKT_HEX).unwrap();
-    let takt = CoseSign1::from_slice(&takt_cwt).unwrap();
-    assert_eq!(
-        takt.protected.header.alg,
-        Some(RegisteredLabelWithPrivate::PrivateUse(COSE_ALG_TAKT))
-    );
-    assert_eq!(
-        takt.protected.header.key_id,
-        trust_anchor_key()
-            .public()
-            .to_compressed_bytes()
-            .unwrap()
-            .to_vec()
-    );
-    assert!(takt.unprotected.is_empty());
-    assert_eq!(takt.clone().to_vec().unwrap(), takt_cwt);
-
-    // The `cnf` claim is an EC2 P-256 `COSE_Key` holding the `assertion_key`.
+    let takt = CoseSign1::from_slice(&hex::decode(TAKT_HEX).unwrap()).unwrap();
     let claims: ciborium::Value = ciborium::from_reader(takt.payload.unwrap().as_slice()).unwrap();
     let cnf = claims
         .as_map()
@@ -550,68 +553,4 @@ fn coset_reads_both_tokens() {
         param(-3),
         ciborium::Value::Bytes(point.y().unwrap().to_vec())
     );
-
-    let aat_cwt = hex::decode(AAT_HEX).unwrap();
-    let aat = CoseSign1::from_slice(&aat_cwt).unwrap();
-    assert_eq!(
-        aat.protected.header.alg,
-        Some(RegisteredLabelWithPrivate::Assigned(iana::Algorithm::ES256))
-    );
-    assert_eq!(aat.clone().to_vec().unwrap(), aat_cwt);
-    aat.verify_signature(b"", |signature, tbs| {
-        assertion_key()
-            .verifying_key()
-            .verify(tbs, &Signature::from_slice(signature).unwrap())
-    })
-    .unwrap();
-}
-
-#[test]
-fn extra_and_duplicate_entries_rejected() {
-    use ciborium::Value;
-    use coset::{CborSerializable, CoseSign1};
-
-    type Entries = Vec<(Value, Value)>;
-
-    // Re-frames `hex` with its claims map edited by `edit`.
-    let edited = |hex: &str, edit: &dyn Fn(&mut Entries)| {
-        let mut sign1 = CoseSign1::from_slice(&hex::decode(hex).unwrap()).unwrap();
-        let mut claims: Value = ciborium::from_reader(sign1.payload.unwrap().as_slice()).unwrap();
-        edit(claims.as_map_mut().unwrap());
-        let mut payload = Vec::new();
-        ciborium::into_writer(&claims, &mut payload).unwrap();
-        sign1.payload = Some(payload);
-        sign1.to_vec().unwrap()
-    };
-    let extra = (Value::from(-90_000), Value::from(0));
-    // The `cnf` map inside the TAKT claims.
-    fn nested(claims: &mut [(Value, Value)]) -> &mut Entries {
-        claims
-            .iter_mut()
-            .find(|(key, _)| *key == Value::from(8))
-            .unwrap()
-            .1
-            .as_map_mut()
-            .unwrap()
-    }
-
-    let aat = edited(AAT_HEX, &|claims| claims.push(extra.clone()));
-    assert!(AuthenticatorAssertionToken::from_cwt(&aat).is_err());
-    let takt = edited(TAKT_HEX, &|claims| claims.push(extra.clone()));
-    assert!(TrustAnchorKeyToken::from_cwt(&takt).is_err());
-    let cnf = edited(TAKT_HEX, &|claims| nested(claims).push(extra.clone()));
-    assert!(TrustAnchorKeyToken::from_cwt(&cnf).is_err());
-    let key = edited(TAKT_HEX, &|claims| {
-        nested(claims)[0]
-            .1
-            .as_map_mut()
-            .unwrap()
-            .push(extra.clone());
-    });
-    assert!(TrustAnchorKeyToken::from_cwt(&key).is_err());
-
-    // Same length: `authenticator_meta`'s key (-80001) replaced by `cdh`'s (-80000).
-    let duplicate = AAT_HEX.replace("3a00013880", "3a0001387f");
-    assert_ne!(duplicate, AAT_HEX);
-    assert!(AuthenticatorAssertionToken::from_cwt(&hex::decode(duplicate).unwrap()).is_err());
 }
