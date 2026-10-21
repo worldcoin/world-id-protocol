@@ -139,17 +139,6 @@ impl AuthenticatorMeta {
     }
 }
 
-/// The `COSE_Sign1` with protected header `{1: -7}` (`alg`: `ES256`).
-fn sign1(claims: &AatClaims, signature: Vec<u8>) -> CoseSign1 {
-    cose::sign1(
-        HeaderBuilder::new()
-            .algorithm(iana::Algorithm::ES256)
-            .build(),
-        cose::encode(&claims.to_value()),
-        signature,
-    )
-}
-
 /// Reads a canonical field element.
 fn field(bytes: &[u8; 32], name: &'static str) -> Result<FieldElement, AssertionError> {
     FieldElement::from_be_bytes(bytes).map_err(|_| AssertionError::InvalidEncoding(name))
@@ -247,6 +236,17 @@ impl AatClaims {
         ])
     }
 
+    /// The `COSE_Sign1` with protected header `{1: -7}` (`alg`: `ES256`).
+    fn sign1(&self, signature: Vec<u8>) -> CoseSign1 {
+        cose::sign1(
+            HeaderBuilder::new()
+                .algorithm(iana::Algorithm::ES256)
+                .build(),
+            cose::encode(&self.to_value()),
+            signature,
+        )
+    }
+
     /// Reads the CWT claims set.
     fn from_value(value: Value) -> Result<Self, AssertionError> {
         let mut claims = Fields::of(value, "AAT claims")?;
@@ -291,7 +291,7 @@ impl AuthenticatorAssertionToken {
     /// Signs `claims` with the `assertion_key` (`ES256` over the COSE `Sig_structure`).
     #[must_use]
     pub fn sign(claims: AatClaims, assertion_key: &SigningKey) -> Self {
-        let signature = assertion_key.sign(&sign1(&claims, Vec::new()).tbs_data(b""));
+        let signature = assertion_key.sign(&claims.sign1(Vec::new()).tbs_data(b""));
         Self { claims, signature }
     }
 
@@ -305,7 +305,7 @@ impl AuthenticatorAssertionToken {
     /// and the `ES256` signature (`r || s`).
     #[must_use]
     pub fn to_cwt(&self) -> Vec<u8> {
-        cose::encode_sign1(sign1(&self.claims, self.signature.to_bytes().to_vec()))
+        cose::encode_sign1(self.claims.sign1(self.signature.to_bytes().to_vec()))
     }
 
     /// Decodes an AAT from its CWT encoding, rejecting anything but the canonical encoding. Does
@@ -334,7 +334,7 @@ impl AuthenticatorAssertionToken {
     pub fn verify(&self, assertion_key: &VerifyingKey) -> Result<&AatClaims, TokenError> {
         assertion_key
             .verify(
-                &sign1(&self.claims, Vec::new()).tbs_data(b""),
+                &self.claims.sign1(Vec::new()).tbs_data(b""),
                 &self.signature,
             )
             .map_err(|_| TokenError::Signature)?;
