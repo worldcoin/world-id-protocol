@@ -1,9 +1,7 @@
 //! The Authenticator Assertion Token (AAT, WIP-106 §3.5): signed with `ES256` by the
 //! `assertion_key` over the COSE `Sig_structure`, for a single request.
 
-use super::{
-    AssertionError, MIN_EXP, TokenError, bstr_header, check_issuance, encode_sign1, open_sign1,
-};
+use super::{AssertionError, MIN_EXP, TokenError, check_issuance, encode_sign1, open_sign1};
 use crate::FieldElement;
 use p256::ecdsa::{
     Signature, SigningKey, VerifyingKey,
@@ -133,18 +131,18 @@ impl AuthenticatorMeta {
     }
 }
 
-/// The COSE `Sig_structure` (RFC 9052 §4.4) with an empty `external_aad`.
-fn sig_structure(protected: &[u8], payload: &[u8]) -> Vec<u8> {
-    // array(4), context: text(10) "Signature1"
-    let mut out = vec![0x84, 0x6a];
-    out.extend_from_slice(b"Signature1");
-    out.extend(bstr_header(protected.len()));
-    out.extend_from_slice(protected);
-    // external_aad: bstr(0)
-    out.push(0x40);
-    out.extend(bstr_header(payload.len()));
-    out.extend_from_slice(payload);
-    out
+/// The start of the AAT's COSE `Sig_structure` (RFC 9052 §4.4), followed by the claims set.
+const AAT_SIG_STRUCTURE_PREFIX: [u8; 19] = [
+    0x84, // array(4)
+    0x6a, b'S', b'i', b'g', b'n', b'a', b't', b'u', b'r', b'e', b'1', // context: text(10)
+    0x43, 0xa1, 0x01, 0x26, // protected: bstr(3) {1: -7}
+    0x40, // external_aad: bstr(0)
+    0x58, 0xa3, // payload: bstr(163)
+];
+
+/// The bytes `ES256` signs: [`AAT_SIG_STRUCTURE_PREFIX`] followed by the claims set.
+fn sig_structure(payload: &[u8]) -> Vec<u8> {
+    [AAT_SIG_STRUCTURE_PREFIX.as_slice(), payload].concat()
 }
 
 /// An Authenticator Assertion Token (AAT, WIP-106 §3.5), before signing. `Debug` prints none of
@@ -198,7 +196,7 @@ impl AuthenticatorAssertionToken {
     #[must_use]
     pub fn sign(&self, assertion_key: &SigningKey) -> Vec<u8> {
         let payload = self.payload();
-        let signature: Signature = assertion_key.sign(&sig_structure(&AAT_PROTECTED, &payload));
+        let signature: Signature = assertion_key.sign(&sig_structure(&payload));
         encode_sign1(
             &AAT_PROTECTED,
             &[0xa0],
@@ -242,7 +240,7 @@ impl AuthenticatorAssertionToken {
             return Err(AssertionError::InvalidEncoding("AAT claims").into());
         }
         assertion_key
-            .verify(&sig_structure(&AAT_PROTECTED, payload), &signature)
+            .verify(&sig_structure(payload), &signature)
             .map_err(|_| TokenError::Signature)?;
         Ok(aat)
     }
