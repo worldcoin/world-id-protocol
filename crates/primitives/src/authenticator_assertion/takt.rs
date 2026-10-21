@@ -415,7 +415,7 @@ impl TrustAnchorKeyToken {
             .key_id
             .try_into()
             .map_err(|_| AssertionError::InvalidEncoding("protected header"))?;
-        let claims = TaktClaims::from_value(cose::decode(&payload, "TAKT claims")?)?;
+        let claims = TaktClaims::from_value(payload)?;
         let signature: [u8; 64] = signature
             .try_into()
             .map_err(|_| AssertionError::InvalidEncoding("signature"))?;

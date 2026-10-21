@@ -317,7 +317,7 @@ impl AuthenticatorAssertionToken {
     /// [`AuthenticatorMeta::unpack`] and [`AssertionError::ExpirationOutOfRange`].
     pub fn from_cwt(cwt: &[u8]) -> Result<Self, AssertionError> {
         let (_, payload, signature) = cose::decode_sign1(cwt, AAT_CWT_LEN)?;
-        let claims = AatClaims::from_value(cose::decode(&payload, "AAT claims")?)?;
+        let claims = AatClaims::from_value(payload)?;
         let signature = Signature::from_slice(&signature)
             .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
         let aat = Self { claims, signature };

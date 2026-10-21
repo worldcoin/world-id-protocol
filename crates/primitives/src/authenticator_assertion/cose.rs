@@ -32,12 +32,12 @@ pub(super) fn encode_sign1(sign1: CoseSign1) -> Vec<u8> {
 }
 
 /// Parses an untagged `COSE_Sign1` of exactly `len` bytes with an empty unprotected header and
-/// returns its protected header, payload and signature. Canonical encoding is left to the
+/// returns its protected header, parsed payload and signature. Canonical encoding is left to the
 /// caller's re-encoding check.
 pub(super) fn decode_sign1(
     cwt: &[u8],
     len: usize,
-) -> Result<(Header, Vec<u8>, Vec<u8>), AssertionError> {
+) -> Result<(Header, Value, Vec<u8>), AssertionError> {
     if cwt.len() != len {
         return Err(AssertionError::InvalidEncoding("length"));
     }
@@ -48,13 +48,9 @@ pub(super) fn decode_sign1(
     }
     let payload = sign1
         .payload
+        .and_then(|bytes| ciborium::from_reader(bytes.as_slice()).ok())
         .ok_or(AssertionError::InvalidEncoding("payload"))?;
     Ok((sign1.protected.header, payload, sign1.signature))
-}
-
-/// Parses `bytes` as a CBOR value.
-pub(super) fn decode(bytes: &[u8], part: &'static str) -> Result<Value, AssertionError> {
-    ciborium::from_reader(bytes).map_err(|_| AssertionError::InvalidEncoding(part))
 }
 
 /// Reads the entries of a CBOR map with integer keys in order.
