@@ -53,7 +53,8 @@ pub(super) fn decode_sign1(
     Ok((sign1.protected.header, payload, sign1.signature))
 }
 
-/// Reads the entries of a CBOR map with integer keys in order.
+/// Reads the entries of a CBOR map with integer keys in order. Extra entries are rejected by the
+/// caller's re-encoding check.
 pub(super) struct Fields {
     entries: std::vec::IntoIter<(Value, Value)>,
     part: &'static str,
@@ -106,14 +107,6 @@ impl Fields {
         match self.take(key)?.as_text() {
             Some(text) if text == expected => Ok(()),
             _ => Err(AssertionError::InvalidEncoding(self.part)),
-        }
-    }
-
-    /// Fails unless every entry was read.
-    pub(super) fn finish(mut self) -> Result<(), AssertionError> {
-        match self.entries.next() {
-            None => Ok(()),
-            Some(_) => Err(AssertionError::InvalidEncoding(self.part)),
         }
     }
 }

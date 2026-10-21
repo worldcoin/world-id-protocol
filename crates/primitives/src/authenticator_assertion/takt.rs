@@ -214,7 +214,6 @@ fn assertion_key_from(value: Value) -> Result<VerifyingKey, AssertionError> {
     }
     let x: [u8; 32] = key.bytes(-2)?;
     let y: [u8; 32] = key.bytes(-3)?;
-    key.finish()?;
     VerifyingKey::from_sec1_bytes(&[[0x04].as_slice(), &x, &y].concat())
         .map_err(|_| AssertionError::InvalidEncoding("assertion_key"))
 }
@@ -318,10 +317,8 @@ impl TaktClaims {
         let exp: u32 = claims.uint(CLAIM_EXP)?;
         let mut cnf = Fields::of(claims.take(CLAIM_CNF)?, "cnf")?;
         let assertion_key = assertion_key_from(cnf.take(1)?)?;
-        cnf.finish()?;
         claims.text(CLAIM_EAT_PROFILE, EAT_PROFILE_TAKT)?;
         let sec_flags = SecFlags::unpack(u64::from_be_bytes(claims.bytes(CLAIM_SEC_FLAGS)?))?;
-        claims.finish()?;
         if exp < MIN_EXP {
             return Err(AssertionError::ExpirationOutOfRange(exp));
         }

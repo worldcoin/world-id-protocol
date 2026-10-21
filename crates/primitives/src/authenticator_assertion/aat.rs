@@ -256,7 +256,6 @@ impl AatClaims {
         claims.text(CLAIM_EAT_PROFILE, EAT_PROFILE_AAT)?;
         let cdh = field(&claims.bytes(CLAIM_CDH)?, "non-canonical cdh")?;
         let meta: [u8; 32] = claims.bytes(CLAIM_AUTHENTICATOR_META)?;
-        claims.finish()?;
         // A field element with bits 5 and above zero.
         if meta[..31].iter().any(|b| *b != 0) {
             return Err(AssertionError::InvalidAuthenticatorMeta);
