@@ -192,15 +192,15 @@ fn limbs(coordinate: &[u8]) -> [FieldElement; 2] {
 /// The EC2 P-256 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}` of `key` (RFC 9053 §7.1).
 fn cose_key(key: &VerifyingKey) -> Value {
     let point = key.to_encoded_point(false);
-    cose::map([
-        (1, cose::int(2)),
-        (-1, cose::int(1)),
+    Value::Map(vec![
+        (Value::from(1), Value::from(2)),
+        (Value::from(-1), Value::from(1)),
         (
-            -2,
+            Value::from(-2),
             Value::Bytes(point.x().expect("uncompressed point").to_vec()),
         ),
         (
-            -3,
+            Value::from(-3),
             Value::Bytes(point.y().expect("uncompressed point").to_vec()),
         ),
     ])
@@ -295,12 +295,18 @@ impl TaktClaims {
 
     /// The CWT claims set.
     fn to_value(self) -> Value {
-        cose::map([
-            (CLAIM_EXP, Value::Integer(self.exp.into())),
-            (CLAIM_CNF, cose::map([(1, cose_key(&self.assertion_key))])),
-            (CLAIM_EAT_PROFILE, Value::Text(EAT_PROFILE_TAKT.into())),
+        Value::Map(vec![
+            (CLAIM_EXP.into(), Value::Integer(self.exp.into())),
             (
-                CLAIM_SEC_FLAGS,
+                CLAIM_CNF.into(),
+                Value::Map(vec![(Value::from(1), cose_key(&self.assertion_key))]),
+            ),
+            (
+                CLAIM_EAT_PROFILE.into(),
+                Value::Text(EAT_PROFILE_TAKT.into()),
+            ),
+            (
+                CLAIM_SEC_FLAGS.into(),
                 Value::Bytes(self.sec_flags.pack().to_be_bytes().to_vec()),
             ),
         ])

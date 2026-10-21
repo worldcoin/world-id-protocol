@@ -222,14 +222,26 @@ impl AatClaims {
 
     /// The CWT claims set.
     fn to_value(self) -> Value {
-        cose::map([
-            (CLAIM_AUD, Value::Bytes(self.aud.to_be_bytes().to_vec())),
-            (CLAIM_EXP, Value::Integer(self.exp.into())),
-            (CLAIM_NONCE, Value::Bytes(self.nonce.to_be_bytes().to_vec())),
-            (CLAIM_EAT_PROFILE, Value::Text(EAT_PROFILE_AAT.into())),
-            (CLAIM_CDH, Value::Bytes(self.cdh.to_be_bytes().to_vec())),
+        Value::Map(vec![
             (
-                CLAIM_AUTHENTICATOR_META,
+                CLAIM_AUD.into(),
+                Value::Bytes(self.aud.to_be_bytes().to_vec()),
+            ),
+            (CLAIM_EXP.into(), Value::Integer(self.exp.into())),
+            (
+                CLAIM_NONCE.into(),
+                Value::Bytes(self.nonce.to_be_bytes().to_vec()),
+            ),
+            (
+                CLAIM_EAT_PROFILE.into(),
+                Value::Text(EAT_PROFILE_AAT.into()),
+            ),
+            (
+                CLAIM_CDH.into(),
+                Value::Bytes(self.cdh.to_be_bytes().to_vec()),
+            ),
+            (
+                CLAIM_AUTHENTICATOR_META.into(),
                 Value::Bytes(self.authenticator_meta.to_field_bytes().to_vec()),
             ),
         ])

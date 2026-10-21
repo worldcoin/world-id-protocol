@@ -10,21 +10,6 @@ use coset::{CborSerializable, CoseSign1, CoseSign1Builder, Header};
 
 use super::AssertionError;
 
-/// A CBOR integer.
-pub(super) fn int(value: i64) -> Value {
-    Value::Integer(value.into())
-}
-
-/// A CBOR map from integer keys.
-pub(super) fn map(entries: impl IntoIterator<Item = (i64, Value)>) -> Value {
-    Value::Map(
-        entries
-            .into_iter()
-            .map(|(key, value)| (int(key), value))
-            .collect(),
-    )
-}
-
 /// Encodes `value` in deterministic CBOR.
 pub(super) fn encode(value: &Value) -> Vec<u8> {
     let mut out = Vec::new();
