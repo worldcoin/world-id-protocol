@@ -53,10 +53,10 @@ pub struct AuthenticatorAssertionPublicInputs {
 pub struct AuthenticatorAssertionPrivateInputs {
     /// The key that signed the TAKT.
     pub trust_anchor_key: EdDSAPublicKey,
-    /// The TAKT's CWT encoding.
-    pub takt: Vec<u8>,
-    /// The AAT's CWT encoding.
-    pub aat: Vec<u8>,
+    /// The TAKT, decoded with [`TrustAnchorKeyToken::from_cwt`].
+    pub takt: TrustAnchorKeyToken,
+    /// The AAT, decoded with [`AuthenticatorAssertionToken::from_cwt`].
+    pub aat: AuthenticatorAssertionToken,
     /// Client data hash, computed by the verifier as the consuming specification defines.
     pub cdh: FieldElement,
 }
@@ -69,38 +69,19 @@ impl std::fmt::Debug for AuthenticatorAssertionPrivateInputs {
 }
 
 impl AuthenticatorAssertionPrivateInputs {
-    /// Decodes both tokens and verifies their signatures: the TAKT under `trust_anchor_key`, the
-    /// AAT under the `assertion_key` it attests.
-    fn verified_claims(&self) -> Result<(TaktClaims, AatClaims), VerificationError> {
-        let takt = TrustAnchorKeyToken::from_cwt(&self.takt)
-            .map_err(|e| VerificationError::Takt(e.into()))?;
-        let takt = *takt
-            .verify(&self.trust_anchor_key)
-            .map_err(VerificationError::Takt)?;
-        let aat = AuthenticatorAssertionToken::from_cwt(&self.aat)
-            .map_err(|e| VerificationError::Aat(e.into()))?;
-        let aat = *aat
-            .verify(takt.assertion_key())
-            .map_err(VerificationError::Aat)?;
-        Ok((takt, aat))
-    }
-
-    /// Derives the public inputs a verifier reports from the key and tokens it holds, given the
-    /// request values and the RP's minimum. Run [`verify`] on the result.
-    ///
-    /// # Errors
-    /// [`VerificationError::Takt`] or [`VerificationError::Aat`] if a token fails to decode or
-    /// verify.
+    /// Derives the public inputs a verifier reports from the key and the tokens' claims, given
+    /// the request values and the RP's minimum. Reads the claims unverified; run [`verify`] on
+    /// the result.
+    #[must_use]
     pub fn public_inputs(
         &self,
         now: u32,
         aud: u64,
         nonce: FieldElement,
         min_build_version: u32,
-    ) -> Result<AuthenticatorAssertionPublicInputs, VerificationError> {
-        let (takt, aat) = self.verified_claims()?;
-        let flags = takt.sec_flags();
-        Ok(AuthenticatorAssertionPublicInputs {
+    ) -> AuthenticatorAssertionPublicInputs {
+        let flags = self.takt.claims().sec_flags();
+        AuthenticatorAssertionPublicInputs {
             trust_anchor_key_hash: trust_anchor_key_hash(&self.trust_anchor_key),
             now,
             aud,
@@ -108,9 +89,9 @@ impl AuthenticatorAssertionPrivateInputs {
             platform: flags.platform,
             sec_level: flags.sec_level,
             sec_meta: flags.sec_meta,
-            authenticator_meta: aat.authenticator_meta,
+            authenticator_meta: self.aat.claims().authenticator_meta,
             min_build_version,
-        })
+        }
     }
 }
 
@@ -129,7 +110,14 @@ pub fn verify(
     if trust_anchor_key_hash(&private.trust_anchor_key) != public.trust_anchor_key_hash {
         return Err(VerificationError::KeyHashMismatch);
     }
-    let (takt, aat) = private.verified_claims()?;
+    let takt = private
+        .takt
+        .verify(&private.trust_anchor_key)
+        .map_err(VerificationError::Takt)?;
+    let aat = private
+        .aat
+        .verify(takt.assertion_key())
+        .map_err(VerificationError::Aat)?;
     check_lifetime(
         public.now,
         takt.exp,

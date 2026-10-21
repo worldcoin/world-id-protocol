@@ -1,7 +1,7 @@
 //! Errors of WIP-106 Authenticator Assertions, one type per stage:
 //!
 //! - [`AssertionError`]: building or decoding a TAKT or an AAT, without any key.
-//! - [`TokenError`]: verifying one token; wraps [`AssertionError`] and adds the key checks.
+//! - [`TokenError`]: verifying one token's `kid` and signature.
 //! - [`VerificationError`]: the full WIP-106 §3.8 check; wraps a [`TokenError`] per token and
 //!   adds the checks across both tokens and the public inputs.
 
@@ -51,12 +51,9 @@ pub enum AssertionError {
     KeyEncoding(String),
 }
 
-/// Why a single token failed to decode or verify.
+/// Why a single token failed to verify.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum TokenError {
-    /// The token is not encoded as WIP-106 requires.
-    #[error(transparent)]
-    Encoding(#[from] AssertionError),
     /// The TAKT's `kid` is not the key it is verified under.
     #[error("kid is not the verifying key")]
     KidMismatch,

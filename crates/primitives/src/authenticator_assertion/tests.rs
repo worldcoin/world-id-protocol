@@ -83,8 +83,8 @@ fn inputs() -> (
     };
     let private = AuthenticatorAssertionPrivateInputs {
         trust_anchor_key: trust_anchor_key().public(),
-        takt: takt_cwt(),
-        aat: aat_cwt(),
+        takt: TrustAnchorKeyToken::sign(takt(), &trust_anchor_key()).unwrap(),
+        aat: AuthenticatorAssertionToken::sign(aat(), &assertion_key()),
         cdh: cdh(),
     };
     (public, private)
@@ -123,10 +123,7 @@ fn tokens_match_spec_vectors() {
 fn verify_accepts_spec_vectors() {
     let (public, private) = inputs();
     assert_eq!(verify(&public, &private), Ok(()));
-    assert_eq!(
-        private.public_inputs(NOW, AUD, public.nonce, 2006),
-        Ok(public)
-    );
+    assert_eq!(private.public_inputs(NOW, AUD, public.nonce, 2006), public);
 }
 
 #[test]
@@ -156,12 +153,14 @@ fn tokens_round_trip() {
 #[test]
 fn high_s_signatures_verify() {
     let (public, mut private) = inputs();
-    let sig_at = private.aat.len() - 64;
-    let signature = Signature::from_slice(&private.aat[sig_at..]).unwrap();
+    let mut cwt = aat_cwt();
+    let sig_at = cwt.len() - 64;
+    let signature = Signature::from_slice(&cwt[sig_at..]).unwrap();
     let (r, s) = signature.split_scalars();
     let flipped = Signature::from_scalars(r, -*s).unwrap();
     assert_ne!(flipped, signature);
-    private.aat[sig_at..].copy_from_slice(&flipped.to_bytes());
+    cwt[sig_at..].copy_from_slice(&flipped.to_bytes());
+    private.aat = AuthenticatorAssertionToken::from_cwt(&cwt).unwrap();
     assert_eq!(verify(&public, &private), Ok(()));
 }
 
@@ -197,7 +196,9 @@ fn verify_rejects_each_check() {
         Takt(TokenError::KidMismatch),
     );
     // With the other key's `kid`, the failure comes from the signature check.
-    with_other_key.takt[13..45].copy_from_slice(&other_key.to_compressed_bytes().unwrap());
+    let mut cwt = takt_cwt();
+    cwt[13..45].copy_from_slice(&other_key.to_compressed_bytes().unwrap());
+    with_other_key.takt = TrustAnchorKeyToken::from_cwt(&cwt).unwrap();
     check(
         with_public(&|p| p.trust_anchor_key_hash = trust_anchor_key_hash(&other_key)),
         &with_other_key,
@@ -205,7 +206,9 @@ fn verify_rejects_each_check() {
     );
     // A tampered `exp` byte changes the signed message.
     let mut forged = private.clone();
-    forged.takt[TAKT_PAYLOAD + 6] ^= 1;
+    let mut cwt = takt_cwt();
+    cwt[TAKT_PAYLOAD + 6] ^= 1;
+    forged.takt = TrustAnchorKeyToken::from_cwt(&cwt).unwrap();
     check(public, &forged, Takt(TokenError::Signature));
 
     // An AAT signed by a key the TAKT does not attest.
@@ -213,8 +216,7 @@ fn verify_rejects_each_check() {
     unattested.aat = AuthenticatorAssertionToken::sign(
         aat(),
         &SigningKey::from_bytes(&[0x08; 32].into()).unwrap(),
-    )
-    .to_cwt();
+    );
     check(public, &unattested, Aat(TokenError::Signature));
 
     // Freshness, at both boundaries of both tokens.
@@ -240,8 +242,7 @@ fn verify_rejects_each_check() {
             },
             &trust_anchor_key(),
         )
-        .unwrap()
-        .to_cwt(),
+        .unwrap(),
         ..private.clone()
     };
     check(public, &long_takt, TaktLifetimeExceeded);
@@ -487,8 +488,8 @@ fn debug_hides_confidential_values() {
         assert!(!debug.contains("takt:"), "{debug}");
     }
     assert_eq!(
-        VerificationError::Takt(TokenError::Encoding(AssertionError::InvalidSecFlags)).to_string(),
-        "invalid TAKT: sec_flags bits 52 and above are reserved"
+        AssertionError::InvalidSecFlags.to_string(),
+        "sec_flags bits 52 and above are reserved"
     );
 }
 
