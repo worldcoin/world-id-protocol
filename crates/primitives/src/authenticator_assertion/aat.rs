@@ -132,18 +132,6 @@ impl AuthenticatorMeta {
     }
 }
 
-/// The protected header `{1: -7}` (`alg`: `ES256`).
-fn protected() -> Header {
-    HeaderBuilder::new()
-        .algorithm(iana::Algorithm::ES256)
-        .build()
-}
-
-/// Reads a canonical field element.
-fn field(bytes: &[u8; 32], name: &'static str) -> Result<FieldElement, AssertionError> {
-    FieldElement::from_be_bytes(bytes).map_err(|_| AssertionError::InvalidEncoding(name))
-}
-
 /// The claims of an Authenticator Assertion Token (AAT, WIP-106 §3.5). `Debug` prints none of its
 /// values.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -352,4 +340,16 @@ impl std::fmt::Debug for AuthenticatorAssertionToken {
         f.debug_struct("AuthenticatorAssertionToken")
             .finish_non_exhaustive()
     }
+}
+
+/// The protected header `{1: -7}` (`alg`: `ES256`).
+fn protected() -> Header {
+    HeaderBuilder::new()
+        .algorithm(iana::Algorithm::ES256)
+        .build()
+}
+
+/// Reads a canonical field element.
+fn field(bytes: &[u8; 32], name: &'static str) -> Result<FieldElement, AssertionError> {
+    FieldElement::from_be_bytes(bytes).map_err(|_| AssertionError::InvalidEncoding(name))
 }

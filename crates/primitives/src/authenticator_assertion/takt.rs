@@ -179,16 +179,6 @@ pub fn trust_anchor_key_hash(key: &EdDSAPublicKey) -> FieldElement {
     )
 }
 
-/// Splits a 32-byte big-endian P-256 coordinate into its high and low 128-bit limbs.
-fn limbs(coordinate: &[u8]) -> [FieldElement; 2] {
-    let half = |range: std::ops::Range<usize>| {
-        FieldElement::from(u128::from_be_bytes(
-            coordinate[range].try_into().expect("16 bytes"),
-        ))
-    };
-    [half(0..16), half(16..32)]
-}
-
 /// The claims of a Trust Anchor Key Token (TAKT, WIP-106 §3.4). `Debug` prints none of its values,
 /// as a verifier MUST keep the `assertion_key` and `exp` confidential.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -447,4 +437,14 @@ impl std::fmt::Debug for TrustAnchorKeyToken {
         f.debug_struct("TrustAnchorKeyToken")
             .finish_non_exhaustive()
     }
+}
+
+/// Splits a 32-byte big-endian P-256 coordinate into its high and low 128-bit limbs.
+fn limbs(coordinate: &[u8]) -> [FieldElement; 2] {
+    let half = |range: std::ops::Range<usize>| {
+        FieldElement::from(u128::from_be_bytes(
+            coordinate[range].try_into().expect("16 bytes"),
+        ))
+    };
+    [half(0..16), half(16..32)]
 }

@@ -67,17 +67,6 @@ pub enum AssertionError {
     KeyEncoding(String),
 }
 
-/// Checks `now < exp <= now + max_lifetime` at issuance, and the fixed `exp` encoding.
-const fn check_issuance(now: u32, exp: u32, max_lifetime: u32) -> Result<(), AssertionError> {
-    if exp <= now || exp - now > max_lifetime {
-        return Err(AssertionError::LifetimeOutOfRange { now, exp });
-    }
-    if exp < MIN_EXP {
-        return Err(AssertionError::ExpirationOutOfRange(exp));
-    }
-    Ok(())
-}
-
 /// Why a single token failed to decode or verify.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum TokenError {
@@ -224,17 +213,6 @@ pub enum VerificationError {
     BuildVersionBelowMinimum,
 }
 
-/// Checks `now < exp` and `exp - now <= max_lifetime`.
-const fn fresh(now: u32, exp: u32, max_lifetime: u32) -> Result<(), bool> {
-    if now >= exp {
-        return Err(true);
-    }
-    if exp - now > max_lifetime {
-        return Err(false);
-    }
-    Ok(())
-}
-
 /// Verifies a TAKT and an AAT with every check of WIP-106 §3.8, in the order of the Noir
 /// `verify_assertion`.
 ///
@@ -279,6 +257,28 @@ pub fn verify(
     }
     if flags.build_version < public.min_build_version {
         return Err(VerificationError::BuildVersionBelowMinimum);
+    }
+    Ok(())
+}
+
+/// Checks `now < exp <= now + max_lifetime` at issuance, and the fixed `exp` encoding.
+const fn check_issuance(now: u32, exp: u32, max_lifetime: u32) -> Result<(), AssertionError> {
+    if exp <= now || exp - now > max_lifetime {
+        return Err(AssertionError::LifetimeOutOfRange { now, exp });
+    }
+    if exp < MIN_EXP {
+        return Err(AssertionError::ExpirationOutOfRange(exp));
+    }
+    Ok(())
+}
+
+/// Checks `now < exp` and `exp - now <= max_lifetime`.
+const fn fresh(now: u32, exp: u32, max_lifetime: u32) -> Result<(), bool> {
+    if now >= exp {
+        return Err(true);
+    }
+    if exp - now > max_lifetime {
+        return Err(false);
     }
     Ok(())
 }
