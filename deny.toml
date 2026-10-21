@@ -45,4 +45,6 @@ ignore = [
     "RUSTSEC-2026-0251", # Unmaintained `sized-chunks`; transitive via `provekit`, no safe upgrade available (2026-08-11)
     "RUSTSEC-2026-0173", # Unmaintained `proc-macro-error2`; transitive via alloy-sol-macro, no safe upgrade available (2026-06-08)
     "RUSTSEC-2026-0374", # Unmaintained `basic-toml` (2026-10-20)
+    "RUSTSEC-2026-0381", # Only hit is the `webpki-roots` 0.26.11 shim, which re-exports 1.x (locked at 1.0.10) (2026-10-21)
+    "RUSTSEC-2026-0383", # Only hit is the `webpki-root-certs` 0.26.11 shim, which re-exports 1.x (locked at 1.0.10) (2026-10-21)
 ]
