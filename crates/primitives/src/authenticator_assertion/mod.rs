@@ -130,14 +130,14 @@ pub fn verify(
         return Err(VerificationError::KeyHashMismatch);
     }
     let (takt, aat) = private.verified_claims()?;
-    check_freshness(
+    check_lifetime(
         public.now,
         takt.exp,
         MAX_TAKT_LIFETIME_SECS,
         VerificationError::TaktExpired,
         VerificationError::TaktLifetimeExceeded,
     )?;
-    check_freshness(
+    check_lifetime(
         public.now,
         aat.exp,
         MAX_AAT_LIFETIME_SECS,
@@ -163,24 +163,23 @@ pub fn verify(
 }
 
 /// Checks `now < exp <= now + max_lifetime` at issuance, and the fixed `exp` encoding.
-const fn check_issuance(now: u32, exp: u32, max_lifetime: u32) -> Result<(), AssertionError> {
-    if exp <= now || exp - now > max_lifetime {
-        return Err(AssertionError::LifetimeOutOfRange { now, exp });
-    }
+fn check_issuance(now: u32, exp: u32, max_lifetime: u32) -> Result<(), AssertionError> {
+    let out_of_range = || AssertionError::LifetimeOutOfRange { now, exp };
+    check_lifetime(now, exp, max_lifetime, out_of_range(), out_of_range())?;
     if exp < MIN_EXP {
         return Err(AssertionError::ExpirationOutOfRange(exp));
     }
     Ok(())
 }
 
-/// Checks `now < exp` and `exp - now <= max_lifetime` at verification.
-fn check_freshness(
+/// Checks `now < exp <= now + max_lifetime`, failing with `expired` or `too_long`.
+fn check_lifetime<E>(
     now: u32,
     exp: u32,
     max_lifetime: u32,
-    expired: VerificationError,
-    too_long: VerificationError,
-) -> Result<(), VerificationError> {
+    expired: E,
+    too_long: E,
+) -> Result<(), E> {
     if now >= exp {
         return Err(expired);
     }
