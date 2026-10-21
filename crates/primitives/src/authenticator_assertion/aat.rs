@@ -316,11 +316,11 @@ impl AuthenticatorAssertionToken {
     /// and the `ES256` signature (`r || s`).
     #[must_use]
     pub fn to_cwt(&self) -> Vec<u8> {
-        cose::encode_sign1(cose::sign1(
+        cose::encode_sign1(
             protected(),
             cose::encode(&self.claims.to_value()),
             self.signature.to_bytes().to_vec(),
-        ))
+        )
     }
 
     /// Decodes an AAT from its CWT encoding, rejecting anything but the canonical encoding. Does

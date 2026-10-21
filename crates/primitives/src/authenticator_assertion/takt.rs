@@ -389,11 +389,11 @@ impl TrustAnchorKeyToken {
             key_id: self.kid.to_vec(),
             ..Header::default()
         };
-        cose::encode_sign1(cose::sign1(
+        cose::encode_sign1(
             protected,
             cose::encode(&self.claims.to_value()),
             self.signature.to_vec(),
-        ))
+        )
     }
 
     /// Decodes a TAKT from its CWT encoding, rejecting anything but the canonical encoding. Does

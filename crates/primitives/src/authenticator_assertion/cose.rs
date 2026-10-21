@@ -17,18 +17,16 @@ pub(super) fn encode(value: &Value) -> Vec<u8> {
     out
 }
 
-/// An untagged `COSE_Sign1` with an empty unprotected header.
-pub(super) fn sign1(protected: Header, payload: Vec<u8>, signature: Vec<u8>) -> CoseSign1 {
+/// Encodes an untagged `COSE_Sign1` with an empty unprotected header. The protected header is
+/// encoded afresh, so the result is deterministic CBOR.
+pub(super) fn encode_sign1(protected: Header, payload: Vec<u8>, signature: Vec<u8>) -> Vec<u8> {
     CoseSign1Builder::new()
         .protected(protected)
         .payload(payload)
         .signature(signature)
         .build()
-}
-
-/// Encodes `sign1`; the protected header is encoded afresh, so it is deterministic CBOR too.
-pub(super) fn encode_sign1(sign1: CoseSign1) -> Vec<u8> {
-    sign1.to_vec().expect("writing to a Vec does not fail")
+        .to_vec()
+        .expect("writing to a Vec does not fail")
 }
 
 /// Parses an untagged `COSE_Sign1` of exactly `len` bytes with an empty unprotected header and
