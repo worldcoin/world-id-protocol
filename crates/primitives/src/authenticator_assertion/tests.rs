@@ -564,3 +564,53 @@ fn coset_reads_both_tokens() {
     })
     .unwrap();
 }
+
+#[test]
+fn extra_and_duplicate_entries_rejected() {
+    use ciborium::Value;
+    use coset::{CborSerializable, CoseSign1};
+
+    type Entries = Vec<(Value, Value)>;
+
+    // Re-frames `hex` with its claims map edited by `edit`.
+    let edited = |hex: &str, edit: &dyn Fn(&mut Entries)| {
+        let mut sign1 = CoseSign1::from_slice(&hex::decode(hex).unwrap()).unwrap();
+        let mut claims: Value = ciborium::from_reader(sign1.payload.unwrap().as_slice()).unwrap();
+        edit(claims.as_map_mut().unwrap());
+        let mut payload = Vec::new();
+        ciborium::into_writer(&claims, &mut payload).unwrap();
+        sign1.payload = Some(payload);
+        sign1.to_vec().unwrap()
+    };
+    let extra = (Value::from(-90_000), Value::from(0));
+    // The `cnf` map inside the TAKT claims.
+    fn nested(claims: &mut [(Value, Value)]) -> &mut Entries {
+        claims
+            .iter_mut()
+            .find(|(key, _)| *key == Value::from(8))
+            .unwrap()
+            .1
+            .as_map_mut()
+            .unwrap()
+    }
+
+    let aat = edited(AAT_HEX, &|claims| claims.push(extra.clone()));
+    assert!(AuthenticatorAssertionToken::from_cwt(&aat).is_err());
+    let takt = edited(TAKT_HEX, &|claims| claims.push(extra.clone()));
+    assert!(TrustAnchorKeyToken::from_cwt(&takt).is_err());
+    let cnf = edited(TAKT_HEX, &|claims| nested(claims).push(extra.clone()));
+    assert!(TrustAnchorKeyToken::from_cwt(&cnf).is_err());
+    let key = edited(TAKT_HEX, &|claims| {
+        nested(claims)[0]
+            .1
+            .as_map_mut()
+            .unwrap()
+            .push(extra.clone());
+    });
+    assert!(TrustAnchorKeyToken::from_cwt(&key).is_err());
+
+    // Same length: `authenticator_meta`'s key (-80001) replaced by `cdh`'s (-80000).
+    let duplicate = AAT_HEX.replace("3a00013880", "3a0001387f");
+    assert_ne!(duplicate, AAT_HEX);
+    assert!(AuthenticatorAssertionToken::from_cwt(&hex::decode(duplicate).unwrap()).is_err());
+}
