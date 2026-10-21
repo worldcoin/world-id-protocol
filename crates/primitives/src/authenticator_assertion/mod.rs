@@ -3,7 +3,7 @@
 //! A Trust Anchor Key Token (TAKT) is signed by an Authenticator Provider's `trust_anchor_key`
 //! (`BabyJubJub-EdDSA-Poseidon2`) and attests a device-bound `assertion_key`. An Authenticator
 //! Assertion Token (AAT) is signed by that `assertion_key` (`ES256`) for a single request. Both are
-//! CWTs in a fixed deterministic CBOR layout.
+//! CWTs in deterministic CBOR.
 //!
 //! `verify` performs every check of WIP-106 §3.8 on `AuthenticatorAssertionPublicInputs` and
 //! `AuthenticatorAssertionPrivateInputs`, the same split as the Noir `verify_assertion`.
@@ -12,6 +12,7 @@ use crate::FieldElement;
 use eddsa_babyjubjub::EdDSAPublicKey;
 
 mod aat;
+mod cose;
 mod takt;
 
 pub use aat::*;
@@ -66,68 +67,6 @@ pub enum AssertionError {
     KeyEncoding(String),
 }
 
-/// Encodes a CBOR byte string header for `len` bytes, in its shortest form.
-fn bstr_header(len: usize) -> Vec<u8> {
-    match len {
-        // bstr, length in the initial byte
-        0..=23 => vec![0x40 | len as u8],
-        // bstr, length in the next byte
-        24..=255 => vec![0x58, len as u8],
-        _ => unreachable!("WIP-106 byte strings are shorter than 256 bytes"),
-    }
-}
-
-/// Encodes an untagged `COSE_Sign1`.
-fn encode_sign1(
-    protected: &[u8],
-    unprotected: &[u8],
-    payload: &[u8],
-    signature: &[u8; 64],
-) -> Vec<u8> {
-    // array(4)
-    let mut out = vec![0x84];
-    out.extend(bstr_header(protected.len()));
-    out.extend_from_slice(protected);
-    out.extend_from_slice(unprotected);
-    out.extend(bstr_header(payload.len()));
-    out.extend_from_slice(payload);
-    // signature: bstr(64)
-    out.extend_from_slice(&[0x58, 0x40]);
-    out.extend_from_slice(signature);
-    out
-}
-
-/// Splits an untagged `COSE_Sign1` into its payload and signature, rejecting any other protected
-/// header than `protected` and any unprotected header but an empty one.
-fn open_sign1<'a>(
-    cwt: &'a [u8],
-    protected: &[u8],
-    payload_len: usize,
-) -> Result<(&'a [u8], [u8; 64]), AssertionError> {
-    let rest = cwt
-        // array(4)
-        .strip_prefix(&[0x84])
-        .and_then(|r| r.strip_prefix(bstr_header(protected.len()).as_slice()))
-        .and_then(|r| r.strip_prefix(protected))
-        .ok_or(AssertionError::InvalidEncoding("protected header"))?;
-    // Empty unprotected header: map(0).
-    let rest = rest
-        .strip_prefix(&[0xa0])
-        .ok_or(AssertionError::InvalidEncoding("unprotected header"))?;
-    let rest = rest
-        .strip_prefix(bstr_header(payload_len).as_slice())
-        .ok_or(AssertionError::InvalidEncoding("payload"))?;
-    let (payload, rest) = rest
-        .split_at_checked(payload_len)
-        .ok_or(AssertionError::InvalidEncoding("payload"))?;
-    // signature: bstr(64)
-    let signature = rest
-        .strip_prefix(&[0x58, 0x40])
-        .and_then(|r| <[u8; 64]>::try_from(r).ok())
-        .ok_or(AssertionError::InvalidEncoding("signature"))?;
-    Ok((payload, signature))
-}
-
 /// Checks `now < exp <= now + max_lifetime` at issuance, and the fixed `exp` encoding.
 const fn check_issuance(now: u32, exp: u32, max_lifetime: u32) -> Result<(), AssertionError> {
     if exp <= now || exp - now > max_lifetime {
@@ -145,6 +84,9 @@ pub enum TokenError {
     /// The token is not encoded as WIP-106 requires.
     #[error(transparent)]
     Encoding(#[from] AssertionError),
+    /// The TAKT's `kid` is not the key it is verified under.
+    #[error("kid is not the verifying key")]
+    KidMismatch,
     /// The signature does not verify.
     #[error("invalid signature")]
     Signature,
@@ -196,6 +138,22 @@ impl std::fmt::Debug for AuthenticatorAssertionPrivateInputs {
 }
 
 impl AuthenticatorAssertionPrivateInputs {
+    /// Decodes both tokens and verifies their signatures: the TAKT under `trust_anchor_key`, the
+    /// AAT under the `assertion_key` it attests.
+    fn verified_claims(&self) -> Result<(TaktClaims, AatClaims), VerificationError> {
+        let takt = TrustAnchorKeyToken::from_cwt(&self.takt)
+            .map_err(|e| VerificationError::Takt(e.into()))?;
+        let takt = *takt
+            .verify(&self.trust_anchor_key)
+            .map_err(VerificationError::Takt)?;
+        let aat = AuthenticatorAssertionToken::from_cwt(&self.aat)
+            .map_err(|e| VerificationError::Aat(e.into()))?;
+        let aat = *aat
+            .verify(takt.assertion_key())
+            .map_err(VerificationError::Aat)?;
+        Ok((takt, aat))
+    }
+
     /// Derives the public inputs a verifier reports from the key and tokens it holds, given the
     /// request values and the RP's minimum. Run [`verify`] on the result.
     ///
@@ -209,10 +167,7 @@ impl AuthenticatorAssertionPrivateInputs {
         nonce: FieldElement,
         min_build_version: u32,
     ) -> Result<AuthenticatorAssertionPublicInputs, VerificationError> {
-        let takt = TrustAnchorKeyToken::verify(&self.takt, &self.trust_anchor_key)
-            .map_err(VerificationError::Takt)?;
-        let aat = AuthenticatorAssertionToken::verify(&self.aat, takt.assertion_key())
-            .map_err(VerificationError::Aat)?;
+        let (takt, aat) = self.verified_claims()?;
         let flags = takt.sec_flags();
         Ok(AuthenticatorAssertionPublicInputs {
             trust_anchor_key_hash: trust_anchor_key_hash(&self.trust_anchor_key),
@@ -295,10 +250,7 @@ pub fn verify(
     if trust_anchor_key_hash(&private.trust_anchor_key) != public.trust_anchor_key_hash {
         return Err(VerificationError::KeyHashMismatch);
     }
-    let takt = TrustAnchorKeyToken::verify(&private.takt, &private.trust_anchor_key)
-        .map_err(VerificationError::Takt)?;
-    let aat = AuthenticatorAssertionToken::verify(&private.aat, takt.assertion_key())
-        .map_err(VerificationError::Aat)?;
+    let (takt, aat) = private.verified_claims()?;
     fresh(public.now, takt.exp, MAX_TAKT_LIFETIME_SECS).map_err(|expired| {
         if expired {
             VerificationError::TaktExpired

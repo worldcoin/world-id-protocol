@@ -1,7 +1,12 @@
 //! The Authenticator Assertion Token (AAT, WIP-106 §3.5): signed with `ES256` by the
 //! `assertion_key` over the COSE `Sig_structure`, for a single request.
 
-use super::{AssertionError, MIN_EXP, TokenError, check_issuance, encode_sign1, open_sign1};
+use ciborium::Value;
+
+use super::{
+    AssertionError, MIN_EXP, TokenError, check_issuance,
+    cose::{self, Fields, Sign1},
+};
 use crate::FieldElement;
 use p256::ecdsa::{
     Signature, SigningKey, VerifyingKey,
@@ -17,14 +22,19 @@ pub const MAX_PROVIDER_BITS: u8 = 0x3;
 /// `eat_profile` claim value (RFC 9711 §4.3.2) of an AAT.
 pub const EAT_PROFILE_AAT: &str = "https://world.org/eat/aat/v1";
 
-/// Length in bytes of the AAT claims set.
-const AAT_PAYLOAD_LEN: usize = 163;
+/// Length in bytes of an AAT's CWT encoding.
+const AAT_CWT_LEN: usize = 237;
 
-/// AAT protected header `{1: -7}`.
-const AAT_PROTECTED: [u8; 3] = [
-    0xa1, // map(1)
-    0x01, 0x26, // alg (1): -7
-];
+/// COSE algorithm identifier for `ES256`.
+const COSE_ALG_ES256: i64 = -7;
+
+/// CWT claim keys of an AAT (RFC 8392, RFC 9711, WIP-106).
+const CLAIM_AUD: i64 = 3;
+const CLAIM_EXP: i64 = 4;
+const CLAIM_NONCE: i64 = 10;
+const CLAIM_EAT_PROFILE: i64 = 265;
+const CLAIM_CDH: i64 = -80_000;
+const CLAIM_AUTHENTICATOR_META: i64 = -80_001;
 
 /// User presence the Authenticator reports in an AAT (`authenticator_meta` bits 0-2); values are
 /// identifiers, not an order.
@@ -131,24 +141,20 @@ impl AuthenticatorMeta {
     }
 }
 
-/// The start of the AAT's COSE `Sig_structure` (RFC 9052 §4.4), followed by the claims set.
-const AAT_SIG_STRUCTURE_PREFIX: [u8; 19] = [
-    0x84, // array(4)
-    0x6a, b'S', b'i', b'g', b'n', b'a', b't', b'u', b'r', b'e', b'1', // context: text(10)
-    0x43, 0xa1, 0x01, 0x26, // protected: bstr(3) {1: -7}
-    0x40, // external_aad: bstr(0)
-    0x58, 0xa3, // payload: bstr(163)
-];
-
-/// The bytes `ES256` signs: [`AAT_SIG_STRUCTURE_PREFIX`] followed by the claims set.
-fn sig_structure(payload: &[u8]) -> Vec<u8> {
-    [AAT_SIG_STRUCTURE_PREFIX.as_slice(), payload].concat()
+/// The protected header `{1: -7}`.
+fn protected() -> Vec<u8> {
+    cose::encode(&cose::map([(1, cose::int(COSE_ALG_ES256))]))
 }
 
-/// An Authenticator Assertion Token (AAT, WIP-106 §3.5), before signing. `Debug` prints none of
-/// its values.
+/// Reads a canonical field element.
+fn field(bytes: &[u8; 32], name: &'static str) -> Result<FieldElement, AssertionError> {
+    FieldElement::from_be_bytes(bytes).map_err(|_| AssertionError::InvalidEncoding(name))
+}
+
+/// The claims of an Authenticator Assertion Token (AAT, WIP-106 §3.5). `Debug` prints none of its
+/// values.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct AuthenticatorAssertionToken {
+pub struct AatClaims {
     pub(super) aud: u64,
     pub(super) exp: u32,
     pub(super) nonce: FieldElement,
@@ -156,8 +162,8 @@ pub struct AuthenticatorAssertionToken {
     pub(super) authenticator_meta: AuthenticatorMeta,
 }
 
-impl AuthenticatorAssertionToken {
-    /// Creates an AAT for issuance at `now`.
+impl AatClaims {
+    /// Creates AAT claims for issuance at `now`.
     ///
     /// # Errors
     /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_AAT_LIFETIME_SECS`,
@@ -180,10 +186,28 @@ impl AuthenticatorAssertionToken {
         })
     }
 
+    /// The `rpId` of the request.
+    #[must_use]
+    pub const fn aud(&self) -> u64 {
+        self.aud
+    }
+
     /// Expiration as seconds since the Unix epoch.
     #[must_use]
     pub const fn exp(&self) -> u32 {
         self.exp
+    }
+
+    /// The nonce of the request.
+    #[must_use]
+    pub const fn nonce(&self) -> FieldElement {
+        self.nonce
+    }
+
+    /// The client data hash.
+    #[must_use]
+    pub const fn cdh(&self) -> FieldElement {
+        self.cdh
     }
 
     /// User presence and provider-defined bits.
@@ -192,81 +216,123 @@ impl AuthenticatorAssertionToken {
         self.authenticator_meta
     }
 
-    /// Signs the AAT with the `assertion_key` and returns its CWT encoding.
-    #[must_use]
-    pub fn sign(&self, assertion_key: &SigningKey) -> Vec<u8> {
-        let payload = self.payload();
-        let signature: Signature = assertion_key.sign(&sig_structure(&payload));
-        encode_sign1(
-            &AAT_PROTECTED,
-            &[0xa0],
-            &payload,
-            &signature.to_bytes().into(),
-        )
+    /// The CWT claims set.
+    fn to_value(self) -> Value {
+        cose::map([
+            (CLAIM_AUD, Value::Bytes(self.aud.to_be_bytes().to_vec())),
+            (CLAIM_EXP, Value::Integer(self.exp.into())),
+            (CLAIM_NONCE, Value::Bytes(self.nonce.to_be_bytes().to_vec())),
+            (CLAIM_EAT_PROFILE, Value::Text(EAT_PROFILE_AAT.into())),
+            (CLAIM_CDH, Value::Bytes(self.cdh.to_be_bytes().to_vec())),
+            (
+                CLAIM_AUTHENTICATOR_META,
+                Value::Bytes(self.authenticator_meta.to_field_bytes().to_vec()),
+            ),
+        ])
     }
 
-    /// Decodes an AAT and verifies its signature under `assertion_key`.
-    ///
-    /// # Errors
-    /// [`TokenError::Encoding`] on any encoding but the canonical one; [`TokenError::Signature`]
-    /// if the signature does not verify.
-    pub fn verify(cwt: &[u8], assertion_key: &VerifyingKey) -> Result<Self, TokenError> {
-        let (payload, signature) = open_sign1(cwt, &AAT_PROTECTED, AAT_PAYLOAD_LEN)?;
-        let signature = Signature::from_slice(&signature)
-            .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
-        let field = |range: std::ops::Range<usize>, name| {
-            FieldElement::from_be_bytes(payload[range].try_into().expect("32 bytes"))
-                .map_err(|_| AssertionError::InvalidEncoding(name))
-        };
-        let aud = u64::from_be_bytes(payload[3..11].try_into().expect("8 bytes"));
-        let exp = u32::from_be_bytes(payload[13..17].try_into().expect("4 bytes"));
-        let nonce = field(20..52, "non-canonical nonce")?;
-        let cdh = field(92..124, "non-canonical cdh")?;
-        if payload[131..162].iter().any(|b| *b != 0) {
-            return Err(AssertionError::InvalidAuthenticatorMeta.into());
+    /// Reads the CWT claims set.
+    fn from_value(value: Value) -> Result<Self, AssertionError> {
+        let mut claims = Fields::of(value, "AAT claims")?;
+        let aud = u64::from_be_bytes(claims.bytes(CLAIM_AUD)?);
+        let exp: u32 = claims.uint(CLAIM_EXP)?;
+        let nonce = field(&claims.bytes(CLAIM_NONCE)?, "non-canonical nonce")?;
+        claims.text(CLAIM_EAT_PROFILE, EAT_PROFILE_AAT)?;
+        let cdh = field(&claims.bytes(CLAIM_CDH)?, "non-canonical cdh")?;
+        let meta: [u8; 32] = claims.bytes(CLAIM_AUTHENTICATOR_META)?;
+        claims.finish()?;
+        // A field element with bits 5 and above zero.
+        if meta[..31].iter().any(|b| *b != 0) {
+            return Err(AssertionError::InvalidAuthenticatorMeta);
         }
-        let authenticator_meta = AuthenticatorMeta::unpack(payload[162])?;
+        let authenticator_meta = AuthenticatorMeta::unpack(meta[31])?;
         if exp < MIN_EXP {
-            return Err(AssertionError::ExpirationOutOfRange(exp).into());
+            return Err(AssertionError::ExpirationOutOfRange(exp));
         }
-        let aat = Self {
+        Ok(Self {
             aud,
             exp,
             nonce,
             cdh,
             authenticator_meta,
-        };
-        if aat.payload() != payload {
-            return Err(AssertionError::InvalidEncoding("AAT claims").into());
+        })
+    }
+}
+
+impl std::fmt::Debug for AatClaims {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AatClaims").finish_non_exhaustive()
+    }
+}
+
+/// A signed Authenticator Assertion Token (AAT, WIP-106 §3.5). `Debug` prints none of its values.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct AuthenticatorAssertionToken {
+    claims: AatClaims,
+    signature: Signature,
+}
+
+impl AuthenticatorAssertionToken {
+    /// Signs `claims` with the `assertion_key` (`ES256` over the COSE `Sig_structure`).
+    #[must_use]
+    pub fn sign(claims: AatClaims, assertion_key: &SigningKey) -> Self {
+        let payload = cose::encode(&claims.to_value());
+        Self {
+            claims,
+            signature: assertion_key.sign(&cose::sig_structure(&protected(), &payload)),
         }
-        assertion_key
-            .verify(&sig_structure(payload), &signature)
-            .map_err(|_| TokenError::Signature)?;
+    }
+
+    /// The claims, unverified. Use [`Self::verify`] to check them.
+    #[must_use]
+    pub const fn claims(&self) -> &AatClaims {
+        &self.claims
+    }
+
+    /// The CWT encoding: protected header `{1: -7}`, an empty unprotected header, the claims set
+    /// and the `ES256` signature (`r || s`).
+    #[must_use]
+    pub fn to_cwt(&self) -> Vec<u8> {
+        Sign1 {
+            protected: protected(),
+            payload: cose::encode(&self.claims.to_value()),
+            signature: self.signature.to_bytes().to_vec(),
+        }
+        .encode()
+    }
+
+    /// Decodes an AAT from its CWT encoding, rejecting anything but the canonical encoding. Does
+    /// not verify the signature.
+    ///
+    /// # Errors
+    /// [`AssertionError::InvalidEncoding`] on any other encoding, and the claim errors of
+    /// [`AuthenticatorMeta::unpack`] and [`AssertionError::ExpirationOutOfRange`].
+    pub fn from_cwt(cwt: &[u8]) -> Result<Self, AssertionError> {
+        let sign1 = Sign1::decode(cwt, AAT_CWT_LEN)?;
+        let claims = AatClaims::from_value(cose::decode(&sign1.payload, "AAT claims")?)?;
+        let signature = Signature::from_slice(&sign1.signature)
+            .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
+        let aat = Self { claims, signature };
+        // Also covers the protected header, which must be exactly `{1: -7}`.
+        if aat.to_cwt() != cwt {
+            return Err(AssertionError::InvalidEncoding("non-canonical CBOR"));
+        }
         Ok(aat)
     }
 
-    /// The CWT claims set in deterministic CBOR.
-    fn payload(&self) -> [u8; AAT_PAYLOAD_LEN] {
-        let mut out = [0u8; AAT_PAYLOAD_LEN];
-        // map(6), aud (3): bstr(8)
-        out[..3].copy_from_slice(&[0xa6, 0x03, 0x48]);
-        out[3..11].copy_from_slice(&self.aud.to_be_bytes());
-        // exp (4): uint32
-        out[11..13].copy_from_slice(&[0x04, 0x1a]);
-        out[13..17].copy_from_slice(&self.exp.to_be_bytes());
-        // nonce (10): bstr(32)
-        out[17..20].copy_from_slice(&[0x0a, 0x58, 0x20]);
-        out[20..52].copy_from_slice(&self.nonce.to_be_bytes());
-        // eat_profile (265): text(28)
-        out[52..57].copy_from_slice(&[0x19, 0x01, 0x09, 0x78, 0x1c]);
-        out[57..85].copy_from_slice(EAT_PROFILE_AAT.as_bytes());
-        // cdh (-80000): bstr(32)
-        out[85..92].copy_from_slice(&[0x3a, 0x00, 0x01, 0x38, 0x7f, 0x58, 0x20]);
-        out[92..124].copy_from_slice(&self.cdh.to_be_bytes());
-        // authenticator_meta (-80001): bstr(32)
-        out[124..131].copy_from_slice(&[0x3a, 0x00, 0x01, 0x38, 0x80, 0x58, 0x20]);
-        out[131..].copy_from_slice(&self.authenticator_meta.to_field_bytes());
-        out
+    /// Verifies the AAT under `assertion_key` and returns its claims.
+    ///
+    /// # Errors
+    /// [`TokenError::Signature`] if the signature does not verify.
+    pub fn verify(&self, assertion_key: &VerifyingKey) -> Result<&AatClaims, TokenError> {
+        let payload = cose::encode(&self.claims.to_value());
+        assertion_key
+            .verify(
+                &cose::sig_structure(&protected(), &payload),
+                &self.signature,
+            )
+            .map_err(|_| TokenError::Signature)?;
+        Ok(&self.claims)
     }
 }
 

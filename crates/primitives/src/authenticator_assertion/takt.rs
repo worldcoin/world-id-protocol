@@ -1,7 +1,12 @@
 //! The Trust Anchor Key Token (TAKT, WIP-106 §3.4): signed by the Authenticator Provider's
 //! `trust_anchor_key` over a Poseidon2 digest of its claims, attesting an `assertion_key`.
 
-use super::{AssertionError, MIN_EXP, TokenError, check_issuance, encode_sign1, open_sign1};
+use ciborium::Value;
+
+use super::{
+    AssertionError, MIN_EXP, TokenError, check_issuance,
+    cose::{self, Fields, Sign1},
+};
 use crate::{
     FieldElement,
     poseidon::{self, ds},
@@ -18,18 +23,17 @@ pub const MAX_SEC_META: u8 = 0xF;
 /// `eat_profile` claim value (RFC 9711 §4.3.2) of a TAKT.
 pub const EAT_PROFILE_TAKT: &str = "https://world.org/eat/takt/v1";
 
-/// Length in bytes of the TAKT claims set.
-const TAKT_PAYLOAD_LEN: usize = 133;
+/// Length in bytes of a TAKT's CWT encoding.
+const TAKT_CWT_LEN: usize = 247;
 
 /// COSE algorithm identifier for `BabyJubJub-EdDSA-Poseidon2` over a TAKT (WIP-106).
 pub const COSE_ALG_TAKT: i64 = -65537;
 
-/// Prefix of the TAKT protected header `{1: -65537, 4: kid}`, followed by the 32-byte `kid`.
-const TAKT_PROTECTED_PREFIX: [u8; 10] = [
-    0xa2, // map(2)
-    0x01, 0x3a, 0x00, 0x01, 0x00, 0x00, // alg (1): -65537
-    0x04, 0x58, 0x20, // kid (4): bstr(32)
-];
+/// CWT claim keys of a TAKT (RFC 8392, RFC 8747, RFC 9711, WIP-106).
+const CLAIM_EXP: i64 = 4;
+const CLAIM_CNF: i64 = 8;
+const CLAIM_EAT_PROFILE: i64 = 265;
+const CLAIM_SEC_FLAGS: i64 = -70_000;
 
 /// Platform of the Authenticator.
 ///
@@ -184,31 +188,49 @@ fn limbs(coordinate: &[u8]) -> [FieldElement; 2] {
     [half(0..16), half(16..32)]
 }
 
-/// Encodes a P-256 key as the EC2 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}`.
-fn cose_key(key: &VerifyingKey) -> [u8; 75] {
+/// The EC2 P-256 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}` of `key` (RFC 9053 §7.1).
+fn cose_key(key: &VerifyingKey) -> Value {
     let point = key.to_encoded_point(false);
-    let mut out = [0u8; 75];
-    // map(4), kty (1): EC2 (2), crv (-1): P-256 (1), x (-2): bstr(32)
-    out[..8].copy_from_slice(&[0xa4, 0x01, 0x02, 0x20, 0x01, 0x21, 0x58, 0x20]);
-    out[8..40].copy_from_slice(point.x().expect("uncompressed point"));
-    // y (-3): bstr(32)
-    out[40..43].copy_from_slice(&[0x22, 0x58, 0x20]);
-    out[43..].copy_from_slice(point.y().expect("uncompressed point"));
-    out
+    cose::map([
+        (1, cose::int(2)),
+        (-1, cose::int(1)),
+        (
+            -2,
+            Value::Bytes(point.x().expect("uncompressed point").to_vec()),
+        ),
+        (
+            -3,
+            Value::Bytes(point.y().expect("uncompressed point").to_vec()),
+        ),
+    ])
 }
 
-/// A Trust Anchor Key Token (TAKT, WIP-106 §3.4), before signing. `Debug` prints none of its
-/// values, as a verifier MUST keep the `assertion_key` and `exp` confidential.
+/// Reads an EC2 P-256 `COSE_Key`.
+fn assertion_key_from(value: Value) -> Result<VerifyingKey, AssertionError> {
+    let mut key = Fields::of(value, "assertion_key")?;
+    if key.uint::<u8>(1)? != 2 || key.uint::<u8>(-1)? != 1 {
+        return Err(AssertionError::InvalidEncoding("assertion_key"));
+    }
+    let x: [u8; 32] = key.bytes(-2)?;
+    let y: [u8; 32] = key.bytes(-3)?;
+    key.finish()?;
+    VerifyingKey::from_sec1_bytes(&[[0x04].as_slice(), &x, &y].concat())
+        .map_err(|_| AssertionError::InvalidEncoding("assertion_key"))
+}
+
+/// The claims of a Trust Anchor Key Token (TAKT, WIP-106 §3.4). `Debug` prints none of its values,
+/// as a verifier MUST keep the `assertion_key` and `exp` confidential.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct TrustAnchorKeyToken {
+pub struct TaktClaims {
     pub(super) exp: u32,
     pub(super) assertion_key: VerifyingKey,
     pub(super) sec_flags: SecFlags,
 }
 
-impl TrustAnchorKeyToken {
-    /// Creates a TAKT for issuance at `now` by a `trust_anchor_key` valid until `not_after`. The
-    /// caller MUST NOT attest the same `assertion_key` with differing `sec_flags` (WIP-106 §3.4).
+impl TaktClaims {
+    /// Creates TAKT claims for issuance at `now` by a `trust_anchor_key` valid until `not_after`.
+    /// The caller MUST NOT attest the same `assertion_key` with differing `sec_flags` (WIP-106
+    /// §3.4).
     ///
     /// # Errors
     /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_TAKT_LIFETIME_SECS`,
@@ -270,97 +292,157 @@ impl TrustAnchorKeyToken {
         )
     }
 
-    /// Signs the TAKT with the `trust_anchor_key` and returns its CWT encoding.
-    ///
-    /// # Errors
-    /// [`AssertionError::KeyEncoding`] if the signature or key can not be compressed.
-    pub fn sign(&self, trust_anchor_key: &EdDSAPrivateKey) -> Result<Vec<u8>, AssertionError> {
-        let key_encoding = |e: eyre::Report| AssertionError::KeyEncoding(e.to_string());
-        let signature = trust_anchor_key
-            .sign(*self.message_hash())
-            .to_compressed_bytes()
-            .map_err(key_encoding)?;
-        let kid = trust_anchor_key
-            .public()
-            .to_compressed_bytes()
-            .map_err(key_encoding)?;
-        Ok(encode_sign1(
-            &Self::protected(&kid),
-            &[0xa0],
-            &self.payload(),
-            &signature,
-        ))
+    /// The CWT claims set.
+    fn to_value(self) -> Value {
+        cose::map([
+            (CLAIM_EXP, Value::Integer(self.exp.into())),
+            (CLAIM_CNF, cose::map([(1, cose_key(&self.assertion_key))])),
+            (CLAIM_EAT_PROFILE, Value::Text(EAT_PROFILE_TAKT.into())),
+            (
+                CLAIM_SEC_FLAGS,
+                Value::Bytes(self.sec_flags.pack().to_be_bytes().to_vec()),
+            ),
+        ])
     }
 
-    /// Decodes a TAKT and verifies its signature under `trust_anchor_key`.
-    ///
-    /// # Errors
-    /// [`TokenError::Encoding`] on any encoding but the canonical one, including a protected
-    /// header whose `kid` is not that of `trust_anchor_key`; [`TokenError::Signature`] if the
-    /// signature does not verify.
-    pub fn verify(cwt: &[u8], trust_anchor_key: &EdDSAPublicKey) -> Result<Self, TokenError> {
-        let kid = trust_anchor_key
-            .to_compressed_bytes()
-            .map_err(|e| AssertionError::KeyEncoding(e.to_string()))?;
-        let (payload, signature) = open_sign1(cwt, &Self::protected(&kid), TAKT_PAYLOAD_LEN)?;
-        let exp = u32::from_be_bytes(payload[3..7].try_into().expect("4 bytes"));
-        let mut point = [0u8; 65];
-        // SEC1 uncompressed point tag
-        point[0] = 0x04;
-        point[1..33].copy_from_slice(&payload[18..50]);
-        point[33..].copy_from_slice(&payload[53..85]);
-        let assertion_key = VerifyingKey::from_sec1_bytes(&point)
-            .map_err(|_| AssertionError::InvalidEncoding("assertion_key"))?;
-        let sec_flags = SecFlags::unpack(u64::from_be_bytes(
-            payload[125..133].try_into().expect("8 bytes"),
-        ))?;
+    /// Reads the CWT claims set.
+    fn from_value(value: Value) -> Result<Self, AssertionError> {
+        let mut claims = Fields::of(value, "TAKT claims")?;
+        let exp: u32 = claims.uint(CLAIM_EXP)?;
+        let mut cnf = Fields::of(claims.take(CLAIM_CNF)?, "cnf")?;
+        let assertion_key = assertion_key_from(cnf.take(1)?)?;
+        cnf.finish()?;
+        claims.text(CLAIM_EAT_PROFILE, EAT_PROFILE_TAKT)?;
+        let sec_flags = SecFlags::unpack(u64::from_be_bytes(claims.bytes(CLAIM_SEC_FLAGS)?))?;
+        claims.finish()?;
         if exp < MIN_EXP {
-            return Err(AssertionError::ExpirationOutOfRange(exp).into());
+            return Err(AssertionError::ExpirationOutOfRange(exp));
         }
-        let takt = Self {
+        Ok(Self {
             exp,
             assertion_key,
             sec_flags,
-        };
-        if takt.payload() != payload {
-            return Err(AssertionError::InvalidEncoding("TAKT claims").into());
+        })
+    }
+}
+
+impl std::fmt::Debug for TaktClaims {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TaktClaims").finish_non_exhaustive()
+    }
+}
+
+/// A signed Trust Anchor Key Token (TAKT, WIP-106 §3.4). `Debug` prints none of its values.
+#[derive(Clone, PartialEq, Eq)]
+pub struct TrustAnchorKeyToken {
+    claims: TaktClaims,
+    kid: [u8; 32],
+    signature: [u8; 64],
+}
+
+impl TrustAnchorKeyToken {
+    /// Signs `claims` with the `trust_anchor_key`.
+    ///
+    /// # Errors
+    /// [`AssertionError::KeyEncoding`] if the signature or key can not be compressed.
+    pub fn sign(
+        claims: TaktClaims,
+        trust_anchor_key: &EdDSAPrivateKey,
+    ) -> Result<Self, AssertionError> {
+        let key_encoding = |e: eyre::Report| AssertionError::KeyEncoding(e.to_string());
+        Ok(Self {
+            claims,
+            kid: trust_anchor_key
+                .public()
+                .to_compressed_bytes()
+                .map_err(key_encoding)?,
+            signature: trust_anchor_key
+                .sign(*claims.message_hash())
+                .to_compressed_bytes()
+                .map_err(key_encoding)?,
+        })
+    }
+
+    /// The claims, unverified. Use [`Self::verify`] to check them.
+    #[must_use]
+    pub const fn claims(&self) -> &TaktClaims {
+        &self.claims
+    }
+
+    /// The `kid` of the `trust_anchor_key` that signed the TAKT, for picking the key to verify
+    /// under (e.g. during a key rotation).
+    #[must_use]
+    pub const fn kid(&self) -> [u8; 32] {
+        self.kid
+    }
+
+    /// The CWT encoding: protected header `{1: -65537, 4: kid}`, an empty unprotected header, the
+    /// claims set and the compressed EdDSA signature.
+    #[must_use]
+    pub fn to_cwt(&self) -> Vec<u8> {
+        Sign1 {
+            protected: cose::encode(&cose::map([
+                (1, cose::int(COSE_ALG_TAKT)),
+                (4, Value::Bytes(self.kid.to_vec())),
+            ])),
+            payload: cose::encode(&self.claims.to_value()),
+            signature: self.signature.to_vec(),
         }
-        // Canonical `s` and `R` are enforced by deserialization and `verify`.
-        let signature = EdDSASignature::from_compressed_bytes(signature)
+        .encode()
+    }
+
+    /// Decodes a TAKT from its CWT encoding, rejecting anything but the canonical encoding. Does
+    /// not verify the signature.
+    ///
+    /// # Errors
+    /// [`AssertionError::InvalidEncoding`] on any other encoding, and the claim errors of
+    /// [`SecFlags::unpack`] and [`AssertionError::ExpirationOutOfRange`].
+    pub fn from_cwt(cwt: &[u8]) -> Result<Self, AssertionError> {
+        let sign1 = Sign1::decode(cwt, TAKT_CWT_LEN)?;
+        let mut protected = Fields::of(
+            cose::decode(&sign1.protected, "protected header")?,
+            "protected header",
+        )?;
+        if protected.take(1)?.as_integer() != Some(COSE_ALG_TAKT.into()) {
+            return Err(AssertionError::InvalidEncoding("protected header"));
+        }
+        let kid: [u8; 32] = protected.bytes(4)?;
+        protected.finish()?;
+        let claims = TaktClaims::from_value(cose::decode(&sign1.payload, "TAKT claims")?)?;
+        let signature: [u8; 64] = sign1
+            .signature
+            .try_into()
             .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
-        if !trust_anchor_key.verify(*takt.message_hash(), &signature) {
-            return Err(TokenError::Signature);
+        // Canonical `s` and `R` are enforced by deserialization and `verify`.
+        EdDSASignature::from_compressed_bytes(signature)
+            .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
+        let takt = Self {
+            claims,
+            kid,
+            signature,
+        };
+        if takt.to_cwt() != cwt {
+            return Err(AssertionError::InvalidEncoding("non-canonical CBOR"));
         }
         Ok(takt)
     }
 
-    /// The protected header `{1: -65537, 4: kid}`. The EdDSA signature over `message` does not
-    /// cover these bytes; they are authenticated implicitly, as `alg` is fixed and `kid` must be
-    /// the key the signature verifies under.
-    fn protected(kid: &[u8; 32]) -> [u8; 42] {
-        let mut out = [0u8; 42];
-        out[..10].copy_from_slice(&TAKT_PROTECTED_PREFIX);
-        out[10..].copy_from_slice(kid);
-        out
-    }
-
-    /// The CWT claims set in deterministic CBOR.
-    fn payload(&self) -> [u8; TAKT_PAYLOAD_LEN] {
-        let mut out = [0u8; TAKT_PAYLOAD_LEN];
-        let key = cose_key(&self.assertion_key);
-        // map(4), exp (4): uint32
-        out[..3].copy_from_slice(&[0xa4, 0x04, 0x1a]);
-        out[3..7].copy_from_slice(&self.exp.to_be_bytes());
-        // cnf (8): map(1), COSE_Key (1)
-        out[7..10].copy_from_slice(&[0x08, 0xa1, 0x01]);
-        out[10..85].copy_from_slice(&key);
-        // eat_profile (265): text(29)
-        out[85..90].copy_from_slice(&[0x19, 0x01, 0x09, 0x78, 0x1d]);
-        out[90..119].copy_from_slice(EAT_PROFILE_TAKT.as_bytes());
-        // sec_flags (-70000): bstr(8)
-        out[119..125].copy_from_slice(&[0x3a, 0x00, 0x01, 0x11, 0x6f, 0x48]);
-        out[125..].copy_from_slice(&self.sec_flags.pack().to_be_bytes());
-        out
+    /// Verifies the TAKT under `trust_anchor_key` and returns its claims. The protected header is
+    /// authenticated implicitly (WIP-106 §3.4): `kid` must be the compressed `trust_anchor_key`.
+    ///
+    /// # Errors
+    /// [`TokenError::KidMismatch`] if `kid` is another key's; [`TokenError::Signature`] if the
+    /// signature does not verify.
+    pub fn verify(&self, trust_anchor_key: &EdDSAPublicKey) -> Result<&TaktClaims, TokenError> {
+        if trust_anchor_key.to_compressed_bytes().ok() != Some(self.kid) {
+            return Err(TokenError::KidMismatch);
+        }
+        let signature = EdDSASignature::from_compressed_bytes(self.signature)
+            .map_err(|_| TokenError::Signature)?;
+        if !trust_anchor_key.verify(*self.claims.message_hash(), &signature) {
+            return Err(TokenError::Signature);
+        }
+        Ok(&self.claims)
     }
 }
 
