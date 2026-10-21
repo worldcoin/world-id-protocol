@@ -189,23 +189,6 @@ fn limbs(coordinate: &[u8]) -> [FieldElement; 2] {
     [half(0..16), half(16..32)]
 }
 
-/// The EC2 P-256 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}` of `key` (RFC 9053 §7.1).
-fn cose_key(key: &VerifyingKey) -> Value {
-    let point = key.to_encoded_point(false);
-    Value::Map(vec![
-        (Value::from(1), Value::from(2)),
-        (Value::from(-1), Value::from(1)),
-        (
-            Value::from(-2),
-            Value::Bytes(point.x().expect("uncompressed point").to_vec()),
-        ),
-        (
-            Value::from(-3),
-            Value::Bytes(point.y().expect("uncompressed point").to_vec()),
-        ),
-    ])
-}
-
 /// Reads an EC2 P-256 `COSE_Key`.
 fn assertion_key_from(value: Value) -> Result<VerifyingKey, AssertionError> {
     let mut key = Fields::of(value, "assertion_key")?;
@@ -294,11 +277,25 @@ impl TaktClaims {
 
     /// The CWT claims set.
     fn to_value(self) -> Value {
+        let point = self.assertion_key.to_encoded_point(false);
+        // The EC2 P-256 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}` (RFC 9053 §7.1).
+        let cose_key = Value::Map(vec![
+            (Value::from(1), Value::from(2)),
+            (Value::from(-1), Value::from(1)),
+            (
+                Value::from(-2),
+                Value::Bytes(point.x().expect("uncompressed point").to_vec()),
+            ),
+            (
+                Value::from(-3),
+                Value::Bytes(point.y().expect("uncompressed point").to_vec()),
+            ),
+        ]);
         Value::Map(vec![
             (CLAIM_EXP.into(), Value::Integer(self.exp.into())),
             (
                 CLAIM_CNF.into(),
-                Value::Map(vec![(Value::from(1), cose_key(&self.assertion_key))]),
+                Value::Map(vec![(Value::from(1), cose_key)]),
             ),
             (
                 CLAIM_EAT_PROFILE.into(),
