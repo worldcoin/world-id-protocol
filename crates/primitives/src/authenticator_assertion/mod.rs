@@ -130,20 +130,20 @@ pub fn verify(
         return Err(VerificationError::KeyHashMismatch);
     }
     let (takt, aat) = private.verified_claims()?;
-    fresh(public.now, takt.exp, MAX_TAKT_LIFETIME_SECS).map_err(|expired| {
-        if expired {
-            VerificationError::TaktExpired
-        } else {
-            VerificationError::TaktLifetimeExceeded
-        }
-    })?;
-    fresh(public.now, aat.exp, MAX_AAT_LIFETIME_SECS).map_err(|expired| {
-        if expired {
-            VerificationError::AatExpired
-        } else {
-            VerificationError::AatLifetimeExceeded
-        }
-    })?;
+    check_freshness(
+        public.now,
+        takt.exp,
+        MAX_TAKT_LIFETIME_SECS,
+        VerificationError::TaktExpired,
+        VerificationError::TaktLifetimeExceeded,
+    )?;
+    check_freshness(
+        public.now,
+        aat.exp,
+        MAX_AAT_LIFETIME_SECS,
+        VerificationError::AatExpired,
+        VerificationError::AatLifetimeExceeded,
+    )?;
     if (aat.aud, aat.nonce, aat.cdh) != (public.aud, public.nonce, private.cdh) {
         return Err(VerificationError::RequestMismatch);
     }
@@ -173,13 +173,19 @@ const fn check_issuance(now: u32, exp: u32, max_lifetime: u32) -> Result<(), Ass
     Ok(())
 }
 
-/// Checks `now < exp` and `exp - now <= max_lifetime`.
-const fn fresh(now: u32, exp: u32, max_lifetime: u32) -> Result<(), bool> {
+/// Checks `now < exp` and `exp - now <= max_lifetime` at verification.
+fn check_freshness(
+    now: u32,
+    exp: u32,
+    max_lifetime: u32,
+    expired: VerificationError,
+    too_long: VerificationError,
+) -> Result<(), VerificationError> {
     if now >= exp {
-        return Err(true);
+        return Err(expired);
     }
     if exp - now > max_lifetime {
-        return Err(false);
+        return Err(too_long);
     }
     Ok(())
 }
