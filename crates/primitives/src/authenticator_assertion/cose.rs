@@ -11,7 +11,7 @@ use coset::{CborSerializable, CoseSign1, CoseSign1Builder, Header};
 use super::AssertionError;
 
 /// Encodes `value` in deterministic CBOR.
-pub(super) fn encode(value: &Value) -> Vec<u8> {
+pub(super) fn to_cbor(value: &Value) -> Vec<u8> {
     let mut out = Vec::new();
     ciborium::into_writer(value, &mut out).expect("writing to a Vec does not fail");
     out

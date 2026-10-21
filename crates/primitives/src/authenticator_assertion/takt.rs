@@ -391,7 +391,7 @@ impl TrustAnchorKeyToken {
         };
         cose::encode_sign1(
             protected,
-            cose::encode(&self.claims.to_value()),
+            cose::to_cbor(&self.claims.to_value()),
             self.signature.to_vec(),
         )
     }

@@ -254,7 +254,7 @@ impl AatClaims {
             },
             None,
             b"",
-            &cose::encode(&self.to_value()),
+            &cose::to_cbor(&self.to_value()),
         )
     }
 
@@ -318,7 +318,7 @@ impl AuthenticatorAssertionToken {
     pub fn to_cwt(&self) -> Vec<u8> {
         cose::encode_sign1(
             protected(),
-            cose::encode(&self.claims.to_value()),
+            cose::to_cbor(&self.claims.to_value()),
             self.signature.to_bytes().to_vec(),
         )
     }
