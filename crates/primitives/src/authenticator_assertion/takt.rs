@@ -5,7 +5,7 @@ use ciborium::Value;
 use coset::{Algorithm, Header};
 
 use super::{
-    AssertionError, MIN_EXP, TokenError, check_issuance,
+    AuthenticatorAssertionError, MIN_EXP, Token, check_issuance,
     cose::{self, Fields},
 };
 use crate::{
@@ -99,15 +99,15 @@ impl SecFlags {
     /// to allowlist.
     ///
     /// # Errors
-    /// [`AssertionError::SecMetaTooLarge`] if `sec_meta` carries more than 4 bits.
+    /// [`AuthenticatorAssertionError::InvalidField`] if `sec_meta` carries more than 4 bits.
     pub const fn new(
         platform: u8,
         sec_level: u8,
         build_version: u32,
         sec_meta: u8,
-    ) -> Result<Self, AssertionError> {
+    ) -> Result<Self, AuthenticatorAssertionError> {
         if sec_meta > MAX_SEC_META {
-            return Err(AssertionError::SecMetaTooLarge(sec_meta));
+            return Err(AuthenticatorAssertionError::InvalidField("sec_meta"));
         }
         Ok(Self {
             platform,
@@ -144,10 +144,10 @@ impl SecFlags {
     /// Unpacks `sec_flags`.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidSecFlags`] if bits 52 and above are set.
-    pub const fn unpack(packed: u64) -> Result<Self, AssertionError> {
+    /// [`AuthenticatorAssertionError::InvalidField`] if bits 52 and above are set.
+    pub const fn unpack(packed: u64) -> Result<Self, AuthenticatorAssertionError> {
         if packed >> 52 != 0 {
-            return Err(AssertionError::InvalidSecFlags);
+            return Err(AuthenticatorAssertionError::InvalidField("sec_flags"));
         }
         let [_, top, v3, v2, v1, v0, sec_level, platform] = packed.to_be_bytes();
         Ok(Self {
@@ -194,19 +194,19 @@ impl TaktClaims {
     /// §3.4).
     ///
     /// # Errors
-    /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_TAKT_LIFETIME_SECS`,
-    /// [`AssertionError::ExpirationAfterKeyValidity`] if `exp > not_after`, and
-    /// [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
+    /// [`AuthenticatorAssertionError::Expired`] if `exp <= now`, [`AuthenticatorAssertionError::LifetimeExceeded`] if
+    /// `exp > now + MAX_TAKT_LIFETIME_SECS` or `exp > not_after`, and [`AuthenticatorAssertionError::InvalidField`] if
+    /// `exp < 2^16`.
     pub fn new(
         now: u32,
         exp: u32,
         not_after: u32,
         assertion_key: VerifyingKey,
         sec_flags: SecFlags,
-    ) -> Result<Self, AssertionError> {
-        check_issuance(now, exp, MAX_TAKT_LIFETIME_SECS)?;
+    ) -> Result<Self, AuthenticatorAssertionError> {
+        check_issuance(now, exp, MAX_TAKT_LIFETIME_SECS, Token::Takt)?;
         if exp > not_after {
-            return Err(AssertionError::ExpirationAfterKeyValidity { exp, not_after });
+            return Err(AuthenticatorAssertionError::LifetimeExceeded(Token::Takt));
         }
         Ok(Self {
             exp,
@@ -287,23 +287,25 @@ impl TaktClaims {
     }
 
     /// Reads the CWT claims set.
-    fn from_value(value: Value) -> Result<Self, AssertionError> {
+    fn from_value(value: Value) -> Result<Self, AuthenticatorAssertionError> {
         let mut claims = Fields::of(value, "TAKT claims")?;
         let exp: u32 = claims.uint(CLAIM_EXP)?;
         let mut cnf = Fields::of(claims.take(CLAIM_CNF)?, "cnf")?;
         // The EC2 P-256 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}`.
         let mut key = Fields::of(cnf.take(1)?, "assertion_key")?;
         if key.uint::<u8>(1)? != 2 || key.uint::<u8>(-1)? != 1 {
-            return Err(AssertionError::InvalidEncoding("assertion_key"));
+            return Err(AuthenticatorAssertionError::InvalidEncoding(
+                "assertion_key",
+            ));
         }
         let x: [u8; 32] = key.bytes(-2)?;
         let y: [u8; 32] = key.bytes(-3)?;
         let assertion_key = VerifyingKey::from_sec1_bytes(&[[0x04].as_slice(), &x, &y].concat())
-            .map_err(|_| AssertionError::InvalidEncoding("assertion_key"))?;
+            .map_err(|_| AuthenticatorAssertionError::InvalidEncoding("assertion_key"))?;
         claims.text(CLAIM_EAT_PROFILE, EAT_PROFILE_TAKT)?;
         let sec_flags = SecFlags::unpack(u64::from_be_bytes(claims.bytes(CLAIM_SEC_FLAGS)?))?;
         if exp < MIN_EXP {
-            return Err(AssertionError::ExpirationOutOfRange(exp));
+            return Err(AuthenticatorAssertionError::InvalidField("exp"));
         }
         Ok(Self {
             exp,
@@ -331,22 +333,21 @@ impl TrustAnchorKeyToken {
     /// Signs `claims` with the `trust_anchor_key`.
     ///
     /// # Errors
-    /// [`AssertionError::KeyEncoding`] if the signature or key can not be compressed.
+    /// [`AuthenticatorAssertionError::InvalidEncoding`] if the signature or key can not be compressed.
     pub fn sign(
         claims: TaktClaims,
         trust_anchor_key: &EdDSAPrivateKey,
-    ) -> Result<Self, AssertionError> {
-        let key_encoding = |e: eyre::Report| AssertionError::KeyEncoding(e.to_string());
+    ) -> Result<Self, AuthenticatorAssertionError> {
         Ok(Self {
             claims,
             kid: trust_anchor_key
                 .public()
                 .to_compressed_bytes()
-                .map_err(key_encoding)?,
+                .map_err(|_| AuthenticatorAssertionError::InvalidEncoding("trust_anchor_key"))?,
             signature: trust_anchor_key
                 .sign(*claims.message_hash())
                 .to_compressed_bytes()
-                .map_err(key_encoding)?,
+                .map_err(|_| AuthenticatorAssertionError::InvalidEncoding("signature"))?,
         })
     }
 
@@ -383,32 +384,36 @@ impl TrustAnchorKeyToken {
     /// not verify the signature.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidEncoding`] on any other encoding, and the claim errors of
-    /// [`SecFlags::unpack`] and [`AssertionError::ExpirationOutOfRange`].
-    pub fn from_cwt(cwt: &[u8]) -> Result<Self, AssertionError> {
+    /// [`AuthenticatorAssertionError::InvalidEncoding`] on any other encoding, and [`AuthenticatorAssertionError::InvalidField`] for an
+    /// out-of-range claim.
+    pub fn from_cwt(cwt: &[u8]) -> Result<Self, AuthenticatorAssertionError> {
         let (protected, payload, signature) = cose::decode_sign1(cwt, TAKT_CWT_LEN)?;
         if protected.alg != Some(Algorithm::PrivateUse(COSE_ALG_TAKT)) {
-            return Err(AssertionError::InvalidEncoding("protected header"));
+            return Err(AuthenticatorAssertionError::InvalidEncoding(
+                "protected header",
+            ));
         }
         // Other header parameters are rejected by the re-encoding check below.
         let kid: [u8; 32] = protected
             .key_id
             .try_into()
-            .map_err(|_| AssertionError::InvalidEncoding("protected header"))?;
+            .map_err(|_| AuthenticatorAssertionError::InvalidEncoding("protected header"))?;
         let claims = TaktClaims::from_value(payload)?;
         let signature: [u8; 64] = signature
             .try_into()
-            .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
+            .map_err(|_| AuthenticatorAssertionError::InvalidEncoding("signature"))?;
         // Canonical `s` and `R` are enforced by deserialization and `verify`.
         EdDSASignature::from_compressed_bytes(signature)
-            .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
+            .map_err(|_| AuthenticatorAssertionError::InvalidEncoding("signature"))?;
         let takt = Self {
             claims,
             kid,
             signature,
         };
         if takt.to_cwt() != cwt {
-            return Err(AssertionError::InvalidEncoding("non-canonical CBOR"));
+            return Err(AuthenticatorAssertionError::InvalidEncoding(
+                "non-canonical CBOR",
+            ));
         }
         Ok(takt)
     }
@@ -417,16 +422,19 @@ impl TrustAnchorKeyToken {
     /// authenticated implicitly (WIP-106 §3.4): `kid` must be the compressed `trust_anchor_key`.
     ///
     /// # Errors
-    /// [`TokenError::KidMismatch`] if `kid` is another key's; [`TokenError::Signature`] if the
+    /// [`AuthenticatorAssertionError::KeyMismatch`] if `kid` is another key's; [`AuthenticatorAssertionError::InvalidSignature`] if the
     /// signature does not verify.
-    pub fn verify(&self, trust_anchor_key: &EdDSAPublicKey) -> Result<&TaktClaims, TokenError> {
+    pub fn verify(
+        &self,
+        trust_anchor_key: &EdDSAPublicKey,
+    ) -> Result<&TaktClaims, AuthenticatorAssertionError> {
         if trust_anchor_key.to_compressed_bytes().ok() != Some(self.kid) {
-            return Err(TokenError::KidMismatch);
+            return Err(AuthenticatorAssertionError::KeyMismatch);
         }
         let signature = EdDSASignature::from_compressed_bytes(self.signature)
-            .map_err(|_| TokenError::Signature)?;
+            .map_err(|_| AuthenticatorAssertionError::InvalidSignature(Token::Takt))?;
         if !trust_anchor_key.verify(*self.claims.message_hash(), &signature) {
-            return Err(TokenError::Signature);
+            return Err(AuthenticatorAssertionError::InvalidSignature(Token::Takt));
         }
         Ok(&self.claims)
     }

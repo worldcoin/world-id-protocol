@@ -99,80 +99,67 @@ impl AuthenticatorAssertionPrivateInputs {
 /// `verify_assertion`.
 ///
 /// # Errors
-/// [`VerificationError`] for the first failing check.
+/// [`AuthenticatorAssertionError`] for the first failing check.
 pub fn verify(
     public: &AuthenticatorAssertionPublicInputs,
     private: &AuthenticatorAssertionPrivateInputs,
-) -> Result<(), VerificationError> {
+) -> Result<(), AuthenticatorAssertionError> {
     if public.nonce == FieldElement::ZERO {
-        return Err(VerificationError::ZeroNonce);
+        return Err(AuthenticatorAssertionError::InvalidField("nonce"));
     }
     if trust_anchor_key_hash(&private.trust_anchor_key) != public.trust_anchor_key_hash {
-        return Err(VerificationError::KeyHashMismatch);
+        return Err(AuthenticatorAssertionError::KeyMismatch);
     }
-    let takt = private
-        .takt
-        .verify(&private.trust_anchor_key)
-        .map_err(VerificationError::Takt)?;
-    let aat = private
-        .aat
-        .verify(takt.assertion_key())
-        .map_err(VerificationError::Aat)?;
-    check_lifetime(
-        public.now,
-        takt.exp,
-        MAX_TAKT_LIFETIME_SECS,
-        VerificationError::TaktExpired,
-        VerificationError::TaktLifetimeExceeded,
-    )?;
-    check_lifetime(
-        public.now,
-        aat.exp,
-        MAX_AAT_LIFETIME_SECS,
-        VerificationError::AatExpired,
-        VerificationError::AatLifetimeExceeded,
-    )?;
+    let takt = private.takt.verify(&private.trust_anchor_key)?;
+    let aat = private.aat.verify(takt.assertion_key())?;
+    check_lifetime(public.now, takt.exp, MAX_TAKT_LIFETIME_SECS, Token::Takt)?;
+    check_lifetime(public.now, aat.exp, MAX_AAT_LIFETIME_SECS, Token::Aat)?;
     if (aat.aud, aat.nonce, aat.cdh) != (public.aud, public.nonce, private.cdh) {
-        return Err(VerificationError::RequestMismatch);
+        return Err(AuthenticatorAssertionError::Mismatch("request"));
     }
     let flags = takt.sec_flags;
     if (flags.platform, flags.sec_level, flags.sec_meta)
         != (public.platform, public.sec_level, public.sec_meta)
     {
-        return Err(VerificationError::SecFlagsMismatch);
+        return Err(AuthenticatorAssertionError::Mismatch("sec_flags"));
     }
     if aat.authenticator_meta != public.authenticator_meta {
-        return Err(VerificationError::AuthenticatorMetaMismatch);
+        return Err(AuthenticatorAssertionError::Mismatch("authenticator_meta"));
     }
     if flags.build_version < public.min_build_version {
-        return Err(VerificationError::BuildVersionBelowMinimum);
+        return Err(AuthenticatorAssertionError::BuildVersionBelowMinimum);
     }
     Ok(())
 }
 
 /// Checks `now < exp <= now + max_lifetime` at issuance, and the fixed `exp` encoding.
-fn check_issuance(now: u32, exp: u32, max_lifetime: u32) -> Result<(), AssertionError> {
-    let out_of_range = || AssertionError::LifetimeOutOfRange { now, exp };
-    check_lifetime(now, exp, max_lifetime, out_of_range(), out_of_range())?;
+const fn check_issuance(
+    now: u32,
+    exp: u32,
+    max_lifetime: u32,
+    token: Token,
+) -> Result<(), AuthenticatorAssertionError> {
+    if let Err(e) = check_lifetime(now, exp, max_lifetime, token) {
+        return Err(e);
+    }
     if exp < MIN_EXP {
-        return Err(AssertionError::ExpirationOutOfRange(exp));
+        return Err(AuthenticatorAssertionError::InvalidField("exp"));
     }
     Ok(())
 }
 
-/// Checks `now < exp <= now + max_lifetime`, failing with `expired` or `too_long`.
-fn check_lifetime<E>(
+/// Checks `now < exp <= now + max_lifetime`.
+const fn check_lifetime(
     now: u32,
     exp: u32,
     max_lifetime: u32,
-    expired: E,
-    too_long: E,
-) -> Result<(), E> {
+    token: Token,
+) -> Result<(), AuthenticatorAssertionError> {
     if now >= exp {
-        return Err(expired);
+        return Err(AuthenticatorAssertionError::Expired(token));
     }
     if exp - now > max_lifetime {
-        return Err(too_long);
+        return Err(AuthenticatorAssertionError::LifetimeExceeded(token));
     }
     Ok(())
 }

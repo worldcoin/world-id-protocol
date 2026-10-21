@@ -147,11 +147,12 @@ fn high_s_signatures_verify() {
 
 #[test]
 fn verify_rejects_each_check() {
-    use VerificationError::*;
+    use AuthenticatorAssertionError::*;
     let (public, private) = inputs();
-    let check = |p: AuthenticatorAssertionPublicInputs,
-                 s: &AuthenticatorAssertionPrivateInputs,
-                 err: VerificationError| assert_eq!(verify(&p, s), Err(err));
+    let check =
+        |p: AuthenticatorAssertionPublicInputs,
+         s: &AuthenticatorAssertionPrivateInputs,
+         err: AuthenticatorAssertionError| assert_eq!(verify(&p, s), Err(err));
     let with_public = |f: &dyn Fn(&mut AuthenticatorAssertionPublicInputs)| {
         let mut p = public;
         f(&mut p);
@@ -161,7 +162,7 @@ fn verify_rejects_each_check() {
     check(
         with_public(&|p| p.nonce = FieldElement::ZERO),
         &private,
-        ZeroNonce,
+        InvalidField("nonce"),
     );
 
     // A key that did not sign the TAKT, with or without its hash as the public input.
@@ -170,11 +171,11 @@ fn verify_rejects_each_check() {
         trust_anchor_key: other_key.clone(),
         ..private.clone()
     };
-    check(public, &with_other_key, KeyHashMismatch);
+    check(public, &with_other_key, KeyMismatch);
     check(
         with_public(&|p| p.trust_anchor_key_hash = trust_anchor_key_hash(&other_key)),
         &with_other_key,
-        Takt(TokenError::KidMismatch),
+        KeyMismatch,
     );
     // With the other key's `kid`, the failure comes from the signature check.
     let mut cwt = takt_cwt();
@@ -183,14 +184,14 @@ fn verify_rejects_each_check() {
     check(
         with_public(&|p| p.trust_anchor_key_hash = trust_anchor_key_hash(&other_key)),
         &with_other_key,
-        Takt(TokenError::Signature),
+        InvalidSignature(Token::Takt),
     );
     // A tampered `exp` byte changes the signed message.
     let mut forged = private.clone();
     let mut cwt = takt_cwt();
     cwt[TAKT_PAYLOAD + 6] ^= 1;
     forged.takt = TrustAnchorKeyToken::from_cwt(&cwt).unwrap();
-    check(public, &forged, Takt(TokenError::Signature));
+    check(public, &forged, InvalidSignature(Token::Takt));
 
     // An AAT signed by a key the TAKT does not attest.
     let mut unattested = private.clone();
@@ -198,14 +199,18 @@ fn verify_rejects_each_check() {
         aat(),
         &SigningKey::from_bytes(&[0x08; 32].into()).unwrap(),
     );
-    check(public, &unattested, Aat(TokenError::Signature));
+    check(public, &unattested, InvalidSignature(Token::Aat));
 
     // Freshness, at both boundaries of both tokens.
-    check(with_public(&|p| p.now = AAT_EXP), &private, AatExpired);
+    check(
+        with_public(&|p| p.now = AAT_EXP),
+        &private,
+        Expired(Token::Aat),
+    );
     check(
         with_public(&|p| p.now = AAT_EXP - MAX_AAT_LIFETIME_SECS - 1),
         &private,
-        AatLifetimeExceeded,
+        LifetimeExceeded(Token::Aat),
     );
     assert_eq!(
         verify(
@@ -214,7 +219,11 @@ fn verify_rejects_each_check() {
         ),
         Ok(())
     );
-    check(with_public(&|p| p.now = TAKT_EXP), &private, TaktExpired);
+    check(
+        with_public(&|p| p.now = TAKT_EXP),
+        &private,
+        Expired(Token::Takt),
+    );
     let long_takt = AuthenticatorAssertionPrivateInputs {
         takt: TrustAnchorKeyToken::sign(
             TaktClaims {
@@ -226,35 +235,47 @@ fn verify_rejects_each_check() {
         .unwrap(),
         ..private.clone()
     };
-    check(public, &long_takt, TaktLifetimeExceeded);
+    check(public, &long_takt, LifetimeExceeded(Token::Takt));
 
     // Request binding.
-    check(with_public(&|p| p.aud = AUD + 1), &private, RequestMismatch);
+    check(
+        with_public(&|p| p.aud = AUD + 1),
+        &private,
+        Mismatch("request"),
+    );
     check(
         with_public(&|p| p.nonce = 43u64.into()),
         &private,
-        RequestMismatch,
+        Mismatch("request"),
     );
     let wrong_cdh = AuthenticatorAssertionPrivateInputs {
         cdh: FieldElement::ONE,
         ..private.clone()
     };
-    check(public, &wrong_cdh, RequestMismatch);
+    check(public, &wrong_cdh, Mismatch("request"));
 
     // Public flags must equal the signed ones.
-    check(with_public(&|p| p.platform = 4), &private, SecFlagsMismatch);
+    check(
+        with_public(&|p| p.platform = 4),
+        &private,
+        Mismatch("sec_flags"),
+    );
     check(
         with_public(&|p| p.sec_level = 3),
         &private,
-        SecFlagsMismatch,
+        Mismatch("sec_flags"),
     );
-    check(with_public(&|p| p.sec_meta = 1), &private, SecFlagsMismatch);
+    check(
+        with_public(&|p| p.sec_meta = 1),
+        &private,
+        Mismatch("sec_flags"),
+    );
     check(
         with_public(&|p| {
             p.authenticator_meta = AuthenticatorMeta::new(UserPresence::PresentVerified, 0).unwrap()
         }),
         &private,
-        AuthenticatorMetaMismatch,
+        Mismatch("authenticator_meta"),
     );
     check(
         with_public(&|p| p.min_build_version = 2007),
@@ -277,11 +298,11 @@ fn non_canonical_encodings_rejected() {
     trailing.push(0);
     assert_eq!(
         decode_aat(&trailing).unwrap_err(),
-        AssertionError::InvalidEncoding("length")
+        AuthenticatorAssertionError::InvalidEncoding("length")
     );
     assert_eq!(
         decode_aat(&aat_cwt[..aat_cwt.len() - 1]).unwrap_err(),
-        AssertionError::InvalidEncoding("length")
+        AuthenticatorAssertionError::InvalidEncoding("length")
     );
 
     // A non-empty unprotected header.
@@ -289,7 +310,7 @@ fn non_canonical_encodings_rejected() {
     unprotected[5] = 0xa1;
     assert!(matches!(
         decode_aat(&unprotected),
-        Err(AssertionError::InvalidEncoding(_))
+        Err(AuthenticatorAssertionError::InvalidEncoding(_))
     ));
 
     // `nonce` not less than the field order.
@@ -297,7 +318,7 @@ fn non_canonical_encodings_rejected() {
     nonce[aat_payload + 20..aat_payload + 52].fill(0xff);
     assert_eq!(
         decode_aat(&nonce).unwrap_err(),
-        (AssertionError::InvalidEncoding("non-canonical nonce"))
+        (AuthenticatorAssertionError::InvalidEncoding("non-canonical nonce"))
     );
 
     // Reserved `user_presence`, reserved `authenticator_meta` bits.
@@ -305,14 +326,14 @@ fn non_canonical_encodings_rejected() {
     presence[aat_payload + 162] = 5;
     assert_eq!(
         decode_aat(&presence).unwrap_err(),
-        (AssertionError::ReservedPresence(5))
+        (AuthenticatorAssertionError::InvalidField("user_presence"))
     );
     for (index, value) in [(162, 0x20), (131, 0x01)] {
         let mut reserved = aat_cwt.clone();
         reserved[aat_payload + index] = value;
         assert_eq!(
             decode_aat(&reserved).unwrap_err(),
-            (AssertionError::InvalidAuthenticatorMeta)
+            (AuthenticatorAssertionError::InvalidField("authenticator_meta"))
         );
     }
 
@@ -321,7 +342,7 @@ fn non_canonical_encodings_rejected() {
     exp[aat_payload + 13..aat_payload + 17].copy_from_slice(&0xffffu32.to_be_bytes());
     assert_eq!(
         decode_aat(&exp).unwrap_err(),
-        (AssertionError::ExpirationOutOfRange(0xffff))
+        (AuthenticatorAssertionError::InvalidField("exp"))
     );
 
     // A different `eat_profile` byte.
@@ -329,7 +350,7 @@ fn non_canonical_encodings_rejected() {
     profile[aat_payload + 60] ^= 1;
     assert_eq!(
         decode_aat(&profile).unwrap_err(),
-        (AssertionError::InvalidEncoding("AAT claims"))
+        (AuthenticatorAssertionError::InvalidEncoding("AAT claims"))
     );
 
     // A TAKT whose `kid` is not that of the verifying key.
@@ -339,7 +360,7 @@ fn non_canonical_encodings_rejected() {
         TrustAnchorKeyToken::from_cwt(&other_kid)
             .unwrap()
             .verify(&takt_key),
-        Err(TokenError::KidMismatch)
+        Err(AuthenticatorAssertionError::KeyMismatch)
     );
 
     // TAKT `sec_flags` bit 52.
@@ -347,7 +368,7 @@ fn non_canonical_encodings_rejected() {
     flags[TAKT_PAYLOAD + 126] |= 0x10;
     assert_eq!(
         TrustAnchorKeyToken::from_cwt(&flags).unwrap_err(),
-        (AssertionError::InvalidSecFlags)
+        (AuthenticatorAssertionError::InvalidField("sec_flags"))
     );
 
     // TAKT `cnf` key not on the curve.
@@ -355,7 +376,7 @@ fn non_canonical_encodings_rejected() {
     key[TAKT_PAYLOAD + 18] ^= 1;
     assert_eq!(
         TrustAnchorKeyToken::from_cwt(&key).unwrap_err(),
-        (AssertionError::InvalidEncoding("assertion_key"))
+        (AuthenticatorAssertionError::InvalidEncoding("assertion_key"))
     );
 
     // Extra and duplicate map entries.
@@ -413,7 +434,11 @@ fn issuance_enforces_lifetimes() {
     for exp in [NOW, NOW - 1, NOW + MAX_TAKT_LIFETIME_SECS + 1] {
         assert_eq!(
             TaktClaims::new(NOW, exp, u32::MAX, key, sec_flags()),
-            Err(AssertionError::LifetimeOutOfRange { now: NOW, exp })
+            Err(if exp <= NOW {
+                AuthenticatorAssertionError::Expired(Token::Takt)
+            } else {
+                AuthenticatorAssertionError::LifetimeExceeded(Token::Takt)
+            })
         );
     }
     assert!(
@@ -429,10 +454,7 @@ fn issuance_enforces_lifetimes() {
     // A TAKT can not outlive the key that signs it; `exp == not_after` is allowed.
     assert_eq!(
         TaktClaims::new(NOW, TAKT_EXP, TAKT_EXP - 1, key, sec_flags()),
-        Err(AssertionError::ExpirationAfterKeyValidity {
-            exp: TAKT_EXP,
-            not_after: TAKT_EXP - 1
-        })
+        Err(AuthenticatorAssertionError::LifetimeExceeded(Token::Takt))
     );
     assert!(TaktClaims::new(NOW, TAKT_EXP, TAKT_EXP, key, sec_flags()).is_ok());
     let aat_at = |exp| {
@@ -445,10 +467,10 @@ fn issuance_enforces_lifetimes() {
             AuthenticatorMeta::new(UserPresence::Undetermined, 0).unwrap(),
         )
     };
-    assert!(matches!(
+    assert_eq!(
         aat_at(NOW + MAX_AAT_LIFETIME_SECS + 1),
-        Err(AssertionError::LifetimeOutOfRange { .. })
-    ));
+        Err(AuthenticatorAssertionError::LifetimeExceeded(Token::Aat))
+    );
     assert!(aat_at(NOW + MAX_AAT_LIFETIME_SECS).is_ok());
     assert_eq!(
         AatClaims::new(
@@ -459,7 +481,7 @@ fn issuance_enforces_lifetimes() {
             FieldElement::ZERO,
             AuthenticatorMeta::new(UserPresence::Undetermined, 0).unwrap()
         ),
-        Err(AssertionError::ExpirationOutOfRange(0xffff))
+        Err(AuthenticatorAssertionError::InvalidField("exp"))
     );
 }
 
@@ -467,12 +489,12 @@ fn issuance_enforces_lifetimes() {
 fn sec_flags_pack_and_unpack() {
     assert_eq!(
         SecFlags::new(2, 1, 2006, 0x10),
-        Err(AssertionError::SecMetaTooLarge(0x10))
+        Err(AuthenticatorAssertionError::InvalidField("sec_meta"))
     );
     assert_eq!(SecFlags::unpack(sec_flags().pack()), Ok(sec_flags()));
     assert_eq!(
         SecFlags::unpack(1 << 52),
-        Err(AssertionError::InvalidSecFlags)
+        Err(AuthenticatorAssertionError::InvalidField("sec_flags"))
     );
     // Unknown identifiers pass through for the RP to allowlist.
     let unknown = SecFlags::unpack(0x0000_0000_07d6_0203).unwrap();
@@ -488,11 +510,11 @@ fn presence_round_trips_through_u8() {
     assert_eq!(AuthenticatorMeta::unpack(10), Ok(meta()));
     assert_eq!(
         AuthenticatorMeta::new(UserPresence::Undetermined, 4),
-        Err(AssertionError::ProviderBitsTooLarge(4))
+        Err(AuthenticatorAssertionError::InvalidField("provider_bits"))
     );
     assert_eq!(
         UserPresence::try_from(5),
-        Err(AssertionError::ReservedPresence(5))
+        Err(AuthenticatorAssertionError::InvalidField("user_presence"))
     );
 }
 

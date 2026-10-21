@@ -4,7 +4,7 @@
 use ciborium::Value;
 
 use super::{
-    AssertionError, MIN_EXP, TokenError, check_issuance,
+    AuthenticatorAssertionError, MIN_EXP, Token, check_issuance,
     cose::{self, Fields},
 };
 use crate::FieldElement;
@@ -58,7 +58,7 @@ impl From<UserPresence> for u8 {
 }
 
 impl TryFrom<u8> for UserPresence {
-    type Error = AssertionError;
+    type Error = AuthenticatorAssertionError;
 
     fn try_from(value: u8) -> Result<Self, Self::Error> {
         match value {
@@ -67,7 +67,7 @@ impl TryFrom<u8> for UserPresence {
             2 => Ok(Self::PresentVerified),
             3 => Ok(Self::PresentWithin30Days),
             4 => Ok(Self::PresentWithin7Days),
-            _ => Err(AssertionError::ReservedPresence(value)),
+            _ => Err(AuthenticatorAssertionError::InvalidField("user_presence")),
         }
     }
 }
@@ -84,13 +84,13 @@ impl AuthenticatorMeta {
     /// Creates `authenticator_meta`.
     ///
     /// # Errors
-    /// [`AssertionError::ProviderBitsTooLarge`] if `provider_bits` carries more than 2 bits.
+    /// [`AuthenticatorAssertionError::InvalidField`] if `provider_bits` carries more than 2 bits.
     pub const fn new(
         user_presence: UserPresence,
         provider_bits: u8,
-    ) -> Result<Self, AssertionError> {
+    ) -> Result<Self, AuthenticatorAssertionError> {
         if provider_bits > MAX_PROVIDER_BITS {
-            return Err(AssertionError::ProviderBitsTooLarge(provider_bits));
+            return Err(AuthenticatorAssertionError::InvalidField("provider_bits"));
         }
         Ok(Self {
             user_presence,
@@ -119,11 +119,12 @@ impl AuthenticatorMeta {
     /// Unpacks `authenticator_meta`.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidAuthenticatorMeta`] if bits 5 and above are set, and
-    /// [`AssertionError::ReservedPresence`] for a reserved user presence.
-    pub fn unpack(packed: u8) -> Result<Self, AssertionError> {
+    /// [`AuthenticatorAssertionError::InvalidField`] if bits 5 and above are set or `user_presence` is reserved.
+    pub fn unpack(packed: u8) -> Result<Self, AuthenticatorAssertionError> {
         if packed >> 5 != 0 {
-            return Err(AssertionError::InvalidAuthenticatorMeta);
+            return Err(AuthenticatorAssertionError::InvalidField(
+                "authenticator_meta",
+            ));
         }
         Ok(Self {
             user_presence: UserPresence::try_from(packed & 0x7)?,
@@ -147,8 +148,8 @@ impl AatClaims {
     /// Creates AAT claims for issuance at `now`.
     ///
     /// # Errors
-    /// [`AssertionError::LifetimeOutOfRange`] unless `now < exp <= now + MAX_AAT_LIFETIME_SECS`,
-    /// and [`AssertionError::ExpirationOutOfRange`] if `exp < 2^16`.
+    /// [`AuthenticatorAssertionError::Expired`] if `exp <= now`, [`AuthenticatorAssertionError::LifetimeExceeded`] if
+    /// `exp > now + MAX_AAT_LIFETIME_SECS`, and [`AuthenticatorAssertionError::InvalidField`] if `exp < 2^16`.
     pub fn new(
         now: u32,
         aud: u64,
@@ -156,8 +157,8 @@ impl AatClaims {
         nonce: FieldElement,
         cdh: FieldElement,
         authenticator_meta: AuthenticatorMeta,
-    ) -> Result<Self, AssertionError> {
-        check_issuance(now, exp, MAX_AAT_LIFETIME_SECS)?;
+    ) -> Result<Self, AuthenticatorAssertionError> {
+        check_issuance(now, exp, MAX_AAT_LIFETIME_SECS, Token::Aat)?;
         Ok(Self {
             aud,
             exp,
@@ -240,7 +241,7 @@ impl AatClaims {
     }
 
     /// Reads the CWT claims set.
-    fn from_value(value: Value) -> Result<Self, AssertionError> {
+    fn from_value(value: Value) -> Result<Self, AuthenticatorAssertionError> {
         let mut claims = Fields::of(value, "AAT claims")?;
         let aud = u64::from_be_bytes(claims.bytes(CLAIM_AUD)?);
         let exp: u32 = claims.uint(CLAIM_EXP)?;
@@ -250,11 +251,13 @@ impl AatClaims {
         let meta: [u8; 32] = claims.bytes(CLAIM_AUTHENTICATOR_META)?;
         // A field element with bits 5 and above zero.
         if meta[..31].iter().any(|b| *b != 0) {
-            return Err(AssertionError::InvalidAuthenticatorMeta);
+            return Err(AuthenticatorAssertionError::InvalidField(
+                "authenticator_meta",
+            ));
         }
         let authenticator_meta = AuthenticatorMeta::unpack(meta[31])?;
         if exp < MIN_EXP {
-            return Err(AssertionError::ExpirationOutOfRange(exp));
+            return Err(AuthenticatorAssertionError::InvalidField("exp"));
         }
         Ok(Self {
             aud,
@@ -308,17 +311,19 @@ impl AuthenticatorAssertionToken {
     /// not verify the signature.
     ///
     /// # Errors
-    /// [`AssertionError::InvalidEncoding`] on any other encoding, and the claim errors of
-    /// [`AuthenticatorMeta::unpack`] and [`AssertionError::ExpirationOutOfRange`].
-    pub fn from_cwt(cwt: &[u8]) -> Result<Self, AssertionError> {
+    /// [`AuthenticatorAssertionError::InvalidEncoding`] on any other encoding, and [`AuthenticatorAssertionError::InvalidField`] for an
+    /// out-of-range claim.
+    pub fn from_cwt(cwt: &[u8]) -> Result<Self, AuthenticatorAssertionError> {
         let (_, payload, signature) = cose::decode_sign1(cwt, AAT_CWT_LEN)?;
         let claims = AatClaims::from_value(payload)?;
         let signature = Signature::from_slice(&signature)
-            .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
+            .map_err(|_| AuthenticatorAssertionError::InvalidEncoding("signature"))?;
         let aat = Self { claims, signature };
         // Also covers the protected header, which must be exactly `{1: -7}`.
         if aat.to_cwt() != cwt {
-            return Err(AssertionError::InvalidEncoding("non-canonical CBOR"));
+            return Err(AuthenticatorAssertionError::InvalidEncoding(
+                "non-canonical CBOR",
+            ));
         }
         Ok(aat)
     }
@@ -326,11 +331,14 @@ impl AuthenticatorAssertionToken {
     /// Verifies the AAT under `assertion_key` and returns its claims.
     ///
     /// # Errors
-    /// [`TokenError::Signature`] if the signature does not verify.
-    pub fn verify(&self, assertion_key: &VerifyingKey) -> Result<&AatClaims, TokenError> {
+    /// [`AuthenticatorAssertionError::InvalidSignature`] if the signature does not verify.
+    pub fn verify(
+        &self,
+        assertion_key: &VerifyingKey,
+    ) -> Result<&AatClaims, AuthenticatorAssertionError> {
         assertion_key
             .verify(&self.claims.sig_structure(), &self.signature)
-            .map_err(|_| TokenError::Signature)?;
+            .map_err(|_| AuthenticatorAssertionError::InvalidSignature(Token::Aat))?;
         Ok(&self.claims)
     }
 }
@@ -350,6 +358,10 @@ fn protected() -> Header {
 }
 
 /// Reads a canonical field element.
-fn field(bytes: &[u8; 32], name: &'static str) -> Result<FieldElement, AssertionError> {
-    FieldElement::from_be_bytes(bytes).map_err(|_| AssertionError::InvalidEncoding(name))
+fn field(
+    bytes: &[u8; 32],
+    name: &'static str,
+) -> Result<FieldElement, AuthenticatorAssertionError> {
+    FieldElement::from_be_bytes(bytes)
+        .map_err(|_| AuthenticatorAssertionError::InvalidEncoding(name))
 }
