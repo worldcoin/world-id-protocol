@@ -139,7 +139,7 @@ impl AuthenticatorMeta {
     }
 }
 
-/// The `COSE_Sign1` with protected header `{1: -7}`.
+/// The `COSE_Sign1` with protected header `{1: -7}` (`alg`: `ES256`).
 fn sign1(claims: &AatClaims, signature: Vec<u8>) -> CoseSign1 {
     cose::sign1(
         HeaderBuilder::new()
