@@ -1,11 +1,12 @@
-//! Untagged `COSE_Sign1` (RFC 9052) encoding of WIP-106 tokens with `ciborium`.
+//! Untagged `COSE_Sign1` (RFC 9052) encoding of WIP-106 tokens with `coset` and `ciborium`.
 //!
-//! `ciborium` writes deterministic CBOR for the values built here (shortest integer and length
-//! forms, map entries in insertion order) but accepts other encodings when reading. Decoders
+//! Both write deterministic CBOR for the values built here (shortest integer and length forms,
+//! map entries in insertion order) but accept other encodings when reading. Decoders
 //! therefore check the exact length before parsing and re-encode the result to compare it with
 //! the input, so only the canonical encoding is accepted.
 
 use ciborium::Value;
+use coset::{CborSerializable, CoseSign1, CoseSign1Builder, Header};
 
 use super::AssertionError;
 
@@ -31,64 +32,39 @@ pub(super) fn encode(value: &Value) -> Vec<u8> {
     out
 }
 
-/// The COSE `Sig_structure` (RFC 9052 §4.4) with an empty `external_aad`.
-pub(super) fn sig_structure(protected: &[u8], payload: &[u8]) -> Vec<u8> {
-    encode(&Value::Array(vec![
-        Value::Text("Signature1".into()),
-        Value::Bytes(protected.to_vec()),
-        Value::Bytes(Vec::new()),
-        Value::Bytes(payload.to_vec()),
-    ]))
+/// An untagged `COSE_Sign1` with an empty unprotected header.
+pub(super) fn sign1(protected: Header, payload: Vec<u8>, signature: Vec<u8>) -> CoseSign1 {
+    CoseSign1Builder::new()
+        .protected(protected)
+        .payload(payload)
+        .signature(signature)
+        .build()
 }
 
-/// The parts of a `COSE_Sign1`: protected header and payload as encoded bytes, and the signature.
-pub(super) struct Sign1 {
-    pub(super) protected: Vec<u8>,
-    pub(super) payload: Vec<u8>,
-    pub(super) signature: Vec<u8>,
+/// Encodes `sign1`; the protected header is encoded afresh, so it is deterministic CBOR too.
+pub(super) fn encode_sign1(sign1: CoseSign1) -> Vec<u8> {
+    sign1.to_vec().expect("writing to a Vec does not fail")
 }
 
-impl Sign1 {
-    /// Encodes an untagged `COSE_Sign1` with an empty unprotected header.
-    pub(super) fn encode(&self) -> Vec<u8> {
-        encode(&Value::Array(vec![
-            Value::Bytes(self.protected.clone()),
-            Value::Map(Vec::new()),
-            Value::Bytes(self.payload.clone()),
-            Value::Bytes(self.signature.clone()),
-        ]))
+/// Parses an untagged `COSE_Sign1` of exactly `len` bytes with an empty unprotected header and
+/// returns its protected header, payload and signature. Canonical encoding is left to the
+/// caller's re-encoding check.
+pub(super) fn decode_sign1(
+    cwt: &[u8],
+    len: usize,
+) -> Result<(Header, Vec<u8>, Vec<u8>), AssertionError> {
+    if cwt.len() != len {
+        return Err(AssertionError::InvalidEncoding("length"));
     }
-
-    /// Parses an untagged `COSE_Sign1` of exactly `len` bytes with an empty unprotected header.
-    /// Canonical encoding is left to the caller's re-encoding check.
-    pub(super) fn decode(cwt: &[u8], len: usize) -> Result<Self, AssertionError> {
-        if cwt.len() != len {
-            return Err(AssertionError::InvalidEncoding("length"));
-        }
-        let value: Value =
-            ciborium::from_reader(cwt).map_err(|_| AssertionError::InvalidEncoding("cbor"))?;
-        let [protected, unprotected, payload, signature]: [Value; 4] = value
-            .into_array()
-            .ok()
-            .and_then(|items| items.try_into().ok())
-            .ok_or(AssertionError::InvalidEncoding("COSE_Sign1"))?;
-        if unprotected
-            .as_map()
-            .is_none_or(|entries| !entries.is_empty())
-        {
-            return Err(AssertionError::InvalidEncoding("unprotected header"));
-        }
-        let bytes = |value: Value, part| {
-            value
-                .into_bytes()
-                .map_err(|_| AssertionError::InvalidEncoding(part))
-        };
-        Ok(Self {
-            protected: bytes(protected, "protected header")?,
-            payload: bytes(payload, "payload")?,
-            signature: bytes(signature, "signature")?,
-        })
+    let sign1 =
+        CoseSign1::from_slice(cwt).map_err(|_| AssertionError::InvalidEncoding("COSE_Sign1"))?;
+    if !sign1.unprotected.is_empty() {
+        return Err(AssertionError::InvalidEncoding("unprotected header"));
     }
+    let payload = sign1
+        .payload
+        .ok_or(AssertionError::InvalidEncoding("payload"))?;
+    Ok((sign1.protected.header, payload, sign1.signature))
 }
 
 /// Parses `bytes` as a CBOR value.

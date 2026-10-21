@@ -5,9 +5,10 @@ use ciborium::Value;
 
 use super::{
     AssertionError, MIN_EXP, TokenError, check_issuance,
-    cose::{self, Fields, Sign1},
+    cose::{self, Fields},
 };
 use crate::FieldElement;
+use coset::{CoseSign1, HeaderBuilder, iana};
 use p256::ecdsa::{
     Signature, SigningKey, VerifyingKey,
     signature::{Signer, Verifier},
@@ -24,9 +25,6 @@ pub const EAT_PROFILE_AAT: &str = "https://world.org/eat/aat/v1";
 
 /// Length in bytes of an AAT's CWT encoding.
 const AAT_CWT_LEN: usize = 237;
-
-/// COSE algorithm identifier for `ES256`.
-const COSE_ALG_ES256: i64 = -7;
 
 /// CWT claim keys of an AAT (RFC 8392, RFC 9711, WIP-106).
 const CLAIM_AUD: i64 = 3;
@@ -141,9 +139,15 @@ impl AuthenticatorMeta {
     }
 }
 
-/// The protected header `{1: -7}`.
-fn protected() -> Vec<u8> {
-    cose::encode(&cose::map([(1, cose::int(COSE_ALG_ES256))]))
+/// The `COSE_Sign1` with protected header `{1: -7}`.
+fn sign1(claims: &AatClaims, signature: Vec<u8>) -> CoseSign1 {
+    cose::sign1(
+        HeaderBuilder::new()
+            .algorithm(iana::Algorithm::ES256)
+            .build(),
+        cose::encode(&claims.to_value()),
+        signature,
+    )
 }
 
 /// Reads a canonical field element.
@@ -276,11 +280,8 @@ impl AuthenticatorAssertionToken {
     /// Signs `claims` with the `assertion_key` (`ES256` over the COSE `Sig_structure`).
     #[must_use]
     pub fn sign(claims: AatClaims, assertion_key: &SigningKey) -> Self {
-        let payload = cose::encode(&claims.to_value());
-        Self {
-            claims,
-            signature: assertion_key.sign(&cose::sig_structure(&protected(), &payload)),
-        }
+        let signature = assertion_key.sign(&sign1(&claims, Vec::new()).tbs_data(b""));
+        Self { claims, signature }
     }
 
     /// The claims, unverified. Use [`Self::verify`] to check them.
@@ -293,12 +294,7 @@ impl AuthenticatorAssertionToken {
     /// and the `ES256` signature (`r || s`).
     #[must_use]
     pub fn to_cwt(&self) -> Vec<u8> {
-        Sign1 {
-            protected: protected(),
-            payload: cose::encode(&self.claims.to_value()),
-            signature: self.signature.to_bytes().to_vec(),
-        }
-        .encode()
+        cose::encode_sign1(sign1(&self.claims, self.signature.to_bytes().to_vec()))
     }
 
     /// Decodes an AAT from its CWT encoding, rejecting anything but the canonical encoding. Does
@@ -308,9 +304,9 @@ impl AuthenticatorAssertionToken {
     /// [`AssertionError::InvalidEncoding`] on any other encoding, and the claim errors of
     /// [`AuthenticatorMeta::unpack`] and [`AssertionError::ExpirationOutOfRange`].
     pub fn from_cwt(cwt: &[u8]) -> Result<Self, AssertionError> {
-        let sign1 = Sign1::decode(cwt, AAT_CWT_LEN)?;
-        let claims = AatClaims::from_value(cose::decode(&sign1.payload, "AAT claims")?)?;
-        let signature = Signature::from_slice(&sign1.signature)
+        let (_, payload, signature) = cose::decode_sign1(cwt, AAT_CWT_LEN)?;
+        let claims = AatClaims::from_value(cose::decode(&payload, "AAT claims")?)?;
+        let signature = Signature::from_slice(&signature)
             .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
         let aat = Self { claims, signature };
         // Also covers the protected header, which must be exactly `{1: -7}`.
@@ -325,10 +321,9 @@ impl AuthenticatorAssertionToken {
     /// # Errors
     /// [`TokenError::Signature`] if the signature does not verify.
     pub fn verify(&self, assertion_key: &VerifyingKey) -> Result<&AatClaims, TokenError> {
-        let payload = cose::encode(&self.claims.to_value());
         assertion_key
             .verify(
-                &cose::sig_structure(&protected(), &payload),
+                &sign1(&self.claims, Vec::new()).tbs_data(b""),
                 &self.signature,
             )
             .map_err(|_| TokenError::Signature)?;

@@ -2,10 +2,11 @@
 //! `trust_anchor_key` over a Poseidon2 digest of its claims, attesting an `assertion_key`.
 
 use ciborium::Value;
+use coset::{Algorithm, Header};
 
 use super::{
     AssertionError, MIN_EXP, TokenError, check_issuance,
-    cose::{self, Fields, Sign1},
+    cose::{self, Fields},
 };
 use crate::{
     FieldElement,
@@ -380,15 +381,16 @@ impl TrustAnchorKeyToken {
     /// claims set and the compressed EdDSA signature.
     #[must_use]
     pub fn to_cwt(&self) -> Vec<u8> {
-        Sign1 {
-            protected: cose::encode(&cose::map([
-                (1, cose::int(COSE_ALG_TAKT)),
-                (4, Value::Bytes(self.kid.to_vec())),
-            ])),
-            payload: cose::encode(&self.claims.to_value()),
-            signature: self.signature.to_vec(),
-        }
-        .encode()
+        let protected = Header {
+            alg: Some(Algorithm::PrivateUse(COSE_ALG_TAKT)),
+            key_id: self.kid.to_vec(),
+            ..Header::default()
+        };
+        cose::encode_sign1(cose::sign1(
+            protected,
+            cose::encode(&self.claims.to_value()),
+            self.signature.to_vec(),
+        ))
     }
 
     /// Decodes a TAKT from its CWT encoding, rejecting anything but the canonical encoding. Does
@@ -398,19 +400,17 @@ impl TrustAnchorKeyToken {
     /// [`AssertionError::InvalidEncoding`] on any other encoding, and the claim errors of
     /// [`SecFlags::unpack`] and [`AssertionError::ExpirationOutOfRange`].
     pub fn from_cwt(cwt: &[u8]) -> Result<Self, AssertionError> {
-        let sign1 = Sign1::decode(cwt, TAKT_CWT_LEN)?;
-        let mut protected = Fields::of(
-            cose::decode(&sign1.protected, "protected header")?,
-            "protected header",
-        )?;
-        if protected.take(1)?.as_integer() != Some(COSE_ALG_TAKT.into()) {
+        let (protected, payload, signature) = cose::decode_sign1(cwt, TAKT_CWT_LEN)?;
+        if protected.alg != Some(Algorithm::PrivateUse(COSE_ALG_TAKT)) {
             return Err(AssertionError::InvalidEncoding("protected header"));
         }
-        let kid: [u8; 32] = protected.bytes(4)?;
-        protected.finish()?;
-        let claims = TaktClaims::from_value(cose::decode(&sign1.payload, "TAKT claims")?)?;
-        let signature: [u8; 64] = sign1
-            .signature
+        // Other header parameters are rejected by the re-encoding check below.
+        let kid: [u8; 32] = protected
+            .key_id
+            .try_into()
+            .map_err(|_| AssertionError::InvalidEncoding("protected header"))?;
+        let claims = TaktClaims::from_value(cose::decode(&payload, "TAKT claims")?)?;
+        let signature: [u8; 64] = signature
             .try_into()
             .map_err(|_| AssertionError::InvalidEncoding("signature"))?;
         // Canonical `s` and `R` are enforced by deserialization and `verify`.
