@@ -130,13 +130,6 @@ impl AuthenticatorMeta {
             provider_bits: packed >> 3,
         })
     }
-
-    /// The claim value, a field element.
-    fn to_field_bytes(self) -> [u8; 32] {
-        let mut out = [0u8; 32];
-        out[31] = self.pack();
-        out
-    }
 }
 
 /// The protected header `{1: -7}` (`alg`: `ES256`).
@@ -218,6 +211,9 @@ impl AatClaims {
 
     /// The CWT claims set.
     fn to_value(self) -> Value {
+        // A field element: the packed byte, big-endian.
+        let mut meta = [0u8; 32];
+        meta[31] = self.authenticator_meta.pack();
         Value::Map(vec![
             (
                 CLAIM_AUD.into(),
@@ -236,10 +232,7 @@ impl AatClaims {
                 CLAIM_CDH.into(),
                 Value::Bytes(self.cdh.to_be_bytes().to_vec()),
             ),
-            (
-                CLAIM_AUTHENTICATOR_META.into(),
-                Value::Bytes(self.authenticator_meta.to_field_bytes().to_vec()),
-            ),
+            (CLAIM_AUTHENTICATOR_META.into(), Value::Bytes(meta.to_vec())),
         ])
     }
 

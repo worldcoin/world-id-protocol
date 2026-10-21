@@ -189,18 +189,6 @@ fn limbs(coordinate: &[u8]) -> [FieldElement; 2] {
     [half(0..16), half(16..32)]
 }
 
-/// Reads an EC2 P-256 `COSE_Key`.
-fn assertion_key_from(value: Value) -> Result<VerifyingKey, AssertionError> {
-    let mut key = Fields::of(value, "assertion_key")?;
-    if key.uint::<u8>(1)? != 2 || key.uint::<u8>(-1)? != 1 {
-        return Err(AssertionError::InvalidEncoding("assertion_key"));
-    }
-    let x: [u8; 32] = key.bytes(-2)?;
-    let y: [u8; 32] = key.bytes(-3)?;
-    VerifyingKey::from_sec1_bytes(&[[0x04].as_slice(), &x, &y].concat())
-        .map_err(|_| AssertionError::InvalidEncoding("assertion_key"))
-}
-
 /// The claims of a Trust Anchor Key Token (TAKT, WIP-106 §3.4). `Debug` prints none of its values,
 /// as a verifier MUST keep the `assertion_key` and `exp` confidential.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -313,7 +301,15 @@ impl TaktClaims {
         let mut claims = Fields::of(value, "TAKT claims")?;
         let exp: u32 = claims.uint(CLAIM_EXP)?;
         let mut cnf = Fields::of(claims.take(CLAIM_CNF)?, "cnf")?;
-        let assertion_key = assertion_key_from(cnf.take(1)?)?;
+        // The EC2 P-256 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}`.
+        let mut key = Fields::of(cnf.take(1)?, "assertion_key")?;
+        if key.uint::<u8>(1)? != 2 || key.uint::<u8>(-1)? != 1 {
+            return Err(AssertionError::InvalidEncoding("assertion_key"));
+        }
+        let x: [u8; 32] = key.bytes(-2)?;
+        let y: [u8; 32] = key.bytes(-3)?;
+        let assertion_key = VerifyingKey::from_sec1_bytes(&[[0x04].as_slice(), &x, &y].concat())
+            .map_err(|_| AssertionError::InvalidEncoding("assertion_key"))?;
         claims.text(CLAIM_EAT_PROFILE, EAT_PROFILE_TAKT)?;
         let sec_flags = SecFlags::unpack(u64::from_be_bytes(claims.bytes(CLAIM_SEC_FLAGS)?))?;
         if exp < MIN_EXP {
