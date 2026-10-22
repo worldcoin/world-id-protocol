@@ -11,8 +11,13 @@ pub use ciborium::Value;
 use ciborium::value::Integer;
 use coset::{CborSerializable as _, CoseSign1, CoseSign1Builder, Header};
 
+use crate::FieldElement;
+
 /// CWT claim key of `eat_profile` (RFC 9711), which names a token's profile.
 pub const CLAIM_EAT_PROFILE: i64 = 265;
+
+/// COSE `alg` (Private Use) of a `BabyJubJub-EdDSA-Poseidon2` signature (WIP-100).
+pub const COSE_ALG_BABYJUBJUB_EDDSA_POSEIDON2: i64 = -65537;
 
 /// Bytes that are not the expected CBOR; names the part that failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -34,6 +39,12 @@ pub fn encode(value: &Value) -> Vec<u8> {
 /// [`CborError`] naming `part` if `bytes` do not start with a CBOR item.
 pub fn decode(bytes: &[u8], part: &'static str) -> Result<Value, CborError> {
     ciborium::from_reader(bytes).map_err(|_| CborError(part))
+}
+
+/// A field element as its canonical 32-byte big-endian byte string.
+#[must_use]
+pub fn field_element(value: FieldElement) -> Value {
+    Value::Bytes(value.to_be_bytes().to_vec())
 }
 
 /// A map with its entries sorted by the bytes of their encoded keys, as deterministic CBOR
@@ -117,6 +128,15 @@ impl Fields {
         self.byte_string(key)?
             .try_into()
             .map_err(|_| CborError(part))
+    }
+
+    /// The next entry's value as a canonical field element.
+    ///
+    /// # Errors
+    /// [`CborError`] for another key, type, length, or a value not below the modulus.
+    pub fn field_element(&mut self, key: impl Into<Value>) -> Result<FieldElement, CborError> {
+        let part = self.part;
+        FieldElement::from_be_bytes(&self.bytes::<32>(key)?).map_err(|_| CborError(part))
     }
 
     /// The next entry's value as text equal to `expected`.
@@ -234,6 +254,17 @@ mod tests {
         let mut fields = Fields::of(value, "test").unwrap();
         fields.take("a").unwrap();
         assert_eq!(fields.finish(), Err(CborError("test")));
+    }
+
+    #[test]
+    fn field_elements_round_trip_and_must_be_canonical() {
+        let value = map(vec![
+            ("a".into(), field_element(42u64.into())),
+            ("b".into(), Value::Bytes(vec![0xff; 32])),
+        ]);
+        let mut fields = Fields::of(value, "test").unwrap();
+        assert_eq!(fields.field_element("a"), Ok(42u64.into()));
+        assert_eq!(fields.field_element("b"), Err(CborError("test")));
     }
 
     #[test]
