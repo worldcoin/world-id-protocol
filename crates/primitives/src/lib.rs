@@ -22,7 +22,7 @@ use getrandom as _;
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 
-/// Authenticator Assertion Tokens (WIP-106): issuance, encoding and verification outside circuits.
+/// Trust Anchor Key Tokens and Authenticator Assertion Tokens (WIP-106): issuance, encoding and verification.
 pub mod authenticator_assertion;
 
 pub mod authenticator_message;
