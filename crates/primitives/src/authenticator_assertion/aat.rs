@@ -289,13 +289,15 @@ impl AuthenticatorAssertionToken {
 
     /// The CWT encoding: protected header `{1: -7}`, an empty unprotected header, the claims set
     /// and the `ES256` signature (`r || s`).
-    #[must_use]
-    pub fn to_cwt(&self) -> Vec<u8> {
-        cbor::encode_sign1(
+    ///
+    /// # Errors
+    /// [`AuthenticatorAssertionError::InvalidEncoding`] if the protected header cannot be encoded.
+    pub fn to_cwt(&self) -> Result<Vec<u8>, AuthenticatorAssertionError> {
+        Ok(cbor::encode_sign1(
             protected(),
             cbor::encode(&self.claims.to_value()),
             self.signature.to_bytes().to_vec(),
-        )
+        )?)
     }
 
     /// Decodes an AAT from its CWT encoding, rejecting anything but the canonical encoding. Does
@@ -311,7 +313,7 @@ impl AuthenticatorAssertionToken {
             .map_err(|_| AuthenticatorAssertionError::InvalidEncoding("signature"))?;
         let aat = Self { claims, signature };
         // Also covers the protected header, which must be exactly `{1: -7}`.
-        if aat.to_cwt() != cwt {
+        if aat.to_cwt()? != cwt {
             return Err(AuthenticatorAssertionError::InvalidEncoding(
                 "non-canonical CBOR",
             ));

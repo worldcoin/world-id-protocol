@@ -60,10 +60,13 @@ fn takt_cwt() -> Vec<u8> {
     TrustAnchorKeyToken::sign(takt(), &trust_anchor_key())
         .unwrap()
         .to_cwt()
+        .unwrap()
 }
 
 fn aat_cwt() -> Vec<u8> {
-    AuthenticatorAssertionToken::sign(aat(), &assertion_key()).to_cwt()
+    AuthenticatorAssertionToken::sign(aat(), &assertion_key())
+        .to_cwt()
+        .unwrap()
 }
 
 fn inputs() -> (

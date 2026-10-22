@@ -9,7 +9,7 @@ use std::{iter::Peekable, ops::RangeBounds};
 
 pub use ciborium::Value;
 use ciborium::value::Integer;
-use coset::{CborSerializable as _, CoseSign1, CoseSign1Builder, Header};
+use coset::{AsCborValue as _, CborSerializable as _, CoseSign1, Header};
 
 use crate::FieldElement;
 
@@ -162,17 +162,63 @@ impl Fields {
     }
 }
 
-/// Encodes an untagged `COSE_Sign1` with an empty unprotected header. The protected header is
-/// encoded afresh, so the result is deterministic CBOR.
-#[must_use]
-pub fn encode_sign1(protected: Header, payload: Vec<u8>, signature: Vec<u8>) -> Vec<u8> {
-    CoseSign1Builder::new()
-        .protected(protected)
-        .payload(payload)
-        .signature(signature)
-        .build()
-        .to_vec()
-        .expect("writing to a Vec does not fail")
+/// Encodes an untagged `COSE_Sign1` with an empty unprotected header.
+///
+/// Maps in the protected header are sorted by encoded key, including extension headers and
+/// nested maps. Payload and signature bytes are preserved; callers must sign the same
+/// deterministic header encoding.
+///
+/// # Errors
+/// [`CborError`] if the protected header cannot be encoded or contains duplicate map keys.
+pub fn encode_sign1(
+    protected: Header,
+    payload: Vec<u8>,
+    signature: Vec<u8>,
+) -> Result<Vec<u8>, CborError> {
+    let header = protected
+        .to_cbor_value()
+        .map_err(|_| CborError("protected header"))?;
+    let header = ordered_header_value(header)?;
+    // COSE encodes an empty protected header as an empty byte string.
+    let protected = if header.as_map().is_some_and(Vec::is_empty) {
+        vec![]
+    } else {
+        encode(&header)
+    };
+    Ok(encode(&Value::Array(vec![
+        Value::Bytes(protected),
+        Value::Map(vec![]),
+        Value::Bytes(payload),
+        Value::Bytes(signature),
+    ])))
+}
+
+/// Orders maps recursively without interpreting opaque byte strings such as nested signatures.
+fn ordered_header_value(value: Value) -> Result<Value, CborError> {
+    match value {
+        Value::Map(entries) => {
+            let mut ordered = Vec::with_capacity(entries.len());
+            for (key, value) in entries {
+                ordered.push((ordered_header_value(key)?, ordered_header_value(value)?));
+            }
+            let value = map(ordered);
+            if value.as_map().is_some_and(|entries| {
+                entries
+                    .windows(2)
+                    .any(|pair| encode(&pair[0].0) == encode(&pair[1].0))
+            }) {
+                return Err(CborError("protected header"));
+            }
+            Ok(value)
+        }
+        Value::Array(values) => values
+            .into_iter()
+            .map(ordered_header_value)
+            .collect::<Result<_, _>>()
+            .map(Value::Array),
+        Value::Tag(tag, value) => Ok(Value::Tag(tag, Box::new(ordered_header_value(*value)?))),
+        value => Ok(value),
+    }
 }
 
 /// Parses an untagged `COSE_Sign1` into its protected header, decoded payload and signature.
@@ -269,10 +315,80 @@ mod tests {
 
     #[test]
     fn sign1_round_trips_and_bounds_its_length() {
-        let cwt = encode_sign1(Header::default(), encode(&Value::from(1)), vec![9; 4]);
+        let cwt = encode_sign1(Header::default(), encode(&Value::from(1)), vec![9; 4]).unwrap();
         let (_, payload, signature) = decode_sign1(&cwt, ..=cwt.len()).unwrap();
         assert_eq!(payload, Value::from(1));
         assert_eq!(signature, [9; 4]);
         assert_eq!(decode_sign1(&cwt, ..cwt.len()), Err(CborError("length")));
+    }
+
+    #[test]
+    fn sign1_sorts_core_and_extension_headers_together() {
+        let protected = Header {
+            key_id: vec![2],
+            rest: vec![
+                (coset::Label::Text("a".into()), Value::from(1)),
+                (coset::Label::Int(10), Value::from(1)),
+                (coset::Label::Int(-1), Value::from(1)),
+                (coset::Label::Int(8), Value::from(1)),
+                (coset::Label::Int(0), Value::from(1)),
+            ],
+            ..Header::default()
+        };
+        let cwt = encode_sign1(protected, encode(&Value::from(1)), vec![9; 4]).unwrap();
+        let sign1 = CoseSign1::from_slice(&cwt).unwrap();
+        assert_eq!(
+            hex::encode(sign1.protected.original_data.unwrap()),
+            "a6000104410208010a012001616101"
+        );
+    }
+
+    #[test]
+    fn sign1_rejects_duplicate_extension_headers() {
+        let protected = Header {
+            rest: vec![
+                (coset::Label::Int(8), Value::from(1)),
+                (coset::Label::Int(8), Value::from(2)),
+            ],
+            ..Header::default()
+        };
+        assert_eq!(
+            encode_sign1(protected, vec![], vec![]),
+            Err(CborError("protected header"))
+        );
+    }
+
+    #[test]
+    fn sign1_rejects_an_extension_that_duplicates_a_core_header() {
+        let protected = Header {
+            key_id: vec![1],
+            rest: vec![(coset::Label::Int(4), Value::Bytes(vec![2]))],
+            ..Header::default()
+        };
+        assert_eq!(
+            encode_sign1(protected, vec![], vec![]),
+            Err(CborError("protected header"))
+        );
+    }
+
+    #[test]
+    fn sign1_orders_nested_extension_maps_and_preserves_opaque_bytes() {
+        let nested = Value::Map(vec![(2.into(), 3.into()), (1.into(), 4.into())]);
+        let header = Header {
+            rest: vec![(
+                coset::Label::Int(8),
+                Value::Array(vec![Value::Tag(100, Box::new(nested))]),
+            )],
+            ..Header::default()
+        };
+        let opaque = vec![0xa2, 2, 3, 1, 4];
+        let cwt = encode_sign1(header, opaque.clone(), opaque.clone()).unwrap();
+        let sign1 = CoseSign1::from_slice(&cwt).unwrap();
+        assert_eq!(
+            hex::encode(sign1.protected.original_data.unwrap()),
+            "a10881d864a201040203"
+        );
+        assert_eq!(sign1.payload, Some(opaque.clone()));
+        assert_eq!(sign1.signature, opaque);
     }
 }

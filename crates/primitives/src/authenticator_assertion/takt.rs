@@ -359,8 +359,10 @@ impl TrustAnchorKeyToken {
 
     /// The CWT encoding: protected header `{1: -65537, 4: kid}`, an empty unprotected header, the
     /// claims set and the compressed EdDSA signature.
-    #[must_use]
-    pub fn to_cwt(&self) -> Vec<u8> {
+    ///
+    /// # Errors
+    /// [`AuthenticatorAssertionError::InvalidEncoding`] if the protected header cannot be encoded.
+    pub fn to_cwt(&self) -> Result<Vec<u8>, AuthenticatorAssertionError> {
         let protected = Header {
             alg: Some(Algorithm::PrivateUse(
                 cbor::COSE_ALG_BABYJUBJUB_EDDSA_POSEIDON2,
@@ -368,11 +370,11 @@ impl TrustAnchorKeyToken {
             key_id: self.kid.to_vec(),
             ..Header::default()
         };
-        cbor::encode_sign1(
+        Ok(cbor::encode_sign1(
             protected,
             cbor::encode(&self.claims.to_value()),
             self.signature.to_vec(),
-        )
+        )?)
     }
 
     /// Decodes a TAKT from its CWT encoding, rejecting anything but the canonical encoding. Does
@@ -409,7 +411,7 @@ impl TrustAnchorKeyToken {
             kid,
             signature,
         };
-        if takt.to_cwt() != cwt {
+        if takt.to_cwt()? != cwt {
             return Err(AuthenticatorAssertionError::InvalidEncoding(
                 "non-canonical CBOR",
             ));
