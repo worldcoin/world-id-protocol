@@ -24,9 +24,6 @@ pub const EAT_PROFILE_TAKT: &str = "https://world.org/eat/takt/v1";
 /// Length in bytes of a TAKT's CWT encoding.
 const TAKT_CWT_LEN: usize = 247;
 
-/// COSE algorithm identifier for `BabyJubJub-EdDSA-Poseidon2` over a TAKT (WIP-106).
-pub const COSE_ALG_TAKT: i64 = -65537;
-
 /// CWT claim keys of a TAKT (RFC 8392, RFC 8747, RFC 9711, WIP-106).
 const CLAIM_EXP: i64 = 4;
 const CLAIM_CNF: i64 = 8;
@@ -365,7 +362,9 @@ impl TrustAnchorKeyToken {
     #[must_use]
     pub fn to_cwt(&self) -> Vec<u8> {
         let protected = Header {
-            alg: Some(Algorithm::PrivateUse(COSE_ALG_TAKT)),
+            alg: Some(Algorithm::PrivateUse(
+                cbor::COSE_ALG_BABYJUBJUB_EDDSA_POSEIDON2,
+            )),
             key_id: self.kid.to_vec(),
             ..Header::default()
         };
@@ -384,7 +383,11 @@ impl TrustAnchorKeyToken {
     /// out-of-range claim.
     pub fn from_cwt(cwt: &[u8]) -> Result<Self, AuthenticatorAssertionError> {
         let (protected, payload, signature) = cbor::decode_sign1(cwt, TAKT_CWT_LEN..=TAKT_CWT_LEN)?;
-        if protected.alg != Some(Algorithm::PrivateUse(COSE_ALG_TAKT)) {
+        if protected.alg
+            != Some(Algorithm::PrivateUse(
+                cbor::COSE_ALG_BABYJUBJUB_EDDSA_POSEIDON2,
+            ))
+        {
             return Err(AuthenticatorAssertionError::InvalidEncoding(
                 "protected header",
             ));

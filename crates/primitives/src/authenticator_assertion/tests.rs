@@ -318,7 +318,7 @@ fn non_canonical_encodings_rejected() {
     nonce[aat_payload + 20..aat_payload + 52].fill(0xff);
     assert_eq!(
         decode_aat(&nonce).unwrap_err(),
-        (AuthenticatorAssertionError::InvalidEncoding("non-canonical nonce"))
+        (AuthenticatorAssertionError::InvalidEncoding("AAT claims"))
     );
 
     // Reserved `user_presence`, reserved `authenticator_meta` bits.

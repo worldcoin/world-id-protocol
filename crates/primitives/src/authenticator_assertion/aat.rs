@@ -206,18 +206,12 @@ impl AatClaims {
                 Value::Bytes(self.aud.to_be_bytes().to_vec()),
             ),
             (CLAIM_EXP.into(), Value::Integer(self.exp.into())),
-            (
-                CLAIM_NONCE.into(),
-                Value::Bytes(self.nonce.to_be_bytes().to_vec()),
-            ),
+            (CLAIM_NONCE.into(), cbor::field_element(self.nonce)),
             (
                 CLAIM_EAT_PROFILE.into(),
                 Value::Text(EAT_PROFILE_AAT.into()),
             ),
-            (
-                CLAIM_CDH.into(),
-                Value::Bytes(self.cdh.to_be_bytes().to_vec()),
-            ),
+            (CLAIM_CDH.into(), cbor::field_element(self.cdh)),
             (CLAIM_AUTHENTICATOR_META.into(), Value::Bytes(meta.to_vec())),
         ])
     }
@@ -242,9 +236,9 @@ impl AatClaims {
         let mut claims = Fields::of(value, "AAT claims")?;
         let aud = u64::from_be_bytes(claims.bytes(CLAIM_AUD)?);
         let exp: u32 = claims.uint(CLAIM_EXP)?;
-        let nonce = field(&claims.bytes(CLAIM_NONCE)?, "non-canonical nonce")?;
+        let nonce = claims.field_element(CLAIM_NONCE)?;
         claims.text(CLAIM_EAT_PROFILE, EAT_PROFILE_AAT)?;
-        let cdh = field(&claims.bytes(CLAIM_CDH)?, "non-canonical cdh")?;
+        let cdh = claims.field_element(CLAIM_CDH)?;
         let meta: [u8; 32] = claims.bytes(CLAIM_AUTHENTICATOR_META)?;
         // A field element with bits 5 and above zero.
         if meta[..31].iter().any(|b| *b != 0) {
@@ -352,13 +346,4 @@ fn protected() -> Header {
     HeaderBuilder::new()
         .algorithm(iana::Algorithm::ES256)
         .build()
-}
-
-/// Reads a canonical field element.
-fn field(
-    bytes: &[u8; 32],
-    name: &'static str,
-) -> Result<FieldElement, AuthenticatorAssertionError> {
-    FieldElement::from_be_bytes(bytes)
-        .map_err(|_| AuthenticatorAssertionError::InvalidEncoding(name))
 }
