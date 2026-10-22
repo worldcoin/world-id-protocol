@@ -145,6 +145,11 @@ provekit-common = { version = "1.0.2" }
 provekit-prover = { version = "1.0.2" }
 provekit-verifier = { version = "1.0.2" }
 provekit-r1cs-compiler = { version = "1.0.2" }
+# The ownership prover's witness solver; must match the Noir version provekit pins.
+acvm = { package = "provekit_acvm", version = "=1.0.0-beta.26" }
+bn254-blackbox-solver = { package = "provekit_bn254_blackbox_solver", version = "=1.0.0-beta.26" }
+lzma-rs = "0.3"
+postcard = { version = "1", default-features = false, features = ["alloc"] }
 rayon = "1.11"
 redis = "1"
 regex = "1"
