@@ -30,6 +30,7 @@ openapi = ["dep:utoipa"]
 
 [dependencies]
 ciborium = { workspace = true }
+coset = { workspace = true }
 alloy = { workspace = true, optional = true, features = ["sol-types", "signer-local"] }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",

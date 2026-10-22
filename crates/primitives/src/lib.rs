@@ -27,6 +27,9 @@ pub mod authenticator_assertion;
 
 pub mod authenticator_message;
 
+/// Deterministic CBOR and `COSE_Sign1` for the encodings WIPs specify.
+pub mod cbor;
+
 mod key_set;
 pub use key_set::{
     AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
@@ -156,6 +159,15 @@ impl FieldElement {
     pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
+    }
+
+    /// `R(d)`: a 256-bit digest read as a big-endian integer modulo the field order (WIP-201 §2).
+    ///
+    /// Only for hash outputs, where two digests a multiple of the modulus apart are as hard to find
+    /// as a hash collision. Parse canonical encodings with [`Self::from_be_bytes`].
+    #[must_use]
+    pub fn from_digest(digest: &[u8; 32]) -> Self {
+        Self::from_be_bytes_mod_order(digest)
     }
 
     /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
@@ -355,6 +367,16 @@ pub enum PrimitiveError {
 mod tests {
     use super::*;
     use ruint::uint;
+
+    #[test]
+    fn a_digest_above_the_modulus_is_reduced() {
+        let digest = [0xff; 32];
+        assert_eq!(
+            FieldElement::from_digest(&digest),
+            FieldElement::from_be_bytes_mod_order(&digest)
+        );
+        assert!(FieldElement::from_be_bytes(&digest).is_err());
+    }
 
     #[test]
     fn test_field_element_encoding() {
