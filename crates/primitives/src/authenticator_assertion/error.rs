@@ -49,3 +49,9 @@ pub enum AuthenticatorAssertionError {
     #[error("build_version below minimum")]
     BuildVersionBelowMinimum,
 }
+
+impl From<crate::cbor::CborError> for AuthenticatorAssertionError {
+    fn from(error: crate::cbor::CborError) -> Self {
+        Self::InvalidEncoding(error.0)
+    }
+}

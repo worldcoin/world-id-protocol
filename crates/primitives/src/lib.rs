@@ -27,6 +27,9 @@ pub mod authenticator_assertion;
 
 pub mod authenticator_message;
 
+/// Deterministic CBOR and `COSE_Sign1` for the encodings WIPs specify.
+pub mod cbor;
+
 mod key_set;
 pub use key_set::{
     AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,

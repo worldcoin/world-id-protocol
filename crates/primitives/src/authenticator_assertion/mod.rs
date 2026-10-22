@@ -12,7 +12,6 @@ use crate::FieldElement;
 use eddsa_babyjubjub::EdDSAPublicKey;
 
 mod aat;
-mod cose;
 mod error;
 mod takt;
 

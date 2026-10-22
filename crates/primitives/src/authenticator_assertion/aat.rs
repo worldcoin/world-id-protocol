@@ -1,13 +1,11 @@
 //! The Authenticator Assertion Token (AAT, WIP-106 §3.5): signed with `ES256` by the
 //! `assertion_key` over the COSE `Sig_structure`, for a single request.
 
-use ciborium::Value;
-
-use super::{
-    AuthenticatorAssertionError, MIN_EXP, Token, check_issuance,
-    cose::{self, Fields},
+use super::{AuthenticatorAssertionError, MIN_EXP, Token, check_issuance};
+use crate::{
+    FieldElement,
+    cbor::{self, Fields, Value},
 };
-use crate::FieldElement;
 use coset::{Header, HeaderBuilder, ProtectedHeader, SignatureContext, iana};
 use p256::ecdsa::{
     Signature, SigningKey, VerifyingKey,
@@ -203,7 +201,7 @@ impl AatClaims {
         // A field element: the packed byte, big-endian.
         let mut meta = [0u8; 32];
         meta[31] = self.authenticator_meta.pack();
-        Value::Map(vec![
+        cbor::map(vec![
             (
                 CLAIM_AUD.into(),
                 Value::Bytes(self.aud.to_be_bytes().to_vec()),
@@ -236,7 +234,7 @@ impl AatClaims {
             },
             None,
             b"",
-            &cose::to_cbor(&self.to_value()),
+            &cbor::encode(&self.to_value()),
         )
     }
 
@@ -300,9 +298,9 @@ impl AuthenticatorAssertionToken {
     /// and the `ES256` signature (`r || s`).
     #[must_use]
     pub fn to_cwt(&self) -> Vec<u8> {
-        cose::encode_sign1(
+        cbor::encode_sign1(
             protected(),
-            cose::to_cbor(&self.claims.to_value()),
+            cbor::encode(&self.claims.to_value()),
             self.signature.to_bytes().to_vec(),
         )
     }
@@ -314,7 +312,7 @@ impl AuthenticatorAssertionToken {
     /// [`AuthenticatorAssertionError::InvalidEncoding`] on any other encoding, and [`AuthenticatorAssertionError::InvalidField`] for an
     /// out-of-range claim.
     pub fn from_cwt(cwt: &[u8]) -> Result<Self, AuthenticatorAssertionError> {
-        let (_, payload, signature) = cose::decode_sign1(cwt, AAT_CWT_LEN)?;
+        let (_, payload, signature) = cbor::decode_sign1(cwt, AAT_CWT_LEN..=AAT_CWT_LEN)?;
         let claims = AatClaims::from_value(payload)?;
         let signature = Signature::from_slice(&signature)
             .map_err(|_| AuthenticatorAssertionError::InvalidEncoding("signature"))?;

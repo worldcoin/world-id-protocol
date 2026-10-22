@@ -1,15 +1,12 @@
 //! The Trust Anchor Key Token (TAKT, WIP-106 §3.4): signed by the Authenticator Provider's
 //! `trust_anchor_key` over a Poseidon2 digest of its claims, attesting an `assertion_key`.
 
-use ciborium::Value;
 use coset::{Algorithm, Header};
 
-use super::{
-    AuthenticatorAssertionError, MIN_EXP, Token, check_issuance,
-    cose::{self, Fields},
-};
+use super::{AuthenticatorAssertionError, MIN_EXP, Token, check_issuance};
 use crate::{
     FieldElement,
+    cbor::{self, Fields, Value},
     poseidon::{self, ds},
 };
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
@@ -257,7 +254,7 @@ impl TaktClaims {
     fn to_value(self) -> Value {
         let point = self.assertion_key.to_encoded_point(false);
         // The EC2 P-256 `COSE_Key` `{1: 2, -1: 1, -2: x, -3: y}` (RFC 9053 §7.1).
-        let cose_key = Value::Map(vec![
+        let cose_key = cbor::map(vec![
             (Value::from(1), Value::from(2)),
             (Value::from(-1), Value::from(1)),
             (
@@ -269,11 +266,11 @@ impl TaktClaims {
                 Value::Bytes(point.y().expect("uncompressed point").to_vec()),
             ),
         ]);
-        Value::Map(vec![
+        cbor::map(vec![
             (CLAIM_EXP.into(), Value::Integer(self.exp.into())),
             (
                 CLAIM_CNF.into(),
-                Value::Map(vec![(Value::from(1), cose_key)]),
+                cbor::map(vec![(Value::from(1), cose_key)]),
             ),
             (
                 CLAIM_EAT_PROFILE.into(),
@@ -373,9 +370,9 @@ impl TrustAnchorKeyToken {
             key_id: self.kid.to_vec(),
             ..Header::default()
         };
-        cose::encode_sign1(
+        cbor::encode_sign1(
             protected,
-            cose::to_cbor(&self.claims.to_value()),
+            cbor::encode(&self.claims.to_value()),
             self.signature.to_vec(),
         )
     }
@@ -387,7 +384,7 @@ impl TrustAnchorKeyToken {
     /// [`AuthenticatorAssertionError::InvalidEncoding`] on any other encoding, and [`AuthenticatorAssertionError::InvalidField`] for an
     /// out-of-range claim.
     pub fn from_cwt(cwt: &[u8]) -> Result<Self, AuthenticatorAssertionError> {
-        let (protected, payload, signature) = cose::decode_sign1(cwt, TAKT_CWT_LEN)?;
+        let (protected, payload, signature) = cbor::decode_sign1(cwt, TAKT_CWT_LEN..=TAKT_CWT_LEN)?;
         if protected.alg != Some(Algorithm::PrivateUse(COSE_ALG_TAKT)) {
             return Err(AuthenticatorAssertionError::InvalidEncoding(
                 "protected header",
