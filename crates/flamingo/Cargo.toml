@@ -1,7 +1,6 @@
 [package]
 name = "world-id-flamingo"
 description = "WIP-201 Flamingo Verifier types for the World ID Protocol"
-publish = false
 edition.workspace = true
 version.workspace = true
 license.workspace = true
