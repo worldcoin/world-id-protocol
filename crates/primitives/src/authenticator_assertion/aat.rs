@@ -4,7 +4,7 @@
 use super::{AuthenticatorAssertionError, MIN_EXP, Token, check_issuance};
 use crate::{
     FieldElement,
-    cbor::{self, Fields, Value},
+    cbor::{self, CLAIM_EAT_PROFILE, Fields, Value},
 };
 use coset::{Header, HeaderBuilder, ProtectedHeader, SignatureContext, iana};
 use p256::ecdsa::{
@@ -28,7 +28,6 @@ const AAT_CWT_LEN: usize = 237;
 const CLAIM_AUD: i64 = 3;
 const CLAIM_EXP: i64 = 4;
 const CLAIM_NONCE: i64 = 10;
-const CLAIM_EAT_PROFILE: i64 = 265;
 const CLAIM_CDH: i64 = -80_000;
 const CLAIM_AUTHENTICATOR_META: i64 = -80_001;
 

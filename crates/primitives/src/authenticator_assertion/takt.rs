@@ -6,7 +6,7 @@ use coset::{Algorithm, Header};
 use super::{AuthenticatorAssertionError, MIN_EXP, Token, check_issuance};
 use crate::{
     FieldElement,
-    cbor::{self, Fields, Value},
+    cbor::{self, CLAIM_EAT_PROFILE, Fields, Value},
     poseidon::{self, ds},
 };
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
@@ -30,7 +30,6 @@ pub const COSE_ALG_TAKT: i64 = -65537;
 /// CWT claim keys of a TAKT (RFC 8392, RFC 8747, RFC 9711, WIP-106).
 const CLAIM_EXP: i64 = 4;
 const CLAIM_CNF: i64 = 8;
-const CLAIM_EAT_PROFILE: i64 = 265;
 const CLAIM_SEC_FLAGS: i64 = -70_000;
 
 /// Platform of the Authenticator.

@@ -11,6 +11,9 @@ pub use ciborium::Value;
 use ciborium::value::Integer;
 use coset::{CborSerializable as _, CoseSign1, CoseSign1Builder, Header};
 
+/// CWT claim key of `eat_profile` (RFC 9711), which names a token's profile.
+pub const CLAIM_EAT_PROFILE: i64 = 265;
+
 /// Bytes that are not the expected CBOR; names the part that failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("invalid CBOR in {0}")]
