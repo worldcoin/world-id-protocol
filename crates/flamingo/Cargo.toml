@@ -21,7 +21,7 @@ serde_json = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 # Core types only: no OPRF, proof or alloy dependencies for the Verifier and Authenticators.
-world-id-primitives = { version = "0.16.0", path = "../primitives", default-features = false }
+world-id-primitives = { version = "0.17.0", path = "../primitives", default-features = false }
 
 [lints]
 workspace = true
