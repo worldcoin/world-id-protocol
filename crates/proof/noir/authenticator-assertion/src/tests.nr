@@ -288,6 +288,11 @@ fn test_short_exp_rejected() {
 }
 
 #[test(should_fail)]
+fn test_exp_above_32_bits_rejected() {
+    let _ = super::exp_bytes(0x100000000);
+}
+
+#[test(should_fail)]
 fn test_now_above_32_bits_rejected() {
     super::now_below_2_32(0x100000000);
 }

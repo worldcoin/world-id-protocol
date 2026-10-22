@@ -36,7 +36,8 @@ global HALF_N: [u8; 32] = [
 /// The public inputs of WIP-106 section 3.8 verification. The caller MUST expose every field as a
 /// public input of its circuit.
 pub struct AuthenticatorAssertionPublicInputs {
-    /// `H_3(DS_KEY; x, y)` of the Authenticator Provider's key, supplied by the RP.
+    /// `H_3(DS_KEY; x, y)` of the Authenticator Provider's key; the RP checks it against its
+    /// allowlist.
     pub trust_anchor_key_hash: Field,
     /// Current time as seconds since the Unix epoch.
     pub now: Field,
