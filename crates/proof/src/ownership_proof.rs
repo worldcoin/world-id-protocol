@@ -439,6 +439,7 @@ mod input_validation_tests {
 
 #[cfg(all(
     test,
+    not(target_arch = "wasm32"),
     feature = "embed-ownership-prover",
     feature = "embed-ownership-verifier"
 ))]
