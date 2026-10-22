@@ -1,0 +1,520 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>WIP-202: Proof of Embedding Similarity - World ID Protocol</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e416bd33.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-538ed45d.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol/edit/main/docs/WIPs/wip-202.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>This spec outlines a draft functionality for beta testing. Changes are expected.</p>
+</blockquote>
+<h2 id="1-abstract"><a class="header" href="#1-abstract">1. Abstract</a></h2>
+<p>This spec introduces a ZK circuit (“Proof of Embedding Similarity”) which proves that a <a href="wip-201.html">WIP-201</a> Flamingo Verifier matched a live capture and an RP-supplied challenge to the image committed in a user’s <a href="https://docs.world.org/world-id/credentials/1">PoH Credential</a>. The proof reveals no image, no Flamingo Token and no Credential.</p>
+<p>The circuit neither extracts embeddings nor compares them. It verifies the Flamingo Token, binds its compared entries to the Credential image and the RP’s challenge, and checks the Issuer’s Credential and an Authenticator’s authorization of the result. This first iteration supports only the PoH Credential; it shall be generalized to other Credentials in the future (<a href="#8-future-considerations">Future Considerations</a>).</p>
+<h2 id="2-motivation"><a class="header" href="#2-motivation">2. Motivation</a></h2>
+<p>Deepfakes make it hard to know who is on the other side of a video call or behind an online interaction in general. An RP that can capture an image of that party, the challenge, wants to know whether the image stems from a verified real human.</p>
+<p>A <a href="wip-201.html">WIP-201</a> Flamingo Verifier can be used to compare a live capture and the challenge with the face image of a user with a valid Orb Credential, and run fraud detection models on the live capture images. Its Flamingo Token alone does not answer the RP’s question:</p>
+<ol>
+<li><strong>No Credential.</strong> The Verifier compares any images, so the token does not show the compared image is the one in an issued (Orb) Credential.</li>
+<li><strong>No owner.</strong> It does not show that the user controls the World ID the Credential was issued to.</li>
+<li><strong>Linkable.</strong> The Credential image’s hash is the same in every token of a user, so revealing tokens would link all their proofs.</li>
+</ol>
+<p>This proof closes those gaps in zero knowledge. It binds the compared image to the Issuer’s PoH Credential and the RP’s challenge, and the result to a registered Authenticator. It reveals only the challenge hash, the Flamingo configuration and the AAT values. An optional session lets the RP check that a later proof comes from the same World ID.</p>
+<h2 id="3-background"><a class="header" href="#3-background">3. Background</a></h2>
+<p>This section is non-normative.</p>
+<ol>
+<li><strong>Personal Custody Package (PCP).</strong> At verification, the Orb packages the user’s images and stores them on the user’s device (<a href="https://world.org/blog/announcements/world-implements-personal-custody">World implements Personal Custody</a>). The package includes <code>hashes.json</code>, which the Orb signs: a JSON object mapping each file name, e.g. <code>thumbnail.png</code> for the face thumbnail, to the lowercase hex <code>SHA-256</code> of the file, plus a <code>version</code>. orb-core writes it as compact JSON (no insignificant whitespace) with sorted keys; <a href="#46-circuit-constraints">constraint 3</a> relies on this format.</li>
+<li><strong>PoH Credential.</strong> The <a href="https://docs.world.org/world-id/credentials/1">PoH Credential</a> commits in claim 0 to the Orb-signed <code>hashes.json</code> as $H_\text{var}$ with label <code>CLAIMS_HASH_V1</code>. This chain lets the circuit bind the compared image to the Issuer’s Credential without hashing the image.</li>
+</ol>
+<h2 id="4-specification"><a class="header" href="#4-specification">4. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<ol>
+<li>The terms <a href="https://docs.rs/world-id-core/latest/world_id_core/struct.Authenticator.html">Authenticator</a>, Issuer and <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/credential/struct.Credential.html">Credential</a> are as defined in the World ID Protocol. <strong>Verifier</strong>, <strong>Flamingo Token</strong> and <strong>Engine</strong> are as defined in <a href="wip-201.html">WIP-201</a>.</li>
+<li>The Field ($F$), the Curve (<code>BabyJubJub</code>), the hashes ($H_t$, $H_\text{var}$) and EdDSA MUST follow <a href="wip-100.html">WIP-100</a>. <code>R(d)</code> is as defined in <a href="wip-201.html">WIP-201</a>.</li>
+</ol>
+<h3 id="41-supported-credentials"><a class="header" href="#41-supported-credentials">4.1 Supported Credentials</a></h3>
+<p>This first iteration supports only the <a href="https://docs.world.org/world-id/credentials/1">PoH Credential</a>, comparing the PCP’s <code>thumbnail.png</code> (<a href="#3-background">Background</a>).</p>
+<h3 id="42-constants"><a class="header" href="#42-constants">4.2 Constants</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>CLAIM_INDEX</code></td><td><code>0</code></td><td>Credential claim holding the <code>hashes.json</code> commitment.</td></tr>
+<tr><td><code>MIN_HASHES_JSON_BYTES</code>, <code>MAX_HASHES_JSON_BYTES</code></td><td><code>3072</code>, <code>5120</code></td><td>Accepted <code>hashes.json</code> lengths.</td></tr>
+<tr><td><code>DS_WIP_202_AUTH</code></td><td><code>127603488023523044162070750169730750023380107613256</code> (<code>b"WORLD-ID/WIP-202/AUTH"</code>)</td><td>Domain separator for the Authenticator’s authorization.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The following constants are re-used, but are not defined by this spec:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Name</th><th>Value</th><th>Defined in</th></tr>
+</thead>
+<tbody>
+<tr><td><code>NUM_KEYS</code></td><td><code>7</code></td><td><a href="wip-100.html">WIP-100 §3.8</a></td></tr>
+<tr><td><code>MAX_DEPTH</code></td><td><code>30</code></td><td><a href="wip-100.html">WIP-100 §3.8</a></td></tr>
+<tr><td><code>MAX_CLAIMS</code></td><td><code>15</code></td><td><code>world-id-primitives</code> <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/credential/struct.Credential.html#associatedconstant.MAX_CLAIMS"><code>Credential::MAX_CLAIMS</code></a></td></tr>
+<tr><td><code>MERKLE_LEAF_DS</code></td><td><code>b"World ID PK"</code></td><td><a href="wip-100.html">WIP-100 §3.8</a></td></tr>
+<tr><td><code>DS_CREDENTIAL_V1</code></td><td><code>b"POSEIDON2+EDDSA-BJJ"</code></td><td><code>world-id-primitives</code> <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/poseidon/ds/constant.CREDENTIAL_V1.html"><code>ds::CREDENTIAL_V1</code></a></td></tr>
+<tr><td><code>DS_CREDENTIAL_SUB</code></td><td><code>b"H_CS(id, r)"</code></td><td><code>world-id-primitives</code> <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/poseidon/ds/constant.CREDENTIAL_SUB.html"><code>ds::CREDENTIAL_SUB</code></a></td></tr>
+<tr><td><code>DS_SESSION_COMMITMENT</code></td><td><code>b"H(id, r)"</code></td><td><code>world-id-primitives</code> <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/poseidon/ds/constant.SESSION_COMMITMENT.html"><code>ds::SESSION_COMMITMENT</code></a></td></tr>
+<tr><td><code>CLAIMS_HASH_V1</code></td><td><code>b"CLAIMS_HASH_V1"</code></td><td><code>world-id-primitives</code> <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/poseidon/ds/constant.CLAIMS_HASH_V1.html"><code>ds::CLAIMS_HASH_V1</code></a></td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="43-flamingo-token-entry-layout"><a class="header" href="#43-flamingo-token-entry-layout">4.3 Flamingo Token Entry Layout</a></h3>
+<p>The circuit binds the Flamingo Token’s <code>compared_entry_hash_k</code> (<a href="wip-201.html">WIP-201</a>) by their index <code>k</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><code>k</code></th><th>Entry</th><th>Bound to</th></tr>
+</thead>
+<tbody>
+<tr><td><code>0</code></td><td>Credential image</td><td>The Credential image, through <a href="#46-circuit-constraints">constraint 3</a>.</td></tr>
+<tr><td><code>1</code></td><td>Live capture</td><td>Not bound in the circuit; the AAT, if present, vouches for it through <code>cdh</code>.</td></tr>
+<tr><td><code>2</code></td><td>Challenge</td><td>The public <code>challenge_hash</code>.</td></tr>
+<tr><td><code>3</code></td><td>Unused</td><td>Zero, through <a href="#46-circuit-constraints">constraint 1</a>.</td></tr>
+</tbody>
+</table>
+</div>
+<ol>
+<li>When choosing the Flamingo configurations it offers (<a href="#44-proof-request">Proof Request</a>), the RP MUST include only pipelines whose release manifest <code>description</code> places the Credential image, the live capture and the challenge at compared entries <code>0</code>, <code>1</code> and <code>2</code>. Another order would make the Engine treat entries in roles the circuit does not bind.</li>
+<li><code>challenge_hash</code> MUST be <code>R(SHA-256(challenge))</code> over the exact challenge bytes. The RP MUST compute it itself from the challenge image it checked against the party it interacts with (<a href="#48-reference-verification">Reference Verification</a>).</li>
+</ol>
+<h3 id="44-proof-request"><a class="header" href="#44-proof-request">4.4 Proof Request</a></h3>
+<p>An RP requesting this proof MUST include the following values in its signed proof request. Their encoding is outside this WIP.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>aud</code>, <code>nonce</code></td><td>As for every World ID proof; <code>nonce</code> as in <a href="wip-201.html#32-request">WIP-201 Request</a>.</td></tr>
+<tr><td><code>challenge_hash</code></td><td><code>R(SHA-256(challenge))</code> of the challenge image (<a href="#43-flamingo-token-entry-layout">Flamingo Token Entry Layout</a>).</td></tr>
+<tr><td>Flamingo configurations</td><td>The (<code>release_hash</code>, <code>pipeline</code>, <code>match_strictness</code>) tuples the RP accepts, in order of preference (<a href="wip-201.html#353-engine-selection">WIP-201 Engine Selection</a>). Each pipeline MUST follow the Entry Layout.</td></tr>
+<tr><td>AAT requirements</td><td>Optional: whether an AAT is required, and optional hints for <code>platform</code>, <code>sec_level</code>, <code>sec_meta</code>, <code>authenticator_meta</code> and <code>min_build_version</code>.</td></tr>
+<tr><td>Credential policy</td><td><code>issuer_schema_id</code>, <code>issuer_version</code>, the accepted Issuer keys and <code>genesis_issued_at_min</code>.</td></tr>
+<tr><td><code>session_id</code></td><td>Optional. An existing session commitment, if the proof must concern the same World ID as an earlier one.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The Authenticator builds the Flamingo request and the circuit inputs from these values. The RP then checks the proof against the same values (<a href="#48-reference-verification">Reference Verification</a>).</p>
+<h3 id="45-circuit-inputs"><a class="header" href="#45-circuit-inputs">4.5 Circuit Inputs</a></h3>
+<p>All inputs not marked <strong>Public</strong> MUST remain private.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Visibility</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>Flamingo Token inputs</td><td>—</td><td>—</td><td>All inputs of <a href="wip-201.html#39-flamingo-token-verification">WIP-201 Flamingo Token Verification</a>, with their visibility.</td></tr>
+<tr><td><code>challenge_hash</code></td><td><strong>Public</strong></td><td>Field element</td><td><code>R(SHA-256(challenge))</code>, see <a href="#43-flamingo-token-entry-layout">Entry Layout</a>.</td></tr>
+<tr><td><code>merkle_root</code></td><td><strong>Public</strong></td><td>Field element</td><td>The root hash of the Merkle tree used for inclusion (representing the <code>WorldIDRegistry</code>).</td></tr>
+<tr><td><code>issuer_schema_id</code></td><td><strong>Public</strong></td><td>Field element</td><td>The Credential type.</td></tr>
+<tr><td><code>issuer_version</code></td><td><strong>Public</strong></td><td>Field element</td><td>The Credential schema version, <code>&lt; 2^8</code>.</td></tr>
+<tr><td><code>cred_pk</code></td><td><strong>Public</strong></td><td><code>PublicKey</code></td><td>The Issuer’s key.</td></tr>
+<tr><td><code>genesis_issued_at_min</code></td><td><strong>Public</strong></td><td>Field element</td><td>Minimum time the Credential was first issued.</td></tr>
+<tr><td><code>session_id</code></td><td><strong>Public</strong></td><td>Field element</td><td>Session commitment, or <code>0</code>.</td></tr>
+<tr><td><code>user_pk</code></td><td>Private</td><td>[<code>PublicKey</code>; <code>NUM_KEYS</code>]</td><td>The list of authenticator public keys registered in the <code>WorldIDRegistry</code>.</td></tr>
+<tr><td><code>pk_index</code></td><td>Private</td><td>Field element</td><td>The index in <code>user_pk</code> of the key used for signature.</td></tr>
+<tr><td><code>auth_s</code></td><td>Private</td><td>Field element</td><td>The <code>s</code> component from the EdDSA signature on the authorization message.</td></tr>
+<tr><td><code>auth_r</code></td><td>Private</td><td>[Field element; 2]</td><td>The <code>r</code> component from the EdDSA signature on the authorization message.</td></tr>
+<tr><td><code>leaf_index</code></td><td>Private</td><td>Field element</td><td>The index of the user’s World ID in the <code>WorldIDRegistry</code>.</td></tr>
+<tr><td><code>siblings</code></td><td>Private</td><td>[Field element; <code>MAX_DEPTH</code>]</td><td>The sequence of all siblings from the <code>leaf_index</code> to the <code>merkle_root</code>.</td></tr>
+<tr><td><code>claims</code></td><td>Private</td><td>[Field element; <code>MAX_CLAIMS</code>]</td><td>The Credential’s claims.</td></tr>
+<tr><td><code>cred_s</code></td><td>Private</td><td>Field element</td><td>The <code>s</code> component from the Issuer’s EdDSA signature on the Credential.</td></tr>
+<tr><td><code>cred_r</code></td><td>Private</td><td>[Field element; 2]</td><td>The <code>r</code> component from the Issuer’s EdDSA signature on the Credential.</td></tr>
+<tr><td><code>cred_associated_data_hash</code></td><td>Private</td><td>Field element</td><td>The Credential’s associated data hash.</td></tr>
+<tr><td><code>cred_genesis_issued_at</code></td><td>Private</td><td>Field element</td><td>When the Credential was first issued.</td></tr>
+<tr><td><code>cred_expires_at</code></td><td>Private</td><td>Field element</td><td>When the Credential expires.</td></tr>
+<tr><td><code>cred_sub_blinding_factor</code></td><td>Private</td><td>Field element</td><td>The blinding factor of the Credential’s <code>sub</code>.</td></tr>
+<tr><td><code>cred_id</code></td><td>Private</td><td>Field element</td><td>The Credential’s identifier.</td></tr>
+<tr><td><code>hashes_json</code></td><td>Private</td><td>[Field element; ⌈<code>MAX_HASHES_JSON_BYTES</code> / 31⌉]</td><td><code>hashes.json</code> as the 31-byte big-endian chunks that $H_\text{var}$ absorbs (<a href="wip-100.html">WIP-100</a> §3.3.3); unused chunks are zero.</td></tr>
+<tr><td><code>hashes_json_len</code></td><td>Private</td><td>Field element</td><td>The length of <code>hashes.json</code> in bytes.</td></tr>
+<tr><td><code>digest_offset</code></td><td>Private</td><td>uint32</td><td>Position in <code>hashes_json</code> where the <code>thumbnail.png</code> digest starts.</td></tr>
+<tr><td><code>session_id_r</code></td><td>Private</td><td>Field element</td><td>The blinding factor of the session commitment, re-derived through the OPRF from the <code>sessionId</code>’s <code>oprf_seed</code> as for Session Proofs (<a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/world-id-4-specs/README.md">World ID 4.0</a>).</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="46-circuit-constraints"><a class="header" href="#46-circuit-constraints">4.6 Circuit Constraints</a></h3>
+<p>The circuit MUST enforce the following constraints. They hold jointly; the numbering only groups them. Every inequality (<code>&lt;</code>, <code>&lt;=</code>) is over integers range-checked to the stated width.</p>
+<ol>
+<li>
+<p><strong>Flamingo Token Verification</strong></p>
+<ul>
+<li>Enforce <a href="wip-201.html#39-flamingo-token-verification">WIP-201 Flamingo Token Verification</a>, yielding its signed <code>digest</code> and <code>compared_entry_hash</code>.</li>
+<li><code>compared_entry_hash[3] == 0</code>.</li>
+</ul>
+</li>
+<li>
+<p><strong>Challenge Binding</strong></p>
+<ul>
+<li><code>challenge_hash != 0</code>.</li>
+<li><code>compared_entry_hash[2] == challenge_hash</code>.</li>
+</ul>
+</li>
+<li>
+<p><strong>Credential Image Binding</strong></p>
+<ol>
+<li><em><code>hashes.json</code> is the Credential’s.</em>
+<ul>
+<li><code>MIN_HASHES_JSON_BYTES &lt;= hashes_json_len &lt;= MAX_HASHES_JSON_BYTES</code>, and the chunks beyond <code>hashes_json_len</code> are zero.</li>
+<li><code>claims[CLAIM_INDEX]</code> equals $H_\text{var}$ (<a href="wip-100.html">WIP-100 §3.3.3</a>) with label <code>CLAIMS_HASH_V1</code> over the first <code>hashes_json_len</code> bytes. The capacity tag binds <code>hashes_json_len</code>, not <code>MAX_HASHES_JSON_BYTES</code>; the last chunk holds only the remaining bytes, and only the $\lceil$<code>hashes_json_len</code>/31$\rceil$ chunks are absorbed.</li>
+<li>Only the chunks around <code>digest_offset</code> are split into bytes; other chunks with the same commitment would be a Poseidon2 collision.</li>
+</ul>
+</li>
+<li><em>Extract the image digest.</em>
+<ul>
+<li><code>18 &lt;= digest_offset</code> and <code>digest_offset + 64 &lt; hashes_json_len</code>.</li>
+<li>The 64 bytes at <code>digest_offset</code> are lowercase hexadecimal digits, followed by <code>"</code>, all within the first <code>hashes_json_len</code> bytes.</li>
+<li>The 17 bytes before <code>digest_offset</code> are <code>"thumbnail.png":"</code>, and the byte before them is <code>{</code> or <code>,</code>.</li>
+<li>The digits decode as the 32-byte big-endian digest <code>credential_digest</code>.</li>
+</ul>
+</li>
+<li><em>Bind it to the Flamingo Token.</em>
+<ul>
+<li><code>compared_entry_hash[0] == R(credential_digest)</code>.</li>
+</ul>
+</li>
+</ol>
+</li>
+<li>
+<p><strong>World ID Authentication</strong></p>
+<ol>
+<li><em>Select the key.</em>
+<ul>
+<li>Range-check <code>pk_index</code> as 3-bit and constrain <code>pk_index &lt; NUM_KEYS</code>.</li>
+<li><code>pk = user_pk[pk_index]</code>. Inactive slots are the identity $(0,1)$, which the signature check in step 3 rejects.</li>
+</ul>
+</li>
+<li><em>Prove registration.</em>
+<ul>
+<li>Compute <code>offchainSignerCommitment = H_16(MERKLE_LEAF_DS; user_pk[0].x, user_pk[0].y, …, user_pk[6].x, user_pk[6].y)</code> per <a href="wip-100.html">WIP-100</a> §3.8, including inactive slots.</li>
+<li>Range-check <code>0 &lt; leaf_index &lt; 2^MAX_DEPTH</code>.</li>
+<li>Recompute the root from <code>offchainSignerCommitment</code> at <code>leaf_index</code> with <code>siblings</code> per WIP-100 §5.3, and constrain it to equal <code>merkle_root</code>.</li>
+</ul>
+</li>
+<li><em>Verify the authorization.</em>
+<ul>
+<li>Compute <code>message = H_4(DS_WIP_202_AUTH; digest, verifier_key.x, verifier_key.y)</code>, with <code>digest</code> and <code>verifier_key</code> from item 1.</li>
+<li>Verify <code>(auth_r, auth_s)</code> by <code>pk</code> over <code>message</code>, following all requirements of WIP-100 §3.5.1.</li>
+</ul>
+</li>
+</ol>
+</li>
+<li>
+<p><strong>Session Commitment</strong></p>
+<ul>
+<li><code>session_id * (session_id - H_3(DS_SESSION_COMMITMENT; leaf_index, session_id_r)) == 0</code>.</li>
+<li>This makes the session optional: <code>session_id = 0</code> means no session, and any other value MUST be this World ID’s commitment.</li>
+</ul>
+</li>
+<li>
+<p><strong>Credential Verification</strong></p>
+<ol>
+<li><em>Verify the Issuer’s signature.</em>
+<ul>
+<li>Compute <code>sub = H_3(DS_CREDENTIAL_SUB; leaf_index, cred_sub_blinding_factor)</code>.</li>
+<li>Compute <code>claims_hash</code>, the Poseidon2 $t=16$ permutation over <code>[claims[0], …, claims[14], 0]</code> with output element <code>1</code>.</li>
+<li>Range-check <code>cred_id</code> as 64-bit and compute <code>cred_id_packed = cred_id + issuer_version * 2^64</code>.</li>
+<li>Verify <code>(cred_r, cred_s)</code> by <code>cred_pk</code> over <code>H_8(DS_CREDENTIAL_V1; issuer_schema_id, sub, cred_genesis_issued_at, cred_expires_at, claims_hash, cred_associated_data_hash, cred_id_packed)</code>.</li>
+</ul>
+</li>
+<li><em>Check validity.</em>
+<ul>
+<li>Range-check <code>now</code> as 32-bit and the Credential times as 64-bit.</li>
+<li><code>now &lt; cred_expires_at</code> and <code>genesis_issued_at_min &lt;= cred_genesis_issued_at</code>.</li>
+</ul>
+</li>
+</ol>
+</li>
+</ol>
+<p>Steps 4.2, 5 and 6.1 MUST use the same <code>leaf_index</code>, which binds the Credential to the World ID whose Authenticator authorized the result.</p>
+<h3 id="47-verification-requirements"><a class="header" href="#47-verification-requirements">4.7 Verification Requirements</a></h3>
+<ol>
+<li><strong>Root Freshness</strong>. Verifiers MUST check that the provided public input <code>merkle_root</code> is valid and non-expired. Verifiers MAY check <code>WorldIDRegistry.isValidRoot(merkle_root)</code> on every verification or cache a valid result until the root’s actual expiration (e.g. from <code>WorldIDRegistryV2.getRootExpiration</code>). The configured <code>getRootValidityWindow()</code> is not the root’s remaining lifetime and MUST NOT, by itself, determine the cache duration. A <code>getRootExpiration</code> result of <code>0</code> denotes the latest root, not an unlimited cache lifetime. Cache access MUST NOT extend the expiration.</li>
+<li><strong>Proving System</strong>. Proofs of Embedding Similarity MUST use the <a href="https://github.com/worldfnd/provekit">ProveKit</a> proving system. Verifiers MUST NOT use verification artifacts supplied by the prover.</li>
+</ol>
+<h3 id="48-reference-verification"><a class="header" href="#48-reference-verification">4.8 Reference Verification</a></h3>
+<p>An RP accepts a proof if the following hold. It MUST check items 2–7 before verifying the proof (item 1).</p>
+<ol>
+<li>The proof verifies according to <a href="#47-verification-requirements">Proving System</a>.</li>
+<li>The Flamingo Token inputs pass <a href="wip-201.html#5-reference-verification">WIP-201 Reference Verification</a>, with an <code>engine_config_hash</code> that follows <a href="#43-flamingo-token-entry-layout">Entry Layout</a>.</li>
+<li><code>now</code> is within 5 minutes of the RP’s own clock.</li>
+<li>The World ID and Credential are trusted:
+<ul>
+<li><code>merkle_root</code> satisfies <a href="#47-verification-requirements">Root Freshness</a> at verification time;</li>
+<li><code>cred_pk</code> is a trusted Issuer key for <code>issuer_schema_id</code> and <code>issuer_version</code>, for the <a href="https://docs.world.org/world-id/credentials/1">PoH Credential</a>.</li>
+</ul>
+</li>
+<li>The request matches:
+<ul>
+<li><code>genesis_issued_at_min</code> is the RP’s own;</li>
+<li><code>challenge_hash</code> is <code>R(SHA-256(challenge))</code> of a challenge image the RP checked against the party it interacts with.</li>
+</ul>
+</li>
+<li>If the RP needs this proof to concern the same World ID as another proof, <code>session_id</code> is nonzero and equals that proof’s session commitment.</li>
+<li><strong>AAT values.</strong> If <code>has_aat = 1</code>, <code>trust_anchor_key_hash</code>, <code>platform</code>, <code>sec_level</code>, <code>sec_meta</code>, <code>authenticator_meta</code> and <code>min_build_version</code> are within the RP’s own policy (<a href="wip-106.html#4-reference-verification">WIP-106 §4</a>), whether or not its request stated them. If <code>has_aat = 0</code>, the RP accepts proofs without an AAT.</li>
+</ol>
+<h2 id="5-rationale"><a class="header" href="#5-rationale">5. Rationale</a></h2>
+<ol>
+<li><strong>Authenticator authorization in the circuit.</strong> As in other World ID proofs, a signature by a registered Authenticator key shows the prover controls the World ID the Credential was issued to. A copy of the Credential and <code>hashes.json</code> alone cannot produce a proof, revoking an Authenticator stops its proofs, and even a compromised Verifier cannot authorize results for a World ID whose Authenticators it does not control.</li>
+<li><strong>Binding the compared image to the PoH Credential.</strong> The PoH Credential commits to <code>hashes.json</code>, which lists the <code>SHA-256</code> of the face thumbnail under <code>thumbnail.png</code>. The circuit reads that digest at a prover-supplied offset and requires it to equal <code>compared_entry_hash[0]</code>, so the live capture and challenge were compared with the Credential image. The offset is safe because in the compact format orb-core writes (<a href="#3-background">Background</a>) the checked pattern occurs only once.</li>
+<li><strong>Fixed entry layout in the Flamingo Token.</strong> Positions bind entries to roles without parsing the Engine release manifest in the circuit.</li>
+<li><strong>Optional session ID.</strong> An RP can check that a later proof comes from the same World ID as an earlier one, e.g. so a different person cannot take over an account. It is optional so proofs stay unlinkable by default.</li>
+<li><strong>Credential verification</strong> In-circuit credential verification allows the RP to verify that the World ID user holds a valid Orb-verified PoH credential.</li>
+<li><strong>Only the challenge hash is public.</strong> A public <code>challenge_hash</code> is what lets the RP verify that the proof concerns its own challenge, and with it the party it interacts with; without this check the proof is meaningless. The Credential image’s hash is constant per user and would link all their proofs, so it stays private, and so does the live capture’s.</li>
+</ol>
+<h2 id="6-alternatives-considered"><a class="header" href="#6-alternatives-considered">6. Alternatives Considered</a></h2>
+<ol>
+<li><strong>Comparing embeddings in the circuit.</strong> Rejected: extraction and fraud detection would still run outside, and the circuit would need fixed-point arithmetic, a fixed embedding dimension and a hash per embedding.</li>
+<li><strong>Verifying the AAT in the circuit.</strong> Rejected: verification in the Flamingo Verifier per <a href="wip-201.html">WIP-201</a> saves the TAKT’s EdDSA verification and the AAT’s <code>ES256</code> verification on the device, which circuits can not do efficiently yet.</li>
+<li><strong>Verifying more in the Flamingo Verifier.</strong> EdDSA verifications dominate the circuit’s cost, so moving more of them into the TEE is tempting. Rejected: World ID authentication there would reveal the leaf index, a permanent identifier, to the TEE, require the Authenticator key to leave the device, and remove the check a compromised Verifier cannot forge. Credential verification there would reveal the Credential and tie the Verifier to one Credential format, while it currently compares any images.</li>
+</ol>
+<h2 id="7-security"><a class="header" href="#7-security">7. Security</a></h2>
+<ol>
+<li><strong>Privacy.</strong> The proof hides the media, the Flamingo Token, the Credential and <code>hashes.json</code>. The AAT’s public values, <code>engine_config_hash</code>, <code>challenge_hash</code> and <code>now</code> are public; an uncommon combination can narrow the set of possible users.</li>
+<li><strong>No uniqueness.</strong> An Embedding Similarity Proof provides no uniqueness guarantees by design. Its use case is different. An RP that needs uniqueness MUST also request a Uniqueness Proof with the same nonzero <code>session_id</code>.</li>
+<li><strong>Relay and stream integrity.</strong> A proof shows the challenge image matches the Credential’s subject. It does not establish that a video stream is unmodified or prevent a relayed interaction.</li>
+</ol>
+<h2 id="8-future-considerations"><a class="header" href="#8-future-considerations">8. Future Considerations</a></h2>
+<ol>
+<li><strong>Other Credentials.</strong> The circuit shall be generalized to other Credentials, likely through a circuit-friendly, general format for Credentials and custody packages.</li>
+</ol>
+<h2 id="9-backwards-compatibility"><a class="header" href="#9-backwards-compatibility">9. Backwards Compatibility</a></h2>
+<p>This WIP introduces a new interface; no existing contracts or functionality are affected.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../WIPs/wip-201.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../WIPs/wip-201.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/mermaid-eefea253.min.js"></script>
+        <script src="../docs/mermaid-init-ccf746f1.js"></script>
+        <script src="../docs/mathjax/config-bab89348.js"></script>
+        <script src="../docs/mathjax/tex-svg-23c036de.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

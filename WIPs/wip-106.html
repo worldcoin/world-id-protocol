@@ -1,0 +1,642 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>WIP-106: Authenticator Assertions - World ID Protocol</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e416bd33.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-538ed45d.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol/edit/main/docs/WIPs/wip-106.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h2 id="1-abstract"><a class="header" href="#1-abstract">1. Abstract</a></h2>
+<p>This spec introduces two tokens that attest the integrity of the environment in which a World ID Proof is generated. The <strong>Trust Anchor Key Token (TAKT)</strong> is a statement by an Authenticator Provider that a device-bound <code>assertion_key</code> belongs to a genuine Authenticator on a genuine device. The <strong>Authenticator Assertion Token (AAT)</strong> is signed by that <code>assertion_key</code> for a single request. Both are CBOR Web Tokens: the TAKT is signed with <code>BabyJubJub-EdDSA-Poseidon2</code>, so circuits verify it cheaply, and the AAT with <code>ES256</code>, which device hardware supports. They are verified in a privacy-preserving manner, so the Relying Party learns only the security properties it asked for, never the device key or the tokens themselves.</p>
+<h2 id="2-motivation"><a class="header" href="#2-motivation">2. Motivation</a></h2>
+<p>Some use cases need information beyond the World ID Proof about where it was generated, typically when the Authenticator provides inputs the proof cannot verify itself (e.g. a live selfie compared in a ZK circuit). Relying Parties then need to know that a genuine Authenticator on a genuine device produced the proof.</p>
+<h2 id="3-specification"><a class="header" href="#3-specification">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<ol>
+<li>The definition of an Authenticator Provider is explicitly introduced into the Protocol. An <strong>Authenticator Provider</strong> is the publishing entity (e.g. a software company) of an <a href="https://github.com/worldcoin/world-id-protocol/tree/main/docs/world-id-4-specs#definitions">Authenticator</a> client.</li>
+<li>An Authenticator Provider MAY opt in to issuing TAKTs. A TAKT, and every AAT signed by the key it attests, is a statement <strong>only</strong> from the Authenticator Provider. Each Relying Party (RP) decides which Authenticator Providers and which security properties it accepts.</li>
+<li>The TAKT attests an <code>assertion_key</code>; the AAT is signed by that <code>assertion_key</code>. The two tokens are bound only by this shared key.</li>
+<li>The Field ($F$), the Curve (<code>BabyJubJub</code>), the hash function ($H_t$), the signature scheme (<code>BabyJubJub-EdDSA-Poseidon2</code>) and the <code>PublicKey</code> representation MUST follow <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100</a>.</li>
+<li>TAKTs and AATs MUST only be verified in environments that provably guarantee privacy, as specified in <a href="#38-verification">Verification</a>. Authenticators MUST NOT share TAKTs or AATs when this cannot be guaranteed.</li>
+</ol>
+<pre class="mermaid">flowchart LR
+  AP["Authenticator Provider"] --&gt;|"signs with trust_anchor_key&lt;br/&gt;(once per assertion_key)"| TAKT["TAKT&lt;br/&gt;assertion_key (cnf) + sec_flags"]
+  TAKT -.-&gt;|"attests assertion_key"| K["assertion_key&lt;br/&gt;(device-bound)"]
+  A["Authenticator"] --&gt; K
+  K --&gt;|"signs (per request)"| AAT["AAT&lt;br/&gt;aud, nonce, cdh, authenticator_meta"]
+  TAKT --&gt; V["Verifier"]
+  AAT --&gt; V
+  V --&gt;|"Public values only"| RP["Relying Party"]
+</pre>
+
+<h3 id="31-constants"><a class="header" href="#31-constants">3.1 Constants</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>DS_TAKT</code></td><td><code>127603488023523044162070750169730677970184433650516</code> (<code>b"WORLD-ID/WIP-106/TAKT"</code>)</td><td>Domain separator for the TAKT digest, allocated to $H_8$ with $k = 6$.</td></tr>
+<tr><td><code>DS_KEY</code></td><td><code>498451125091886891258088867850510460821032355161</code> (<code>b"WORLD-ID/WIP-106/KEY"</code>)</td><td>Domain separator for the key hash, allocated to $H_3$ with $k = 2$.</td></tr>
+<tr><td><code>MAX_TAKT_LIFETIME</code></td><td><code>2592000</code></td><td>Maximum remaining lifetime <code>exp - now</code> of a TAKT, in seconds (30 days).</td></tr>
+<tr><td><code>MAX_AAT_LIFETIME</code></td><td><code>1800</code></td><td>Maximum remaining lifetime <code>exp - now</code> of an AAT, in seconds (30 minutes).</td></tr>
+<tr><td><code>EAT_PROFILE_TAKT</code></td><td><code>https://world.org/eat/takt/v1</code></td><td>The <code>eat_profile</code> claim (<a href="https://datatracker.ietf.org/doc/html/rfc9711#section-4.3.2">RFC 9711 §4.3.2</a>) of a TAKT.</td></tr>
+<tr><td><code>EAT_PROFILE_AAT</code></td><td><code>https://world.org/eat/aat/v1</code></td><td>The <code>eat_profile</code> claim of an AAT.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="32-token-format"><a class="header" href="#32-token-format">3.2 Token Format</a></h3>
+<p>Both tokens are CBOR Web Tokens (<a href="https://datatracker.ietf.org/doc/html/rfc8392">RFC 8392</a>): untagged <code>COSE_Sign1</code> (<a href="https://datatracker.ietf.org/doc/rfc9052/">RFC 9052</a>) in deterministic CBOR (<a href="https://datatracker.ietf.org/doc/html/rfc8949#section-4.2.1">RFC 8949 §4.2.1</a>).</p>
+<ol>
+<li>The payload MUST contain exactly the claims listed for the token, in deterministic CBOR key order, each with the value width given. Verifiers MUST reject any other encoding.</li>
+<li>Claims that carry a field element MUST encode a value less than the field order, as a 32-byte big-endian byte string. Verifiers MUST reject larger values rather than reduce them.</li>
+</ol>
+<h3 id="33-trust-anchor-key"><a class="header" href="#33-trust-anchor-key">3.3 Trust Anchor Key</a></h3>
+<ol>
+<li>An Authenticator Provider that issues TAKTs MUST have a <code>trust_anchor_key</code>, the key that signs its TAKTs. The <code>trust_anchor_key</code> MUST be a <code>BabyJubJub-EdDSA-Poseidon2</code> key pair generated randomly.</li>
+<li>The <code>trust_anchor_key</code> is identified by its <code>kid</code>, which MUST be the compressed wire encoding of its public key as specified in <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §4</a>.</li>
+<li>Circuits and RPs identify it by <code>trust_anchor_key_hash = H_3(DS_KEY; x, y)</code>, over the affine coordinates of its public key.</li>
+<li>A <code>trust_anchor_key</code> MUST be published in the <a href="#39-authenticator-metadata">Authenticator Metadata</a>, with <code>not_before</code> and <code>not_after</code>, before it signs its first TAKT. It SHOULD be published at least 24 hours before, so RPs with cached metadata recognize it.</li>
+<li>A <code>trust_anchor_key</code> MUST NOT sign TAKTs for more than 180 days (<code>not_after - not_before &lt;= 15552000</code>). Authenticator Providers SHOULD rotate keys every 90 days.</li>
+<li>To rotate, an Authenticator Provider MUST publish the next key per item 4 before the current key’s <code>not_after</code>, and MUST keep the outgoing key published for at least <code>MAX_TAKT_LIFETIME</code> after its last TAKT.</li>
+<li>The <code>trust_anchor_key</code> private key SHOULD be generated and used only inside hardware-protected key storage (e.g. an HSM or a TEE), and SHOULD NOT be exportable.</li>
+<li>On suspected compromise, the Authenticator Provider MUST mark the key <code>revoked</code> immediately.</li>
+</ol>
+<h3 id="34-trust-anchor-key-token-takt"><a class="header" href="#34-trust-anchor-key-token-takt">3.4 Trust Anchor Key Token (TAKT)</a></h3>
+<p>A TAKT attests that an <code>assertion_key</code> belongs to a genuine Authenticator on a genuine device, with the security properties in <code>sec_flags</code>.</p>
+<ol>
+<li>The protected header MUST contain exactly <code>alg</code> (label <code>1</code>) with the value <code>-65537</code> and the <code>kid</code> (label <code>4</code>) of the <code>trust_anchor_key</code>, so the Authenticator knows which key signed the TAKT (e.g. during a key rotation). The unprotected header MUST be empty.</li>
+<li>The payload MUST contain the following claims:</li>
+</ol>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Claim</th><th>Key</th><th>Value type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>exp</code></td><td>4</td><td>uint, in $[2^{16}, 2^{32})$ (4 bytes)</td><td>Expiration time, in seconds since the Unix epoch.</td></tr>
+<tr><td><code>cnf</code></td><td>8</td><td>map <code>{1: COSE_Key}</code></td><td>The attested <code>assertion_key</code> (<a href="https://datatracker.ietf.org/doc/html/rfc8747#section-3.1">RFC 8747 §3.1</a>), an EC2 P-256 <code>COSE_Key</code> (<a href="https://datatracker.ietf.org/doc/html/rfc9053#section-7.1">RFC 9053 §7.1</a>): <code>{1: 2, -1: 1, -2: x, -3: y}</code>, with <code>x</code> and <code>y</code> as 32-byte byte strings.</td></tr>
+<tr><td><code>eat_profile</code></td><td>265</td><td>tstr: <code>EAT_PROFILE_TAKT</code></td><td></td></tr>
+<tr><td><code>sec_flags</code></td><td>-70000</td><td>bstr, big-endian (8 bytes)</td><td>Packed security attributes of the <code>assertion_key</code> (see <a href="#36-security-flags">Security Flags</a>).</td></tr>
+</tbody>
+</table>
+</div>
+<ol start="3">
+<li>
+<p>The algorithm <code>-65537</code> (Private Use) is allocated to <code>BabyJubJub-EdDSA-Poseidon2</code> over a TAKT. It does not sign the <code>Sig_structure</code> bytes (<a href="https://datatracker.ietf.org/doc/html/rfc9052#section-4.4">RFC 9052 §4.4</a>). Instead it decodes <code>exp</code>, <code>cnf</code> and <code>sec_flags</code> from the claims and signs</p>
+<p><code>message = H_8(DS_TAKT; exp, x_hi, x_lo, y_hi, y_lo, sec_flags)</code></p>
+<p>where <code>x_hi</code> and <code>x_lo</code> are the high and low 128 bits of the <code>assertion_key</code>’s <code>x</code>, read big-endian, and likewise for <code>y</code>.</p>
+</li>
+<li>
+<p>The signature field MUST carry the signature over <code>message</code> per <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §3.5</a>, including its encoding. Generic COSE/CWT libraries can decode a TAKT but cannot verify it.</p>
+</li>
+<li>
+<p>The protected header is authenticated implicitly: <code>alg</code> is fixed by this specification and bound to the signature through <code>DS_TAKT</code>, and <code>kid</code> MUST equal the compressed wire encoding of the key the signature verifies under. Verifiers MUST reject a TAKT whose protected header differs from these values.</p>
+</li>
+<li>
+<p>An Authenticator Provider MUST NOT issue TAKTs with differing <code>sec_flags</code> for the same <code>assertion_key</code>.</p>
+</li>
+<li>
+<p>A TAKT’s <code>exp</code> MUST NOT be later than the <code>not_after</code> of the <code>trust_anchor_key</code> that signs it.</p>
+</li>
+</ol>
+<h3 id="35-authenticator-assertion-token-aat"><a class="header" href="#35-authenticator-assertion-token-aat">3.5 Authenticator Assertion Token (AAT)</a></h3>
+<p>An AAT binds a single request to an <code>assertion_key</code> attested by a TAKT.</p>
+<ol>
+<li>The <code>assertion_key</code> is a P-256 key pair held by the Authenticator. It SHOULD be generated inside, and bound to, the device’s secure hardware (e.g. the Secure Enclave or StrongBox), so the private key is not exportable.</li>
+<li>The AAT MUST be signed with <code>ES256</code> (<a href="https://datatracker.ietf.org/doc/html/rfc9053#section-2.1">RFC 9053 §2.1</a>) over the <code>Sig_structure</code> of <a href="https://datatracker.ietf.org/doc/html/rfc9052#section-4.4">RFC 9052 §4.4</a>, with an empty <code>external_aad</code>. The protected header MUST contain only <code>alg</code> (label <code>1</code>) with the value <code>-7</code>. The unprotected header MUST be empty.</li>
+<li>The payload MUST contain the following claims:</li>
+</ol>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Claim</th><th>Key</th><th>Value type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>aud</code></td><td>3</td><td>bstr, big-endian (8 bytes)</td><td>The <code>rpId</code> of the <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/request/struct.ProofRequest.html">ProofRequest</a>. This deviates from RFC 8392, which types <code>aud</code> as a string; verifiers MUST reject any other type.</td></tr>
+<tr><td><code>exp</code></td><td>4</td><td>uint, in $[2^{16}, 2^{32})$ (4 bytes)</td><td>Expiration time, in seconds since the Unix epoch.</td></tr>
+<tr><td><code>nonce</code></td><td>10</td><td>bstr: field element (32 bytes)</td><td>The <code>nonce</code> of the ProofRequest.</td></tr>
+<tr><td><code>eat_profile</code></td><td>265</td><td>tstr: <code>EAT_PROFILE_AAT</code></td><td></td></tr>
+<tr><td><code>cdh</code></td><td>-80000</td><td>bstr: field element (32 bytes)</td><td>Client data hash (see item 4).</td></tr>
+<tr><td><code>authenticator_meta</code></td><td>-80001</td><td>bstr: field element (32 bytes)</td><td>See <a href="#361-authenticator-meta">Authenticator Meta</a>.</td></tr>
+</tbody>
+</table>
+</div>
+<ol start="4">
+<li><code>cdh</code> is a commitment set by the Authenticator to bind the AAT to its upstream use (e.g. a user’s <code>leaf_index</code>). <code>0</code> is the nil value. Every specification that consumes an AAT MUST define what <code>cdh</code> commits to, or explicitly allow the nil value. The Authenticator MUST compute <code>cdh</code> exactly as that specification defines.</li>
+<li>The Authenticator MUST set <code>exp</code> such that <code>exp - now &lt;= MAX_AAT_LIFETIME</code>, and MUST sign a fresh AAT for every request.</li>
+<li>This spec does not define how the TAKT is conveyed together with the AAT (<a href="https://datatracker.ietf.org/doc/html/rfc8747#section-3.5">RFC 8747 §3.5</a>). The binding depends only on the shared <code>assertion_key</code>.</li>
+</ol>
+<h3 id="36-security-flags"><a class="header" href="#36-security-flags">3.6 Security Flags</a></h3>
+<p><code>sec_flags</code> packs the following sub-fields (LSB-first). Bits 52 and above MUST be <code>0</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bits</th><th>Sub-field</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>0-7</td><td><code>platform</code></td><td>Platform of the Authenticator.</td></tr>
+<tr><td>8-15</td><td><code>sec_level</code></td><td>Class of integrity evidence the Authenticator Provider verified when issuing the TAKT.</td></tr>
+<tr><td>16-47</td><td><code>build_version</code></td><td>Monotonic version of the Authenticator build that requested the TAKT.</td></tr>
+<tr><td>48-51</td><td><code>sec_meta</code></td><td>4-bit bitmask, provider-defined. <code>0000</code> is the nil value. The meaning of each bit MUST be published in the <a href="#39-authenticator-metadata">Authenticator Metadata</a>.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <code>platform</code> enum:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Definition</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Unspecified</td></tr>
+<tr><td>2</td><td>iOS</td></tr>
+<tr><td>4</td><td>Android</td></tr>
+<tr><td>6</td><td>Web browser</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <code>sec_level</code> enum. Values are identifiers, not a trust ranking; RPs SHOULD allowlist the exact values they accept.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Definition</th><th>Example evidence</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Unspecified</td><td>None</td></tr>
+<tr><td>1</td><td>Hardware-bound key, attested by the platform manufacturer to belong to a genuine app on a genuine device</td><td>Apple App Attest; Android Key Attestation (TEE or StrongBox)</td></tr>
+<tr><td>3</td><td>Platform integrity verdict, without a hardware-bound key</td><td>Google Play Integrity with an Android Keystore key; a browser integrity verdict</td></tr>
+<tr><td>5</td><td>Integrity implied by the Authenticator Provider’s internal controls. RPs trust the Authenticator Provider’s operations, not evidence from the device</td><td>Audited, provider-managed environment</td></tr>
+<tr><td>10</td><td>No environment integrity: the Authenticator Provider could not verify the Authenticator’s environment</td><td>None</td></tr>
+</tbody>
+</table>
+</div>
+<h4 id="361-authenticator-meta"><a class="header" href="#361-authenticator-meta">3.6.1 Authenticator Meta</a></h4>
+<p><code>authenticator_meta</code> is a field element signed with the <code>assertion_key</code> for a single request. It packs the following sub-fields (LSB-first). Bits 5 and above MUST be <code>0</code>.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bits</th><th>Sub-field</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td>0-2</td><td><code>user_presence</code></td><td>An assertion by the Authenticator about the user during the proof generation.</td></tr>
+<tr><td>3-4</td><td>provider bits</td><td>Provider-defined. <code>00</code> is the nil value. The meaning of each value MUST be published in the <a href="#39-authenticator-metadata">Authenticator Metadata</a>.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The <code>user_presence</code> enum:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Definition</th></tr>
+</thead>
+<tbody>
+<tr><td>0</td><td>Undetermined</td></tr>
+<tr><td>1</td><td>User is not present</td></tr>
+<tr><td>2</td><td>User is present, verified by a biometric check during this request</td></tr>
+<tr><td>3</td><td>User was present within the last 30 days</td></tr>
+<tr><td>4</td><td>User was present within the last 7 days</td></tr>
+</tbody>
+</table>
+</div>
+<ol>
+<li><code>user_presence</code> values <code>5</code> to <code>7</code> are reserved and MUST be rejected.</li>
+<li>The Authenticator MUST report <code>user_presence</code> only from checks it performed itself.</li>
+<li>Values are identifiers, not an order. RPs MUST allowlist the exact values they accept.</li>
+</ol>
+<h3 id="37-issuance"><a class="header" href="#37-issuance">3.7 Issuance</a></h3>
+<p>For every TAKT, the Authenticator Provider:</p>
+<ol>
+<li>MUST verify platform integrity evidence that commits to the <code>assertion_key</code> before signing (e.g. an App Attest assertion with <code>clientDataHash</code> = SHA-256 of the <code>COSE_Key</code>, or an Android Key Attestation certificate chain for the <code>assertion_key</code> itself).</li>
+<li>MUST set <code>sec_flags</code> according to that evidence, and MUST NOT set a <code>sec_level</code> the evidence does not support.</li>
+<li>MUST set <code>exp</code> such that <code>exp - now &lt;= MAX_TAKT_LIFETIME</code> at issuance.</li>
+<li>MUST set <code>build_version</code> from the evidence where the platform attests it (e.g. Play Integrity <code>versionCode</code>), and otherwise from the Authenticator’s report.</li>
+<li>MUST NOT retain a link between a device identifier and an <code>assertion_key</code> beyond what abuse prevention requires.</li>
+</ol>
+<p>The Authenticator SHOULD request a new TAKT for a new <code>assertion_key</code> after an update, so <code>build_version</code> stays current.</p>
+<h3 id="38-verification"><a class="header" href="#38-verification">3.8 Verification</a></h3>
+<p>A verifier checks a TAKT and an AAT together, against the following inputs. The verifier MUST keep the <strong>Private</strong> inputs confidential and reveal only the <strong>Public</strong> inputs.</p>
+<p>A verifier is acceptable only if the Authenticator can establish, before sending it a TAKT or an AAT, that the verifier enforces every check below and reveals only the <strong>Public</strong> values. This holds for:</p>
+<ol>
+<li>a zero-knowledge proof the Authenticator generates itself, with the <strong>Private</strong> values as private inputs, or</li>
+<li>a trusted execution environment (TEE) whose remote attestation the Authenticator verifies against a code measurement it trusts. The RP MUST authenticate the TEE’s results, e.g. through a signature by a key that attestation binds.</li>
+</ol>
+<p>Every specification that consumes TAKTs and AATs MUST name its verifier and how the Authenticator authenticates it.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Visibility</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>trust_anchor_key_hash</code></td><td><strong>Public</strong></td><td>Field element</td><td>Hash of the Authenticator Provider’s key, supplied by the RP.</td></tr>
+<tr><td><code>now</code></td><td><strong>Public</strong></td><td>uint32</td><td>Current time, in seconds since the Unix epoch.</td></tr>
+<tr><td><code>aud</code></td><td><strong>Public</strong></td><td>uint64</td><td>The <code>rpId</code> of the request.</td></tr>
+<tr><td><code>nonce</code></td><td><strong>Public</strong></td><td>Field element</td><td>The nonce of the request.</td></tr>
+<tr><td><code>platform</code></td><td><strong>Public</strong></td><td>uint8</td><td>See <a href="#36-security-flags">Security Flags</a>.</td></tr>
+<tr><td><code>sec_level</code></td><td><strong>Public</strong></td><td>uint8</td><td>See <a href="#36-security-flags">Security Flags</a>.</td></tr>
+<tr><td><code>sec_meta</code></td><td><strong>Public</strong></td><td>uint8</td><td>See <a href="#36-security-flags">Security Flags</a>.</td></tr>
+<tr><td><code>authenticator_meta</code></td><td><strong>Public</strong></td><td>uint8</td><td>See <a href="#361-authenticator-meta">Authenticator Meta</a>.</td></tr>
+<tr><td><code>min_build_version</code></td><td><strong>Public</strong></td><td>uint32</td><td>Minimum <code>build_version</code> the RP accepts.</td></tr>
+<tr><td><code>trust_anchor_key</code></td><td>Private</td><td><code>PublicKey</code></td><td>The key that signed the TAKT.</td></tr>
+<tr><td><code>takt</code></td><td>Private</td><td>bytes</td><td>The TAKT.</td></tr>
+<tr><td><code>aat</code></td><td>Private</td><td>bytes</td><td>The AAT.</td></tr>
+<tr><td><code>cdh</code></td><td>Private</td><td>Field element</td><td>Computed by the verifier from the data the consuming specification binds, never taken from the Authenticator.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The verifier MUST enforce:</p>
+<ol>
+<li><strong>Encoding</strong>. Both tokens are encoded as specified in <a href="#32-token-format">Token Format</a>, <a href="#34-trust-anchor-key-token-takt">TAKT</a> and <a href="#35-authenticator-assertion-token-aat">AAT</a>.</li>
+<li><strong>TAKT signature</strong>. The TAKT’s signature over <code>message</code> verifies under <code>trust_anchor_key</code> per <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §3.5.1</a>, and the TAKT’s <code>kid</code> is the compressed wire encoding of that key. <code>H_3(DS_KEY; x, y)</code> of that key MUST equal <code>trust_anchor_key_hash</code>.</li>
+<li><strong>AAT signature</strong>. The AAT’s signature verifies under the <code>assertion_key</code> in the TAKT’s <code>cnf</code> claim.</li>
+<li><strong>Freshness</strong>. <code>now &lt; exp</code> for both tokens, <code>takt.exp - now &lt;= MAX_TAKT_LIFETIME</code> and <code>aat.exp - now &lt;= MAX_AAT_LIFETIME</code>.</li>
+<li><strong>Request binding</strong>. The AAT’s <code>aud</code>, <code>nonce</code> and <code>cdh</code> equal the <code>aud</code>, <code>nonce</code> and <code>cdh</code> inputs. <code>nonce</code> MUST NOT equal <code>0</code>. The verifier MUST compute the <code>cdh</code> input itself, as the consuming specification defines (e.g. from the <code>leaf_index</code> a proof proves, or a hash of the request), otherwise the AAT is not bound to its upstream use.</li>
+<li><strong>Security flags</strong>. The TAKT’s <code>sec_flags</code> has no reserved bits set, and its <code>platform</code>, <code>sec_level</code> and <code>sec_meta</code> equal the public inputs.</li>
+<li><strong>Authenticator meta</strong>. The AAT’s <code>authenticator_meta</code> has no reserved bits set, its <code>user_presence</code> is less than <code>5</code>, and it equals the public input.</li>
+<li><strong>Build version</strong>. <code>build_version &gt;= min_build_version</code>. <code>build_version</code> MUST remain private.</li>
+</ol>
+<p>The <code>assertion_key</code>, both <code>exp</code> values and both signatures MUST remain private: each would let the Authenticator Provider, or RPs comparing proofs, link proofs to the same device.</p>
+<h3 id="39-authenticator-metadata"><a class="header" href="#39-authenticator-metadata">3.9 Authenticator Metadata</a></h3>
+<ol>
+<li>Each Authenticator Provider MUST expose a JSON metadata file over HTTPS at <code>https://&lt;FQDN&gt;/.well-known/world-id-authenticator.json</code>.</li>
+<li>The file MUST validate against the JSON Schema in <a href="#appendix-a2-authenticator-metadata-schema">Appendix A2</a>. In summary:</li>
+</ol>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>version</code></td><td>integer</td><td>Schema version of this file. MUST be <code>1</code> for the format defined here.</td></tr>
+<tr><td><code>provider_id</code></td><td>string</td><td>Stable identifier, which RPs MAY allowlist.</td></tr>
+<tr><td><code>trust_anchor_keys</code></td><td>array</td><td>Each entry: <code>kid</code> (hex), <code>x</code>, <code>y</code> (hex, the <code>PublicKey</code> coordinates), <code>status</code> (<code>active</code>, <code>retired</code> or <code>revoked</code>), <code>not_before</code> and <code>not_after</code> (seconds since the Unix epoch).</td></tr>
+<tr><td><code>sec_meta</code></td><td>object</td><td>Meaning of each <code>sec_meta</code> bit (see item 3).</td></tr>
+<tr><td><code>authenticator_meta</code></td><td>object</td><td>Meaning of each value of the <code>authenticator_meta</code> provider bits (see item 3).</td></tr>
+</tbody>
+</table>
+</div>
+<ol start="3">
+<li><code>sec_meta</code> is keyed by bit index (<code>"0"</code> to <code>"3"</code>), and <code>authenticator_meta</code> by provider-bits value (<code>"1"</code> to <code>"3"</code>). Each value is an object with <code>name</code> (string) and <code>description</code> (string). A bit or value without an entry is undefined, and the Authenticator Provider MUST NOT use it.</li>
+<li><code>trust_anchor_key</code> <code>status</code> values:
+<ul>
+<li><code>active</code>: the key signs TAKTs.</li>
+<li><code>retired</code>: the key no longer signs TAKTs (e.g. after rotation). TAKTs it signed remain valid until they expire. Authenticator Providers MAY remove a retired key <code>MAX_TAKT_LIFETIME</code> after its last TAKT.</li>
+<li><code>revoked</code>: the key must no longer be trusted (e.g. it was compromised). RPs MUST reject every TAKT signed by it.</li>
+</ul>
+</li>
+<li>RPs MAY cache the file, honoring its <code>Cache-Control</code> header, but MUST refetch it at least every 24 hours, so a <code>revoked</code> key stops being accepted within that time.</li>
+</ol>
+<h2 id="4-reference-verification"><a class="header" href="#4-reference-verification">4. Reference Verification</a></h2>
+<p>An RP accepts a proof that carries an Authenticator Assertion by performing the following validations on the <strong>Public</strong> values of <a href="#38-verification">Verification</a>:</p>
+<ol>
+<li><code>trust_anchor_key_hash</code> is the hash of a <code>trust_anchor_key</code> that belongs to an allowlisted Authenticator Provider, is <code>active</code> or <code>retired</code> (never <code>revoked</code>), and <code>now</code> is within its validity window.</li>
+<li><code>now</code> is within 5 minutes of the RP’s local time. RPs MAY be stricter.</li>
+<li><code>aud</code> is the RP’s own <code>rpId</code>, and <code>nonce</code> is one the RP issued, has not expired and has not been used before.</li>
+<li><code>platform</code>, <code>sec_level</code>, <code>sec_meta</code> and <code>authenticator_meta</code> match values the RP allowlists.</li>
+<li><code>min_build_version</code> is the RP’s own minimum.</li>
+</ol>
+<h2 id="5-rationale"><a class="header" href="#5-rationale">5. Rationale</a></h2>
+<ol>
+<li><strong>Device-bound assertion key.</strong> The Authenticator signs each AAT on the device, so the Authenticator Provider does not need to be online for every proof and does not observe when proofs are generated.</li>
+<li><strong>Two tokens bound by a key.</strong> The TAKT carries the expensive platform attestation once per <code>assertion_key</code>; the AAT is a cheap per-request signature. The <code>cnf</code> claim is the standard confirmation mechanism of <a href="https://datatracker.ietf.org/doc/html/rfc8747">RFC 8747</a>.</li>
+<li><strong><code>ES256</code> for the AAT, BabyJubJub for the TAKT.</strong> Secure hardware on iOS and Android supports P-256, so the device-held <code>assertion_key</code> signs with <code>ES256</code>. The Authenticator Provider can hold any key, so the TAKT uses a signature native to $F$ and a circuit verifies only one <code>ES256</code> signature.
+That remaining SHA-256 and P-256 verification is still costly to prove on mobile devices today, so verifiers other than a zero-knowledge proof (<a href="#38-verification">Verification</a>) remain the practical choice until proving systems close that gap.</li>
+<li><strong>CWT for transport.</strong> The TAKT is carried as a CWT, but its signature is over <code>message</code> rather than the CBOR bytes, so circuits verify it without hashing CBOR with SHA-256.</li>
+<li><strong>Key hash as public value.</strong> A single field element keeps circuits to one public input for the key. RPs compute it from the published <code>x</code> and <code>y</code>.</li>
+<li><strong>Fixed-width encodings.</strong> Constant claim offsets let a verifier, including an in-circuit one, read the claims without a general CBOR parser.</li>
+<li><strong>User presence signed by the Authenticator.</strong> Presence is checked per request, after the TAKT is issued, so only the <code>assertion_key</code> can sign it. The TAKT’s <code>sec_level</code> states how far the Authenticator’s integrity, and with it this claim, can be trusted.</li>
+</ol>
+<h2 id="6-alternatives-considered"><a class="header" href="#6-alternatives-considered">6. Alternatives Considered</a></h2>
+<ol>
+<li><strong>A single provider-signed token per request.</strong> The Authenticator Provider verifies platform evidence and signs a token native to $F$ for every proof. Rejected: the Authenticator Provider must be online for every proof and observes every issuance.</li>
+<li><strong>An <code>ES256</code> <code>trust_anchor_key</code>.</strong> It could live in a standard HSM or KMS and verify with generic COSE libraries. Rejected: a circuit would need SHA-256 and non-native P-256 arithmetic a second time, roughly doubling the cost of verifying both tokens in a circuit.</li>
+<li><strong>An <code>assertion_key</code> native to $F$.</strong> Rejected: platforms cannot hold such keys in secure hardware, so a device owner can extract the key and sign assertions from any environment.</li>
+<li><strong>JWT for the TAKT.</strong> Rejected: one envelope format for both tokens keeps verifiers simple, and CBOR has fixed-width encodings JSON lacks.</li>
+</ol>
+<h2 id="7-security"><a class="header" href="#7-security">7. Security</a></h2>
+<ol>
+<li><strong>Assertions are Authenticator Provider statements.</strong> The Protocol verifies only that a TAKT was signed by a <code>trust_anchor_key</code> and that the attested <code>assertion_key</code> signed the AAT. It does not and can not verify the claims. RPs MUST base their trust on the Authenticator Providers they allowlist.</li>
+<li><strong>The <code>assertion_key</code> is a device pseudonym.</strong> It is stable for the lifetime of its TAKT. Revealing it, or the TAKT, would link all proofs of the device. Hence verification MUST keep both private.</li>
+<li><strong>The TAKT is not covered by the AAT signature.</strong> It is authenticated by its own signature and bound to the AAT only through the <code>cnf</code> key. Authenticator Providers MUST NOT attest the same <code>assertion_key</code> with differing <code>sec_flags</code>, so a TAKT can not be swapped for one with other properties.</li>
+<li><strong>Trust anchor compromise.</strong> A leaked <code>trust_anchor_key</code> lets an attacker attest arbitrary keys with arbitrary <code>sec_flags</code>. Revocation is through the <a href="#39-authenticator-metadata">Authenticator Metadata</a> and reaches every RP within its 24-hour refetch interval; TAKTs themselves are not revocable and rely on <code>MAX_TAKT_LIFETIME</code>.</li>
+<li><strong>Assertion key compromise.</strong> An <code>assertion_key</code> extracted from a device signs AATs from any environment until its TAKT expires. <code>sec_level</code> states how well the key is protected.</li>
+<li><strong>User presence.</strong> <code>user_presence</code> is only as trustworthy as the Authenticator that reports it. Use cases that need stronger guarantees SHOULD verify a signed statement from the check itself (e.g. a face verifier).</li>
+<li><strong>Web environments.</strong> Browsers offer no hardware-backed remote attestation. A browser integrity verdict rests on signals the Authenticator Provider evaluates heuristically, so web Authenticators receive at most <code>sec_level = 3</code>, and <code>sec_level = 10</code> without such a verdict.</li>
+</ol>
+<h2 id="8-future-considerations"><a class="header" href="#8-future-considerations">8. Future Considerations</a></h2>
+<p>The following may be considered for future versions of this spec.</p>
+<ol>
+<li>Delegated AATs (e.g. for agents).</li>
+</ol>
+<h2 id="9-backwards-compatibility"><a class="header" href="#9-backwards-compatibility">9. Backwards Compatibility</a></h2>
+<p>This WIP introduces new functionality; no existing functionality is affected.</p>
+<h2 id="appendix-a1-test-vectors"><a class="header" href="#appendix-a1-test-vectors">Appendix A1. Test Vectors</a></h2>
+<p>Field elements are decimal unless prefixed <code>0x</code>, bytes are hex. The <code>trust_anchor_key</code> secret is 32 bytes of <code>0x07</code>, the <code>assertion_key</code> secret 32 bytes of <code>0x09</code>. The AAT signature uses deterministic <code>ES256</code> (<a href="https://datatracker.ietf.org/doc/html/rfc6979">RFC 6979</a>).</p>
+<pre><code class="language-text">trust_anchor_key.x    = 19037598474602150174935475944965340829216795940473064039209388058233204431288
+trust_anchor_key.y    = 3549932221586364715003722955756497910920276078443163728621283280434115857197
+kid                   = 2d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987
+trust_anchor_key_hash = 0x14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8
+
+assertion_key.x = 7135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865
+assertion_key.y = ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724
+
+now               = 1783446000
+aud               = 1928118
+nonce             = 42
+cdh               = 0x06559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a44346150
+min_build_version = 2006
+
+takt.exp  = 1783532400
+sec_flags = 0x0003000007d60102   (platform 2, sec_level 1, build_version 2006, sec_meta 3)
+message   = 0x17a7e201265aef7edbe89f804b16ff8c98a7f87e1da7ed566bcaa91340053879
+takt      = 84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05
+
+aat.exp            = 1783446925
+authenticator_meta = 10   (user_presence 2, provider bits 0b01)
+aat = 8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582006559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a443461503a000138805820000000000000000000000000000000000000000000000000000000000000000a5840c9deddf6657d8d624fc90f035ca1818de26d24aeb9becd946877d7a9f37520ad605b173c60660179227e019370ae9ea824b35f26fefb5b7592b2ab1865263d27
+</code></pre>
+<h2 id="appendix-a2-authenticator-metadata-schema"><a class="header" href="#appendix-a2-authenticator-metadata-schema">Appendix A2. Authenticator Metadata Schema</a></h2>
+<pre><code class="language-json">{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["version", "provider_id", "trust_anchor_keys", "sec_meta", "authenticator_meta"],
+  "properties": {
+    "version": { "const": 1 },
+    "provider_id": { "type": "string", "minLength": 1 },
+    "trust_anchor_keys": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kid", "x", "y", "status", "not_before", "not_after"],
+        "properties": {
+          "kid": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "x": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "y": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "status": { "enum": ["active", "retired", "revoked"] },
+          "not_before": { "type": "integer", "minimum": 0 },
+          "not_after": { "type": "integer", "minimum": 0 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "sec_meta": {
+      "type": "object",
+      "propertyNames": { "enum": ["0", "1", "2", "3"] },
+      "additionalProperties": { "$ref": "#/$defs/meaning" }
+    },
+    "authenticator_meta": {
+      "type": "object",
+      "propertyNames": { "enum": ["1", "2", "3"] },
+      "additionalProperties": { "$ref": "#/$defs/meaning" }
+    }
+  },
+  "$defs": {
+    "meaning": {
+      "type": "object",
+      "required": ["name", "description"],
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+</code></pre>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../WIPs/wip-105.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../WIPs/wip-109.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../WIPs/wip-105.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../WIPs/wip-109.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/mermaid-eefea253.min.js"></script>
+        <script src="../docs/mermaid-init-ccf746f1.js"></script>
+        <script src="../docs/mathjax/config-bab89348.js"></script>
+        <script src="../docs/mathjax/tex-svg-23c036de.js"></script>
+
+
+
+    </div>
+    </body>
+</html>

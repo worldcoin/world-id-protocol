@@ -1,0 +1,573 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>WIP-109: Authenticator Registration - World ID Protocol</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-e416bd33.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-538ed45d.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol/edit/main/docs/WIPs/wip-109.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h2 id="1-abstract"><a class="header" href="#1-abstract">1. Abstract</a></h2>
+<p>This spec builds upon <a href="wip-105.html">WIP-105</a> and describes a process by which a new authenticator can be added to a World ID using an existing Admin Authenticator communicating over the message-bridge (WIP-110).</p>
+<p>It defines the pairing URI (QR code / deeplink), a separately entered pairing code, key derivation, the message-bridge semantics and the specific <a href="wip-105.html">WIP-105</a> CBOR messages. On success the <strong>Approving Authenticator</strong> returns the registration info and the credential vault in a single response, leaving the new authenticator ready to generate proofs.</p>
+<h2 id="2-motivation"><a class="header" href="#2-motivation">2. Motivation</a></h2>
+<p>World ID 4.0 supports multiple authenticators per World ID. Users increasingly hold more than one (e.g. a personal and an enterprise device, or a web authenticator next to a mobile one). Adding an authenticator requires an existing Admin Authenticator (as defined in <a href="wip-104.html">WIP-104</a>) to authorize an <code>InsertAuthenticator</code> operation on the <code>WorldIDRegistry</code>, and the new authenticator needs the account’s <code>leaf_index</code> and its credentials to be useful.</p>
+<p>This requires:</p>
+<ol>
+<li>An interoperable, end-to-end encrypted way for two authenticators (possibly on different devices, networks and providers) to exchange data.</li>
+<li>Explicit, informed user approval on the <strong>Approving Authenticator</strong>.</li>
+<li>Out-of-band authentication through a code the user types into the intended <strong>Approving Authenticator</strong>, so possession of the Pairing URI alone does not authorize a response.</li>
+</ol>
+<h2 id="3-specification"><a class="header" href="#3-specification">3. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<p>Authenticator roles and keys follow <a href="wip-104.html">WIP-104</a>. Messages MUST conform to <a href="wip-105.html">WIP-105</a>.</p>
+<h3 id="31-terminology"><a class="header" href="#31-terminology">3.1 Terminology</a></h3>
+<p>The following terms apply only to this spec.</p>
+<ul>
+<li><strong>Requesting Authenticator</strong>: The new authenticator to be registered.</li>
+<li><strong>Approving Authenticator</strong>: An existing Admin Authenticator of the user’s World ID, registered in the <code>WorldIDRegistry</code>.</li>
+<li><strong>Bridge</strong>: A <a href="https://github.com/worldcoin/message-bridge">message-bridge</a> deployment (as defined in WIP-110). Untrusted: it may observe identifiers, sizes, timing and IP addresses, and can drop or delay messages, but cannot read or modify them.</li>
+<li><strong>Pairing Secret</strong>: 32 random bytes generated by the <strong>Requesting Authenticator</strong> per registration attempt, transferred to the <strong>Approving Authenticator</strong> in the Pairing URI.</li>
+<li><strong>Pairing Code</strong>: An independent random code generated by the <strong>Requesting Authenticator</strong> per attempt and revealed after the bridge reports <code>retrieved</code>. The user manually enters it into the intended <strong>Approving Authenticator</strong>.</li>
+</ul>
+<h3 id="32-overview"><a class="header" href="#32-overview">3.2 Overview</a></h3>
+<p>This section shows a non-normative diagram flow of the registration process.</p>
+<pre class="mermaid">sequenceDiagram
+    participant u as User
+    participant r as Requesting Auth (new)
+    participant b as Bridge
+    participant a as Approving Auth (admin)
+    participant g as Gateway / Registry
+
+    r-&gt;&gt;r: Generate pairing_secret, pairing_code and response key
+    r-&gt;&gt;r: Derive request_id and transport_secret, encrypt request
+    r-&gt;&gt;b: POST /request
+    r-&gt;&gt;u: Show QR code / deeplink
+    par Requesting Authenticator polls
+        loop until retrieved
+            r-&gt;&gt;b: GET /response/:request_id
+            b--&gt;&gt;r: status
+        end
+        r-&gt;&gt;u: Replace QR / deeplink screen with pairing code
+    and Approving Authenticator fetches
+        u-&gt;&gt;a: Scan QR / open deeplink
+        a-&gt;&gt;a: Derive request_id
+        a-&gt;&gt;b: GET /request/:request_id (single use)
+        b--&gt;&gt;a: Encrypted request
+        a-&gt;&gt;u: Prompt for code that will appear on the new device
+    end
+    u-&gt;&gt;a: Type pairing code
+    a-&gt;&gt;a: Derive transport_secret, authenticate and decrypt request&lt;br/&gt;Validate against registration_digest
+    a-&gt;&gt;a: Check account state
+    u-&gt;&gt;a: Approve
+    a-&gt;&gt;u: Request device biometric or PIN verification
+    u-&gt;&gt;a: Complete device verification
+    a-&gt;&gt;g: Sign and submit InsertAuthenticator
+    g--&gt;&gt;a: finalized
+    a-&gt;&gt;a: Refresh account state, read pubkey_id
+    a-&gt;&gt;a: Seal response with HPKE, then encrypt with transport_secret
+    a-&gt;&gt;b: PUT /response/:request_id
+    r-&gt;&gt;b: GET /response/:request_id (single use)
+    r-&gt;&gt;r: Authenticate and decrypt response, open HPKE&lt;br/&gt;Verify on-chain, import vault
+</pre>
+
+<h3 id="33-pairing-secret-pairing-code-and-derived-values"><a class="header" href="#33-pairing-secret-pairing-code-and-derived-values">3.3 Pairing Secret, Pairing Code and Derived Values</a></h3>
+<p>For each registration attempt the <strong>Requesting Authenticator</strong> MUST independently generate a fresh 32-byte <code>pairing_secret</code> and a fresh <code>pairing_code</code> using a CSPRNG. The code MUST be sampled uniformly from the six-letter strings over the ASCII alphabet <code>A</code> through <code>Z</code>; it MUST NOT be user-chosen or derived from the Pairing URI or any value sent over the bridge.</p>
+<p>The code’s canonical encoding is exactly six uppercase ASCII letters, for example <code>QJTWPK</code>. Input MUST be normalized by removing ASCII spaces and hyphens and mapping ASCII <code>a</code> through <code>z</code> to <code>A</code> through <code>Z</code>. Implementations MUST reject any remaining characters outside <code>A</code> through <code>Z</code> or a length other than six before deriving keys; Unicode case folding MUST NOT be used.</p>
+<p>Expand the code with Argon2id (<a href="https://www.rfc-editor.org/rfc/rfc9106.html">RFC 9106</a>), version <code>0x13</code>, memory <code>m = 65536</code> KiB (64 MiB total), iterations <code>t = 3</code>, parallelism <code>p = 4</code>, and a 32-byte output. The password is the raw 32-byte <code>pairing_secret</code> followed by the six-byte canonical ASCII code (38 bytes total). The salt is the public <code>request_id</code> decoded from hex to its raw 32 bytes, not the 64-character hex string. The optional secret and associated data are empty.</p>
+<p><code>HKDF</code> below means HKDF-SHA256 extract-and-expand (<a href="https://www.rfc-editor.org/rfc/rfc5869">RFC 5869</a>) with empty salt and 32-byte output; labels are ASCII and <code>||</code> denotes byte concatenation:</p>
+<pre><code class="language-text">request_id = lowercase_hex(HKDF(pairing_secret, info = "WORLD-ID/WIP-109/REQUESTID"))
+code_key = Argon2id(password = pairing_secret || ASCII(pairing_code), salt = hex_decode(request_id),
+                   m = 65536, t = 3, p = 4, version = 0x13, output_length = 32)
+transport_secret = HKDF(pairing_secret || code_key, info = "WORLD-ID/WIP-109/TRANSPORTSECRET")
+</code></pre>
+<p>The <strong>Requesting Authenticator</strong> MUST reveal the code only after the bridge reports a status of <code>retrieved</code>, replacing the QR code / deeplink screen with the pairing code and instructions to type it only into the intended <strong>Approving Authenticator</strong>. The code and <code>code_key</code> MUST NOT appear in bridge messages, logs, analytics, or link-sharing metadata. Code entry MUST NOT replace explicit consent (§3.7.3). A new pairing MUST use a fresh secret, code and response keypair, even when retrying registration of the same authenticator keys.</p>
+<h4 id="331-registration-digest"><a class="header" href="#331-registration-digest">3.3.1 Registration Digest</a></h4>
+<p>The <strong>Requesting Authenticator</strong> commits to the registration parameters in the Pairing URI, so the <strong>Approving Authenticator</strong> can detect any substituted request. The digest is computed over the parsed values in a fixed binary layout:</p>
+<pre><code class="language-text">registration_digest = SHA-256(
+    "WORLD-ID/WIP-109/REGISTER"     // ASCII
+ || request_id                      // 32 bytes (the raw HKDF output)
+ || new_authenticator_pubkey        // 32 bytes, WIP-100 §4 wire encoding
+ || new_authenticator_address       // 20 bytes; all zeros for a Proving Authenticator
+ || response_pubkey                 // 1216 bytes, X-Wing encapsulation key
+)
+</code></pre>
+<p>All fields MUST be fixed-width, so the encoding is unambiguous. Every member of <code>params</code> except <code>name</code> and <code>registration_sig</code> is covered. <code>name</code> is an advisory label and is not authenticated. A future version that adds a parameter MUST add it to the digest under a new label. SHA-256 is used instead of the <a href="wip-100.html">WIP-100</a> default (Poseidon2) because this is a byte-oriented commitment that is never used in a circuit.</p>
+<h4 id="332-registration-signature"><a class="header" href="#332-registration-signature">3.3.2 Registration Signature</a></h4>
+<p>The <strong>Requesting Authenticator</strong> proves it holds the signing key it asks to register by signing the digest with it. EdDSA (<a href="wip-100.html">WIP-100</a> §3.5) signs field elements, so the digest is first lowered to one:</p>
+<pre><code class="language-text">d_hi, d_lo       = registration_digest[0..16], registration_digest[16..32]    // big-endian integers
+m                = H_3(ds("WORLD-ID/WIP-109/REGSIG"); d_hi, d_lo)             // WIP-100 §3.3.2
+registration_sig = EdDSA-Sign(signing_key, m)                                 // 64 bytes, WIP-100 §3.5.2
+</code></pre>
+<p>This also stops a malicious requester from claiming an already-registered key to obtain the vault through the already-registered case (§3.7.2 step 3).</p>
+<h3 id="34-pairing-uri"><a class="header" href="#34-pairing-uri">3.4 Pairing URI</a></h3>
+<p>The <strong>Requesting Authenticator</strong> encodes the pairing in a <a href="wip-105.html">WIP-105</a> deeplink with namespace <code>auth</code>, version <code>v1</code> and action <code>register</code>:</p>
+<pre><code class="language-text">worldid://auth/v1/register?s={pairing_secret}&amp;d={registration_digest}&amp;b={bridge_domain}
+</code></pre>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Parameter</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>s</code></td><td>REQUIRED</td><td>The 32-byte pairing secret, unpadded base64url (<a href="https://www.rfc-editor.org/rfc/rfc4648#section-5">RFC 4648 §5</a>), 43 characters.</td></tr>
+<tr><td><code>d</code></td><td>REQUIRED</td><td>The 32-byte registration digest (§3.3.1), unpadded base64url (43 characters).</td></tr>
+<tr><td><code>b</code></td><td>REQUIRED</td><td>Domain of the bridge used by the <strong>Requesting Authenticator</strong>, e.g. <code>bridge.example.org</code>, without scheme, port, path, userinfo, query or fragment. The bridge is always reached over <code>https</code>. The <strong>Approving Authenticator</strong> MUST use this bridge and no other.</td></tr>
+</tbody>
+</table>
+</div>
+<ul>
+<li>The <strong>Requesting Authenticator</strong> MUST make the URI available as a deeplink, e.g. a link the user can open or copy, and SHOULD display it as a QR code.</li>
+<li><strong>Approving Authenticators</strong> SHOULD support scanning the QR code and SHOULD register the <code>worldid</code> URI scheme where the platform allows. Opening the URI starts pairing; it MUST NOT imply approval.</li>
+<li>The <strong>Approving Authenticator</strong> MUST parse strictly: reject unknown, missing or duplicated parameters, invalid encodings, and any other authority or path. Query values are percent-encoded as defined in <a href="https://www.rfc-editor.org/rfc/rfc3986#section-2.1">RFC 3986 §2.1</a> and decoded exactly once.</li>
+<li>The <strong>Approving Authenticator</strong> MUST restrict the bridge (<code>b</code>) to an allowlist of known bridge deployments and MUST NOT contact a non-allowlisted host without user confirmation.</li>
+<li>The URI exposes the session identifier, but the separately entered code is also required to derive the transport key. The URI MUST NOT be logged, sent to analytics, or passed to link-preview or URL-shortening services.</li>
+<li>No explicit expiry is carried; the bridge’s own expiry is authoritative and the <strong>Approving Authenticator</strong> treats <code>404</code> from <code>GET /request</code> as expired-or-used.</li>
+</ul>
+<h3 id="35-transport"><a class="header" href="#35-transport">3.5 Transport</a></h3>
+<p>Messages are exchanged over the message-bridge, whose interface is not in the scope for this spec. WIP-110 owns the bridge contract, including its endpoints and the <code>initialized</code>, <code>retrieved</code> and <code>completed</code> statuses; until WIP-110 is published, the <a href="https://github.com/worldcoin/message-bridge">message-bridge</a> implementation is the reference. This spec only defines how each party reacts to them. The request and its response are addressed by the same <code>request_id</code> (§3.3).</p>
+<p><strong>Session expiry.</strong> Until WIP-110 exposes the bridge’s expiry, each party estimates it on a monotonic clock as 900 seconds, the message-bridge session lifetime, after a reference point. For the <strong>Approving Authenticator</strong>, this is when it sent the successful <code>GET /request</code>. For the <strong>Requesting Authenticator</strong>, it is when its <code>POST /request</code> succeeded, moved to when it first observes <code>retrieved</code> because that read restarts the session. The <strong>Approving Authenticator</strong>’s response deadline is 60 seconds before its estimated expiry.</p>
+<p><strong>Encryption.</strong></p>
+<ul>
+<li>Both directions use AES-256-GCM under <code>transport_secret</code>, with a fresh CSPRNG-generated 12-byte nonce per encryption and a full 16-byte authentication tag. The bridge’s <code>iv</code> carries the nonce and <code>payload</code> carries <code>ciphertext || tag</code>, both standard padded base64 (<a href="https://www.rfc-editor.org/rfc/rfc4648#section-4">RFC 4648 §4</a>). A nonce MUST NOT be reused for another encryption under the same key; delivery retries MUST resend the exact same <code>iv</code> and <code>payload</code>.</li>
+<li>Request: encrypt the CBOR-encoded request. The AES-GCM AAD is <code>ASCII("WORLD-ID/WIP-109/REQUEST") || request_id_bytes</code>, where <code>request_id_bytes</code> is the raw 32-byte HKDF output, not the hex string.</li>
+<li>Response (including errors): first seal the CBOR-encoded response to the <strong>Requesting Authenticator</strong>’s <code>response_pubkey</code> with the public-key encryption defined in <a href="wip-100.html">WIP-100</a> §3.9, using <code>info = "WORLD-ID/WIP-109/RESPONSE"</code> (ASCII). The <strong>Requesting Authenticator</strong> MUST reject a sealed message whose header or ciphersuite is not the one WIP-100 §3.9 defines.
+Then encrypt the complete sealed bytes with AES-256-GCM as above, using AAD <code>ASCII("WORLD-ID/WIP-109/RESPONSE") || request_id_bytes</code>. The response <code>iv</code> is the outer AES-GCM nonce; it MUST NOT be empty.</li>
+</ul>
+<p>The encoded CBOR message before encryption MUST NOT exceed 4 KiB for a request and 3.5 MiB plus 4 KiB for a response (the <code>vault.data</code> limit of §3.6.2 and the other fields). Receivers MUST reject a decoded <code>payload</code> longer than that limit plus the encryption overhead (16 bytes for a request; 1159 bytes for a response: 16 outer tag plus the 1143 bytes of sealed-message overhead defined in <a href="wip-100.html">WIP-100</a> §3.9) before decrypting it.</p>
+<p>Receivers MUST reject malformed base64, a decoded <code>iv</code> other than 12 bytes, or a decoded <code>payload</code> shorter than 16 bytes or over the limit above, ending the attempt with a local pairing-failed message. They MUST authenticate the AES-GCM envelope before parsing a request or opening an HPKE response. An unauthenticated request MUST NOT produce a response; limited local code retries are allowed by §3.7.1. Response authentication or HPKE decryption failure MUST end the attempt with a local pairing-failed message and an offer to start a new pairing. Implementations MUST NOT fall back to a key derived without the code or accept an unwrapped HPKE response.</p>
+<blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>The code-derived transport key authenticates both directions. HPKE base mode alone does not authenticate the sender: anyone with <code>response_pubkey</code> can seal a response. The inner HPKE layer additionally protects the vault even if the pairing secret and code are later disclosed. This inner layer is <strong>temporary</strong> until WIP-110 provides equivalent post-quantum confidentiality; code-based authentication remains required.</p>
+</blockquote>
+<h3 id="36-messages"><a class="header" href="#36-messages">3.6 Messages</a></h3>
+<p>Requests and responses use the CBOR encoding and <code>version: "1.0"</code> envelope defined in <a href="wip-105.html">WIP-105</a>. <code>params</code> and <code>result</code> are maps. The tables below define their fields. Byte strings contain the specified bytes directly; integer fields use CBOR unsigned integers within the stated ranges. Optional fields are omitted when absent.</p>
+<p>Examples use CBOR diagnostic notation: <code>h'…'</code> denotes a byte string. Byte strings containing <code>…</code> are abbreviated illustrations, not test vectors.</p>
+<h4 id="361-worldid_auth_v1_register-requesting--approving"><a class="header" href="#361-worldid_auth_v1_register-requesting--approving">3.6.1 <code>worldid_auth_v1_register</code> (Requesting → Approving)</a></h4>
+<p>The request MUST include <code>id</code> set to the <code>request_id</code> text string; it MUST NOT be null. The <strong>Approving Authenticator</strong> MUST reject a message whose <code>id</code> differs from the value it derived.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Member</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>new_authenticator_pubkey</code></td><td>REQUIRED</td><td>The <strong>Requesting Authenticator</strong>’s signing public key in the compressed wire representation of <a href="wip-100.html#4-public-key-representation">WIP-100 §4</a>, as a 32-byte CBOR byte string.</td></tr>
+<tr><td><code>new_authenticator_address</code></td><td>OPTIONAL</td><td>The <strong>Requesting Authenticator</strong>’s management key address, as a 20-byte CBOR byte string. Present: Admin Authenticator. Omitted: Proving Authenticator. MUST NOT be the zero address.</td></tr>
+<tr><td><code>response_pubkey</code></td><td>REQUIRED</td><td>Ephemeral X-Wing encapsulation key used to seal the response, as a 1216-byte CBOR byte string. Generated per attempt.</td></tr>
+<tr><td><code>name</code></td><td>OPTIONAL</td><td>Human-readable, self-reported label, e.g. <code>"MyApp on iPhone 14"</code>. CBOR text string, at most 64 UTF-8 bytes. Which characters are accepted is up to the <strong>Approving Authenticator</strong>. It rejects a name it does not accept with <code>invalid_name</code>.</td></tr>
+<tr><td><code>registration_sig</code></td><td>REQUIRED</td><td>Registration Signature (§3.3.2): the 64-byte EdDSA signature as a CBOR byte string.</td></tr>
+</tbody>
+</table>
+</div>
+<p>Example: registration request for a Proving Authenticator (byte strings abbreviated).</p>
+<pre><code class="language-text">{
+  "version": "1.0",
+  "id": "90f29fad9f9354009a277ce306f1867ff351d7d1844be4e41715ed58c0e676e3",
+  "method": "worldid_auth_v1_register",
+  "params": {
+    "new_authenticator_pubkey": h'119ab03f…',
+    "response_pubkey": h'420044e7…',
+    "name": "Chrome on MacBook",
+    "registration_sig": h'8e41c0…'
+  }
+}
+</code></pre>
+<h4 id="362-success-response-approving--requesting"><a class="header" href="#362-success-response-approving--requesting">3.6.2 Success response (Approving → Requesting)</a></h4>
+<p>A response with <code>id</code> equal to the request’s <code>id</code>. The table defines <code>result</code>. Sent exactly once, and only after the registration is final on-chain or was already present (§3.7.2).</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Member</th><th>Required</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>leaf_index</code></td><td>REQUIRED</td><td>Account index, an unsigned integer from 1 to 2^30 − 1 (<code>MAX_DEPTH</code> = 30); index 0 is reserved (<a href="wip-100.html">WIP-100</a> §3.8, §5.1).</td></tr>
+<tr><td><code>pubkey_id</code></td><td>REQUIRED</td><td>Slot the <strong>Requesting Authenticator</strong> was inserted at, an unsigned integer below the registry’s <code>getMaxAuthenticators()</code>.</td></tr>
+<tr><td><code>authenticators</code></td><td>OPTIONAL</td><td>Names of the account’s other authenticators known to the <strong>Approving Authenticator</strong>: an array of maps with <code>pubkey_id</code> (unsigned integer below <code>getMaxAuthenticators()</code>) and <code>name</code> (text string).</td></tr>
+<tr><td><code>vault</code></td><td>OPTIONAL</td><td>Map with <code>format</code> = <code>"walletkit_plaintext_v1"</code> (text string) and <code>data</code> = the WalletKit <code>export_vault_for_backup</code> output as a CBOR byte string of at most 3.5 MiB (3,670,016 bytes), so the encrypted response fits the message-bridge’s 5 MiB request body limit. If the vault would exceed this limit, the <strong>Approving Authenticator</strong> omits <code>vault</code> and MUST tell the user that the vault was not shared; the registration proceeds. The <strong>Requesting Authenticator</strong> MUST reject a response whose <code>vault.data</code> exceeds it, without importing it. Present only if the user chose to share the vault (§3.7.3); <strong>Approving Authenticator</strong> policy MAY still exclude it.<br><br>Note the vault contains the set of credentials and associated data from the issuer.</td></tr>
+</tbody>
+</table>
+</div>
+<p>Example: successful registration response (vault bytes abbreviated).</p>
+<pre><code class="language-text">{
+  "version": "1.0",
+  "id": "90f29fad9f9354009a277ce306f1867ff351d7d1844be4e41715ed58c0e676e3",
+  "result": {
+    "leaf_index": 42,
+    "pubkey_id": 1,
+    "authenticators": [{ "pubkey_id": 0, "name": "iPhone" }],
+    "vault": { "format": "walletkit_plaintext_v1", "data": h'53514c69746520666f726d61742033…' }
+  }
+}
+</code></pre>
+<h4 id="363-error-response-approving--requesting"><a class="header" href="#363-error-response-approving--requesting">3.6.3 Error response (Approving → Requesting)</a></h4>
+<p>Method error responses use the request’s <code>id</code>. Envelope errors and the shared <code>invalid_params</code> and <code>internal_error</code> codes follow <a href="wip-105.html">WIP-105</a>. The table lists those shared codes and the additional codes defined by this method.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><code>code</code></th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>invalid_params</code></td><td>Missing or malformed field, or an invalid key or address.</td></tr>
+<tr><td><code>invalid_name</code></td><td>The <strong>Approving Authenticator</strong> does not accept the <code>name</code>. The <strong>Requesting Authenticator</strong> can start over with a different name.</td></tr>
+<tr><td><code>internal_error</code></td><td>The <strong>Approving Authenticator</strong> could not complete the request for any other reason.</td></tr>
+<tr><td><code>user_rejected</code></td><td>The user declined.</td></tr>
+<tr><td><code>not_authorized</code></td><td>The <strong>Approving Authenticator</strong> is not an Admin Authenticator of the account.</td></tr>
+<tr><td><code>authenticator_conflict</code></td><td>The signing key or address is already registered, but not as requested (other account or other class).</td></tr>
+<tr><td><code>max_authenticators_reached</code></td><td>No free authenticator slot.</td></tr>
+<tr><td><code>operation_failed</code></td><td>The <code>InsertAuthenticator</code> operation definitively failed. <code>error.data</code> MAY be a map with a <code>detail</code> text string containing an implementation-specific error, e.g. the RPC’s or the <code>WorldIDRegistry</code>’s <code>error_code</code>.</td></tr>
+<tr><td><code>outcome_unknown</code></td><td>The <strong>Approving Authenticator</strong> submitted the operation but could not determine its outcome before its deadline.</td></tr>
+</tbody>
+</table>
+</div>
+<p>Example: the user declined registration.</p>
+<pre><code class="language-text">{
+  "version": "1.0",
+  "id": "90f29fad9f9354009a277ce306f1867ff351d7d1844be4e41715ed58c0e676e3",
+  "error": {"code": "user_rejected", "message": "Registration declined"}
+}
+</code></pre>
+<p>The <strong>Approving Authenticator</strong> MUST NOT report <code>operation_failed</code> unless the failure is definitive. If the outcome is still unknown at its response deadline (§3.5), the <strong>Approving Authenticator</strong> MUST respond <code>outcome_unknown</code> rather than stay silent. The <strong>Requesting Authenticator</strong> then tells the user that the outcome is unknown and offers a new pairing. If the insertion succeeded, the new pairing hits the already-registered case (§3.7.2 step 3) and delivers the result without a second insertion.</p>
+<h3 id="37-approving-authenticator-procedure"><a class="header" href="#37-approving-authenticator-procedure">3.7 Approving Authenticator Procedure</a></h3>
+<h4 id="371-receive"><a class="header" href="#371-receive">3.7.1 Receive</a></h4>
+<ol>
+<li>Parse the Pairing URI (§3.4) and derive <code>request_id</code> from <code>pairing_secret</code> (§3.3).</li>
+<li>Call <code>GET /request/:request_id</code> before prompting for the code. On success, retain the encrypted request locally for code entry and retries; the single-use read triggers the bridge’s <code>retrieved</code> status. On <code>429</code>, <code>5xx</code> or timeout, retry with bounded backoff, honoring <code>Retry-After</code> when present and stopping no later than session expiry; if retries are exhausted, show a local failure and offer a new pairing. On <code>404</code>, tell the user the QR code or link was already used or has expired, and to generate a new one on the new device. A <code>404</code> after a timed-out attempt means the request was consumed and lost; handle it the same way. On other <code>4xx</code>, fail visibly and offer a new pairing.</li>
+<li>Prompt the user to manually enter the code that will appear on the <strong>Requesting Authenticator</strong> once it observes <code>retrieved</code>, validate its format, derive <code>code_key</code> and <code>transport_secret</code> (§3.3), then authenticate and decrypt the retained request (§3.5). On authentication failure, the authenticator MAY let the user re-enter the code and derive a new key against the same locally held ciphertext, up to three decryption attempts in total and only before session expiry. It MUST NOT re-fetch the request. It MUST NOT send a response, check account state, request consent, or submit an operation until authentication succeeds. After the final failed attempt, cancellation or expiry, discard the session and offer a new pairing.</li>
+<li>Decode the request as CBOR. If decoding fails, end the attempt with a local pairing-failed message without replying. Validate the <a href="wip-105.html">WIP-105</a> envelope, <code>method</code>, <code>id == request_id</code>, and the encodings and bounds of all <code>params</code>. On validation failure, reply only if the decoded request contains a valid, unambiguous <code>params.response_pubkey</code>; otherwise end the attempt with a local pairing-failed message without replying. Do not reply to valid notifications. Encrypt any reply as specified in §3.5, using the <a href="wip-105.html">WIP-105</a> §3.1.4 error: <code>invalid_request</code> for an invalid envelope or <code>id</code>, <code>method_not_found</code> for another <code>method</code>, and <code>invalid_params</code> otherwise. Recompute <code>registration_digest</code> from the params and, if it differs from the URI value, respond <code>invalid_params</code>. Verify <code>registration_sig</code> against <code>new_authenticator_pubkey</code>; on failure respond <code>invalid_params</code>. Reject a <code>name</code> it does not accept (<code>invalid_name</code>), and display an accepted one as untrusted text.</li>
+</ol>
+<h4 id="372-check-account-state"><a class="header" href="#372-check-account-state">3.7.2 Check account state</a></h4>
+<ol>
+<li>Refresh the account state.</li>
+<li>The <strong>Approving Authenticator</strong> MUST be an Admin Authenticator of the account. Otherwise: <code>not_authorized</code>.</li>
+<li><strong>Already registered.</strong> If <code>new_authenticator_pubkey</code> is already in the pubkey set, an earlier attempt registered it:
+<ul>
+<li>The <strong>Approving Authenticator</strong> MUST verify that the existing slot matches the request: its class is the requested class and, for an Admin Authenticator, its management key is <code>new_authenticator_address</code>. Otherwise respond <code>authenticator_conflict</code>. How the slot’s class and management key are read is out of scope for this spec.</li>
+<li>Approval (§3.7.3) is still required, because the vault is shared. The <strong>Approving Authenticator</strong> then skips §3.7.4 and responds (§3.7.5) with the existing <code>leaf_index</code> and <code>pubkey_id</code>.</li>
+</ul>
+</li>
+<li>If <code>new_authenticator_address</code> is already registered: <code>authenticator_conflict</code>. A pubkey registered on another account cannot be detected and is not checked.</li>
+<li>Otherwise choose the lowest free <code>pubkey_id</code> below the registry’s <code>getMaxAuthenticators()</code>. If none is free: <code>max_authenticators_reached</code>.</li>
+</ol>
+<h4 id="373-approve"><a class="header" href="#373-approve">3.7.3 Approve</a></h4>
+<ol>
+<li>The <strong>Approving Authenticator</strong> MUST show an explicit consent screen that at least conveys the following information:
+<ol>
+<li>Make it clear to the user they are authorizing another authenticator to make World ID proofs on their behalf.</li>
+<li>If the vault is being shared, the user MUST be aware that the authenticator will receive their credentials. If the vault contains biometric data, the user MUST be aware of such. The <strong>Approving Authenticator</strong> MUST ask for sharing the vault as a separate, explicit approval (e.g. a checkbox) that is not pre-selected, and the user MUST be able to approve the registration without sharing the vault. If the user does not share the vault, the consent screen MUST state that the new authenticator cannot generate proofs for those credentials until it obtains them.</li>
+<li>It MUST be clear if the user is approving a Proving Authenticator or an Admin Authenticator. It is RECOMMENDED to convey to the user the risks of an Admin Authenticator being approved.</li>
+<li>It MUST tell the user not to share with third-parties or with authenticators they don’t trust.</li>
+</ol>
+</li>
+<li>The <strong>Approving Authenticator</strong> MUST require a fresh device biometric or device PIN check for this approval, using the platform’s local user-verification mechanism. Verification MUST succeed before signing an <code>InsertAuthenticator</code> operation or exporting or sharing the vault, including in the already-registered case (§3.7.2 step 3). Entering the pairing code or having an unlocked device does not satisfy this requirement. If verification fails, is cancelled or is unavailable, the authenticator MUST end the attempt without registering the authenticator or sharing the vault.</li>
+<li>If the user rejects the request or cancels device verification, respond <code>user_rejected</code>. If device verification fails or is unavailable, respond <code>internal_error</code>.</li>
+</ol>
+<h4 id="374-submit"><a class="header" href="#374-submit">3.7.4 Submit</a></h4>
+<ol>
+<li>Sign the registry’s EIP-712 <code>InsertAuthenticator</code> message from the account state refreshed in §3.7.2: the signature nonce, the chosen <code>pubkey_id</code>, and the new commitment computed from its pubkey set. Pass its <code>offchain_signer_commitment</code> as the operation’s old commitment; it is not part of the signed message, and the registry checks it against the account’s current leaf. For a Proving Authenticator, <code>new_authenticator_address</code> in the operation is <code>0x0000000000000000000000000000000000000000</code> as per <a href="wip-104.html">WIP-104</a>.</li>
+<li>Submit the operation, through a gateway or any other submission path (e.g. its own relayer).</li>
+<li>Track the operation with bounded backoff until it is final on-chain or has definitively failed.</li>
+<li>The <strong>Approving Authenticator</strong> tracks only the finality of its own operation. If the operation fails, the registration fails: respond <code>operation_failed</code>, or <code>authenticator_conflict</code> if it failed because <code>new_authenticator_address</code> is already registered. It MUST NOT re-sign or submit another insertion while it is tracking a submitted operation. A failure reported after the transaction was broadcast is not final, because the transaction may still land. In that case respond <code>outcome_unknown</code> (§3.6.3) unless the operation is known not to have landed.</li>
+<li>On success, refresh the account state and read <code>pubkey_id</code> from it as in §3.7.2 step 3, retrying with bounded backoff until its source of account state shows the key. If the source still does not show it by the response deadline (§3.5), respond <code>outcome_unknown</code>.</li>
+</ol>
+<p>No double insertion is possible. The registry checks both the signature nonce and the old commitment, so an insertion signed from stale state reverts instead of landing, and two insertions signed with the same nonce cannot both succeed.</p>
+<h4 id="375-respond"><a class="header" href="#375-respond">3.7.5 Respond</a></h4>
+<ol>
+<li>Build the response (§3.6.2 or §3.6.3), encode it as CBOR, seal it to <code>response_pubkey</code>, and encrypt the sealed bytes under <code>transport_secret</code> (§3.5).</li>
+<li>Call <code>PUT /response/:request_id</code>:
+<ul>
+<li><code>201</code>: delivered.</li>
+<li><code>429</code>, <code>5xx</code> or timeout: retry with bounded backoff, honoring <code>Retry-After</code> when present and stopping no later than session expiry (§3.5).</li>
+<li>Any other status, or retries exhausted: tell the user that the response may not have been delivered, and to check the new device and retry from it if needed. A <code>400</code> or <code>409</code> after a timed-out attempt can mean that attempt was delivered.</li>
+</ul>
+</li>
+</ol>
+<h3 id="38-requesting-authenticator-procedure"><a class="header" href="#38-requesting-authenticator-procedure">3.8 Requesting Authenticator Procedure</a></h3>
+<ol>
+<li>
+<p>The <strong>Requesting Authenticator</strong> MUST use the same authenticator keys and class across retries of the same registration, so that a retry after a lost response hits the already-registered case (§3.7.2 step 3) instead of inserting a second authenticator.</p>
+</li>
+<li>
+<p>Generate <code>pairing_secret</code>, <code>pairing_code</code> and the X-Wing <code>response_pubkey</code> keypair. Derive <code>request_id</code> and <code>transport_secret</code> (§3.3), then build the request, encode it as CBOR and encrypt it (§3.5).</p>
+</li>
+<li>
+<p>Call <code>POST /request</code>:</p>
+<ul>
+<li><code>200</code>: published.</li>
+<li><code>409</code>: already published by an earlier attempt; continue.</li>
+<li><code>429</code>, <code>5xx</code> or timeout: retry with bounded backoff, honoring <code>Retry-After</code> when present.</li>
+<li>Other <code>4xx</code>, or retries exhausted: fail visibly.</li>
+</ul>
+<p>Once the request is published, the <strong>Requesting Authenticator</strong> MUST NOT post it again. A post after the <strong>Approving Authenticator</strong> has read the request resets the bridge status. Retrying an unconfirmed post is safe only because the Pairing URI is not yet displayed, so no <strong>Approving Authenticator</strong> can have read the request. The <strong>Requesting Authenticator</strong> MUST NOT display the URI until a post returns <code>200</code> or <code>409</code>.</p>
+</li>
+<li>
+<p>Display the Pairing URI and keep the pairing code hidden, then poll <code>GET /response/:request_id</code> until session expiry. The <strong>Requesting Authenticator</strong> MUST let the user cancel and start a new pairing during this step. On expiry, offer a new pairing; otherwise handle each poll as follows:</p>
+<ul>
+<li><code>initialized</code>: the request has not been fetched yet. Keep the Pairing URI visible and keep polling.</li>
+<li><code>retrieved</code>: replace the QR code / deeplink screen with the pairing code and instructions to enter it on the intended <strong>Approving Authenticator</strong>. Keep the code visible for typo correction until the session completes, fails, expires or is cancelled, then hide it.</li>
+<li><code>completed</code>: go to step 5.</li>
+<li><code>404</code> without a response: the session expired or the response was lost. Offer a new pairing with a fresh secret, code and response keypair, keeping the same authenticator keys.</li>
+<li><code>429</code>, <code>5xx</code> or timeout: retry with bounded backoff, honoring <code>Retry-After</code> when present and stopping no later than session expiry. If retries are exhausted, show a local failure and offer a new pairing.</li>
+<li>Other <code>4xx</code>: fail visibly and offer a new pairing.</li>
+</ul>
+</li>
+<li>
+<p>Authenticate and decrypt the outer response, then open the HPKE seal (§3.5). Validate its CBOR encoding, <a href="wip-105.html">WIP-105</a> envelope, <code>id == request_id</code>, and the field types and bounds in §3.6 before acting on either <code>result</code> or <code>error</code>. The outer envelope binds the response to this session, so an error with <code>id: null</code> is also accepted. Reject any other response that fails these checks, ending the attempt with a local pairing-failed message. On <code>result</code>: verify against the registry state (e.g. via an indexer) that <code>new_authenticator_pubkey</code> is at <code>pubkey_id</code> on <code>leaf_index</code>, with the requested class and, for an Admin Authenticator, management key <code>new_authenticator_address</code>. The <strong>Requesting Authenticator</strong> MUST NOT consider itself registered or import the vault until this check succeeds. Then store <code>leaf_index</code>, import the vault if present (WalletKit <code>merge_vault_from_backup</code>) and delete the session. A response without <code>vault</code> still completes registration. On <code>error</code>: show the reason and delete the session. The <strong>Requesting Authenticator</strong> SHOULD display <code>error.message</code> to the user.</p>
+</li>
+</ol>
+<p>Both authenticators MUST discard the pairing code, derived keys and any response private key when an attempt completes, fails, expires or is cancelled.</p>
+<h2 id="4-rationale"><a class="header" href="#4-rationale">4. Rationale</a></h2>
+<ul>
+<li><strong>Using the message-bridge instead of other protocols.</strong> The message-bridge is already the canonical way of exchanging off-chain messages between Protocol parties, works from browsers, and needs no service or contract changes.</li>
+<li><strong>One request id for both directions.</strong> The bridge keys request and response by the same id, so a single derived value is enough to resume either side.</li>
+<li><strong>Derived <code>request_id</code>.</strong> The Pairing URI carries a single secret instead of an id plus a key, which keeps the QR code slightly smaller (about 36 fewer characters than a bridge-assigned id). The derived id also meets the bridge’s high-entropy requirement for client-supplied ids.</li>
+<li><strong>Typed code and Argon2id.</strong> The independently transferred code binds the exchange to the device into which the user enters it. Argon2id increases the cost of guessing a human-typeable code; HKDF combines its output with the pairing secret. The decoded request id provides a public salt for each session; including the pairing secret in the password prevents precomputing code expansions from the request id alone. Fixed parameters ensure independent implementations derive the same key.</li>
+<li><strong>Authenticated response envelope.</strong> Wrapping the existing HPKE seal with the code-derived key authenticates success and error responses while retaining the vault’s asymmetric confidentiality. Distinct AAD labels bind messages to their direction and session.</li>
+</ul>
+<h2 id="5-security"><a class="header" href="#5-security">5. Security</a></h2>
+<ul>
+<li><strong>Bridge.</strong> It sees <code>request_id</code>, sizes, timing and IPs; <code>pairing_secret</code> is carried only in the Pairing URI. It can forge <code>retrieved</code>, drop messages or race the single-use reads. <code>retrieved</code> only triggers the code display; payload authentication is still required.</li>
+<li><strong>Intercepted Pairing URI.</strong> Any application that registered the <code>worldid</code> scheme can receive the URI, as can anyone who sees the QR code. Without also obtaining or guessing the code, they cannot decrypt the request or forge an authenticated response, even if they know <code>response_pubkey</code>. They can still consume the request or occupy the response slot first, causing a visible failure and a new pairing.</li>
+<li><strong>Code guessing.</strong> The six-letter code has <code>26^6</code> possibilities (about 28 bits of entropy). An attacker with the URI and a captured AES-GCM envelope can test guesses offline; Argon2id raises the cost but does not eliminate this attack, and bridge rate limits do not bound it. Expiry does not prevent offline guessing against retained ciphertext. The inner HPKE seal protects recorded vault contents even after the code is recovered, provided the response private key remains secret.</li>
+<li><strong>Malicious QR code or code disclosure.</strong> A user who scans an attacker’s URI and enters the attacker’s code can still register the attacker’s device. The code authenticates possession, not an account identity. Users must obtain the code directly from their intended new authenticator and enter it only into their intended admin authenticator. Observing both the URI and code defeats this protection; the consent screen remains required.</li>
+<li><strong>Malicious deeplink handler.</strong> An app that intercepts the <code>worldid</code> URI can imitate the code-entry screen and solicit the code. This protocol does not authenticate the app selected by the operating system: the user must verify which authenticator they are using before entering the code. Entering the code into a malicious app defeats the out-of-band protection, including on the same device.</li>
+<li><strong>Response authenticity.</strong> Both success and error responses require the outer code-derived authentication tag. On-chain verification (§3.8 step 5) is still required before the <strong>Requesting Authenticator</strong> considers itself registered or imports the vault, and it MUST validate imported credentials against its account before using them.</li>
+<li><strong>Vault sensitivity.</strong> The vault is sent only after approval, sealed to the <strong>Requesting Authenticator</strong>’s <code>response_pubkey</code>. The already-registered case requires approval too.</li>
+<li><strong>Least privilege.</strong> <strong>Approving Authenticators</strong> SHOULD make the Admin vs Proving distinction prominent. <strong>Requesting Authenticators</strong> that do not need management SHOULD request Proving.</li>
+</ul>
+<h2 id="6-backwards-compatibility"><a class="header" href="#6-backwards-compatibility">6. Backwards Compatibility</a></h2>
+<p>There are no changes to existing contracts or bridge endpoints. Registration uses the existing <code>InsertAuthenticator</code> operation. Proving registration depends on the <a href="wip-104.html">WIP-104</a> registry (<code>WorldIDRegistryV2</code>). Authenticators that do not implement this WIP are unaffected.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../WIPs/wip-106.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../WIPs/wip-110.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../WIPs/wip-106.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../WIPs/wip-110.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/mermaid-eefea253.min.js"></script>
+        <script src="../docs/mermaid-init-ccf746f1.js"></script>
+        <script src="../docs/mathjax/config-bab89348.js"></script>
+        <script src="../docs/mathjax/tex-svg-23c036de.js"></script>
+
+
+
+    </div>
+    </body>
+</html>
