@@ -38,12 +38,28 @@ pub fn load_ownership_prover_from_reader(
 
     let mut bytes = Vec::new();
     reader.read_to_end(&mut bytes)?;
-    deserialize_prover(&bytes)
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        deserialize_prover(&bytes)
+    }
 }
 
 /// Decodes PKP bytes like `provekit_common::file::deserialize`, but in pure Rust: provekit's
 /// decoder links the C zstd and xz libraries, which don't build for wasm32. ProveKit always writes
 /// provers xz-compressed.
+#[cfg(any(
+    target_arch = "wasm32",
+    all(
+        test,
+        feature = "embed-ownership-prover",
+        feature = "embed-ownership-verifier"
+    )
+))]
 fn deserialize_prover(bytes: &[u8]) -> eyre::Result<provekit_common::Prover> {
     const MAGIC: &[u8] = b"\xDC\xDFOZkp\x01\x00";
     const FORMAT: &[u8] = b"PrvKitPr";
@@ -574,6 +590,19 @@ mod tests {
             postcard::to_allocvec(&decoded).unwrap(),
             postcard::to_allocvec(&expected).unwrap()
         );
+    }
+
+    #[test]
+    fn test_native_prover_reader_accepts_zstd() {
+        let expected: provekit_common::Prover =
+            provekit_common::file::deserialize(PKP_BYTES).expect("provekit decodes the prover");
+        let serialized = postcard::to_allocvec(&expected).unwrap();
+        let mut zstd_pkp = PKP_BYTES[..20].to_vec();
+        zstd_pkp.extend(zstd::stream::encode_all(serialized.as_slice(), 3).unwrap());
+
+        let decoded = load_ownership_prover_from_reader(zstd_pkp.as_slice())
+            .expect("native reader accepts zstd-compressed provers");
+        assert_eq!(postcard::to_allocvec(&decoded).unwrap(), serialized);
     }
 
     #[test]
