@@ -9,6 +9,7 @@ use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestState};
 use crate::{
     config::OrphanSweeperConfig,
     request_tracker::{RequestTracker, now_unix_secs},
+    storage::request_store::{StatusGuard, StatusWriteOutcome},
 };
 
 /// Runs the orphan sweeper loop indefinitely.
@@ -79,15 +80,35 @@ pub async fn sweep_once(
                         "sweeper: failing stale {:?} request",
                         record.status,
                     );
-                    tracker
-                        .set_status(
-                            id,
-                            GatewayRequestState::failed(
-                                "request timed out in queued state due to unexpected error",
-                                Some(GatewayErrorCode::InternalServerError),
-                            ),
-                        )
-                        .await;
+                    let status = GatewayRequestState::failed(
+                        "request timed out in queued state due to unexpected error",
+                        Some(GatewayErrorCode::InternalServerError),
+                    );
+                    // Guarded on exactly the state the snapshot saw. A request a
+                    // batcher claimed (`Queued` -> `Batching`) or advanced between
+                    // the snapshot and this write is no longer stale, so it must
+                    // not be failed under its new owner.
+                    let observed = if matches!(record.status, GatewayRequestState::Queued) {
+                        StatusGuard::Queued
+                    } else {
+                        StatusGuard::Batching
+                    };
+                    match tracker.set_status_if(id, &[observed], status).await {
+                        Ok(StatusWriteOutcome::Applied | StatusWriteOutcome::Missing) => {}
+                        Ok(StatusWriteOutcome::Guarded) => {
+                            tracing::debug!(
+                                request_id = %id,
+                                "sweeper: request moved on before it could be failed"
+                            );
+                        }
+                        Err(error) => {
+                            tracing::error!(
+                                %error,
+                                request_id = %id,
+                                "sweeper: failed to fail stale request"
+                            );
+                        }
+                    }
                 }
             }
             GatewayRequestState::Submitted { tx_hash } => {
