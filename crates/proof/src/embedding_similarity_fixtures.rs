@@ -21,7 +21,7 @@ use world_id_test_utils::merkle::first_leaf_merkle_path;
 
 /// The WIP-201 digest runs at `t=16`, so the separator pins 15 inputs.
 const DS_WIP_201: DomainSeparator<15> = DomainSeparator::new(b"WORLD-ID/WIP-201/SIGN");
-const DS_WIP_202_AUTH: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/WIP-202/AUTH");
+const DS_WIP_202_AUTH: DomainSeparator<4> = DomainSeparator::new(b"WORLD-ID/WIP-202/AUTH");
 
 /// Chunk slots of the Noir `HashesJsonInputs` (`CHUNK_SLOTS`).
 const CHUNK_SLOTS: usize = 169;
@@ -93,6 +93,8 @@ const DIGEST_WITHOUT_AAT: &str = "046b836383d9d9fd350fbed1197e1c1c17f2b187fb6ef1
 const CREDENTIAL_IMAGE: &[u8] = b"credential image";
 const LIVE_IMAGE: &[u8] = b"live image";
 const CHALLENGE_IMAGE: &[u8] = b"challenge image";
+/// The RP's signal, hashed as for Uniqueness Proofs.
+const SIGNAL: &[u8] = b"rp signal";
 
 const LEAF_INDEX: u64 = 1;
 const GENESIS_ISSUED_AT: u64 = 1_600_000_000;
@@ -186,11 +188,20 @@ fn token_digest(has_aat: bool, compared: [FieldElement; 4]) -> FieldElement {
     poseidon::hash(DS_WIP_201, claims)
 }
 
-/// The account's authorization message for a Flamingo Token digest.
-fn authorization_message(digest: FieldElement, verifier_key: &EdDSAPublicKey) -> FieldElement {
+/// The account's authorization message for a Flamingo Token digest and the RP's signal.
+fn authorization_message(
+    digest: FieldElement,
+    verifier_key: &EdDSAPublicKey,
+    signal_hash: FieldElement,
+) -> FieldElement {
     poseidon::hash(
         DS_WIP_202_AUTH,
-        [digest, verifier_key.pk.x.into(), verifier_key.pk.y.into()],
+        [
+            digest,
+            verifier_key.pk.x.into(),
+            verifier_key.pk.y.into(),
+            signal_hash,
+        ],
     )
 }
 
@@ -250,8 +261,18 @@ fn render() -> Rendered {
     let digest_no_aat = token_digest(false, compared);
     let token = verifier_sk.sign(*digest);
     let token_no_aat = verifier_sk.sign(*digest_no_aat);
-    let auth = authenticator_sk.sign(*authorization_message(digest, &verifier_key));
-    let auth_no_aat = authenticator_sk.sign(*authorization_message(digest_no_aat, &verifier_key));
+    let signal_hash = FieldElement::from_arbitrary_raw_bytes(SIGNAL);
+    let auth = authenticator_sk.sign(*authorization_message(digest, &verifier_key, signal_hash));
+    let auth_no_aat = authenticator_sk.sign(*authorization_message(
+        digest_no_aat,
+        &verifier_key,
+        signal_hash,
+    ));
+    let auth_no_signal = authenticator_sk.sign(*authorization_message(
+        digest,
+        &verifier_key,
+        FieldElement::ZERO,
+    ));
 
     let sub_blinding_factor = FieldElement::from(777_u64);
     let credential = Credential::new()
@@ -295,6 +316,7 @@ fn render() -> Rendered {
         ("MIN_BUILD_VERSION", "u32", MIN_BUILD_VERSION.to_string()),
         ("ENGINE_CONFIG_HASH", "Field", engine_config_hash.clone()),
         ("CHALLENGE_HASH", "Field", dec(*compared[2])),
+        ("SIGNAL_HASH", "Field", dec(*signal_hash)),
         ("MERKLE_ROOT", "Field", dec(*merkle_root)),
         ("ISSUER_SCHEMA_ID", "Field", ISSUER_SCHEMA_ID.to_string()),
         ("ISSUER_VERSION", "Field", ISSUER_VERSION.to_string()),
@@ -324,6 +346,7 @@ fn render() -> Rendered {
         // Signed variants for the tests
         ("TOKEN_SIG_NO_AAT", "Signature", noir_sig(&token_no_aat)),
         ("AUTH_SIG_NO_AAT", "Signature", noir_sig(&auth_no_aat)),
+        ("AUTH_SIG_NO_SIGNAL", "Signature", noir_sig(&auth_no_signal)),
     ];
 
     let noir = format!(
@@ -364,6 +387,7 @@ fn render() -> Rendered {
          min_build_version = \"{MIN_BUILD_VERSION}\"\n\
          engine_config_hash = \"{engine_config_hash}\"\n\
          challenge_hash = \"{challenge_hash}\"\n\
+         signal_hash = \"{signal_hash}\"\n\
          merkle_root = \"{merkle_root}\"\n\
          issuer_schema_id = \"{ISSUER_SCHEMA_ID}\"\n\
          issuer_version = \"{ISSUER_VERSION}\"\n\
@@ -406,6 +430,7 @@ fn render() -> Rendered {
          len = \"{len}\"\n\
          digest_offset = \"{digest_offset}\"\n",
         challenge_hash = dec(*compared[2]),
+        signal_hash = dec(*signal_hash),
         merkle_root = dec(*merkle_root),
         session_id = dec(*session_id),
         verifier_key = toml_point(&verifier_key),
