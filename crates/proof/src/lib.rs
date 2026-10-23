@@ -1,5 +1,8 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+// Enforce the portable transcript version even though ProveKit uses Spongefish indirectly.
+use spongefish as _;
+
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::Groth16Error;
 
@@ -42,8 +45,6 @@ use provekit_common::{InputMap, InputValue, NoirElement};
 
 use world_id_primitives::FieldElement;
 
-// TODO: Currently ownership proofs are not supported for WASM targets
-#[cfg(not(target_arch = "wasm32"))]
 pub mod ownership_proof;
 
 pub use provekit_common::{

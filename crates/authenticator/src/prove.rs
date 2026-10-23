@@ -13,10 +13,7 @@ use crate::{
     authenticator::{Authenticator, CredentialInput, ProofResult},
     error::AuthenticatorError,
 };
-#[cfg(not(target_arch = "wasm32"))]
-use world_id_primitives::OwnershipProof;
-use world_id_primitives::TREE_DEPTH;
-#[cfg(not(target_arch = "wasm32"))]
+use world_id_primitives::{OwnershipProof, TREE_DEPTH};
 use world_id_proof::{
     circuit_inputs::OwnershipProofCircuitInput,
     ownership_proof::generate_ownership_proof_with_prover,
@@ -477,7 +474,6 @@ impl Authenticator {
     ///
     /// # Returns
     /// The [`OwnershipProof`] containing the ZKP and Merkle root.
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn prove_credential_sub(
         &self,
         nonce: FieldElement,

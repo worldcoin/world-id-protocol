@@ -46,6 +46,9 @@ tracing = { workspace = true }
 zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
 provekit-common = { workspace = true }
+provekit-prover = { workspace = true }
+# 0.2.1 hashes squeeze counters as u64; 0.2.0 transcripts differ on wasm32.
+provekit-spongefish = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
@@ -60,8 +63,14 @@ zeroize = { workspace = true }
 world-id-primitives = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-provekit-prover = { workspace = true }
 provekit-verifier = { workspace = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+acvm = { workspace = true }
+bn254-blackbox-solver = { workspace = true }
+# Decodes `.pkp` files without provekit's C-based zstd/xz bindings.
+lzma-rs = { workspace = true }
+postcard = { workspace = true }
 
 [build-dependencies]
 eyre = { workspace = true }
@@ -75,8 +84,13 @@ provekit-common = { workspace = true }
 provekit-r1cs-compiler = { workspace = true, optional = true }
 
 [dev-dependencies]
+acvm = { workspace = true }
+bn254-blackbox-solver = { workspace = true }
 hex = { workspace = true }
+lzma-rs = { workspace = true }
+postcard = { workspace = true }
 sha2 = { workspace = true }
 test-case = { workspace = true }
 toml = { workspace = true }
 world-id-test-utils = { workspace = true }
+zstd = { workspace = true }

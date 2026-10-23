@@ -3306,6 +3306,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "coset"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1eb98d5e9155e2cf7cd942c8b3033097d4563b6fb0a00b9caecb74669555c058"
+dependencies = [
+ "ciborium",
+ "ciborium-io",
+]
+
+[[package]]
 name = "cpubits"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4354,7 +4364,7 @@ checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.15.0"
+version = "0.17.0"
 dependencies = [
  "alloy",
  "eyre",
@@ -5388,6 +5398,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "jose-b64"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bec69375368709666b21c76965ce67549f2d2db7605f1f8707d17c9656801b56"
+dependencies = [
+ "base64ct",
+ "serde",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "jose-jwa"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ab78e053fe886a351d67cf0d194c000f9d0dcb92906eb34d853d7e758a4b3a7"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "jose-jwk"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "280fa263807fe0782ecb6f2baadc28dffc04e00558a58e33bfdb801d11fd58e7"
+dependencies = [
+ "jose-b64",
+ "jose-jwa",
+ "p256 0.13.2",
+ "serde",
+ "zeroize",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5594,7 +5638,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "legacy-recovery-migration"
-version = "0.15.0"
+version = "0.17.0"
 dependencies = [
  "alloy",
  "clap",
@@ -5681,6 +5725,16 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "lzma-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "297e814c836ae64db86b36cf2a557ba54368d03f6afcd7d947c266692f71115e"
+dependencies = [
+ "byteorder",
+ "crc",
+]
 
 [[package]]
 name = "lzma-sys"
@@ -7188,9 +7242,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-spongefish"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36fae7879976a7da05091f70da9652465b0dbba51adb8ae8e71731b1d47d047d"
+checksum = "041f618ad7143f0fd2485c96ce492bbfd740e91b2b2cfe9ba61f742468988838"
 dependencies = [
  "ark-ff 0.6.0",
  "ark-serialize 0.6.0",
@@ -7206,9 +7260,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-spongefish-pow"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2482a98b65f7545992cc59f92d0e439c9ec0fcbc53e262c3be81d57bf9b33c0"
+checksum = "7384b4cf746f295cd570ad42586ef09d3e992dbe7a713ca259ecc9c0067ac510"
 dependencies = [
  "blake3",
  "bytemuck",
@@ -8637,7 +8691,7 @@ dependencies = [
  "rustls-webpki",
  "security-framework",
  "security-framework-sys",
- "webpki-root-certs 1.0.6",
+ "webpki-root-certs 1.0.10",
  "windows-sys 0.61.2",
 ]
 
@@ -8649,9 +8703,9 @@ checksum = "f87165f0995f63a9fbeea62b64d10b4d9d8e78ec6d7d51fb2125fda7bb36788f"
 
 [[package]]
 name = "rustls-webpki"
-version = "0.103.15"
+version = "0.103.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f3c3cf1d8b1e7d4927e2d154c3fcb02979afb9939629c62cd9048d4f07b60ac2"
+checksum = "4443b1b6d39d7c663139942cc4558262562d2c84123bb6282ef177009ca8b281"
 dependencies = [
  "aws-lc-rs",
  "ring",
@@ -10145,7 +10199,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "webpki-roots 1.0.6",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
@@ -11655,14 +11709,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "75c7f0ef91146ebfb530314f5f1d24528d7f0767efbfd31dce919275413e393e"
 dependencies = [
- "webpki-root-certs 1.0.6",
+ "webpki-root-certs 1.0.10",
 ]
 
 [[package]]
 name = "webpki-root-certs"
-version = "1.0.6"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "804f18a4ac2676ffb4e8b5b5fa9ae38af06df08162314f96a68d2a363e21a8ca"
+checksum = "58ec80e73fd8baf57bf0d9615554c75348bda990d6d5bbeab964dd068319fecb"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -11673,14 +11727,14 @@ version = "0.26.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "521bc38abb08001b01866da9f51eb7c5d647a19260e00054a8c7fd5f9e57f7a9"
 dependencies = [
- "webpki-roots 1.0.6",
+ "webpki-roots 1.0.10",
 ]
 
 [[package]]
 name = "webpki-roots"
-version = "1.0.6"
+version = "1.0.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22cfaf3c063993ff62e73cb4311efde4db1efb31ab78a3e5c457939ad5cc0bed"
+checksum = "1c1c8e20c8a38fc7d65abfe74eb7280e4aa667e8eec8bc84996d2874810748d9"
 dependencies = [
  "rustls-pki-types",
 ]
@@ -12217,7 +12271,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.15.0"
+version = "0.17.0"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -12254,8 +12308,8 @@ dependencies = [
  "testcontainers",
  "thiserror 2.0.18",
  "tokio",
- "webpki-root-certs 1.0.6",
- "webpki-roots 1.0.6",
+ "webpki-root-certs 1.0.10",
+ "webpki-roots 1.0.10",
  "world-id-primitives",
  "world-id-proof",
  "world-id-registries",
@@ -12265,7 +12319,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.15.0"
+version = "0.17.0"
 dependencies = [
  "alloy",
  "backon",
@@ -12308,6 +12362,23 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "world-id-primitives",
+]
+
+[[package]]
+name = "world-id-flamingo"
+version = "0.17.0"
+dependencies = [
+ "base64 0.22.1",
+ "coset",
+ "hex",
+ "jose-jwk",
+ "p256 0.13.2",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "taceo-eddsa-babyjubjub",
+ "thiserror 2.0.18",
  "world-id-primitives",
 ]
 
@@ -12400,7 +12471,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.15.0"
+version = "0.17.0"
 dependencies = [
  "alloy",
  "ark-ff 0.6.0",
@@ -12435,7 +12506,7 @@ dependencies = [
  "tokio",
  "tracing",
  "uuid",
- "webpki-roots 1.0.6",
+ "webpki-roots 1.0.10",
  "world-id-core",
  "world-id-primitives",
  "world-id-proof",
@@ -12444,7 +12515,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-oprf-node"
-version = "1.2.1"
+version = "1.2.4"
 dependencies = [
  "alloy",
  "ark-bn254 0.6.0",
@@ -12485,7 +12556,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.15.0"
+version = "0.17.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -12496,11 +12567,13 @@ dependencies = [
  "arrayvec",
  "cbor-diag",
  "ciborium",
+ "coset",
  "embed-doc-image",
  "eyre",
  "getrandom 0.4.1",
  "hex",
  "k256 0.13.4",
+ "p256 0.13.2",
  "percent-encoding",
  "provekit-common",
  "rand 0.8.6",
@@ -12526,7 +12599,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.15.0"
+version = "0.17.0"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -12535,11 +12608,16 @@ dependencies = [
  "ark-serialize 0.6.0",
  "eyre",
  "hex",
+ "lzma-rs",
  "once_cell",
+ "postcard",
  "provekit-common",
  "provekit-prover",
  "provekit-r1cs-compiler",
+ "provekit-spongefish",
  "provekit-verifier",
+ "provekit_acvm",
+ "provekit_bn254_blackbox_solver",
  "rand 0.8.6",
  "rayon",
  "reqwest 0.13.2",
@@ -12565,7 +12643,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-registries"
-version = "0.15.0"
+version = "0.17.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -12838,6 +12916,7 @@ version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
 dependencies = [
+ "serde",
  "zeroize_derive",
 ]
 
