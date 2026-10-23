@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.17.0...world-id-primitives-v0.17.1) - 2026-10-23
+
+### Added
+
+- *(proof)* enable ownership proofs on wasm32 ([#1132](https://github.com/worldcoin/world-id-protocol/pull/1132))
+
+### Other
+
+- update Cargo.toml dependencies
+
 ## [0.17.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.16.0...world-id-primitives-v0.17.0) - 2026-10-22
 
 ### Added
