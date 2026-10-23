@@ -5727,6 +5727,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
 
 [[package]]
+name = "lzma-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "297e814c836ae64db86b36cf2a557ba54368d03f6afcd7d947c266692f71115e"
+dependencies = [
+ "byteorder",
+ "crc",
+]
+
+[[package]]
 name = "lzma-sys"
 version = "0.1.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7232,9 +7242,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-spongefish"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36fae7879976a7da05091f70da9652465b0dbba51adb8ae8e71731b1d47d047d"
+checksum = "041f618ad7143f0fd2485c96ce492bbfd740e91b2b2cfe9ba61f742468988838"
 dependencies = [
  "ark-ff 0.6.0",
  "ark-serialize 0.6.0",
@@ -7250,9 +7260,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-spongefish-pow"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2482a98b65f7545992cc59f92d0e439c9ec0fcbc53e262c3be81d57bf9b33c0"
+checksum = "7384b4cf746f295cd570ad42586ef09d3e992dbe7a713ca259ecc9c0067ac510"
 dependencies = [
  "blake3",
  "bytemuck",
@@ -12597,11 +12607,16 @@ dependencies = [
  "ark-groth16",
  "ark-serialize 0.6.0",
  "eyre",
+ "lzma-rs",
  "once_cell",
+ "postcard",
  "provekit-common",
  "provekit-prover",
  "provekit-r1cs-compiler",
+ "provekit-spongefish",
  "provekit-verifier",
+ "provekit_acvm",
+ "provekit_bn254_blackbox_solver",
  "rand 0.8.6",
  "rayon",
  "reqwest 0.13.2",
