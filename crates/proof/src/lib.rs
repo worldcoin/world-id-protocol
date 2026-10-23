@@ -1,5 +1,8 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+// Enforce the portable transcript version even though ProveKit uses Spongefish indirectly.
+use spongefish as _;
+
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::Groth16Error;
 

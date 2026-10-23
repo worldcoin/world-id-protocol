@@ -47,6 +47,8 @@ zstd = { workspace = true, optional = true }
 eddsa-babyjubjub = { workspace = true }
 provekit-common = { workspace = true }
 provekit-prover = { workspace = true }
+# 0.2.1 hashes squeeze counters as u64; 0.2.0 transcripts differ on wasm32.
+provekit-spongefish = { workspace = true }
 acvm = { workspace = true }
 bn254-blackbox-solver = { workspace = true }
 # Decodes `.pkp` files without provekit's C-based zstd/xz bindings.

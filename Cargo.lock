@@ -12613,6 +12613,7 @@ dependencies = [
  "provekit-common",
  "provekit-prover",
  "provekit-r1cs-compiler",
+ "provekit-spongefish",
  "provekit-verifier",
  "provekit_acvm",
  "provekit_bn254_blackbox_solver",
