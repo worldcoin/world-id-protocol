@@ -49,8 +49,6 @@ provekit-common = { workspace = true }
 provekit-prover = { workspace = true }
 # 0.2.1 hashes squeeze counters as u64; 0.2.0 transcripts differ on wasm32.
 provekit-spongefish = { workspace = true }
-acvm = { workspace = true }
-bn254-blackbox-solver = { workspace = true }
 rand = { workspace = true }
 serde = { workspace = true }
 groth16-material = { workspace = true, features = ["circom"] }
@@ -68,6 +66,8 @@ world-id-primitives = { workspace = true }
 provekit-verifier = { workspace = true }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
+acvm = { workspace = true }
+bn254-blackbox-solver = { workspace = true }
 # Decodes `.pkp` files without provekit's C-based zstd/xz bindings.
 lzma-rs = { workspace = true }
 postcard = { workspace = true }
@@ -84,6 +84,8 @@ provekit-common = { workspace = true }
 provekit-r1cs-compiler = { workspace = true, optional = true }
 
 [dev-dependencies]
+acvm = { workspace = true }
+bn254-blackbox-solver = { workspace = true }
 lzma-rs = { workspace = true }
 postcard = { workspace = true }
 test-case = { workspace = true }

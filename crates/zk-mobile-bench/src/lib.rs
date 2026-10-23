@@ -35,7 +35,7 @@ use world_id_proof::{
         embedded::{EmbeddedZkArtifacts, zkeys},
     },
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
-    ownership_proof::{check_ownership_input_validity, solve_witness},
+    ownership_proof::check_ownership_input_validity,
 };
 
 use fixtures::{first_leaf_merkle_path, generate_rp_fixture, ownership_proof_fixture};
@@ -420,7 +420,7 @@ pub fn bench_nullifier_proving_only() {
 pub fn bench_ownership_proof_generation() {
     let input = ownership_proof_fixture();
 
-    let prover = profile_phase("prover_load", || {
+    let mut prover = profile_phase("prover_load", || {
         EmbeddedZkArtifacts
             .ownership_prover()
             .expect("embedded ownership prover")
@@ -430,7 +430,9 @@ pub fn bench_ownership_proof_generation() {
 
     let witness = profile_phase("witness", || {
         let input_map = input.into_witness().expect("ownership circuit input maps");
-        solve_witness(&prover, input_map).expect("ownership witness generation")
+        prover
+            .generate_witness(input_map)
+            .expect("ownership witness generation")
     });
 
     let proof = profile_phase("prove", || {

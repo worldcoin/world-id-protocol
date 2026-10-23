@@ -8,11 +8,13 @@
 use std::path::Path;
 use std::{collections::BTreeMap, io::Read};
 
+#[cfg(any(target_arch = "wasm32", test))]
 use acvm::{
     acir::native_types::WitnessMap,
     pwg::{ACVM, ACVMStatus},
 };
 use ark_ff::{BigInteger as _, PrimeField as _};
+#[cfg(any(target_arch = "wasm32", test))]
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
 use provekit_common::{InputMap, InputValue, NoirElement};
 #[cfg(not(target_arch = "wasm32"))]
@@ -180,10 +182,14 @@ pub fn generate_ownership_proof_with_prover(
     provekit_common::register_ntt();
 
     let merkle_root = input.inclusion_proof.root;
-    let witness = solve_witness(&prover, input.into_witness()?)?;
-    let noir_proof = prover
-        .prove_with_witness(witness)
-        .map_err(|e| ProofError::GenerationError(e.to_string()))?;
+    let witness = input.into_witness()?;
+    #[cfg(target_arch = "wasm32")]
+    let witness = solve_witness(&prover, witness)?;
+    #[cfg(target_arch = "wasm32")]
+    let noir_proof = prover.prove_with_witness(witness);
+    #[cfg(not(target_arch = "wasm32"))]
+    let noir_proof = prover.prove(witness);
+    let noir_proof = noir_proof.map_err(|e| ProofError::GenerationError(e.to_string()))?;
 
     Ok(OwnershipProof {
         proof: noir_proof.whir_r1cs_proof,
@@ -194,10 +200,13 @@ pub fn generate_ownership_proof_with_prover(
 /// Solves the circuit witness with ACVM directly rather than through `nargo`, which
 /// `Prove::prove` uses and which does not build for wasm32.
 ///
+/// Supports single-function circuits without foreign or ACIR calls.
+///
 /// Errors never include witness values: they are private inputs.
 ///
 /// # Errors
 /// Returns [`ProofError::GenerationError`] if the inputs don't satisfy the circuit.
+#[cfg(any(target_arch = "wasm32", test))]
 pub fn solve_witness(
     prover: &provekit_common::Prover,
     input: InputMap,
@@ -573,9 +582,29 @@ mod tests {
             .expect("embedded prover loads");
         let witness = input.into_witness().expect("witness maps");
 
-        let err = solve_witness(&prover, witness)
-            .expect_err("the circuit must reject a commitment it cannot derive");
+        let err = solve_witness(&prover, witness.clone())
+            .expect_err("the WASM solver must reject a commitment it cannot derive");
         assert!(matches!(err, ProofError::GenerationError(_)));
+        prover
+            .prove(witness)
+            .expect_err("the native prover must reject a commitment it cannot derive");
+    }
+
+    #[test]
+    fn test_wasm_witness_solver_matches_provekit() {
+        let mut prover = EmbeddedZkArtifacts
+            .ownership_prover()
+            .expect("embedded prover loads");
+        let input = ownership_proof_fixture().into_witness().unwrap();
+        let actual = solve_witness(&prover, input.clone()).expect("WASM solver succeeds");
+        let expected = prover
+            .generate_witness(input)
+            .expect("native solver succeeds");
+
+        assert_eq!(
+            postcard::to_allocvec(&actual).unwrap(),
+            postcard::to_allocvec(&expected).unwrap()
+        );
     }
 
     const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
