@@ -1,4 +1,4 @@
-// Constants of the WIP-202 Proof of Embedding Similarity; shared ones are in `components`.
+// Constants of the WIP-202 Proof of Embedding Similarity; shared ones are in `world_id_components`.
 //
 // Domain separators are the ASCII bytes of the quoted tag read as a big-endian
 // integer (all tags are shorter than 31 bytes, so no reduction occurs).

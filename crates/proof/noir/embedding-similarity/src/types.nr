@@ -1,7 +1,5 @@
-use super::{
-    components::types::{AccountInputs, CredentialInputs, Signature},
-    constants::{CHUNK_SLOTS, MAX_COMPARED},
-};
+use super::constants::{CHUNK_SLOTS, MAX_COMPARED};
+use world_id_components::types::{AccountInputs, CredentialInputs, Signature};
 
 /// The WIP-201 Flamingo Token values that stay private.
 pub struct FlamingoTokenInputs {

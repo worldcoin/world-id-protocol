@@ -10,3 +10,4 @@ backend = "provekit"
 # Pinned to the nargo 1.0.0-beta.26 generation, matching ownership-proof and the published provekit crates.
 poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
 eddsa_poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "eddsa_poseidon2" }
+world_id_components = { path = "../world-id-components" }

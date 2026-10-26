@@ -1,6 +1,7 @@
 // WIP-201 Flamingo Token Verification (WIP-201 section 3.9).
-use super::{components::types::PublicKey, constants::DS_WIP_201, types::FlamingoTokenInputs};
+use super::{constants::DS_WIP_201, types::FlamingoTokenInputs};
 use poseidon2::bn254::permutation;
+use world_id_components::types::PublicKey;
 
 /// The public values a Flamingo Token is verified against.
 pub struct FlamingoTokenPublic {

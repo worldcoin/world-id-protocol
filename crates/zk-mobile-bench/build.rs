@@ -10,22 +10,24 @@ use provekit_r1cs_compiler::NoirProofSchemeBuilder as _;
 const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.26";
 
 const CIRCUIT_DIR: &str = "../proof/noir/embedding-similarity";
+/// Path dependency of the circuit, so its sources change the artifacts too.
+const COMPONENTS_DIR: &str = "../proof/noir/world-id-components";
 const TARGET_NAME: &str = "embedding_similarity";
 
 fn main() -> eyre::Result<()> {
     println!("cargo:rerun-if-changed=build.rs");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
-    let circuit_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join(CIRCUIT_DIR);
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+    let circuit_dir = manifest_dir.join(CIRCUIT_DIR);
 
-    println!(
-        "cargo:rerun-if-changed={}",
-        circuit_dir.join("src").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        circuit_dir.join("Nargo.toml").display()
-    );
+    for dir in [circuit_dir.clone(), manifest_dir.join(COMPONENTS_DIR)] {
+        println!("cargo:rerun-if-changed={}", dir.join("src").display());
+        println!(
+            "cargo:rerun-if-changed={}",
+            dir.join("Nargo.toml").display()
+        );
+    }
 
     check_nargo()?;
 

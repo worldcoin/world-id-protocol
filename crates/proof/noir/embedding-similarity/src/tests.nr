@@ -1,8 +1,4 @@
 use crate::{
-    components::{
-        constants::{MAX_CLAIMS, MERKLE_DEPTH, NUM_KEYS},
-        types::{AccountInputs, CredentialInputs, PublicKey},
-    },
     constants::CHUNK_SLOTS,
     hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
@@ -15,6 +11,10 @@ use crate::{
         TOKEN_SIG, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK, VERIFIER_KEY,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
+};
+use world_id_components::{
+    constants::{MAX_CLAIMS, MERKLE_DEPTH, NUM_KEYS},
+    types::{AccountInputs, CredentialInputs, PublicKey},
 };
 
 struct Public {

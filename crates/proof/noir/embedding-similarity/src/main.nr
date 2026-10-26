@@ -3,7 +3,6 @@
 //! Proves that a WIP-201 Flamingo Verifier matched a live capture and the RP's challenge
 //! to the image committed in the prover's PoH Credential, and that the World ID account
 //! holding the Credential authorized the result.
-pub(crate) mod components;
 pub(crate) mod constants;
 pub(crate) mod flamingo_token;
 pub(crate) mod hashes_json;
@@ -11,11 +10,16 @@ pub(crate) mod types;
 mod test_fixtures;
 mod tests;
 
-use components::{authentication, credential::{self, CredentialPublic}, session, types::PublicKey};
 use constants::{CLAIM_INDEX, DS_WIP_202_AUTH};
 use flamingo_token::FlamingoTokenPublic;
 use poseidon2::bn254::permutation;
 use types::PrivateInputs;
+use world_id_components::{
+    authentication,
+    credential::{self, CredentialPublic},
+    session,
+    types::PublicKey,
+};
 
 /// Numbers in comments refer to WIP-202 section 4.6.
 fn main(
