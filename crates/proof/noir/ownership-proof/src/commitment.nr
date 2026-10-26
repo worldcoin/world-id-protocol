@@ -1,10 +1,11 @@
-use super::constants::{DS_C_CS, DS_WIP_103};
+use super::constants::DS_WIP_103;
 use poseidon2::bn254::permutation;
+use world_id_components::credential::compute_sub;
 
 pub(crate) fn generate_commitment(leaf_index: Field, commitment_blinder: Field) -> Field {
-    // Only registered domain separators are allowed per WIP-103. Currently only: `DS_C_CS` (WIP-103-001)
-    let state = permutation::t3([DS_C_CS, leaf_index, commitment_blinder]);
-    state[1]
+    // Only registered domain separators are allowed per WIP-103. Currently only the Credential
+    // `sub` (WIP-103-001), `H_3(DS_CREDENTIAL_SUB; leaf_index, commitment_blinder)`.
+    compute_sub(leaf_index, commitment_blinder)
 }
 
 pub(crate) fn generate_message(commitment: Field, nonce: Field, context: Field) -> Field {
@@ -56,8 +57,10 @@ fn test_generate_message_is_not_symmetric() {
     assert(generate_message(1, 100, 7) != generate_message(1, 7, 100));
 }
 
+use world_id_components::constants::DS_CREDENTIAL_SUB;
+
 #[test]
 fn test_commitment_and_message_are_domain_separated() {
     assert(generate_commitment(1, 100) != generate_message(1, 100, 0));
-    assert(DS_C_CS != DS_WIP_103);
+    assert(DS_CREDENTIAL_SUB != DS_WIP_103);
 }
