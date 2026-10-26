@@ -148,7 +148,12 @@ pub fn check_ownership_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::ValueMustNotBeZero { name: "context" });
     }
 
-    // 2. The commitment being proven must match the leaf index and blinder it is derived from.
+    // 2. Leaf index `0` is reserved in the `WorldIDRegistry` and rejected by the circuit.
+    if inputs.inclusion_proof.leaf_index == 0 {
+        return Err(ProofInputError::ValueMustNotBeZero { name: "leaf_index" });
+    }
+
+    // 3. The commitment being proven must match the leaf index and blinder it is derived from.
     let derived =
         Credential::compute_sub(inputs.inclusion_proof.leaf_index, inputs.commitment_blinder);
     if derived != inputs.expected_commitment {
@@ -273,7 +278,6 @@ pub fn verify_ownership_proof_with_verifier(
     // Order must match the public parameters of `main` in the Noir circuit.
     let public_inputs = PublicInputs::from_vec(vec![
         *proof.merkle_root,
-        ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
         *nonce,
         *expected_commitment,
         *context,
@@ -297,10 +301,6 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
             "merkle_root".into(),
             self.inclusion_proof.root.into_noir_value(),
         );
-        map.insert(
-            "depth".into(),
-            InputValue::Field(NoirElement::from(TREE_DEPTH)),
-        );
         map.insert("nonce".into(), self.nonce.into_noir_value());
         map.insert(
             "expected_commitment".into(),
@@ -308,8 +308,8 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
         );
         map.insert("context".into(), self.context.into_noir_value());
 
-        // Private inputs struct
-        let mut inputs: BTreeMap<String, InputValue> = BTreeMap::new();
+        // `AccountInputs` of the shared World ID Authentication component
+        let mut account: BTreeMap<String, InputValue> = BTreeMap::new();
 
         // user_pk: [PublicKey; 7]
         let affine_keys = self.key_set.as_affine_array();
@@ -322,30 +322,28 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
                 InputValue::Struct(s)
             })
             .collect();
-        inputs.insert("user_pk".into(), InputValue::Vec(user_pk));
+        account.insert("user_pk".into(), InputValue::Vec(user_pk));
 
         // pk_index
-        inputs.insert(
+        account.insert(
             "pk_index".into(),
             InputValue::Field(NoirElement::from(self.key_index)),
         );
 
-        // query_s (babyjubjub scalar → bn254 scalar via big-endian bytes)
+        // auth: Signature { s, r }. `s` is a babyjubjub scalar → bn254 scalar via big-endian bytes,
+        // `r` is the point (x, y).
         let s_native =
             ark_bn254::Fr::from_be_bytes_mod_order(&self.signature.s.into_bigint().to_bytes_be());
-        inputs.insert(
-            "query_s".into(),
-            InputValue::Field(to_noir_element(s_native)),
-        );
-
-        // query_r: [Field; 2]  (point x, y)
-        inputs.insert(
-            "query_r".into(),
+        let mut auth = BTreeMap::new();
+        auth.insert("s".into(), InputValue::Field(to_noir_element(s_native)));
+        auth.insert(
+            "r".into(),
             InputValue::Vec(vec![
                 InputValue::Field(to_noir_element(self.signature.r.x)),
                 InputValue::Field(to_noir_element(self.signature.r.y)),
             ]),
         );
+        account.insert("auth".into(), InputValue::Struct(auth));
 
         let siblings: Vec<InputValue> = self
             .inclusion_proof
@@ -353,13 +351,15 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
             .iter()
             .map(|s| (*s).into_noir_value())
             .collect();
-        let mut merkle = BTreeMap::new();
-        merkle.insert(
+        account.insert(
             "leaf_index".into(),
             InputValue::Field(NoirElement::from(self.inclusion_proof.leaf_index)),
         );
-        merkle.insert("siblings".into(), InputValue::Vec(siblings));
-        inputs.insert("merkle_proof".into(), InputValue::Struct(merkle));
+        account.insert("siblings".into(), InputValue::Vec(siblings));
+
+        // Private inputs struct
+        let mut inputs: BTreeMap<String, InputValue> = BTreeMap::new();
+        inputs.insert("account".into(), InputValue::Struct(account));
         inputs.insert(
             "commitment_blinder".into(),
             self.commitment_blinder.into_noir_value(),
@@ -441,6 +441,18 @@ mod input_validation_tests {
     }
 
     #[test]
+    fn test_rejects_zero_leaf_index() {
+        let mut input = ownership_proof_fixture();
+        input.inclusion_proof.leaf_index = 0;
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::ValueMustNotBeZero { name: "leaf_index" }
+        ));
+    }
+
+    #[test]
     fn test_rejects_expected_commitment_for_another_leaf_index() {
         let mut input = ownership_proof_fixture();
         input.expected_commitment = Credential::compute_sub(
@@ -501,8 +513,7 @@ mod tests {
     fn test_generate_and_verify_ownership_proof() {
         let (proof, nonce, commitment, context) = generate_valid_ownership_proof_fixture();
 
-        // Verification succeeds with correct public inputs. Depth is currently hardcoded in the
-        // verification call.
+        // Verification succeeds with correct public inputs.
         let artifacts = EmbeddedZkArtifacts;
         verify_ownership_proof(&proof, nonce, commitment, context, &artifacts)
             .expect("ownership proof verifies");

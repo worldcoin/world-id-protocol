@@ -1,65 +1,44 @@
 pub(crate) mod constants;
 pub(crate) mod types;
 pub(crate) mod commitment;
-pub(crate) mod merkle_proof;
 
 use commitment::{generate_commitment, generate_message};
-use constants::{MAX_DEPTH, NUM_KEYS};
-use eddsa_poseidon2::{
-    BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
-    verify_eddsa_poseidon2,
-};
-use merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
-use std::field::bn254::assert_lt;
 use types::OwnershipProofPrivateInputs;
+use world_id_components::authentication;
 
 pub fn main(
     merkle_root: pub Field,
-    depth: pub Field,
     nonce: pub Field,
     expected_commitment: pub Field,
     context: pub Field,
-    inputs: OwnershipProofPrivateInputs<MAX_DEPTH, NUM_KEYS>,
+    inputs: OwnershipProofPrivateInputs,
 ) {
     // 1. Per-spec, the `nonce` and `context` MUST not be `0`
     assert(nonce != 0, "nonce must not be zero");
     assert(context != 0, "context must not be zero");
 
     // 2. Generate query commitment and verify
-    let commitment = generate_commitment(inputs.merkle_proof.leaf_index, inputs.commitment_blinder);
+    let commitment = generate_commitment(inputs.account.leaf_index, inputs.commitment_blinder);
     assert(commitment == expected_commitment, "commitment mismatch");
 
-    // 3. Verify authenticator signature to the expected message
-    assert_lt(inputs.pk_index, NUM_KEYS as Field);
+    // 3. Verify that a registered authenticator key of the World ID signed the expected message.
+    // `authentication::verify` returns the same `leaf_index` witness the commitment is bound to.
     let message = generate_message(commitment, nonce, context);
-    let chosen_pk = inputs.user_pk[inputs.pk_index as u32];
-
-    let public_key = BabyJubJubPointInSubgroup::new(chosen_pk.x, chosen_pk.y);
-    let s = BabyJubJubScalarFieldElement::new(inputs.query_s);
-    let r = BabyJubJubPoint::new(inputs.query_r[0], inputs.query_r[1]);
-    let is_valid = verify_eddsa_poseidon2(public_key, s, r, message);
-    assert(is_valid, "invalid signature");
-
-    // 4. Compute and verify merkle inclusion proof
-    let merkle_leaf = merkle_leaf(inputs.user_pk);
-    let computed_root = compute_merkle_root_poseidon2(
-        merkle_leaf,
-        depth,
-        inputs.merkle_proof.leaf_index,
-        inputs.merkle_proof.siblings,
-    );
-    assert(computed_root == merkle_root, "merkle proof verification failed");
+    let _ = authentication::verify(merkle_root, message, inputs.account);
 }
 
 mod tests {
     use super::commitment::{generate_commitment, generate_message};
-    use super::constants::{MAX_DEPTH, NUM_KEYS};
     use super::main;
-    use super::merkle_proof::{compute_merkle_root_poseidon2, merkle_leaf};
-    use super::types::{MerkleProof, OwnershipProofPrivateInputs, PublicKey};
+    use super::types::OwnershipProofPrivateInputs;
     use eddsa_poseidon2::{
         BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
         verify_eddsa_poseidon2,
+    };
+    use world_id_components::{
+        constants::{MERKLE_DEPTH, NUM_KEYS},
+        merkle::{compute_merkle_root, key_set_commitment},
+        types::{AccountInputs, PublicKey, Signature},
     };
 
     // A signature cannot be produced inside the circuit, so the key and signature below are taken
@@ -68,7 +47,6 @@ mod tests {
     global COMMITMENT_BLINDER: Field = 999;
     global NONCE: Field = 1234567890;
     global CONTEXT: Field = 42;
-    global DEPTH: Field = MAX_DEPTH as Field;
 
     global PK: PublicKey = PublicKey {
         x: 9230889302806843410427776577603967869139681576051679463468697945589251186930,
@@ -80,7 +58,7 @@ mod tests {
         11748463473175932415456174210595149973052339513602937745261141508498295651118,
         11968271147063664615069879152051076702654398559067659777925074746865468544338,
     ];
-    global SIBLINGS: [Field; MAX_DEPTH] = [
+    global SIBLINGS: [Field; MERKLE_DEPTH] = [
         0,
         15621590199821056450610068202457788725601603091791048810523422053872049975191,
         15180302612178352054084191513289999058431498575847349863917170755410077436260,
@@ -133,16 +111,18 @@ mod tests {
     /// key must belong to (BabyJubJub has cofactor 8).
     global SMALL_ORDER_KEY: PublicKey = PublicKey { x: 0, y: 0 - 1 };
 
-    fn fixture_inputs() -> OwnershipProofPrivateInputs<MAX_DEPTH, NUM_KEYS> {
+    fn fixture_inputs() -> OwnershipProofPrivateInputs {
         let mut user_pk = [UNUSED_KEY; NUM_KEYS];
         user_pk[0] = PK;
 
         OwnershipProofPrivateInputs {
-            user_pk,
-            pk_index: 0,
-            query_s: QUERY_S,
-            query_r: QUERY_R,
-            merkle_proof: MerkleProof { leaf_index: LEAF_INDEX, siblings: SIBLINGS },
+            account: AccountInputs {
+                user_pk,
+                pk_index: 0,
+                auth: Signature { s: QUERY_S, r: QUERY_R },
+                leaf_index: LEAF_INDEX,
+                siblings: SIBLINGS,
+            },
             commitment_blinder: COMMITMENT_BLINDER,
         }
     }
@@ -163,13 +143,12 @@ mod tests {
         BabyJubJubPoint::new(QUERY_R[0], QUERY_R[1])
     }
 
-    /// The root the fixture's key set and sibling path hash up to at the full tree depth.
-    fn merkle_root_of(inputs: OwnershipProofPrivateInputs<MAX_DEPTH, NUM_KEYS>) -> Field {
-        compute_merkle_root_poseidon2(
-            merkle_leaf(inputs.user_pk),
-            DEPTH,
-            inputs.merkle_proof.leaf_index,
-            inputs.merkle_proof.siblings,
+    /// The root the fixture's key set and sibling path hash up to.
+    fn merkle_root_of(inputs: OwnershipProofPrivateInputs) -> Field {
+        compute_merkle_root(
+            key_set_commitment(inputs.account.user_pk),
+            inputs.account.leaf_index,
+            inputs.account.siblings,
         )
     }
 
@@ -178,7 +157,6 @@ mod tests {
         let inputs = fixture_inputs();
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -193,7 +171,6 @@ mod tests {
         let inputs = fixture_inputs();
         main(
             merkle_root_of(inputs),
-            DEPTH,
             0,
             fixture_commitment(),
             CONTEXT,
@@ -206,7 +183,6 @@ mod tests {
         let inputs = fixture_inputs();
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             0,
@@ -221,7 +197,6 @@ mod tests {
         let inputs = fixture_inputs();
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment() + 1,
             CONTEXT,
@@ -236,7 +211,6 @@ mod tests {
         inputs.commitment_blinder = COMMITMENT_BLINDER + 1;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -248,10 +222,9 @@ mod tests {
     #[test(should_fail_with = "commitment mismatch")]
     fn test_main_rejects_commitment_for_another_leaf_index() {
         let mut inputs = fixture_inputs();
-        inputs.merkle_proof.leaf_index = LEAF_INDEX + 1;
+        inputs.account.leaf_index = LEAF_INDEX + 1;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -262,12 +235,11 @@ mod tests {
     // SECTION: signature binding
 
     /// The nonce is bound into the signed message: replaying a proof under a fresh nonce fails.
-    #[test(should_fail_with = "invalid signature")]
+    #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_wrong_nonce() {
         let inputs = fixture_inputs();
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE + 1,
             fixture_commitment(),
             CONTEXT,
@@ -276,12 +248,11 @@ mod tests {
     }
 
     /// The context is bound into the signed message: a proof cannot be reused in another context.
-    #[test(should_fail_with = "invalid signature")]
+    #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_wrong_context() {
         let inputs = fixture_inputs();
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT + 1,
@@ -289,13 +260,12 @@ mod tests {
         );
     }
 
-    #[test(should_fail_with = "invalid signature")]
+    #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_tampered_signature_s() {
         let mut inputs = fixture_inputs();
-        inputs.query_s = QUERY_S + 1;
+        inputs.account.auth.s = QUERY_S + 1;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -304,13 +274,12 @@ mod tests {
     }
 
     /// A different on-curve point for `R` does not satisfy the verification equation.
-    #[test(should_fail_with = "invalid signature")]
+    #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_wrong_signature_r() {
         let mut inputs = fixture_inputs();
-        inputs.query_r = [PK.x, PK.y];
+        inputs.account.auth.r = [PK.x, PK.y];
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -322,10 +291,9 @@ mod tests {
     #[test(should_fail_with = "Point is not on the BabyJubJub curve")]
     fn test_main_rejects_off_curve_signature_r() {
         let mut inputs = fixture_inputs();
-        inputs.query_r = [QUERY_R[1], QUERY_R[0]];
+        inputs.account.auth.r = [QUERY_R[1], QUERY_R[0]];
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -339,10 +307,9 @@ mod tests {
     #[test(should_fail_with = "call to assert_max_bit_size")]
     fn test_main_rejects_non_canonical_signature_s() {
         let mut inputs = fixture_inputs();
-        inputs.query_s = QUERY_S + BABYJUBJUB_FR;
+        inputs.account.auth.s = QUERY_S + BABYJUBJUB_FR;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -351,14 +318,13 @@ mod tests {
     }
 
     /// An all-zero signature over the neutral point must not pass as a valid one.
-    #[test(should_fail_with = "invalid signature")]
+    #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_empty_signature() {
         let mut inputs = fixture_inputs();
-        inputs.query_s = 0;
-        inputs.query_r = [UNUSED_KEY.x, UNUSED_KEY.y];
+        inputs.account.auth.s = 0;
+        inputs.account.auth.r = [UNUSED_KEY.x, UNUSED_KEY.y];
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -370,14 +336,13 @@ mod tests {
 
     /// `pk_index` must select the key that produced the signature, not any registered key. The
     /// merkle root is re-derived from the same key set, so only the signature check can fail.
-    #[test(should_fail_with = "invalid signature")]
+    #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_key_index_that_did_not_sign() {
         let mut inputs = fixture_inputs();
-        inputs.user_pk[1] = OTHER_KEY;
-        inputs.pk_index = 1;
+        inputs.account.user_pk[1] = OTHER_KEY;
+        inputs.account.pk_index = 1;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -386,13 +351,12 @@ mod tests {
     }
 
     /// A key the signer does not hold cannot be swapped in, even with a matching merkle root.
-    #[test(should_fail_with = "invalid signature")]
+    #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_substituted_public_key() {
         let mut inputs = fixture_inputs();
-        inputs.user_pk[0] = OTHER_KEY;
+        inputs.account.user_pk[0] = OTHER_KEY;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -405,10 +369,9 @@ mod tests {
     #[test(should_fail_with = "Point is not on the BabyJubJub curve")]
     fn test_main_rejects_off_curve_public_key() {
         let mut inputs = fixture_inputs();
-        inputs.user_pk[0] = OFF_CURVE_KEY;
+        inputs.account.user_pk[0] = OFF_CURVE_KEY;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -421,10 +384,9 @@ mod tests {
     #[test(should_fail_with = "Point is not in the correct subgroup")]
     fn test_main_rejects_public_key_outside_prime_order_subgroup() {
         let mut inputs = fixture_inputs();
-        inputs.user_pk[0] = SMALL_ORDER_KEY;
+        inputs.account.user_pk[0] = SMALL_ORDER_KEY;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -437,10 +399,9 @@ mod tests {
     #[test(should_fail_with = "Public key cannot be identity")]
     fn test_main_rejects_key_index_pointing_at_unused_slot() {
         let mut inputs = fixture_inputs();
-        inputs.pk_index = 1;
+        inputs.account.pk_index = 1;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -448,15 +409,13 @@ mod tests {
         );
     }
 
-    /// `pk_index` is constrained below `NUM_KEYS`, so it cannot read past the key set. The
-    /// rejection comes from `assert_lt`, which reports the stdlib message asserted below.
-    #[test(should_fail_with = "call to assert_max_bit_size")]
+    /// `pk_index` is constrained below `NUM_KEYS`, so it cannot read past the key set.
+    #[test(should_fail_with = "pk_index out of range")]
     fn test_main_rejects_pk_index_at_num_keys() {
         let mut inputs = fixture_inputs();
-        inputs.pk_index = NUM_KEYS as Field;
+        inputs.account.pk_index = NUM_KEYS as Field;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -464,13 +423,13 @@ mod tests {
         );
     }
 
+    /// Values beyond 3 bits fail the range check before the comparison.
     #[test(should_fail_with = "call to assert_max_bit_size")]
     fn test_main_rejects_pk_index_beyond_key_set() {
         let mut inputs = fixture_inputs();
-        inputs.pk_index = 12345;
+        inputs.account.pk_index = 12345;
         main(
             merkle_root_of(inputs),
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -480,12 +439,26 @@ mod tests {
 
     // SECTION: registry inclusion
 
+    /// Leaf index `0` is reserved in the `WorldIDRegistry`, so it can not be proven even with a
+    /// matching commitment.
+    #[test(should_fail_with = "leaf_index must not be zero")]
+    fn test_main_rejects_zero_leaf_index() {
+        let mut inputs = fixture_inputs();
+        inputs.account.leaf_index = 0;
+        main(
+            merkle_root_of(fixture_inputs()),
+            NONCE,
+            generate_commitment(0, COMMITMENT_BLINDER),
+            CONTEXT,
+            inputs,
+        );
+    }
+
     #[test(should_fail_with = "merkle proof verification failed")]
     fn test_main_rejects_wrong_merkle_root() {
         let inputs = fixture_inputs();
         main(
             merkle_root_of(inputs) + 1,
-            DEPTH,
             NONCE,
             fixture_commitment(),
             CONTEXT,
@@ -499,28 +472,8 @@ mod tests {
         let merkle_root = merkle_root_of(inputs);
 
         let mut tampered = inputs;
-        tampered.merkle_proof.siblings[MAX_DEPTH - 1] += 1;
-        main(
-            merkle_root,
-            DEPTH,
-            NONCE,
-            fixture_commitment(),
-            CONTEXT,
-            tampered,
-        );
-    }
-
-    #[test(should_fail_with = "merkle proof verification failed")]
-    fn test_main_rejects_wrong_depth() {
-        let inputs = fixture_inputs();
-        main(
-            merkle_root_of(inputs),
-            DEPTH - 1,
-            NONCE,
-            fixture_commitment(),
-            CONTEXT,
-            inputs,
-        );
+        tampered.account.siblings[MERKLE_DEPTH - 1] += 1;
+        main(merkle_root, NONCE, fixture_commitment(), CONTEXT, tampered);
     }
 
     // SECTION: EdDSA verification behaviour `main` relies on
