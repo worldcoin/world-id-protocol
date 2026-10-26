@@ -290,15 +290,16 @@ mod noir_artifacts {
     pub(super) fn setup(out_dir: &Path) -> eyre::Result<()> {
         let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
         let circuit_dir = manifest_dir.join("noir/ownership-proof");
+        // The circuit depends on this library by path, so its sources change the artifacts too.
+        let components_dir = manifest_dir.join("noir/world-id-components");
 
-        println!(
-            "cargo:rerun-if-changed={}",
-            circuit_dir.join("src").display()
-        );
-        println!(
-            "cargo:rerun-if-changed={}",
-            circuit_dir.join("Nargo.toml").display()
-        );
+        for dir in [&circuit_dir, &components_dir] {
+            println!("cargo:rerun-if-changed={}", dir.join("src").display());
+            println!(
+                "cargo:rerun-if-changed={}",
+                dir.join("Nargo.toml").display()
+            );
+        }
 
         check_nargo()?;
 

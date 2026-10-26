@@ -1,7 +1,7 @@
 [package]
 name = "ownership_proof"
 type = "bin"
-descrption = "Noir Circuit Implementation of WIP-103 (Proof of Ownership) for the World ID Protocol."
+description = "Noir Circuit Implementation of WIP-103 (Proof of Ownership) for the World ID Protocol."
 authors = ["@dkales", "@paolodamico"]
 license = "MIT"
 backend = "provekit"
@@ -9,3 +9,4 @@ backend = "provekit"
 [dependencies]
 poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
 eddsa_poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "eddsa_poseidon2" }
+world_id_components = { path = "../world-id-components" }

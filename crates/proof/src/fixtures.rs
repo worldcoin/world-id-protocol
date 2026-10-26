@@ -47,22 +47,15 @@ mod ownership_proof_prover {
 
     /// Every key the circuit ABI is expected to have, in `BTreeMap` (alphabetical) order. A circuit
     /// input added, removed or renamed without updating the renderer below fails these assertions.
-    const TOP_LEVEL_KEYS: [&str; 6] = [
+    const TOP_LEVEL_KEYS: [&str; 5] = [
         "context",
-        "depth",
         "expected_commitment",
         "inputs",
         "merkle_root",
         "nonce",
     ];
-    const PRIVATE_KEYS: [&str; 6] = [
-        "commitment_blinder",
-        "merkle_proof",
-        "pk_index",
-        "query_r",
-        "query_s",
-        "user_pk",
-    ];
+    const PRIVATE_KEYS: [&str; 2] = ["account", "commitment_blinder"];
+    const ACCOUNT_KEYS: [&str; 5] = ["auth", "leaf_index", "pk_index", "siblings", "user_pk"];
 
     const HEADER: &str = "\
 # Prover.toml for the Ownership Proof circuit (WIP-103).
@@ -76,7 +69,6 @@ mod ownership_proof_prover {
     #[derive(Serialize)]
     struct ProverToml {
         merkle_root: String,
-        depth: String,
         nonce: String,
         expected_commitment: String,
         context: String,
@@ -85,24 +77,29 @@ mod ownership_proof_prover {
 
     #[derive(Serialize)]
     struct PrivateInputs {
-        user_pk: Vec<PublicKey>,
-        pk_index: String,
-        query_s: String,
-        query_r: Vec<String>,
-        merkle_proof: MerkleProof,
         commitment_blinder: String,
+        account: AccountInputs,
+    }
+
+    #[derive(Serialize)]
+    struct AccountInputs {
+        pk_index: String,
+        leaf_index: String,
+        siblings: Vec<String>,
+        auth: Signature,
+        user_pk: Vec<PublicKey>,
+    }
+
+    #[derive(Serialize)]
+    struct Signature {
+        s: String,
+        r: Vec<String>,
     }
 
     #[derive(Serialize)]
     struct PublicKey {
         x: String,
         y: String,
-    }
-
-    #[derive(Serialize)]
-    struct MerkleProof {
-        leaf_index: String,
-        siblings: Vec<String>,
     }
 
     fn fixture_witness() -> InputMap {
@@ -156,7 +153,14 @@ mod ownership_proof_prover {
             "circuit private inputs changed; update this renderer"
         );
 
-        let user_pk = array(inputs, "user_pk")
+        let account = table(inputs, "account");
+        let account_keys: Vec<&str> = account.keys().map(String::as_str).collect();
+        assert_eq!(
+            account_keys, ACCOUNT_KEYS,
+            "circuit account inputs changed; update this renderer"
+        );
+
+        let user_pk = array(account, "user_pk")
             .iter()
             .enumerate()
             .map(|(index, key)| {
@@ -170,14 +174,14 @@ mod ownership_proof_prover {
                 }
             })
             .collect();
-        let query_r = array(inputs, "query_r")
+        let auth = table(account, "auth");
+        let auth_r = array(auth, "r")
             .iter()
             .enumerate()
-            .map(|(index, coordinate)| decimal(coordinate, &format!("query_r[{index}]")))
+            .map(|(index, coordinate)| decimal(coordinate, &format!("auth.r[{index}]")))
             .collect();
 
-        let merkle_proof = table(inputs, "merkle_proof");
-        let siblings = array(merkle_proof, "siblings")
+        let siblings = array(account, "siblings")
             .iter()
             .enumerate()
             .map(|(index, sibling)| decimal(sibling, &format!("siblings[{index}]")))
@@ -185,20 +189,21 @@ mod ownership_proof_prover {
 
         let prover_toml = ProverToml {
             merkle_root: field(witness, "merkle_root"),
-            depth: field(witness, "depth"),
             nonce: field(witness, "nonce"),
             expected_commitment: field(witness, "expected_commitment"),
             context: field(witness, "context"),
             inputs: PrivateInputs {
-                user_pk,
-                pk_index: field(inputs, "pk_index"),
-                query_s: field(inputs, "query_s"),
-                query_r,
-                merkle_proof: MerkleProof {
-                    leaf_index: field(merkle_proof, "leaf_index"),
-                    siblings,
-                },
                 commitment_blinder: field(inputs, "commitment_blinder"),
+                account: AccountInputs {
+                    pk_index: field(account, "pk_index"),
+                    leaf_index: field(account, "leaf_index"),
+                    siblings,
+                    auth: Signature {
+                        s: field(auth, "s"),
+                        r: auth_r,
+                    },
+                    user_pk,
+                },
             },
         };
 
