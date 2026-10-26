@@ -1,0 +1,10 @@
+[package]
+name = "world_id_components"
+type = "lib"
+description = "World ID protocol components (WIP-100 Protocol Components): World ID Authentication, Credential Verification and Session Commitment."
+authors = ["@kilianglas", "@dkales", "@paolodamico"]
+license = "MIT"
+
+[dependencies]
+poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
+eddsa_poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "eddsa_poseidon2" }
