@@ -1,4 +1,5 @@
 #![cfg(feature = "integration-tests")]
+#![recursion_limit = "256"]
 
 mod helpers;
 use helpers::common::{RECOVERY_ADDRESS, TestSetup, query_count};
