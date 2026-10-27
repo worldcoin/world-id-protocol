@@ -143,7 +143,7 @@ impl ServiceClient {
         if matches!(
             resp.status,
             StatusCode::BAD_GATEWAY | StatusCode::SERVICE_UNAVAILABLE | StatusCode::GATEWAY_TIMEOUT
-        ) && serde_json::from_slice::<ServiceApiError<serde_json::Value>>(&resp.body).is_err()
+        ) && serde_json::from_slice::<ServiceApiError<String>>(&resp.body).is_err()
         {
             return AuthenticatorError::ServiceUnavailable {
                 service: service.to_owned(),
@@ -278,7 +278,8 @@ mod tests {
         let _opaque = server
             .mock("GET", "/opaque")
             .with_status(503)
-            .with_body("<html>Service Unavailable</html>")
+            // JSON from a proxy, not a service error: service codes are strings.
+            .with_body(r#"{"code":503,"message":"Service Unavailable"}"#)
             .create_async()
             .await;
 
