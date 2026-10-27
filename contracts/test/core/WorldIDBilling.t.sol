@@ -706,14 +706,44 @@ contract WorldIDBillingTest is Test {
         billing.quotePurchase(scope, 1);
     }
 
-    function test_Quote_NormalizesFeedDecimals() public {
+    /// @dev WIP-107 §4.9: the adapter normalizes to 1e18, so other scales are rejected instead of rescaled.
+    function test_Price_Requires18Decimals() public {
         priceSource.setDecimals(8);
-        priceSource.set(2e8, NOW);
-        assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 0.25e18);
-
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDBilling.InvalidPriceDecimals.selector, 8));
+        billing.quotePurchase(_scope(NOV_2026), 10);
         priceSource.setDecimals(20);
-        priceSource.set(2e20, NOW);
-        assertEq(billing.quotePurchase(_scope(NOV_2026), 10), 0.25e18);
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDBilling.InvalidPriceDecimals.selector, 20));
+        billing.quotePurchase(_scope(NOV_2026), 10);
+
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDBilling.InvalidPriceDecimals.selector, 20));
+        billing.setPriceSource(address(priceSource));
+
+        WorldIDBilling implementation = new WorldIDBilling(address(worldIDVerifier), address(rpRegistry));
+        bytes memory initData = abi.encodeCall(
+            WorldIDBilling.initialize,
+            (
+                address(priceSource),
+                address(wld),
+                feeRecipient,
+                PRICE_PER_WORLD_ID,
+                MAX_PRICE_AGE,
+                MAX_REQUEST_AGE,
+                REQUEST_LIFETIME
+            )
+        );
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDBilling.InvalidPriceDecimals.selector, 20));
+        new ERC1967Proxy(address(implementation), initData);
+    }
+
+    /// @dev Prices that would overflow `duration * usdPerWld` fail with `InvalidPrice`, not an arithmetic panic.
+    function test_Price_RejectsOutOfBoundsAnswer() public {
+        uint256 maxPrice = type(uint256).max / 31 days;
+        priceSource.setAnswer(int256(maxPrice + 1));
+        vm.expectRevert(IWorldIDBilling.InvalidPrice.selector);
+        billing.quotePurchase(_scope(OCT_2026), 1);
+
+        priceSource.setAnswer(int256(maxPrice));
+        assertEq(billing.quotePurchase(_scope(OCT_2026), 1), 1, "largest accepted price quotes without overflow");
     }
 
     function test_Purchase_BadPriceKeepsExistingCapacity() public {
@@ -869,6 +899,27 @@ contract WorldIDBillingTest is Test {
         vm.prank(user);
         bool[] memory successes = billing.registerMany(_scope(OCT_2026), new IWorldIDBilling.Registration[](0));
         assertEq(successes.length, 0);
+    }
+
+    /// @dev The shared context is validated before the loop, so an empty batch cannot skip it.
+    function test_RegisterMany_EmptyValidatesContext() public {
+        IWorldIDBilling.Registration[] memory none = new IWorldIDBilling.Registration[](0);
+
+        IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
+        scope.chainId += 1;
+        vm.expectRevert(IWorldIDBilling.InvalidChainId.selector);
+        billing.registerMany(scope, none);
+
+        scope = _scope(OCT_2026);
+        scope.billingContract = address(this);
+        vm.expectRevert(IWorldIDBilling.InvalidBillingContract.selector);
+        billing.registerMany(scope, none);
+
+        vm.expectRevert(IWorldIDBilling.NonCanonicalPeriodStart.selector);
+        billing.registerMany(_scope(OCT_2026 + 1), none);
+
+        vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
+        billing.registerMany(_scope(NOV_2026), none);
     }
 
     function test_Register_VerifiesThroughWorldIDVerifier() public {
@@ -1099,6 +1150,44 @@ contract WorldIDBillingTest is Test {
         assertEq(key[0], 21, "earlier pin unchanged");
     }
 
+    /// @dev A period whose pinned key was replaced rejects every registration (WIP-107 §4.9), so it must not sell
+    ///  more capacity either.
+    function test_Purchase_RejectsPeriodFrozenByKeyChange() public {
+        _buy(OCT_2026, 1);
+        assertTrue(_register(_authorize(_scope(OCT_2026)), NULLIFIER));
+
+        oprfKeyRegistry.set(OPRF_KEY_ID, 31, 32);
+        uint256 balanceBefore = wld.balanceOf(rp);
+        vm.prank(rp);
+        vm.expectRevert(IWorldIDBilling.PinnedOprfKeyChanged.selector);
+        billing.purchaseCapacity(_scope(OCT_2026), 10, type(uint256).max);
+        (uint256 capacity,) = billing.periods(RP_ID, OCT_2026);
+        assertEq(capacity, 1);
+        assertEq(wld.balanceOf(rp), balanceBefore, "no payment for a frozen period");
+
+        // The next period is not pinned yet, so it stays purchasable under the new key.
+        _buy(NOV_2026, 1);
+
+        // Restoring the pinned key makes the period usable, and purchasable, again.
+        oprfKeyRegistry.set(OPRF_KEY_ID, 21, 22);
+        _buy(OCT_2026, 1);
+        (capacity,) = billing.periods(RP_ID, OCT_2026);
+        assertEq(capacity, 2);
+    }
+
+    function test_Purchase_RejectsUnusableOprfKey() public {
+        rpRegistry.set(RP_ID, OPRF_KEY_ID + 1, signer, true);
+        vm.prank(rp);
+        vm.expectRevert(IWorldIDBilling.OprfKeyMismatch.selector);
+        billing.purchaseCapacity(_scope(OCT_2026), 1, type(uint256).max);
+
+        rpRegistry.set(RP_ID, OPRF_KEY_ID, signer, true);
+        oprfKeyRegistry.set(OPRF_KEY_ID, 0, 0);
+        vm.prank(rp);
+        vm.expectRevert(IWorldIDBilling.OprfKeyMismatch.selector);
+        billing.purchaseCapacity(_scope(OCT_2026), 1, type(uint256).max);
+    }
+
     function test_Register_RejectsBadEoaSignatures() public {
         _buy(OCT_2026, 1);
         IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
@@ -1247,7 +1336,16 @@ contract WorldIDBillingTest is Test {
         billing.setPriceSource(stranger);
         vm.expectRevert(err);
         billing.setRequestLimits(1, 1);
+        vm.expectRevert(err);
+        billing.setRegistrationFee(1);
         vm.stopPrank();
+    }
+
+    /// @dev The inherited per-call registration fee would have no effect on billing charges.
+    function test_Admin_RegistrationFeeUnsupported() public {
+        vm.expectRevert(IWorldIDBilling.RegistrationFeeUnsupported.selector);
+        billing.setRegistrationFee(1);
+        assertEq(billing.getRegistrationFee(), 0);
     }
 
     function test_Admin_RejectsUnsafeValues() public {
@@ -1302,12 +1400,35 @@ contract WorldIDBillingTest is Test {
         billing.setFeeRecipient(user);
         assertEq(billing.getFeeRecipient(), user);
         assertEq(billing.owner(), address(this));
+
+        MockPriceSource newSource = new MockPriceSource();
+        vm.expectEmit(address(billing));
+        emit IWorldIDBilling.PriceSourceUpdated(address(priceSource), address(newSource));
+        billing.setPriceSource(address(newSource));
     }
 
     function test_Implementation_CannotBeUsedDirectly() public {
         WorldIDBilling implementation = new WorldIDBilling(address(worldIDVerifier), address(rpRegistry));
         vm.expectRevert();
         implementation.quotePurchase(_scope(OCT_2026), 1);
+
+        // Getters revert instead of returning the implementation's empty storage.
+        vm.expectRevert();
+        implementation.isRegistered(NULLIFIER);
+        vm.expectRevert();
+        implementation.periods(RP_ID, OCT_2026);
+        vm.expectRevert();
+        implementation.usedNonces(RP_ID, 1);
+        vm.expectRevert();
+        implementation.getPinnedOprfKey(RP_ID, OCT_2026);
+        vm.expectRevert();
+        implementation.pricePerWorldID();
+        vm.expectRevert();
+        implementation.maxPriceAge();
+        vm.expectRevert();
+        implementation.maxRequestAge();
+        vm.expectRevert();
+        implementation.maxRequestLifetime();
     }
 
     function test_Constructor_SetsImmutables() public {

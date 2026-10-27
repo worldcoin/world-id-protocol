@@ -49,29 +49,29 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     /// @dev Chainlink WLD/USD feed backed by verified Data Streams reports.
     IChainlinkAggregator internal _priceSource;
 
-    /// @inheritdoc IWorldIDBilling
-    uint256 public pricePerWorldID;
+    /// @dev USD per World ID per period, scaled by 1e18.
+    uint256 internal _pricePerWorldID;
 
-    /// @inheritdoc IWorldIDBilling
-    uint64 public maxPriceAge;
+    /// @dev Maximum accepted age of the WLD/USD price, in seconds.
+    uint64 internal _maxPriceAge;
 
-    /// @inheritdoc IWorldIDBilling
-    mapping(uint64 rpId => mapping(uint64 periodStart => Period)) public periods;
+    /// @dev Purchased capacity and registration count per RP and period.
+    mapping(uint64 rpId => mapping(uint64 periodStart => Period)) internal _periods;
 
-    /// @inheritdoc IWorldIDBilling
-    mapping(uint256 billingNullifier => bool) public isRegistered;
+    /// @dev Registered billing nullifiers; `billingAction` already scopes each to one RP and period.
+    mapping(uint256 billingNullifier => bool) internal _isRegistered;
 
-    /// @inheritdoc IWorldIDBilling
-    mapping(uint64 rpId => mapping(uint256 nonce => bool)) public usedNonces;
+    /// @dev Consumed authorization nonces per RP.
+    mapping(uint64 rpId => mapping(uint256 nonce => bool)) internal _usedNonces;
 
     /// @dev OPRF key pinned by the first registration for each RP and period.
     mapping(uint64 rpId => mapping(uint64 periodStart => PinnedOprfKey)) internal _pinnedOprfKeys;
 
-    /// @inheritdoc IWorldIDBilling
-    uint64 public maxRequestAge;
+    /// @dev Maximum accepted `now - createdAt` of an authorization, in seconds.
+    uint64 internal _maxRequestAge;
 
-    /// @inheritdoc IWorldIDBilling
-    uint64 public maxRequestLifetime;
+    /// @dev Maximum accepted `expiresAt - createdAt` of an authorization, in seconds.
+    uint64 internal _maxRequestLifetime;
 
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
@@ -86,7 +86,8 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
     uint256 public constant MAX_WIP101_DATA_LENGTH = 1024;
 
-    uint8 internal constant PRICE_DECIMALS = 18;
+    /// @notice Decimals of the WLD/USD price source; WIP-107 §4.9 requires USD scaled by 1e18.
+    uint8 public constant PRICE_DECIMALS = 18;
 
     /// @notice Decimals of the WLD fee token; `setFeeToken` rejects tokens with other decimals.
     uint8 public constant TOKEN_DECIMALS = 18;
@@ -96,6 +97,9 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     uint256 internal constant AOE_OFFSET = 12 hours;
 
     uint256 internal constant PERIOD_OVERLAP = 26 hours;
+
+    /// @dev Longest AoE month; bounds `duration * usdPerWld` in `quotePurchase`.
+    uint256 internal constant MAX_PERIOD_DURATION = 31 days;
 
     ////////////////////////////////////////////////////////////
     //                        Constructor                     //
@@ -114,7 +118,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
     /**
      * @notice Initializes the billing proxy; the caller becomes the owner.
-     * @param initialPriceSource Chainlink WLD/USD feed backed by verified Data Streams reports.
+     * @param initialPriceSource WLD/USD adapter for verified Data Streams reports, with 18 decimals (WIP-107 §4.9).
      * @param feeToken WLD ERC-20.
      * @param feeRecipient Protocol fee address.
      * @param initialPricePerWorldID USD per World ID per period, scaled by 1e18.
@@ -131,7 +135,6 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         uint64 initialMaxRequestAge,
         uint64 initialMaxRequestLifetime
     ) public virtual initializer {
-        if (initialPriceSource == address(0)) revert ZeroAddress();
         if (feeToken == address(0)) revert ZeroAddress();
         if (feeRecipient == address(0)) revert ZeroAddress();
 
@@ -142,9 +145,9 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         if (initialPricePerWorldID == 0) revert InvalidPricePerWorldID();
         if (initialMaxPriceAge == 0) revert InvalidMaxPriceAge();
 
-        _priceSource = IChainlinkAggregator(initialPriceSource);
-        pricePerWorldID = initialPricePerWorldID;
-        maxPriceAge = initialMaxPriceAge;
+        _setPriceSource(initialPriceSource);
+        _pricePerWorldID = initialPricePerWorldID;
+        _maxPriceAge = initialMaxPriceAge;
         emit PricePerWorldIDUpdated(0, initialPricePerWorldID);
         emit MaxPriceAgeUpdated(0, initialMaxPriceAge);
         _setRequestLimits(initialMaxRequestAge, initialMaxRequestLifetime);
@@ -159,14 +162,17 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         external
         virtual
         onlyProxy
+        onlyInitialized
         nonReentrant
     {
-        // Reverts for unknown or inactive RPs so payment cannot buy unusable capacity.
-        RP_REGISTRY.getOprfKeyIdAndSigner(scope.rpId);
+        // Payment must not buy unusable capacity: reject unknown or inactive RPs, and periods frozen by an OPRF
+        // key change, which reject every registration until they end (WIP-107 §4.9).
+        (uint160 oprfKeyId,) = RP_REGISTRY.getOprfKeyIdAndSigner(scope.rpId);
+        _requireCurrentKeyMatchesPin(scope, oprfKeyId);
         uint256 wldPaid = quotePurchase(scope, capacityAmount);
         if (wldPaid > maxWldAmount) revert MaxWldAmountExceeded(wldPaid, maxWldAmount);
 
-        periods[scope.rpId][scope.periodStart].capacity += capacityAmount;
+        _periods[scope.rpId][scope.periodStart].capacity += capacityAmount;
 
         address recipient = _feeRecipient;
         uint256 balanceBefore = _feeToken.balanceOf(recipient);
@@ -185,8 +191,9 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         uint64 expiresAtMin,
         uint256 billingNullifier,
         uint256[5] calldata proof
-    ) external virtual onlyProxy nonReentrant returns (bool success) {
-        return _register(scope, authorization, issuerSchemaId, expiresAtMin, billingNullifier, proof);
+    ) external virtual onlyProxy onlyInitialized nonReentrant returns (bool success) {
+        uint256 billingAction = _validateRegistrationContext(scope);
+        return _register(scope, billingAction, authorization, issuerSchemaId, expiresAtMin, billingNullifier, proof);
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -194,14 +201,18 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         external
         virtual
         onlyProxy
+        onlyInitialized
         nonReentrant
         returns (bool[] memory successes)
     {
+        // Validated once for the batch, so an empty batch still rejects an invalid or inactive context.
+        uint256 billingAction = _validateRegistrationContext(scope);
         successes = new bool[](registrations.length);
         for (uint256 i = 0; i < registrations.length; ++i) {
             Registration calldata registration = registrations[i];
             successes[i] = _register(
                 scope,
+                billingAction,
                 registration.authorization,
                 registration.issuerSchemaId,
                 registration.expiresAtMin,
@@ -221,6 +232,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         view
         virtual
         onlyProxy
+        onlyInitialized
         returns (uint256 wldAmount)
     {
         _validateScope(scope);
@@ -231,7 +243,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         if (scope.periodStart < currentStart || scope.periodStart > nextStart) revert PeriodOutsidePurchaseWindow();
 
         uint256 usdPerWld = _verifiedUsdPerWld();
-        uint256 usdTotal = capacityAmount * pricePerWorldID;
+        uint256 usdTotal = capacityAmount * _pricePerWorldID;
         uint256 monthEnd = _addMonths(scope.periodStart, 1);
         uint256 duration = monthEnd - scope.periodStart;
         uint256 remaining = monthEnd - Math.max(block.timestamp, scope.periodStart);
@@ -249,10 +261,55 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         external
         view
         virtual
+        onlyProxy
+        onlyInitialized
         returns (uint160 oprfKeyId, uint256[2] memory oprfPublicKey)
     {
         PinnedOprfKey storage pinned = _pinnedOprfKeys[rpId][periodStart];
         return (pinned.oprfKeyId, [pinned.x, pinned.y]);
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function isRegistered(uint256 billingNullifier) external view virtual onlyProxy onlyInitialized returns (bool) {
+        return _isRegistered[billingNullifier];
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function periods(uint64 rpId, uint64 periodStart)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint256 capacity, uint256 registeredCount)
+    {
+        Period storage period = _periods[rpId][periodStart];
+        return (period.capacity, period.registeredCount);
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function usedNonces(uint64 rpId, uint256 nonce) external view virtual onlyProxy onlyInitialized returns (bool) {
+        return _usedNonces[rpId][nonce];
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function pricePerWorldID() external view virtual onlyProxy onlyInitialized returns (uint256) {
+        return _pricePerWorldID;
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function maxPriceAge() external view virtual onlyProxy onlyInitialized returns (uint64) {
+        return _maxPriceAge;
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function maxRequestAge() external view virtual onlyProxy onlyInitialized returns (uint64) {
+        return _maxRequestAge;
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function maxRequestLifetime() external view virtual onlyProxy onlyInitialized returns (uint64) {
+        return _maxRequestLifetime;
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -272,6 +329,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         override(WorldIDBase, IWorldIDBilling)
         onlyOwner
         onlyProxy
+        onlyInitialized
     {
         if (newFeeToken == address(0)) revert ZeroAddress();
         if (IERC20Metadata(newFeeToken).decimals() != TOKEN_DECIMALS) revert InvalidTokenDecimals();
@@ -281,24 +339,22 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     }
 
     /// @inheritdoc IWorldIDBilling
-    function setPricePerWorldID(uint256 newPricePerWorldID) external virtual onlyOwner onlyProxy {
+    function setPricePerWorldID(uint256 newPricePerWorldID) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newPricePerWorldID == 0) revert InvalidPricePerWorldID();
-        emit PricePerWorldIDUpdated(pricePerWorldID, newPricePerWorldID);
-        pricePerWorldID = newPricePerWorldID;
+        emit PricePerWorldIDUpdated(_pricePerWorldID, newPricePerWorldID);
+        _pricePerWorldID = newPricePerWorldID;
     }
 
     /// @inheritdoc IWorldIDBilling
-    function setMaxPriceAge(uint64 newMaxPriceAge) external virtual onlyOwner onlyProxy {
+    function setMaxPriceAge(uint64 newMaxPriceAge) external virtual onlyOwner onlyProxy onlyInitialized {
         if (newMaxPriceAge == 0) revert InvalidMaxPriceAge();
-        emit MaxPriceAgeUpdated(maxPriceAge, newMaxPriceAge);
-        maxPriceAge = newMaxPriceAge;
+        emit MaxPriceAgeUpdated(_maxPriceAge, newMaxPriceAge);
+        _maxPriceAge = newMaxPriceAge;
     }
 
     /// @inheritdoc IWorldIDBilling
-    function setPriceSource(address newPriceSource) external virtual onlyOwner onlyProxy {
-        if (newPriceSource == address(0)) revert ZeroAddress();
-        emit PriceSourceUpdated(address(_priceSource), newPriceSource);
-        _priceSource = IChainlinkAggregator(newPriceSource);
+    function setPriceSource(address newPriceSource) external virtual onlyOwner onlyProxy onlyInitialized {
+        _setPriceSource(newPriceSource);
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -307,45 +363,56 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         virtual
         onlyOwner
         onlyProxy
+        onlyInitialized
     {
         _setRequestLimits(newMaxRequestAge, newMaxRequestLifetime);
     }
 
     /// @inheritdoc IWorldIDBilling
-    function setPaused(bool isPaused) external virtual onlyOwner onlyProxy {
+    function setPaused(bool isPaused) external virtual onlyOwner onlyProxy onlyInitialized {
         if (isPaused) _pause();
         else _unpause();
+    }
+
+    /// @notice Unsupported: billing charges only through `purchaseCapacity`, never a per-call registration fee.
+    function setRegistrationFee(uint256) external virtual override onlyOwner onlyProxy onlyInitialized {
+        revert RegistrationFeeUnsupported();
     }
 
     ////////////////////////////////////////////////////////////
     //                   INTERNAL FUNCTIONS                   //
     ////////////////////////////////////////////////////////////
 
-    function _register(
-        BillingContext calldata scope,
-        RegistrationAuthorization calldata authorization,
-        uint64 issuerSchemaId,
-        uint64 expiresAtMin,
-        uint256 billingNullifier,
-        uint256[5] calldata proof
-    ) internal returns (bool) {
+    /// @dev Validates the context shared by every entry of a call and returns its billing action.
+    function _validateRegistrationContext(BillingContext calldata scope) internal view virtual returns (uint256) {
         _validateScope(scope);
         if (block.timestamp + PERIOD_OVERLAP < scope.periodStart || block.timestamp >= _addMonths(scope.periodStart, 1))
         {
             revert PeriodNotCurrent();
         }
+        return getBillingAction(scope);
+    }
 
-        mapping(uint256 => bool) storage nonces = usedNonces[scope.rpId];
+    /// @dev Registers one entry; `scope` must already pass `_validateRegistrationContext`.
+    function _register(
+        BillingContext calldata scope,
+        uint256 billingAction,
+        RegistrationAuthorization calldata authorization,
+        uint64 issuerSchemaId,
+        uint64 expiresAtMin,
+        uint256 billingNullifier,
+        uint256[5] calldata proof
+    ) internal virtual returns (bool) {
+        mapping(uint256 => bool) storage nonces = _usedNonces[scope.rpId];
         if (nonces[authorization.nonce]) revert NonceAlreadyUsed();
 
-        uint256 billingAction = getBillingAction(scope);
         (uint160 oprfKeyId, address signer) = RP_REGISTRY.getOprfKeyIdAndSigner(scope.rpId);
         if (authorization.oprfKeyId != oprfKeyId) revert OprfKeyMismatch();
 
         // The RP signs its own action; the proof uses the derived `billingAction` (WIP-107 §4.5).
         _verifyAuthorization(authorization, signer);
         nonces[authorization.nonce] = true;
-        _checkPinnedOprfKey(scope, oprfKeyId);
+        _pinOprfKey(scope, oprfKeyId);
 
         // Uniqueness Proof with signal, genesis minimum and session set to zero (WIP-107 §4.4.1).
         WORLD_ID_VERIFIER.verifyProofAndSignals(
@@ -361,47 +428,67 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
             proof
         );
 
-        if (isRegistered[billingNullifier]) return false;
+        if (_isRegistered[billingNullifier]) return false;
 
         // Duplicates above still succeed while paused; only new registrations stop.
         _requireNotPaused();
-        Period storage period = periods[scope.rpId][scope.periodStart];
+        Period storage period = _periods[scope.rpId][scope.periodStart];
         if (period.registeredCount >= period.capacity) revert CapacityExhausted();
 
         period.registeredCount += 1;
-        isRegistered[billingNullifier] = true;
+        _isRegistered[billingNullifier] = true;
         emit Registered(scope.rpId, scope.periodStart, billingNullifier);
         return true;
     }
 
     /// @dev Pins the RP's OPRF key on the period's first registration. Later registrations require the same key,
     ///  because `WORLD_ID_VERIFIER` checks proofs against the registry's current key.
-    function _checkPinnedOprfKey(BillingContext calldata scope, uint160 oprfKeyId) internal {
+    function _pinOprfKey(BillingContext calldata scope, uint160 oprfKeyId) internal virtual {
+        (bool pinned, BabyJubJub.Affine memory key) = _requireCurrentKeyMatchesPin(scope, oprfKeyId);
+        if (!pinned) {
+            _pinnedOprfKeys[scope.rpId][scope.periodStart] = PinnedOprfKey(oprfKeyId, key.x, key.y);
+            emit OprfKeyPinned(scope.rpId, scope.periodStart, oprfKeyId);
+        }
+    }
+
+    /// @dev Resolves the RP's current OPRF key and reverts unless it satisfies the period's pin, if any.
+    function _requireCurrentKeyMatchesPin(BillingContext calldata scope, uint160 oprfKeyId)
+        internal
+        view
+        virtual
+        returns (bool pinned, BabyJubJub.Affine memory key)
+    {
         // `WORLD_ID_VERIFIER` reads the key at `uint160(rpId)`, so the pin must cover that key.
         if (oprfKeyId != uint160(scope.rpId)) revert OprfKeyMismatch();
-        BabyJubJub.Affine memory key =
-            OprfKeyRegistry(WORLD_ID_VERIFIER.getOprfKeyRegistry()).getOprfPublicKey(oprfKeyId);
+        key = OprfKeyRegistry(WORLD_ID_VERIFIER.getOprfKeyRegistry()).getOprfPublicKey(oprfKeyId);
         // (0, 0) is not on BabyJubJub, so it marks an unpinned period and is never a valid key.
         if (key.x == 0 && key.y == 0) revert OprfKeyMismatch();
-        PinnedOprfKey storage pinned = _pinnedOprfKeys[scope.rpId][scope.periodStart];
-        if (pinned.x == 0 && pinned.y == 0) {
-            (pinned.oprfKeyId, pinned.x, pinned.y) = (oprfKeyId, key.x, key.y);
-            emit OprfKeyPinned(scope.rpId, scope.periodStart, oprfKeyId);
-        } else if (pinned.oprfKeyId != oprfKeyId || pinned.x != key.x || pinned.y != key.y) {
+        PinnedOprfKey storage pin = _pinnedOprfKeys[scope.rpId][scope.periodStart];
+        pinned = pin.x != 0 || pin.y != 0;
+        if (pinned && (pin.oprfKeyId != oprfKeyId || pin.x != key.x || pin.y != key.y)) {
             revert PinnedOprfKeyChanged();
         }
     }
 
-    function _setRequestLimits(uint64 newMaxRequestAge, uint64 newMaxRequestLifetime) internal {
+    function _setRequestLimits(uint64 newMaxRequestAge, uint64 newMaxRequestLifetime) internal virtual {
         if (newMaxRequestAge == 0 || newMaxRequestLifetime == 0) revert InvalidRequestLimits();
-        emit RequestLimitsUpdated(maxRequestAge, maxRequestLifetime, newMaxRequestAge, newMaxRequestLifetime);
-        maxRequestAge = newMaxRequestAge;
-        maxRequestLifetime = newMaxRequestLifetime;
+        emit RequestLimitsUpdated(_maxRequestAge, _maxRequestLifetime, newMaxRequestAge, newMaxRequestLifetime);
+        _maxRequestAge = newMaxRequestAge;
+        _maxRequestLifetime = newMaxRequestLifetime;
     }
 
-    /// @dev Reads the feed and normalizes it to USD per WLD scaled by 1e18. `updatedAt` is the report's
-    ///  observation time, not the submission time.
-    function _verifiedUsdPerWld() internal view returns (uint256) {
+    /// @dev Accepts only a §4.9 adapter, which already normalizes to USD scaled by 1e18.
+    function _setPriceSource(address newPriceSource) internal virtual {
+        if (newPriceSource == address(0)) revert ZeroAddress();
+        uint8 decimals = IChainlinkAggregator(newPriceSource).decimals();
+        if (decimals != PRICE_DECIMALS) revert InvalidPriceDecimals(decimals);
+        emit PriceSourceUpdated(address(_priceSource), newPriceSource);
+        _priceSource = IChainlinkAggregator(newPriceSource);
+    }
+
+    /// @dev Reads the verified USD per WLD, scaled by 1e18. `updatedAt` is the report's observation time, not the
+    ///  submission time.
+    function _verifiedUsdPerWld() internal view virtual returns (uint256) {
         int256 answer;
         uint256 observedAt;
         uint8 feedDecimals;
@@ -415,22 +502,27 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         } catch {
             revert PriceUnavailable();
         }
-        if (answer <= 0) revert InvalidPrice();
+        if (feedDecimals != PRICE_DECIMALS) revert InvalidPriceDecimals(feedDecimals);
+        // The upper bound keeps `duration * usdPerWld` in `quotePurchase` from overflowing.
+        if (answer <= 0 || uint256(answer) > type(uint256).max / MAX_PERIOD_DURATION) revert InvalidPrice();
         if (observedAt > block.timestamp) revert PriceFromFuture(observedAt);
-        if (block.timestamp - observedAt > maxPriceAge) revert StalePrice(observedAt);
-
-        return feedDecimals <= PRICE_DECIMALS
-            ? uint256(answer) * 10 ** (PRICE_DECIMALS - feedDecimals)
-            : uint256(answer) / 10 ** (feedDecimals - PRICE_DECIMALS);
+        if (block.timestamp - observedAt > _maxPriceAge) revert StalePrice(observedAt);
+        return uint256(answer);
     }
 
-    function _validateScope(BillingContext calldata scope) internal view {
+    function _validateScope(BillingContext calldata scope) internal view virtual {
         if (scope.chainId != block.chainid) revert InvalidChainId();
         if (scope.billingContract != address(this)) revert InvalidBillingContract();
         if (scope.periodStart != _monthStart(scope.periodStart)) revert NonCanonicalPeriodStart();
     }
 
-    function _verifyAuthorization(RegistrationAuthorization calldata authorization, address signer) internal view {
+    /// @dev The RP signature message (WIP-107 §4.5) binds neither `rpId` nor the OPRF key. RPs sharing a signer can
+    ///  therefore authorize registrations against each other's capacity, so billed RPs should use dedicated signers.
+    function _verifyAuthorization(RegistrationAuthorization calldata authorization, address signer)
+        internal
+        view
+        virtual
+    {
         if (authorization.version != AUTHORIZATION_VERSION) {
             revert InvalidAuthorizationVersion(authorization.version);
         }
@@ -439,8 +531,8 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         uint64 expiresAt = authorization.expiresAt;
         if (block.timestamp < createdAt) revert RequestNotYetValid();
         if (block.timestamp >= expiresAt) revert RequestExpired();
-        if (block.timestamp - createdAt > maxRequestAge) revert RequestTooOld();
-        if (expiresAt - createdAt > maxRequestLifetime) revert RequestLifetimeTooLong();
+        if (block.timestamp - createdAt > _maxRequestAge) revert RequestTooOld();
+        if (expiresAt - createdAt > _maxRequestLifetime) revert RequestLifetimeTooLong();
 
         // Matches the OPRF node: a signer without code is an EOA; with code it must be WIP-101.
         if (signer.code.length == 0) {
@@ -482,14 +574,14 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     ////////////////////////////////////////////////////////////
 
     /// @dev 00:00:00 AoE (12:00:00 UTC) on the first day of the month containing `timestamp`.
-    function _monthStart(uint256 timestamp) internal pure returns (uint64) {
+    function _monthStart(uint256 timestamp) internal pure virtual returns (uint64) {
         if (timestamp < AOE_OFFSET) revert BillingPeriodBeforeUnixEpoch();
         (uint256 year, uint256 month,) = DateTimeLib.timestampToDate(timestamp - AOE_OFFSET);
         return SafeCast.toUint64(DateTimeLib.dateToTimestamp(year, month, 1) + AOE_OFFSET);
     }
 
     /// @dev `periodStart + months`; exact because `periodStart` is always the 1st of a month.
-    function _addMonths(uint256 periodStart, uint256 months) internal pure returns (uint64) {
+    function _addMonths(uint256 periodStart, uint256 months) internal pure virtual returns (uint64) {
         return SafeCast.toUint64(DateTimeLib.addMonths(periodStart, months));
     }
 }

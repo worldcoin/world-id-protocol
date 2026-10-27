@@ -69,6 +69,7 @@ interface IWorldIDBilling {
     error FeeTransferMismatch(uint256 expected, uint256 received);
     error PriceUnavailable();
     error InvalidPrice();
+    error InvalidPriceDecimals(uint8 decimals);
     error PriceFromFuture(uint256 observedAt);
     error StalePrice(uint256 observedAt);
     error InvalidPricePerWorldID();
@@ -85,6 +86,7 @@ interface IWorldIDBilling {
     error PinnedOprfKeyChanged();
     error InvalidRpSignature();
     error CapacityExhausted();
+    error RegistrationFeeUnsupported();
 
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
@@ -127,6 +129,8 @@ interface IWorldIDBilling {
     ) external returns (bool success);
 
     /// @notice Registers each entry for `scope` as `register` would; reverts entirely if any entry fails.
+    /// @dev Atomic per WIP-107 §4.2. If anyone submits a copy of an entry first, its nonce is consumed and the whole
+    ///  batch reverts; relayers should then resubmit the remaining entries.
     function registerMany(BillingContext calldata scope, Registration[] calldata registrations)
         external
         returns (bool[] memory successes);
