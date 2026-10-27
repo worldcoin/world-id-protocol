@@ -161,10 +161,12 @@ pub enum AuthenticatorError {
     /// gateway — it is a relay-leg condition, most commonly a captive portal or
     /// transparent proxy on the client network intercepting the connection.
     #[error(
-        "OHTTP relay {relay_url} returned a non-OHTTP response (content-type: {}); a captive portal or proxy may be intercepting the connection",
+        "OHTTP relay {relay_url} returned a non-OHTTP response for {service} (content-type: {}); a captive portal or proxy may be intercepting the connection",
         content_type.as_deref().unwrap_or("none")
     )]
     OhttpRelayInvalidResponse {
+        /// Service scope this request was for (e.g. `ohttp_gateway`).
+        service: String,
         /// URL of the OHTTP relay the request was sent to.
         relay_url: String,
         /// The `Content-Type` of the unexpected response, if present.

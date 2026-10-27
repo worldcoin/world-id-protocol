@@ -1,5 +1,6 @@
 use crate::{
     AuthenticatorError,
+    api_types::ServiceApiError,
     ohttp::{OhttpClient, OhttpClientConfig},
 };
 use reqwest::StatusCode;
@@ -136,11 +137,14 @@ impl ServiceClient {
         // 502/503/504 specifically signal an unreachable or overloaded upstream
         // (RFC 9458 §5.2 uses 504 for a gateway that cannot reach its target).
         // Surface them as a clear "service unavailable" error rather than a raw
-        // 5xx body, which is typically an opaque infra error page.
+        // 5xx body, which is typically an opaque infra error page. A structured
+        // service error (e.g. the gateway's `batcher_unavailable` or a
+        // `request_timeout`) keeps its code and message below instead.
         if matches!(
             resp.status,
             StatusCode::BAD_GATEWAY | StatusCode::SERVICE_UNAVAILABLE | StatusCode::GATEWAY_TIMEOUT
-        ) {
+        ) && serde_json::from_slice::<ServiceApiError<serde_json::Value>>(&resp.body).is_err()
+        {
             return AuthenticatorError::ServiceUnavailable {
                 service: service.to_owned(),
                 status: resp.status,
@@ -259,5 +263,52 @@ mod tests {
             .await;
 
         assert!(response.is_ok(), "{response:?}");
+    }
+
+    #[tokio::test]
+    async fn unavailable_status_keeps_structured_service_errors() {
+        let mut server = mockito::Server::new_async().await;
+        let structured = r#"{"code":"batcher_unavailable","message":"Batcher service is unavailable. Please try again."}"#;
+        let _structured = server
+            .mock("GET", "/structured")
+            .with_status(503)
+            .with_body(structured)
+            .create_async()
+            .await;
+        let _opaque = server
+            .mock("GET", "/opaque")
+            .with_status(503)
+            .with_body("<html>Service Unavailable</html>")
+            .create_async()
+            .await;
+
+        let client = ServiceClient::new(
+            reqwest::Client::new(),
+            ServiceKind::Gateway,
+            &ServiceEndpoint::direct(server.url()),
+        )
+        .unwrap();
+
+        match client
+            .get_json::<serde_json::Value>(&server.url(), "/structured")
+            .await
+        {
+            Err(AuthenticatorError::GatewayError { status, body }) => {
+                assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+                assert_eq!(body, structured);
+            }
+            other => panic!("expected GatewayError, got: {other:?}"),
+        }
+
+        match client
+            .get_json::<serde_json::Value>(&server.url(), "/opaque")
+            .await
+        {
+            Err(AuthenticatorError::ServiceUnavailable { service, status }) => {
+                assert_eq!(service, "gateway");
+                assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+            }
+            other => panic!("expected ServiceUnavailable, got: {other:?}"),
+        }
     }
 }

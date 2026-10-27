@@ -195,6 +195,7 @@ impl OhttpClient {
             .is_some_and(is_ohttp_res_content_type)
         {
             return Err(AuthenticatorError::OhttpRelayInvalidResponse {
+                service: self.config_scope.clone(),
                 relay_url: self.relay_url.clone(),
                 content_type,
             });
@@ -435,9 +436,11 @@ mod tests {
 
         match result {
             Err(AuthenticatorError::OhttpRelayInvalidResponse {
+                service,
                 relay_url: err_relay_url,
                 content_type,
             }) => {
+                assert_eq!(service, "ohttp_gateway");
                 assert_eq!(err_relay_url, relay_url);
                 assert_eq!(content_type.as_deref(), Some("text/html"));
             }
