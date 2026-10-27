@@ -16,6 +16,7 @@ import {IWorldIDVerifier} from "../../src/core/interfaces/IWorldIDVerifier.sol";
 import {IWorldIDBilling} from "../../src/core/interfaces/IWorldIDBilling.sol";
 import {ICredentialSchemaIssuerRegistry} from "../../src/core/interfaces/ICredentialSchemaIssuerRegistry.sol";
 import {IWIP101} from "../../src/core/interfaces/IWIP101.sol";
+import {RpRequestAuth} from "../../src/core/libraries/RpRequestAuth.sol";
 
 ////////////////////////////////////////////////////////////
 //                         MOCKS                          //
@@ -215,6 +216,7 @@ contract WorldIDBillingTest is Test {
     uint256 constant NULLIFIER = 0xabcdef;
     /// @dev The RP's own `ProofRequest` action; unrelated to the derived billing action.
     uint256 constant RP_ACTION = 0x5150;
+    uint256 constant SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
 
     uint256 constant PRICE_PER_WORLD_ID = 0.05e18;
     uint256 constant USD_PER_WLD = 2e18;
@@ -1175,6 +1177,21 @@ contract WorldIDBillingTest is Test {
         assertEq(capacity, 2);
     }
 
+    function test_Purchase_PausedRejectsAndKeepsCapacity() public {
+        _buy(OCT_2026, 2);
+        billing.setPaused(true);
+        vm.prank(rp);
+        vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
+        billing.purchaseCapacity(_scope(OCT_2026), 1, type(uint256).max);
+        (uint256 capacity,) = billing.periods(RP_ID, OCT_2026);
+        assertEq(capacity, 2, "pause preserves purchased capacity");
+
+        billing.setPaused(false);
+        _buy(OCT_2026, 1);
+        (capacity,) = billing.periods(RP_ID, OCT_2026);
+        assertEq(capacity, 3);
+    }
+
     function test_Purchase_RejectsUnusableOprfKey() public {
         rpRegistry.set(RP_ID, OPRF_KEY_ID + 1, signer, true);
         vm.prank(rp);
@@ -1195,45 +1212,83 @@ contract WorldIDBillingTest is Test {
         // Signed over a different action.
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(scope);
         auth.signature = _sign(auth, 123);
-        vm.expectRevert(IWorldIDBilling.InvalidRpSignature.selector);
+        vm.expectRevert(RpRequestAuth.InvalidRpSignature.selector);
         _register(auth, NULLIFIER);
 
         // Signed over the billing action instead of the claimed `signedAction`.
         auth = _authorize(scope);
         auth.signature = _sign(auth, billing.getBillingAction(scope));
-        vm.expectRevert(IWorldIDBilling.InvalidRpSignature.selector);
+        vm.expectRevert(RpRequestAuth.InvalidRpSignature.selector);
         _register(auth, NULLIFIER);
 
         // `signedAction` changed after signing.
         auth = _authorize(scope);
         auth.signedAction = RP_ACTION + 1;
-        vm.expectRevert(IWorldIDBilling.InvalidRpSignature.selector);
-        _register(auth, NULLIFIER);
-
-        // Malleable high-s form of a valid signature.
-        auth = _authorize(scope);
-        (bytes32 r, bytes32 s, uint8 v) = _split(auth.signature);
-        uint256 n = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
-        auth.signature = abi.encodePacked(r, bytes32(n - uint256(s)), v == 27 ? uint8(28) : uint8(27));
-        vm.expectRevert(IWorldIDBilling.InvalidRpSignature.selector);
+        vm.expectRevert(RpRequestAuth.InvalidRpSignature.selector);
         _register(auth, NULLIFIER);
 
         auth = _authorize(scope);
         auth.signature = hex"1234";
-        vm.expectRevert(IWorldIDBilling.InvalidRpSignature.selector);
+        vm.expectRevert(RpRequestAuth.InvalidRpSignature.selector);
         _register(auth, NULLIFIER);
 
         auth = _authorize(scope);
         auth.wip101Data = hex"01";
-        vm.expectRevert(IWIP101.Wip101DataOnEoa.selector);
+        vm.expectRevert(RpRequestAuth.Wip101DataOnEoa.selector);
         _register(auth, NULLIFIER);
+
+        // Parity bytes and `s` values that alloy (and therefore the OPRF nodes) rejects.
+        uint8[3] memory badV = [uint8(2), 29, 34];
+        for (uint256 i = 0; i < badV.length; ++i) {
+            auth = _authorize(scope);
+            (bytes32 r, bytes32 s,) = _split(auth.signature);
+            auth.signature = abi.encodePacked(r, s, badV[i]);
+            vm.expectRevert(RpRequestAuth.InvalidRpSignature.selector);
+            _register(auth, NULLIFIER);
+        }
+        uint256[2] memory badS = [uint256(0), SECP256K1_N];
+        for (uint256 i = 0; i < badS.length; ++i) {
+            auth = _authorize(scope);
+            (bytes32 r,, uint8 v) = _split(auth.signature);
+            auth.signature = abi.encodePacked(r, bytes32(badS[i]), v);
+            vm.expectRevert(RpRequestAuth.InvalidRpSignature.selector);
+            _register(auth, NULLIFIER);
+        }
+    }
+
+    /// @dev The OPRF nodes recover RP signatures with alloy, which accepts `v` as 0/1, 27/28 or EIP-155 (35+) and
+    ///  normalizes high-`s` signatures to low-`s`. The contract must accept the same encodings.
+    function test_Register_AcceptsSignatureEncodingsLikeOprfNodes() public {
+        _buy(OCT_2026, 5);
+        IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
+
+        for (uint256 i = 0; i < 5; ++i) {
+            IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(scope);
+            (bytes32 r, bytes32 s, uint8 v) = _split(auth.signature);
+            uint8 parity = v - 27;
+            if (i == 0) {
+                // High-`s` form with the parity flipped.
+                auth.signature = abi.encodePacked(r, bytes32(SECP256K1_N - uint256(s)), 28 - parity);
+            } else if (i == 1) {
+                auth.signature = abi.encodePacked(r, s, parity);
+            } else if (i == 2) {
+                auth.signature = abi.encodePacked(r, s, 35 + parity);
+            } else if (i == 3) {
+                // EIP-155 `v` for chain ID 10.
+                auth.signature = abi.encodePacked(r, s, 55 + parity);
+            } else {
+                // High-`s` with a raw parity byte.
+                auth.signature = abi.encodePacked(r, bytes32(SECP256K1_N - uint256(s)), 1 - parity);
+            }
+            assertTrue(_register(auth, NULLIFIER + i));
+        }
     }
 
     function test_Register_ResolvesCurrentSigner() public {
         _buy(OCT_2026, 1);
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(_scope(OCT_2026));
         rpRegistry.set(RP_ID, OPRF_KEY_ID, makeAddr("rotatedSigner"), true);
-        vm.expectRevert(IWorldIDBilling.InvalidRpSignature.selector);
+        vm.expectRevert(RpRequestAuth.InvalidRpSignature.selector);
         _register(auth, NULLIFIER);
 
         rpRegistry.set(RP_ID, OPRF_KEY_ID, signer, false);
@@ -1268,28 +1323,28 @@ contract WorldIDBillingTest is Test {
 
         auth = _authorize(scope);
         auth.wip101Data = new bytes(1025);
-        vm.expectRevert(IWIP101.Wip101DataTooLong.selector);
+        vm.expectRevert(RpRequestAuth.Wip101DataTooLong.selector);
         _register(auth, NULLIFIER + 1);
 
         contractSigner.setMode(Wip101Signer.Mode.WrongMagic);
         auth = _authorize(scope);
-        vm.expectRevert(IWIP101.Wip101Rejected.selector);
+        vm.expectRevert(RpRequestAuth.Wip101Rejected.selector);
         _register(auth, NULLIFIER + 1);
 
         contractSigner.setMode(Wip101Signer.Mode.Revert);
         auth = _authorize(scope);
-        vm.expectRevert(IWIP101.Wip101Rejected.selector);
+        vm.expectRevert(RpRequestAuth.Wip101Rejected.selector);
         _register(auth, NULLIFIER + 1);
 
         rpRegistry.set(RP_ID, OPRF_KEY_ID, address(new MalformedWip101Signer()), true);
         auth = _authorize(scope);
-        vm.expectRevert(IWIP101.Wip101Rejected.selector);
+        vm.expectRevert(RpRequestAuth.Wip101Rejected.selector);
         _register(auth, NULLIFIER + 1);
         rpRegistry.set(RP_ID, OPRF_KEY_ID, address(contractSigner), true);
 
         contractSigner.setMode(Wip101Signer.Mode.NoInterface);
         auth = _authorize(scope);
-        vm.expectRevert(IWIP101.Wip101Unsupported.selector);
+        vm.expectRevert(RpRequestAuth.Wip101Unsupported.selector);
         _register(auth, NULLIFIER + 1);
     }
 
@@ -1339,6 +1394,20 @@ contract WorldIDBillingTest is Test {
         vm.expectRevert(err);
         billing.setRegistrationFee(1);
         vm.stopPrank();
+    }
+
+    /// @dev WIP-107 §4.2 lists these inherited methods in the normative interface.
+    function test_NormativeInterface_InheritedMethods() public {
+        IWorldIDBilling iface = IWorldIDBilling(address(billing));
+        assertEq(iface.getFeeToken(), address(wld));
+        assertEq(iface.getFeeRecipient(), feeRecipient);
+        assertEq(iface.owner(), address(this));
+        assertFalse(iface.paused());
+
+        iface.setFeeRecipient(user);
+        assertEq(iface.getFeeRecipient(), user);
+        iface.setPaused(true);
+        assertTrue(iface.paused());
     }
 
     /// @dev The inherited per-call registration fee would have no effect on billing charges.

@@ -11,7 +11,7 @@ interface IWorldIDBilling {
     //                        STRUCTS                         //
     ////////////////////////////////////////////////////////////
 
-    /// @notice Identifies one deployment, RP and AoE calendar month; registration overlaps adjacent months.
+    /// @notice Identifies one deployment, RP and billing period; registration overlaps adjacent periods.
     struct BillingContext {
         uint256 chainId;
         address billingContract;
@@ -84,7 +84,6 @@ interface IWorldIDBilling {
     error RequestLifetimeTooLong();
     error OprfKeyMismatch();
     error PinnedOprfKeyChanged();
-    error InvalidRpSignature();
     error CapacityExhausted();
     error RegistrationFeeUnsupported();
 
@@ -160,6 +159,15 @@ interface IWorldIDBilling {
     /// @notice Billing OPRF action for `scope` (WIP-107 §4.3).
     function getBillingAction(BillingContext calldata scope) external pure returns (uint256);
 
+    /// @notice WLD ERC-20 in which capacity is paid.
+    function getFeeToken() external view returns (address);
+    /// @notice Protocol fee address that receives purchase payments.
+    function getFeeRecipient() external view returns (address);
+    /// @notice Proxy owner and billing administrator.
+    function owner() external view returns (address);
+    /// @notice Whether purchases and new registrations are paused.
+    function paused() external view returns (bool);
+
     /// @notice USD price of one registration for one period, scaled by 1e18.
     function pricePerWorldID() external view returns (uint256);
     /// @notice Maximum accepted age of the WLD/USD price, in seconds.
@@ -174,11 +182,12 @@ interface IWorldIDBilling {
     ////////////////////////////////////////////////////////////
 
     function setFeeToken(address feeToken) external;
+    function setFeeRecipient(address feeRecipient) external;
     function setPricePerWorldID(uint256 newPricePerWorldID) external;
     function setMaxPriceAge(uint64 newMaxPriceAge) external;
     function setPriceSource(address newPriceSource) external;
     function setRequestLimits(uint64 newMaxRequestAge, uint64 newMaxRequestLifetime) external;
 
-    /// @notice Pauses new registrations; duplicates and purchases are unaffected.
+    /// @notice Pauses purchases and new registrations; registering a duplicate is unaffected.
     function setPaused(bool isPaused) external;
 }
