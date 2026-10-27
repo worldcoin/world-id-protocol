@@ -213,6 +213,8 @@ contract WorldIDBillingTest is Test {
     uint64 constant ISSUER_SCHEMA_ID = 7;
     uint256 constant ROOT = 0x1234;
     uint256 constant NULLIFIER = 0xabcdef;
+    /// @dev The RP's own `ProofRequest` action; unrelated to the derived billing action.
+    uint256 constant RP_ACTION = 0x5150;
 
     uint256 constant PRICE_PER_WORLD_ID = 0.05e18;
     uint256 constant USD_PER_WLD = 2e18;
@@ -307,10 +309,13 @@ contract WorldIDBillingTest is Test {
             nonce: nextNonce++,
             createdAt: uint64(block.timestamp),
             expiresAt: uint64(block.timestamp + REQUEST_LIFETIME),
+            signedAction: RP_ACTION,
             signature: "",
             wip101Data: ""
         });
-        auth.signature = _sign(auth, billing.getBillingAction(scope));
+        auth.signature = _sign(auth, auth.signedAction);
+        // Billing authorization comes from the RP's own action, never from a signature over `billingAction`.
+        assertTrue(auth.signedAction != billing.getBillingAction(scope));
     }
 
     function _sign(IWorldIDBilling.RegistrationAuthorization memory auth, uint256 action)
@@ -891,6 +896,36 @@ contract WorldIDBillingTest is Test {
         _register(auth, NULLIFIER);
     }
 
+    /// @dev WIP-107 §4.5: the RP keeps its own action; any signed action authorizes the billing registration,
+    ///  whose proof always uses the derived billing action.
+    function testFuzz_Register_AcceptsAnyRpAction(uint256 signedAction) public {
+        _buy(OCT_2026, 1);
+        IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
+        IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(scope);
+        auth.signedAction = signedAction;
+        auth.signature = _sign(auth, signedAction);
+
+        vm.expectCall(
+            address(worldIDVerifier),
+            abi.encodeCall(
+                IWorldIDVerifier.verifyProofAndSignals,
+                (
+                    NULLIFIER,
+                    billing.getBillingAction(scope),
+                    RP_ID,
+                    auth.nonce,
+                    0,
+                    NOW,
+                    ISSUER_SCHEMA_ID,
+                    0,
+                    0,
+                    _proof()
+                )
+            )
+        );
+        assertTrue(_register(auth, NULLIFIER));
+    }
+
     function test_Register_UsedNonceRevertsEvenForRegisteredNullifier() public {
         _buy(OCT_2026, 1);
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(_scope(OCT_2026));
@@ -959,7 +994,7 @@ contract WorldIDBillingTest is Test {
     function test_Register_RejectsBadAuthorizationFields() public {
         _buy(OCT_2026, 1);
         IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
-        uint256 action = billing.getBillingAction(scope);
+        uint256 action = RP_ACTION;
 
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(scope);
         auth.version = 2;
@@ -1074,6 +1109,18 @@ contract WorldIDBillingTest is Test {
         vm.expectRevert(IWorldIDBilling.InvalidRpSignature.selector);
         _register(auth, NULLIFIER);
 
+        // Signed over the billing action instead of the claimed `signedAction`.
+        auth = _authorize(scope);
+        auth.signature = _sign(auth, billing.getBillingAction(scope));
+        vm.expectRevert(IWorldIDBilling.InvalidRpSignature.selector);
+        _register(auth, NULLIFIER);
+
+        // `signedAction` changed after signing.
+        auth = _authorize(scope);
+        auth.signedAction = RP_ACTION + 1;
+        vm.expectRevert(IWorldIDBilling.InvalidRpSignature.selector);
+        _register(auth, NULLIFIER);
+
         // Malleable high-s form of a valid signature.
         auth = _authorize(scope);
         (bytes32 r, bytes32 s, uint8 v) = _split(auth.signature);
@@ -1125,8 +1172,7 @@ contract WorldIDBillingTest is Test {
         vm.expectCall(
             address(contractSigner),
             abi.encodeCall(
-                IWIP101.verifyRpRequest,
-                (1, auth.nonce, auth.createdAt, auth.expiresAt, billing.getBillingAction(scope), auth.wip101Data)
+                IWIP101.verifyRpRequest, (1, auth.nonce, auth.createdAt, auth.expiresAt, RP_ACTION, auth.wip101Data)
             )
         );
         assertTrue(_register(auth, NULLIFIER));

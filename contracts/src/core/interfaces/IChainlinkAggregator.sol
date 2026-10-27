@@ -4,7 +4,7 @@ pragma solidity ^0.8.13;
 /**
  * @title IChainlinkAggregator
  * @author World Contributors
- * @notice Chainlink `AggregatorV3Interface` subset read by the Billing Contract for WLD/USD (WIP-107 §4.8).
+ * @notice Chainlink `AggregatorV3Interface` subset read by the Billing Contract for WLD/USD (WIP-107 §4.9).
  */
 interface IChainlinkAggregator {
     function decimals() external view returns (uint8);

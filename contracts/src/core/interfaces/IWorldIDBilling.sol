@@ -19,13 +19,15 @@ interface IWorldIDBilling {
         uint64 periodStart;
     }
 
-    /// @notice RP authorization copied from the billing `ProofRequest` (WIP-107 §4.4).
+    /// @notice RP authorization copied from the RP's own `ProofRequest` (WIP-107 §4.5); `signedAction` is the
+    ///  request's action, while the registration proof uses the derived billing action.
     struct RegistrationAuthorization {
         uint8 version;
         uint160 oprfKeyId;
         uint256 nonce;
         uint64 createdAt;
         uint64 expiresAt;
+        uint256 signedAction;
         bytes signature;
         bytes wip101Data;
     }
@@ -45,7 +47,7 @@ interface IWorldIDBilling {
         uint256 registeredCount;
     }
 
-    /// @notice RP OPRF key pinned by the first registration in a period (WIP-107 §4.3.2).
+    /// @notice RP OPRF key pinned by the first registration in a period (WIP-107 §4.4.2).
     struct PinnedOprfKey {
         uint160 oprfKeyId;
         uint256 x;
@@ -151,7 +153,7 @@ interface IWorldIDBilling {
     /// @notice AoE month containing `timestamp`; `periodEnd` is exclusive and registration opens 26 hours early.
     function getBillingPeriod(uint64 timestamp) external view returns (uint64 periodStart, uint64 periodEnd);
 
-    /// @notice Billing OPRF action for `scope` (WIP-107 §4.2).
+    /// @notice Billing OPRF action for `scope` (WIP-107 §4.3).
     function getBillingAction(BillingContext calldata scope) external pure returns (uint256);
 
     /// @notice USD price of one registration for one period, scaled by 1e18.

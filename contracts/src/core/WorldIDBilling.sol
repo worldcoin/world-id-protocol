@@ -321,8 +321,6 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     //                   INTERNAL FUNCTIONS                   //
     ////////////////////////////////////////////////////////////
 
-    /// @dev Reads the feed and normalizes it to USD per WLD scaled by 1e18. `updatedAt` is the report's
-    ///  observation time, not the submission time.
     function _register(
         BillingContext calldata scope,
         RegistrationAuthorization calldata authorization,
@@ -344,11 +342,12 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         (uint160 oprfKeyId, address signer) = RP_REGISTRY.getOprfKeyIdAndSigner(scope.rpId);
         if (authorization.oprfKeyId != oprfKeyId) revert OprfKeyMismatch();
 
-        _verifyAuthorization(authorization, signer, billingAction);
+        // The RP signs its own action; the proof uses the derived `billingAction` (WIP-107 §4.5).
+        _verifyAuthorization(authorization, signer);
         nonces[authorization.nonce] = true;
         _checkPinnedOprfKey(scope, oprfKeyId);
 
-        // Uniqueness Proof with signal, genesis minimum and session set to zero (WIP-107 §4.3.1).
+        // Uniqueness Proof with signal, genesis minimum and session set to zero (WIP-107 §4.4.1).
         WORLD_ID_VERIFIER.verifyProofAndSignals(
             billingNullifier,
             billingAction,
@@ -400,6 +399,8 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         maxRequestLifetime = newMaxRequestLifetime;
     }
 
+    /// @dev Reads the feed and normalizes it to USD per WLD scaled by 1e18. `updatedAt` is the report's
+    ///  observation time, not the submission time.
     function _verifiedUsdPerWld() internal view returns (uint256) {
         int256 answer;
         uint256 observedAt;
@@ -429,11 +430,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         if (scope.periodStart != _monthStart(scope.periodStart)) revert NonCanonicalPeriodStart();
     }
 
-    function _verifyAuthorization(
-        RegistrationAuthorization calldata authorization,
-        address signer,
-        uint256 billingAction
-    ) internal view {
+    function _verifyAuthorization(RegistrationAuthorization calldata authorization, address signer) internal view {
         if (authorization.version != AUTHORIZATION_VERSION) {
             revert InvalidAuthorizationVersion(authorization.version);
         }
@@ -448,8 +445,10 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         // Matches the OPRF node: a signer without code is an EOA; with code it must be WIP-101.
         if (signer.code.length == 0) {
             if (authorization.wip101Data.length != 0) revert IWIP101.Wip101DataOnEoa();
-            bytes memory message =
-                abi.encodePacked(AUTHORIZATION_VERSION, authorization.nonce, createdAt, expiresAt, billingAction);
+            // 81-byte RP signature message; a request without an action cannot produce this message.
+            bytes memory message = abi.encodePacked(
+                AUTHORIZATION_VERSION, authorization.nonce, createdAt, expiresAt, authorization.signedAction
+            );
             (address recovered, ECDSA.RecoverError err,) =
                 ECDSA.tryRecover(MessageHashUtils.toEthSignedMessageHash(message), authorization.signature);
             if (err != ECDSA.RecoverError.NoError || recovered != signer) revert InvalidRpSignature();
@@ -467,7 +466,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
                         authorization.nonce,
                         createdAt,
                         expiresAt,
-                        billingAction,
+                        authorization.signedAction,
                         authorization.wip101Data
                     )
                 )
