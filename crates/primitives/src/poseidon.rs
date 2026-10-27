@@ -54,10 +54,15 @@ pub mod ds {
     pub const OPRF_PROOF: DomainSeparator<3> = DomainSeparator::new(b"World ID Proof");
     /// Separates the message an authenticator signs for an ownership proof (WIP-103).
     pub const OWNERSHIP_PROOF: DomainSeparator<3> = DomainSeparator::new(b"WIP103");
-    /// Separates the digest of a trust anchor key token (WIP-106). A token carries at
-    /// most 7 field-element claims and is zero-padded to that width.
-    pub const TRUST_ANCHOR_KEY_TOKEN: DomainSeparator<7> =
-        DomainSeparator::new(b"WORLD_ID_TAKT_V1");
+    /// Separates the message signed for a trust anchor key token (WIP-106).
+    pub const TRUST_ANCHOR_KEY_TOKEN: DomainSeparator<6> =
+        DomainSeparator::new(b"WORLD-ID/WIP-106/TAKT");
+    /// Separates the hash of a trust anchor key (WIP-106).
+    pub const TRUST_ANCHOR_KEY: DomainSeparator<2> = DomainSeparator::new(b"WORLD-ID/WIP-106/KEY");
+    /// Separates the message a new authenticator signs to prove it holds the key it asks to
+    /// register: the lowered registration digest (WIP-109).
+    pub const AUTHENTICATOR_REGISTRATION: DomainSeparator<2> =
+        DomainSeparator::new(b"WORLD-ID/WIP-109/REGSIG");
     /// Separates the hash of a single raw-bytes credential claim.
     pub const CLAIMS_HASH_V1: VariableLengthDomainSeparator =
         VariableLengthDomainSeparator::new(b"CLAIMS_HASH_V1");
@@ -155,14 +160,13 @@ impl VariableLengthDomainSeparator {
 
 /// Hashes the `N` field elements of a message under its domain separator.
 ///
-/// The permutation width is the smallest supported width larger than `N` (so
+/// The permutation width is the smallest WIP-100 width larger than `N` (so
 /// `N + 1` rounded up to one of `2, 3, 4, 8, 12, 16`); unused rate slots are zero.
 /// Since `N` comes from the separator, the width is fixed by the message's
 /// definition and cannot vary with runtime data.
 ///
 /// Hashing a variable number of inputs at a *pinned* width — where padding is
-/// load-bearing — is expressed by zero-filling an array of the separator's `N`, as
-/// `TrustAnchorKeyToken::message_hash` does.
+/// load-bearing — is expressed by zero-filling an array of the separator's `N`.
 ///
 /// ```
 /// use world_id_primitives::{FieldElement, poseidon::{self, ds}};
@@ -236,7 +240,7 @@ mod tests {
 
     /// The raw tag of every constant in [`ds`], across both separator types, to keep
     /// the collision and length checks exhaustive.
-    const ALL_TAGS: [&[u8]; 10] = [
+    const ALL_TAGS: [&[u8]; 12] = [
         ds::CREDENTIAL_V1.as_bytes(),
         ds::CREDENTIAL_SUB.as_bytes(),
         ds::SESSION_COMMITMENT.as_bytes(),
@@ -245,6 +249,8 @@ mod tests {
         ds::OPRF_PROOF.as_bytes(),
         ds::OWNERSHIP_PROOF.as_bytes(),
         ds::TRUST_ANCHOR_KEY_TOKEN.as_bytes(),
+        ds::TRUST_ANCHOR_KEY.as_bytes(),
+        ds::AUTHENTICATOR_REGISTRATION.as_bytes(),
         ds::CLAIMS_HASH_V1.as_bytes(),
         ds::ASSOCIATED_DATA_V1.as_bytes(),
     ];
@@ -273,6 +279,16 @@ mod tests {
         assert_eq!(
             ds::AUTHENTICATOR_KEY_SET.as_field_element(),
             FieldElement::from(105_702_839_725_298_824_521_994_315_u128),
+        );
+        // Above `u128::MAX`, so parsed from the decimal literals in `authenticator-assertion/src/lib.nr`.
+        let decimal = |s: &str| FieldElement::from(<Fq as std::str::FromStr>::from_str(s).unwrap());
+        assert_eq!(
+            ds::TRUST_ANCHOR_KEY_TOKEN.as_field_element(),
+            decimal("127603488023523044162070750169730677970184433650516"),
+        );
+        assert_eq!(
+            ds::TRUST_ANCHOR_KEY.as_field_element(),
+            decimal("498451125091886891258088867850510460821032355161"),
         );
     }
 
@@ -307,10 +323,14 @@ mod tests {
         // Remaining widths and the zero-padded arities within each.
         assert_width!(1, 2, t2);
         assert_width!(4, 8, t8);
+        assert_width!(5, 8, t8);
         assert_width!(6, 8, t8);
         assert_width!(8, 12, t12);
+        assert_width!(9, 12, t12);
+        assert_width!(10, 12, t12);
         assert_width!(11, 12, t12);
         assert_width!(12, 16, t16);
+        assert_width!(13, 16, t16);
         assert_width!(15, 16, t16);
     }
 

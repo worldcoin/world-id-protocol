@@ -9,12 +9,14 @@ use crate::{
 use std::sync::Arc;
 
 use crate::{
+    account::AccountAuthenticators,
     api_types::{
         AccountInclusionProof, GatewayRequestState, IndexerAuthenticatorPubkeysResponse,
-        IndexerErrorCode, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-        IndexerQueryRequest, IndexerSignatureNonceResponse, ServiceApiError,
+        IndexerAuthenticatorsResponse, IndexerErrorCode, IndexerPackedAccountRequest,
+        IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
+        ServiceApiError,
     },
-    service_client::{ServiceClient, ServiceKind},
+    service_client::{ServiceClient, ServiceKind, default_http_client},
 };
 use world_id_primitives::{Credential, FieldElement, ProofResponse, Signer};
 
@@ -37,13 +39,6 @@ use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::{Nullifier, SessionId};
-
-static MASK_RECOVERY_COUNTER: U256 =
-    uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
-static MASK_PUBKEY_ID: U256 =
-    uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
-static MASK_LEAF_INDEX: U256 =
-    uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
 
 /// Input for a single credential proof within a proof request.
 pub struct CredentialInput {
@@ -84,7 +79,7 @@ pub struct Authenticator {
     /// General configuration for the Authenticator.
     pub config: Config,
     /// The packed account data for the holder's World ID is a `uint256` defined in the `WorldIDRegistry` contract as:
-    /// `recovery_counter` (32 bits) | `pubkey_id` (commitment to all off-chain public keys) (32 bits) | `leaf_index` (192 bits)
+    /// `recovery_counter` (32 bits) | `pubkey_id`, this authenticator's slot (32 bits) | reserved (128 bits) | `leaf_index` (64 bits)
     pub packed_account_data: U256,
     pub(crate) signer: Signer,
     pub(crate) registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>>,
@@ -136,19 +131,8 @@ impl Authenticator {
         zk_artifact_source: Arc<dyn ZkArtifactSource>,
     ) -> Result<Self, AuthenticatorError> {
         let signer = Signer::from_seed_bytes(seed)?;
-
-        let registry: Option<Arc<WorldIdRegistryInstance<DynProvider>>> =
-            config.rpc_url().map(|rpc_url| {
-                let provider = alloy::providers::ProviderBuilder::new()
-                    .with_chain_id(config.chain_id())
-                    .connect_http(rpc_url.clone());
-                Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
-                    *config.registry_address(),
-                    alloy::providers::Provider::erased(provider),
-                ))
-            });
-
-        let http_client = reqwest::Client::new();
+        let http_client = default_http_client()?;
+        let registry = Self::registry_for(&config, http_client.clone());
 
         let indexer_client =
             ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
@@ -164,27 +148,102 @@ impl Authenticator {
         )
         .await?;
 
-        #[cfg(not(target_arch = "wasm32"))]
-        let ws_connector = {
-            let mut root_store = rustls::RootCertStore::empty();
-            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
-            let rustls_config = rustls::ClientConfig::builder()
-                .with_root_certificates(root_store)
-                .with_no_client_auth();
-            Connector::Rustls(Arc::new(rustls_config))
-        };
-
-        #[cfg(target_arch = "wasm32")]
-        let ws_connector = Connector;
-
         Ok(Self {
+            config,
             packed_account_data,
             signer,
-            config,
             registry,
             indexer_client,
             gateway_client,
-            ws_connector,
+            ws_connector: ws_connector(),
+            zk_artifact_source,
+        })
+    }
+
+    /// Initializes an Authenticator for the account at `leaf_index` from a seed, without looking
+    /// the account up by on-chain address.
+    ///
+    /// This is how a Proving Authenticator (WIP-104) is initialized: it has no management key
+    /// registered on-chain, so [`Authenticator::init`] cannot find its account. It also works
+    /// for an Admin Authenticator whose `leaf_index` is known, e.g. after a WIP-109 registration.
+    ///
+    /// The off-chain public key derived from `seed` must be registered on the account according
+    /// to the indexer. Its slot becomes [`Authenticator::pubkey_id`] and the account's recovery
+    /// counter becomes [`Authenticator::recovery_counter`].
+    ///
+    /// A Proving Authenticator can generate proofs, but it cannot perform account operations
+    /// such as [`Authenticator::insert_authenticator`]: the registry rejects its signatures.
+    ///
+    /// When an RPC URL is configured, the indexed account must not predate the registry's latest
+    /// recovery, which revoked every authenticator registered before it.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if the indexer does not know the account, or
+    ///   its indexed state predates the account's latest recovery.
+    /// - [`AuthenticatorError::PublicKeyNotFound`] if the public key is not registered on the
+    ///   account.
+    /// - Other errors if the seed or configuration is invalid or a network call fails.
+    ///
+    /// Right after a registration or a recovery finalizes, the first two can be transient until
+    /// the indexer catches up.
+    pub async fn init_with_leaf_index(
+        seed: &[u8],
+        leaf_index: u64,
+        config: Config,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
+    ) -> Result<Self, AuthenticatorError> {
+        let authenticators = Self::fetch_account_authenticators(leaf_index, &config).await?;
+        Self::from_account_authenticators(
+            seed,
+            leaf_index,
+            &authenticators,
+            config,
+            zk_artifact_source,
+        )
+    }
+
+    /// Builds the Authenticator for `seed` on the account at `leaf_index` from the account's
+    /// `authenticators`, without a network call.
+    ///
+    /// The off-chain public key derived from `seed` must be registered in `authenticators`. Its
+    /// slot becomes [`Authenticator::pubkey_id`] and the account's recovery counter becomes
+    /// [`Authenticator::recovery_counter`].
+    ///
+    /// This is [`Authenticator::init_with_leaf_index`] split in two: fetch `authenticators` with
+    /// [`Authenticator::fetch_account_authenticators`], inspect them, e.g. to check the key's slot
+    /// and address, and then build the Authenticator from the same state.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::PublicKeyNotFound`] if the public key is not in `authenticators`.
+    /// - Other errors if the seed is invalid or the HTTP client cannot be built.
+    pub fn from_account_authenticators(
+        seed: &[u8],
+        leaf_index: u64,
+        authenticators: &AccountAuthenticators,
+        config: Config,
+        zk_artifact_source: Arc<dyn ZkArtifactSource>,
+    ) -> Result<Self, AuthenticatorError> {
+        let signer = Signer::from_seed_bytes(seed)?;
+        let packed_account_data = authenticators
+            .packed_account_data(leaf_index, &signer.offchain_signer_pubkey())
+            .ok_or(AuthenticatorError::PublicKeyNotFound)?;
+        let http_client = default_http_client()?;
+        Ok(Self {
+            registry: Self::registry_for(&config, http_client.clone()),
+            indexer_client: ServiceClient::new(
+                http_client.clone(),
+                ServiceKind::Indexer,
+                config.indexer(),
+            )?,
+            gateway_client: ServiceClient::new(
+                http_client,
+                ServiceKind::Gateway,
+                config.gateway(),
+            )?,
+            config,
+            packed_account_data,
+            signer,
+            ws_connector: ws_connector(),
             zk_artifact_source,
         })
     }
@@ -202,7 +261,7 @@ impl Authenticator {
         recovery_address: Option<Address>,
     ) -> Result<InitializingAuthenticator, AuthenticatorError> {
         let gateway_client = ServiceClient::new(
-            reqwest::Client::new(),
+            default_http_client()?,
             ServiceKind::Gateway,
             config.gateway(),
         )?;
@@ -231,7 +290,7 @@ impl Authenticator {
             Ok(authenticator) => Ok(authenticator),
             Err(AuthenticatorError::AccountDoesNotExist) => {
                 let gateway_client = ServiceClient::new(
-                    reqwest::Client::new(),
+                    default_http_client()?,
                     ServiceKind::Gateway,
                     config.gateway(),
                 )?;
@@ -301,19 +360,30 @@ impl Authenticator {
         }
     }
 
-    /// Fetches the packed account data for this authenticator from the indexer or registry
-    /// without mutating local state.
+    /// Fetches the packed account data of this authenticator without mutating local state.
+    ///
+    /// The authenticator is looked up by its public key in the indexed account at
+    /// [`leaf_index`](Self::leaf_index), as [`Authenticator::init_with_leaf_index`] does, so Admin
+    /// and Proving Authenticators are refreshed the same way. The slot and the recovery counter
+    /// can differ from [`packed_account_data`](Self::packed_account_data), e.g. after the key was
+    /// removed and inserted again at another slot.
+    ///
+    /// When an RPC URL is configured, the indexed account must not predate the registry's latest
+    /// recovery, which revoked every authenticator registered before it.
     ///
     /// # Errors
-    /// Will error if the network call fails or if the account does not exist.
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if the public key is not registered on the
+    ///   indexed account, or the indexed account predates the account's latest recovery.
+    /// - Other errors if a network call fails or the indexer returns an invalid account state.
+    ///
+    /// The result follows the indexer: right after the key is inserted, the first error can be
+    /// transient, and right after it is removed, the key can still be found, until the indexer
+    /// catches up.
     pub async fn fetch_packed_account_data(&self) -> Result<U256, AuthenticatorError> {
-        Self::fetch_packed_account_data_for(
-            self.onchain_address(),
-            self.registry().as_deref(),
-            &self.config,
-            &self.indexer_client,
-        )
-        .await
+        self.fetch_authenticators()
+            .await?
+            .packed_account_data(self.leaf_index(), &self.offchain_pubkey())
+            .ok_or(AuthenticatorError::AccountDoesNotExist)
     }
 
     /// Re-fetches the packed account data for this authenticator and updates local state.
@@ -326,10 +396,8 @@ impl Authenticator {
         Ok(packed_account_data)
     }
 
-    /// Returns the packed account data for the holder's World ID.
-    ///
-    /// The packed account data is a 256 bit integer which includes the World ID's leaf index, their recovery counter,
-    /// and their pubkey id/commitment.
+    /// Returns the packed account data registered for `onchain_signer_address`: the leaf index of
+    /// its account, the account's recovery counter, and the address's `pubkey_id`.
     ///
     /// # Errors
     /// Will error if the network call fails or if the account does not exist.
@@ -342,10 +410,24 @@ impl Authenticator {
         // If the registry is available through direct RPC calls, use it. Otherwise fallback to the indexer.
         let raw_index = if let Some(registry) = registry {
             // TODO: Better error handling to expose the specific failure
-            registry
+            let packed_account_data = registry
                 .getPackedAccountData(onchain_signer_address)
                 .call()
-                .await?
+                .await?;
+
+            // The registry keeps stale packed data for authenticators revoked by a recovery,
+            // so compare the embedded recovery counter against the account's current one.
+            if packed_account_data != U256::ZERO {
+                let current_recovery_counter = registry
+                    .getRecoveryCounter(leaf_index_of(packed_account_data))
+                    .call()
+                    .await?;
+                if current_recovery_counter > recovery_counter_of(packed_account_data) {
+                    return Err(AuthenticatorError::AccountDoesNotExist);
+                }
+            }
+
+            packed_account_data
         } else {
             let req = IndexerPackedAccountRequest {
                 authenticator_address: onchain_signer_address,
@@ -436,7 +518,7 @@ impl Authenticator {
     /// - The `leaf_index` is stored as a `uint64` inside packed account data.
     #[must_use]
     pub fn leaf_index(&self) -> u64 {
-        (self.packed_account_data & MASK_LEAF_INDEX).to::<u64>()
+        leaf_index_of(self.packed_account_data)
     }
 
     /// Returns the recovery counter for the holder's World ID.
@@ -444,13 +526,11 @@ impl Authenticator {
     /// The recovery counter is used to efficiently invalidate all the old keys when an account is recovered.
     #[must_use]
     pub fn recovery_counter(&self) -> U256 {
-        let recovery_counter = self.packed_account_data & MASK_RECOVERY_COUNTER;
-        recovery_counter >> 224
+        recovery_counter_of(self.packed_account_data)
     }
 
-    /// Returns the pubkey id (or commitment) for the holder's World ID.
-    ///
-    /// This is a commitment to all the off-chain public keys that are authorized to act on behalf of the holder.
+    /// Returns this authenticator's `pubkey_id`: the slot of its off-chain public key in the
+    /// account's key set.
     #[must_use]
     pub fn pubkey_id(&self) -> U256 {
         let pubkey_id = self.packed_account_data & MASK_PUBKEY_ID;
@@ -495,6 +575,73 @@ impl Authenticator {
             .post_json(self.config.indexer_url(), "/authenticator-pubkeys", &req)
             .await?;
         Self::decode_indexer_pubkeys(response.authenticator_pubkeys)
+    }
+
+    /// Fetches the registered authenticators of the account at `leaf_index` to initialize an
+    /// authenticator from with [`Authenticator::from_account_authenticators`], with clients built
+    /// from `config`.
+    ///
+    /// When an RPC URL is configured, the indexed account must not predate the registry's latest
+    /// recovery, which revoked every authenticator registered before it.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if the indexer does not know the account, or
+    ///   its indexed state predates the account's latest recovery.
+    /// - Other errors if a network call fails or the indexer returns an invalid account state.
+    pub async fn fetch_account_authenticators(
+        leaf_index: u64,
+        config: &Config,
+    ) -> Result<AccountAuthenticators, AuthenticatorError> {
+        let http_client = default_http_client()?;
+        let indexer_client =
+            ServiceClient::new(http_client.clone(), ServiceKind::Indexer, config.indexer())?;
+        let registry = Self::registry_for(config, http_client);
+        let authenticators =
+            Self::fetch_authenticators_for(leaf_index, config, &indexer_client).await?;
+        Self::ensure_no_later_recovery(registry.as_deref(), leaf_index, &authenticators).await?;
+        Ok(authenticators)
+    }
+
+    /// Fetches the registered authenticators of this authenticator's account, as
+    /// [`Authenticator::fetch_account_authenticators`] does, with this authenticator's clients.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if the indexer does not know the account, or
+    ///   its indexed state predates the account's latest recovery.
+    /// - Other errors if a network call fails or the indexer returns an invalid account state.
+    pub async fn fetch_authenticators(&self) -> Result<AccountAuthenticators, AuthenticatorError> {
+        let leaf_index = self.leaf_index();
+        let authenticators =
+            Self::fetch_authenticators_for(leaf_index, &self.config, &self.indexer_client).await?;
+        Self::ensure_no_later_recovery(self.registry().as_deref(), leaf_index, &authenticators)
+            .await?;
+        Ok(authenticators)
+    }
+
+    /// Fetches the registered authenticators of the account at `leaf_index` from the indexer's
+    /// `/authenticators` endpoint.
+    pub(crate) async fn fetch_authenticators_for(
+        leaf_index: u64,
+        config: &Config,
+        indexer_client: &ServiceClient,
+    ) -> Result<AccountAuthenticators, AuthenticatorError> {
+        let req = IndexerQueryRequest { leaf_index };
+        let response: IndexerAuthenticatorsResponse = match indexer_client
+            .post_json(config.indexer_url(), "/authenticators", &req)
+            .await
+        {
+            // Only the indexer's own `not_found` means the account is unknown. Any other 404,
+            // e.g. from an indexer without this endpoint or from a proxy, stays an indexer error.
+            Err(AuthenticatorError::IndexerError { status, body })
+                if status == reqwest::StatusCode::NOT_FOUND
+                    && serde_json::from_str::<ServiceApiError<IndexerErrorCode>>(&body)
+                        .is_ok_and(|error| matches!(error.code, IndexerErrorCode::NotFound)) =>
+            {
+                return Err(AuthenticatorError::AccountDoesNotExist);
+            }
+            result => result?,
+        };
+        response.try_into()
     }
 
     /// Returns the signing nonce for the holder's World ID.
@@ -555,6 +702,89 @@ impl Authenticator {
             }
         })
     }
+
+    /// Refuses `authenticators` of the account at `leaf_index` that predate the registry's latest
+    /// recovery: a recovery revokes every authenticator, so a key listed in an older indexed state
+    /// may be revoked. Without a `registry` there is nothing to check against.
+    ///
+    /// An indexed state newer than the registry's, read through an RPC that lags the indexer, is
+    /// accepted.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::AccountDoesNotExist`] if the registry counts more recoveries than
+    ///   `authenticators`.
+    /// - [`AuthenticatorError::ContractError`] if the registry call fails.
+    async fn ensure_no_later_recovery(
+        registry: Option<&WorldIdRegistryInstance<DynProvider>>,
+        leaf_index: u64,
+        authenticators: &AccountAuthenticators,
+    ) -> Result<(), AuthenticatorError> {
+        let Some(registry) = registry else {
+            return Ok(());
+        };
+        let recovery_counter = registry.getRecoveryCounter(leaf_index).call().await?;
+        if recovery_counter > U256::from(authenticators.recovery_counter()) {
+            return Err(AuthenticatorError::AccountDoesNotExist);
+        }
+        Ok(())
+    }
+
+    /// Returns the `WorldIDRegistry` reached through `http_client`, or `None` when no RPC URL is
+    /// configured.
+    fn registry_for(
+        config: &Config,
+        http_client: reqwest::Client,
+    ) -> Option<Arc<WorldIdRegistryInstance<DynProvider>>> {
+        config.rpc_url().map(|rpc_url| {
+            let provider = alloy::providers::ProviderBuilder::new()
+                .with_chain_id(config.chain_id())
+                .connect_reqwest(http_client, rpc_url.clone());
+            Arc::new(world_id_registries::world_id::WorldIdRegistry::new(
+                *config.registry_address(),
+                alloy::providers::Provider::erased(provider),
+            ))
+        })
+    }
+}
+
+static MASK_RECOVERY_COUNTER: U256 =
+    uint!(0xFFFFFFFF00000000000000000000000000000000000000000000000000000000_U256);
+static MASK_PUBKEY_ID: U256 =
+    uint!(0x00000000FFFFFFFF000000000000000000000000000000000000000000000000_U256);
+static MASK_LEAF_INDEX: U256 =
+    uint!(0x000000000000000000000000000000000000000000000000FFFFFFFFFFFFFFFF_U256);
+
+/// Packs account data as the `WorldIDRegistry`'s `PackedAccountData.pack` does: the recovery
+/// counter in bits 224 to 255, the `pubkey_id` in bits 192 to 223 and the leaf index in bits 0 to
+/// 63.
+pub(crate) fn pack_account_data(recovery_counter: u32, pubkey_id: u32, leaf_index: u64) -> U256 {
+    (U256::from(recovery_counter) << 224) | (U256::from(pubkey_id) << 192) | U256::from(leaf_index)
+}
+
+/// Returns the leaf index in packed account data.
+pub(crate) fn leaf_index_of(packed_account_data: U256) -> u64 {
+    (packed_account_data & MASK_LEAF_INDEX).to::<u64>()
+}
+
+/// Returns the recovery counter in packed account data.
+fn recovery_counter_of(packed_account_data: U256) -> U256 {
+    (packed_account_data & MASK_RECOVERY_COUNTER) >> 224
+}
+
+/// Returns the connector for WebSocket connections to OPRF nodes: TLS with the web PKI roots on
+/// native targets, and the browser's own TLS in a browser.
+fn ws_connector() -> Connector {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut root_store = rustls::RootCertStore::empty();
+        root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let rustls_config = rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        Connector::Rustls(Arc::new(rustls_config))
+    }
+    #[cfg(target_arch = "wasm32")]
+    Connector
 }
 
 #[cfg(test)]
@@ -562,7 +792,9 @@ mod tests {
     use super::*;
     use crate::{error::AuthenticatorError, traits::OnchainKeyRepresentable};
     use alloy::primitives::{U256, address};
+    use test_case::test_case;
     use world_id_primitives::MAX_AUTHENTICATOR_KEYS;
+    use world_id_registries::world_id::WorldIdRegistry;
 
     fn test_pubkey(seed_byte: u8) -> EdDSAPublicKey {
         Signer::from_seed_bytes(&[seed_byte; 32])
@@ -630,6 +862,513 @@ mod tests {
                 max_supported_slot
             } if slot_index == MAX_AUTHENTICATOR_KEYS && max_supported_slot == MAX_AUTHENTICATOR_KEYS - 1
         ));
+    }
+
+    #[test]
+    fn packs_account_data_as_the_registry_does() {
+        let packed = pack_account_data(3, 1, 42);
+
+        assert_eq!(
+            packed,
+            uint!(0x000000030000000100000000000000000000000000000000000000000000002A_U256)
+        );
+        assert_eq!(leaf_index_of(packed), 42);
+        assert_eq!(recovery_counter_of(packed), U256::from(3));
+    }
+
+    #[tokio::test]
+    async fn registry_requests_end_at_the_http_clients_timeout() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let rpc_url = format!("http://{}", listener.local_addr().unwrap());
+        let _unresponsive_rpc = tokio::spawn(async move {
+            let mut connections = Vec::new();
+            loop {
+                connections.push(listener.accept().await.unwrap());
+            }
+        });
+        let config = Config::new(
+            Some(rpc_url),
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            ServiceEndpoint::direct("http://indexer.example.com".to_string()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
+            Vec::new(),
+            2,
+        )
+        .unwrap();
+        let http_client = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(100))
+            .build()
+            .unwrap();
+        let registry = Authenticator::registry_for(&config, http_client).unwrap();
+
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            registry.getRecoveryCounter(1).call(),
+        )
+        .await
+        .expect("the HTTP client's timeout ends the RPC request");
+
+        assert!(result.is_err());
+    }
+
+    const LEAF_INDEX: u64 = 42;
+    const SEED: [u8; 32] = [7; 32];
+    const ADMIN: Address = address!("0x0000000000000000000000000000000000000011");
+
+    fn config_with_indexer(indexer_url: String) -> Config {
+        Config::new(
+            None,
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            ServiceEndpoint::direct(indexer_url),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
+            Vec::new(),
+            2,
+        )
+        .unwrap()
+    }
+
+    /// A config whose RPC and indexer are both `server`.
+    fn config_with_rpc(server: &mockito::ServerGuard) -> Config {
+        Config::new(
+            Some(server.url()),
+            1,
+            address!("0x0000000000000000000000000000000000000001"),
+            ServiceEndpoint::direct(server.url()),
+            ServiceEndpoint::direct("http://gateway.example.com".to_string()),
+            Vec::new(),
+            2,
+        )
+        .unwrap()
+    }
+
+    /// Answers the RPC's `eth_call`s of the registry function `C` with `result`.
+    async fn mock_registry_call<C: alloy::sol_types::SolCall>(
+        server: &mut mockito::ServerGuard,
+        result: U256,
+    ) -> mockito::Mock {
+        server
+            .mock("POST", "/")
+            .match_body(mockito::Matcher::Regex(hex::encode(C::SELECTOR)))
+            .with_header("content-type", "application/json")
+            .with_body_from_request(move |request| {
+                let request: serde_json::Value =
+                    serde_json::from_slice(request.body().unwrap()).unwrap();
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": request["id"],
+                    "result": format!("0x{}", hex::encode(result.to_be_bytes::<32>())),
+                })
+                .to_string()
+                .into_bytes()
+            })
+            .create_async()
+            .await
+    }
+
+    fn own_pubkey() -> EdDSAPublicKey {
+        Signer::from_seed_bytes(&SEED)
+            .unwrap()
+            .offchain_signer_pubkey()
+    }
+
+    fn own_address() -> Address {
+        Signer::from_seed_bytes(&SEED)
+            .unwrap()
+            .onchain_signer_address()
+    }
+
+    /// An `/authenticators` response with each slot's public key and address, and the commitment
+    /// to the keys.
+    fn authenticators_response(
+        slots: &[Option<(EdDSAPublicKey, Address)>],
+        recovery_counter: u64,
+    ) -> IndexerAuthenticatorsResponse {
+        let authenticator_pubkeys: Vec<_> = slots
+            .iter()
+            .map(|slot| {
+                slot.as_ref()
+                    .map(|(pubkey, _)| pubkey.to_ethereum_representation().unwrap())
+            })
+            .collect();
+        let key_set = Authenticator::decode_indexer_pubkeys(authenticator_pubkeys.clone()).unwrap();
+        IndexerAuthenticatorsResponse {
+            authenticator_pubkeys,
+            authenticator_addresses: slots
+                .iter()
+                .map(|slot| slot.as_ref().map(|(_, address)| *address))
+                .collect(),
+            offchain_signer_commitment: key_set.leaf_hash().into(),
+            recovery_counter,
+        }
+    }
+
+    fn authenticators_body(
+        slots: &[Option<(EdDSAPublicKey, Address)>],
+        recovery_counter: u64,
+    ) -> serde_json::Value {
+        serde_json::to_value(authenticators_response(slots, recovery_counter)).unwrap()
+    }
+
+    async fn mock_authenticators(
+        server: &mut mockito::ServerGuard,
+        status: usize,
+        body: &serde_json::Value,
+    ) -> mockito::Mock {
+        server
+            .mock("POST", "/authenticators")
+            .match_body(mockito::Matcher::JsonString(
+                serde_json::json!({ "leaf_index": "0x2a" }).to_string(),
+            ))
+            .with_status(status)
+            .with_header("content-type", "application/json")
+            .with_body(body.to_string())
+            .create_async()
+            .await
+    }
+
+    async fn init_with_leaf_index(
+        server: &mockito::ServerGuard,
+    ) -> Result<Authenticator, AuthenticatorError> {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        Authenticator::init_with_leaf_index(
+            &SEED,
+            LEAF_INDEX,
+            config_with_indexer(server.url()),
+            dummy_zk_artifact_source(),
+        )
+        .await
+    }
+
+    #[tokio::test]
+    async fn init_with_leaf_index_takes_the_slot_of_the_key() {
+        let mut server = mockito::Server::new_async().await;
+        let body = authenticators_body(
+            &[
+                Some((test_pubkey(1), ADMIN)),
+                None,
+                Some((own_pubkey(), Address::ZERO)),
+            ],
+            3,
+        );
+        let mock = mock_authenticators(&mut server, 200, &body).await;
+
+        let authenticator = init_with_leaf_index(&server).await.unwrap();
+
+        assert_eq!(authenticator.leaf_index(), LEAF_INDEX);
+        assert_eq!(authenticator.pubkey_id(), U256::from(2));
+        assert_eq!(authenticator.recovery_counter(), U256::from(3));
+        mock.assert_async().await;
+    }
+
+    #[test]
+    fn an_authenticator_needs_its_key_in_the_account_authenticators() {
+        let authenticators = AccountAuthenticators::try_from(authenticators_response(
+            &[Some((test_pubkey(1), ADMIN))],
+            0,
+        ))
+        .unwrap();
+
+        let result = Authenticator::from_account_authenticators(
+            &SEED,
+            LEAF_INDEX,
+            &authenticators,
+            config_with_indexer("http://indexer.example.com".to_string()),
+            dummy_zk_artifact_source(),
+        );
+
+        assert!(matches!(result, Err(AuthenticatorError::PublicKeyNotFound)));
+    }
+
+    #[test_case(2, true; "an RPC behind the indexer")]
+    #[test_case(3, true; "no later recovery")]
+    #[test_case(4, false; "a later recovery")]
+    #[tokio::test]
+    async fn init_with_leaf_index_refuses_an_account_indexed_before_the_latest_recovery(
+        registry_recovery_counter: u64,
+        is_initialized: bool,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let body = authenticators_body(&[Some((own_pubkey(), Address::ZERO))], 3);
+        let _authenticators = mock_authenticators(&mut server, 200, &body).await;
+        let _recovery_counter = mock_registry_call::<WorldIdRegistry::getRecoveryCounterCall>(
+            &mut server,
+            U256::from(registry_recovery_counter),
+        )
+        .await;
+        let _ = rustls::crypto::ring::default_provider().install_default();
+
+        let result = Authenticator::init_with_leaf_index(
+            &SEED,
+            LEAF_INDEX,
+            config_with_rpc(&server),
+            dummy_zk_artifact_source(),
+        )
+        .await;
+
+        if is_initialized {
+            assert_eq!(result.unwrap().recovery_counter(), U256::from(3));
+        } else {
+            assert!(matches!(
+                result,
+                Err(AuthenticatorError::AccountDoesNotExist)
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn refresh_does_not_revive_an_authenticator_revoked_by_a_later_recovery() {
+        let mut server = mockito::Server::new_async().await;
+        let response = authenticators_response(&[Some((own_pubkey(), Address::ZERO))], 3);
+        let _authenticators =
+            mock_authenticators(&mut server, 200, &serde_json::to_value(&response).unwrap()).await;
+        let _recovery_counter = mock_registry_call::<WorldIdRegistry::getRecoveryCounterCall>(
+            &mut server,
+            U256::from(4),
+        )
+        .await;
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let mut authenticator = Authenticator::from_account_authenticators(
+            &SEED,
+            LEAF_INDEX,
+            &response.try_into().unwrap(),
+            config_with_rpc(&server),
+            dummy_zk_artifact_source(),
+        )
+        .unwrap();
+
+        let result = authenticator.refresh_packed_account_data().await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::AccountDoesNotExist)
+        ));
+    }
+
+    #[test_case(r#"{ "code": "not_found", "message": "not found" }"#, true; "the indexer's not_found")]
+    #[test_case("404 page not found", false; "a 404 from elsewhere")]
+    #[tokio::test]
+    async fn only_the_indexers_not_found_means_an_unknown_account(
+        body: &str,
+        is_unknown_account: bool,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let _mock = server
+            .mock("POST", "/authenticators")
+            .with_status(404)
+            .with_body(body)
+            .create_async()
+            .await;
+
+        let result = init_with_leaf_index(&server).await;
+
+        if is_unknown_account {
+            assert!(matches!(
+                result,
+                Err(AuthenticatorError::AccountDoesNotExist)
+            ));
+        } else {
+            assert!(matches!(
+                result,
+                Err(AuthenticatorError::IndexerError { status, .. }) if status == reqwest::StatusCode::NOT_FOUND
+            ));
+        }
+    }
+
+    #[test_case(Address::ZERO; "a Proving Authenticator")]
+    #[test_case(own_address(); "an Admin Authenticator")]
+    #[tokio::test]
+    async fn refresh_takes_the_current_slot_of_the_key(address: Address) {
+        let mut server = mockito::Server::new_async().await;
+        let mut authenticator = authenticator_on(
+            &[Some((own_pubkey(), address))],
+            config_with_indexer(server.url()),
+        );
+        // The key was removed and inserted again at another slot.
+        let body = authenticators_body(
+            &[
+                Some((test_pubkey(1), ADMIN)),
+                None,
+                Some((own_pubkey(), address)),
+            ],
+            3,
+        );
+        let _authenticators = mock_authenticators(&mut server, 200, &body).await;
+        let no_address_lookup = server
+            .mock("POST", "/packed-account")
+            .expect(0)
+            .create_async()
+            .await;
+
+        let packed = authenticator.refresh_packed_account_data().await.unwrap();
+
+        let expected = pack_account_data(3, 2, LEAF_INDEX);
+        assert_eq!(packed, expected);
+        assert_eq!(authenticator.packed_account_data, expected);
+        no_address_lookup.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn refresh_reports_a_removed_key() {
+        let mut server = mockito::Server::new_async().await;
+        let mut authenticator = authenticator_on(
+            &[Some((own_pubkey(), own_address()))],
+            config_with_indexer(server.url()),
+        );
+        let body = authenticators_body(&[Some((test_pubkey(1), ADMIN))], 3);
+        let _authenticators = mock_authenticators(&mut server, 200, &body).await;
+
+        let result = authenticator.refresh_packed_account_data().await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::AccountDoesNotExist)
+        ));
+    }
+
+    /// The Proving Authenticator for [`SEED`] on the account at [`LEAF_INDEX`], built without a
+    /// network call.
+    fn proving_authenticator(config: Config) -> Authenticator {
+        authenticator_on(&[Some((own_pubkey(), Address::ZERO))], config)
+    }
+
+    /// The authenticator for [`SEED`] on the account at [`LEAF_INDEX`] with `slots` and recovery
+    /// counter 3, built without a network call.
+    fn authenticator_on(
+        slots: &[Option<(EdDSAPublicKey, Address)>],
+        config: Config,
+    ) -> Authenticator {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+        let response = authenticators_response(slots, 3);
+        Authenticator::from_account_authenticators(
+            &SEED,
+            LEAF_INDEX,
+            &response.try_into().unwrap(),
+            config,
+            dummy_zk_artifact_source(),
+        )
+        .unwrap()
+    }
+
+    #[test_case(pack_account_data(3, 1, 7), 3, Some(7); "an address on an account")]
+    #[test_case(pack_account_data(3, 1, 7), 4, None; "an address revoked by a later recovery")]
+    #[test_case(U256::ZERO, 0, None; "an unknown address")]
+    #[tokio::test]
+    async fn fetches_the_packed_account_data_of_an_address_from_the_registry(
+        packed_account_data: U256,
+        recovery_counter: u64,
+        expected_leaf_index: Option<u64>,
+    ) {
+        let mut server = mockito::Server::new_async().await;
+        let _packed_account_data = mock_registry_call::<WorldIdRegistry::getPackedAccountDataCall>(
+            &mut server,
+            packed_account_data,
+        )
+        .await;
+        let _recovery_counter = mock_registry_call::<WorldIdRegistry::getRecoveryCounterCall>(
+            &mut server,
+            U256::from(recovery_counter),
+        )
+        .await;
+        let authenticator = proving_authenticator(config_with_rpc(&server));
+
+        let result = Authenticator::fetch_packed_account_data_for(
+            ADMIN,
+            authenticator.registry().as_deref(),
+            &authenticator.config,
+            &authenticator.indexer_client,
+        )
+        .await;
+
+        match expected_leaf_index {
+            Some(leaf_index) => assert_eq!(leaf_index_of(result.unwrap()), leaf_index),
+            None => assert!(matches!(
+                result,
+                Err(AuthenticatorError::AccountDoesNotExist)
+            )),
+        }
+    }
+
+    #[tokio::test]
+    async fn insertion_refuses_a_slot_at_the_registry_limit() {
+        let mut server = mockito::Server::new_async().await;
+        let _limit = mock_registry_call::<WorldIdRegistry::getMaxAuthenticatorsCall>(
+            &mut server,
+            U256::from(1),
+        )
+        .await;
+        let authenticator = proving_authenticator(config_with_rpc(&server));
+        let authenticators: AccountAuthenticators =
+            authenticators_response(&[Some((own_pubkey(), Address::ZERO))], 3)
+                .try_into()
+                .unwrap();
+
+        let result = authenticator
+            .insert_authenticator_at(authenticators.key_set(), 1, test_pubkey(1), ADMIN)
+            .await;
+
+        assert!(matches!(
+            result,
+            Err(AuthenticatorError::MaxAuthenticatorsReached)
+        ));
+    }
+
+    fn assert_send_static<F: Future + Send + 'static>(_future: &F) {}
+
+    /// UniFFI exports async functions only if their futures are `Send`, so these futures must be
+    /// `Send + 'static` when built from owned values.
+    #[test]
+    fn account_futures_are_send_and_static() {
+        let config = config_with_indexer("http://indexer.example.com".to_string());
+        let authenticator = Arc::new(proving_authenticator(config.clone()));
+        let authenticators: AccountAuthenticators =
+            authenticators_response(&[Some((own_pubkey(), Address::ZERO))], 3)
+                .try_into()
+                .unwrap();
+
+        assert_send_static(&{
+            let config = config.clone();
+            async move {
+                Authenticator::init_with_leaf_index(
+                    &SEED,
+                    LEAF_INDEX,
+                    config,
+                    dummy_zk_artifact_source(),
+                )
+                .await
+            }
+        });
+        assert_send_static(&{
+            let config = config.clone();
+            async move { Authenticator::fetch_account_authenticators(LEAF_INDEX, &config).await }
+        });
+        assert_send_static(&{
+            let authenticator = Arc::clone(&authenticator);
+            async move { authenticator.fetch_packed_account_data().await }
+        });
+        assert_send_static(&{
+            let authenticator = Arc::clone(&authenticator);
+            async move { authenticator.fetch_authenticators().await }
+        });
+        assert_send_static(&{
+            let authenticator = Arc::clone(&authenticator);
+            async move {
+                authenticator
+                    .insert_authenticator(test_pubkey(1), ADMIN)
+                    .await
+            }
+        });
+        assert_send_static(&{
+            let authenticator = Arc::clone(&authenticator);
+            async move {
+                authenticator
+                    .insert_authenticator_at(authenticators.key_set(), 1, test_pubkey(1), ADMIN)
+                    .await
+            }
+        });
+        let mut authenticator = proving_authenticator(config);
+        assert_send_static(&async move { authenticator.refresh_packed_account_data().await });
     }
 
     #[tokio::test]

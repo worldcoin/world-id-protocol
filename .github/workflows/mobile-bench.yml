@@ -13,7 +13,7 @@ on:
           - ios
           - both
       device_profile:
-        description: "Device profile: low-spec, mid-spec, high-spec, custom"
+        description: "Device profile: low-spec, mid-spec, high-spec, all (full tier spread; use for open_results_pr snapshots), custom"
         required: false
         type: choice
         default: low-spec
@@ -21,6 +21,7 @@ on:
           - low-spec
           - mid-spec
           - high-spec
+          - all
           - custom
       ios_device:
         description: "Custom iOS device name"
@@ -53,17 +54,32 @@ on:
         type: string
         default: "5"
       fetch_timeout_secs:
-        description: "Seconds to wait for each BrowserStack run to complete"
+        description: "Seconds to wait for each BrowserStack run to complete; sized for a multi-device (all) run"
         required: false
         type: string
-        default: "1800"
+        default: "5400"
       pr_number:
-        description: "PR number for reporting"
+        description: "PR number for sticky reporting (used by /mobench and bench-label runs). Leave empty for manual runs."
         required: false
         type: string
         default: ""
+      open_results_pr:
+        description: "If true, open a PR that refreshes crates/zk-mobile-bench/results/ (main tip only; leave pr_number empty)"
+        required: false
+        type: boolean
+        default: false
       head_sha:
         description: "Exact commit SHA to benchmark"
+        required: false
+        type: string
+        default: ""
+      crate_path:
+        description: "Path to the benchmark crate"
+        required: false
+        type: string
+        default: "./crates/zk-mobile-bench"
+      functions:
+        description: "JSON array of benchmark functions to run (empty = workflow default)"
         required: false
         type: string
         default: ""
@@ -92,6 +108,29 @@ jobs:
       BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
       BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
     steps:
+      # Validated here rather than at publish time so a bad flag combination costs seconds, not a full BrowserStack run.
+      - name: Validate results-PR inputs
+        if: inputs.open_results_pr
+        shell: bash
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+
+          if [ -n "${PR_NUMBER}" ]; then
+            echo "::error::open_results_pr=true requires an empty pr_number (got pr_number=${PR_NUMBER})."
+            exit 1
+          fi
+
+          # The results branch is cut from the dispatched ref, so a feature branch would
+          # drag its unrelated commits into the PR against the default branch.
+          expected_ref="refs/heads/${DEFAULT_BRANCH:-main}"
+          if [ "${GITHUB_REF}" != "${expected_ref}" ]; then
+            echo "::error::open_results_pr=true requires running on ${expected_ref} (got ${GITHUB_REF})."
+            exit 1
+          fi
+
       - name: Check BrowserStack secrets
         id: check
         shell: bash
@@ -108,23 +147,23 @@ jobs:
     if: ${{ needs.browserstack-preflight.outputs.available == 'true' }}
     uses: ./.github/workflows/mobile-bench-reusable.yml
     with:
-      crate_path: ./crates/zk-mobile-bench
-      functions: '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only"]'
+      crate_path: ${{ inputs.crate_path }}
+      functions: ${{ inputs.functions != '' && inputs.functions || '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_ownership_proof_generation"]' }}
       mobench_version: "0.2.0"
       mobench_ref: ""
       platform: ${{ inputs.platform }}
       device_profile: ${{ inputs.device_profile }}
       ios_device: ${{ inputs.ios_device }}
       ios_os_version: ${{ inputs.ios_os_version }}
-      # mobench's low-spec profile still resolves to Moto G9 Play-10.0, which
-      # the current BrowserStack inventory no longer exposes. Keep manual
-      # overrides intact and use the available low-spec replacement by default.
-      android_device: ${{ inputs.android_device != '' && inputs.android_device || 'Motorola Moto G71 5G' }}
-      android_os_version: ${{ inputs.android_os_version != '' && inputs.android_os_version || '11.0' }}
+      # BrowserStack-inventory workarounds (e.g. the dead Moto G9 Play low-spec
+      # device) live in crates/zk-mobile-bench/device-matrix.yaml, not here.
+      android_device: ${{ inputs.android_device }}
+      android_os_version: ${{ inputs.android_os_version }}
       iterations: ${{ inputs.iterations }}
       warmup: ${{ inputs.warmup }}
       fetch_timeout_secs: ${{ inputs.fetch_timeout_secs }}
       pr_number: ${{ inputs.pr_number }}
+      open_results_pr: ${{ inputs.open_results_pr }}
       head_sha: ${{ inputs.head_sha }}
       requested_by: ${{ inputs.requested_by }}
     secrets:

@@ -6,9 +6,17 @@ use tokio::task::JoinSet;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    bindings::NothingChanged, cli::WorldChain, log::CommitmentLog, metrics as relay_metrics,
-    primitives::StateCommitment, satellite::Satellite, stream,
+    bindings::NothingChanged,
+    cli::WorldChain,
+    log::{CommitmentLog, PendingSnapshot},
+    metrics as relay_metrics,
+    primitives::StateCommitment,
+    satellite::Satellite,
+    stream,
 };
+
+/// Matches WorldIDSourceV2.MAX_KEY_UPDATES and leaves room for a root commitment.
+const MAX_KEY_UPDATES_PER_PROPAGATION: usize = 63;
 
 fn event_kind(commitment: &StateCommitment) -> &'static str {
     match commitment {
@@ -105,19 +113,33 @@ impl Engine {
             return Ok(());
         }
 
-        let issuers = snapshot.issuer_ids();
-        let oprfs = snapshot.oprf_ids();
-        let issuers_attempted = issuers.len();
-        let oprfs_attempted = oprfs.len();
-
         info!(
             root_changed,
             source = %source_root,
             registry = %registry_root,
-            ?issuers,
-            ?oprfs,
             "propagating state"
         );
+
+        let mut batches = snapshot
+            .into_batches(MAX_KEY_UPDATES_PER_PROPAGATION)
+            .into_iter();
+        while let Some(batch) = batches.next() {
+            if !self.propagate_batch(batch).await {
+                for remaining in batches {
+                    self.log.restore_pending(remaining);
+                }
+                relay_metrics::record_pending_counts(&self.log);
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    async fn propagate_batch(&self, snapshot: PendingSnapshot) -> bool {
+        let issuers = snapshot.issuer_ids();
+        let oprfs = snapshot.oprf_ids();
+        let issuers_attempted = issuers.len();
+        let oprfs_attempted = oprfs.len();
 
         let result = self
             .world_chain
@@ -142,12 +164,14 @@ impl Engine {
                     self.log.restore_pending(snapshot);
                     relay_metrics::record_pending_counts(&self.log);
                     relay_metrics::inc_propagate_outcome(relay_metrics::outcome::REVERT_ON_CHAIN);
+                    return false;
                 }
                 Err(e) => {
                     warn!(error = %e, "failed to get propagateState receipt");
                     self.log.restore_pending(snapshot);
                     relay_metrics::record_pending_counts(&self.log);
                     relay_metrics::inc_propagate_outcome(relay_metrics::outcome::RPC_ERROR);
+                    return false;
                 }
             },
             Err(e) if e.as_decoded_error::<NothingChanged>().is_some() => {
@@ -164,9 +188,10 @@ impl Engine {
                 self.log.restore_pending(snapshot);
                 relay_metrics::record_pending_counts(&self.log);
                 relay_metrics::inc_propagate_outcome(relay_metrics::outcome::SIMULATION_REVERT);
+                return false;
             }
         }
-        Ok(())
+        true
     }
 
     /// Runs the relay engine loop. Never returns under normal operation.

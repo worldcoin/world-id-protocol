@@ -8,6 +8,8 @@ use alloy::{
     sol_types::{Eip712Domain, SolCall as _, SolEvent as _, SolStruct as _, eip712_domain},
     uint,
 };
+use std::process::{Child, Command, Stdio};
+
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use ark_ff::PrimeField as _;
 use eddsa_babyjubjub::EdDSAPublicKey;
@@ -266,9 +268,49 @@ pub async fn get_latest_chain_commitment(
 // ── TestAnvil ────────────────────────────────────────────────────────────
 
 pub struct TestAnvil {
+    // Declared first so it drops before `instance`; see `AnvilReaper`.
+    _reaper: AnvilReaper,
     pub instance: AnvilInstance,
     pub rpc_url: String,
     pub ws_url: String,
+}
+
+/// Kills anvil when the process that spawned it exits without running destructors.
+///
+/// `AnvilInstance` stops anvil in `Drop`, which never runs if the test process is killed (SIGKILL,
+/// a harness timeout, `panic = "abort"`) or if the instance lives in a static. The orphaned anvil
+/// then keeps mining a block per second and its memory grows without bound.
+///
+/// The reaper is a `sh` child blocked reading a pipe whose write end only this process holds.
+/// When this process exits for any reason, the kernel closes the write end, `read` returns, and
+/// the reaper kills anvil.
+struct AnvilReaper(Child);
+
+impl AnvilReaper {
+    fn spawn(anvil_pid: u32) -> Result<Self> {
+        let child = Command::new("sh")
+            .args([
+                "-c",
+                r#"read -r _; kill -9 "$1" 2>/dev/null"#,
+                "anvil-reaper",
+            ])
+            .arg(anvil_pid.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("failed to start anvil reaper")?;
+        Ok(Self(child))
+    }
+}
+
+impl Drop for AnvilReaper {
+    fn drop(&mut self) {
+        // Stop the reaper before `AnvilInstance` stops and reaps anvil, so the reaper can never
+        // signal a recycled PID. Errors only mean the reaper has already exited.
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 fn rp_registry_domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
@@ -295,6 +337,16 @@ fn credential_schema_issuer_registry_domain(
 impl TestAnvil {
     const MNEMONIC: &'static str = "test test test test test test test test test test test junk";
 
+    /// Anvil must listen on all interfaces, not just loopback, so that containers started by
+    /// `stubs` can reach it through the Docker bridge gateway.
+    const BIND_HOST: &'static str = "0.0.0.0";
+
+    /// The endpoint host-side clients use. `AnvilInstance::endpoint` reports the bind host, which
+    /// is not a usable destination for every caller.
+    fn local_url(scheme: &str, instance: &AnvilInstance) -> String {
+        format!("{scheme}://127.0.0.1:{}", instance.port())
+    }
+
     /// Spawns a fresh `anvil` instance configured for integration tests.
     pub fn spawn() -> Result<Self> {
         Self::spawn_from_builder(Anvil::new())
@@ -318,18 +370,12 @@ impl TestAnvil {
     /// tests that only need transactions included and don't depend on periodic block production.
     pub fn spawn_auto_mine() -> Result<Self> {
         let instance = Anvil::new()
+            .host(Self::BIND_HOST)
             .mnemonic(Self::MNEMONIC)
             .try_spawn()
             .context("failed to start anvil")?;
 
-        let rpc_url = instance.endpoint().to_string();
-        let ws_url = instance.ws_endpoint();
-
-        Ok(Self {
-            instance,
-            rpc_url,
-            ws_url,
-        })
+        Self::from_instance(instance)
     }
 
     /// Auto-mining variant of [`Self::spawn_with_multicall3`].
@@ -358,15 +404,22 @@ impl TestAnvil {
 
     fn spawn_from_builder(builder: Anvil) -> Result<Self> {
         let instance = builder
+            .host(Self::BIND_HOST)
             .mnemonic(Self::MNEMONIC)
             .block_time(1)
             .try_spawn()
             .context("failed to start anvil")?;
 
-        let rpc_url = instance.endpoint().to_string();
-        let ws_url = instance.ws_endpoint();
+        Self::from_instance(instance)
+    }
+
+    fn from_instance(instance: AnvilInstance) -> Result<Self> {
+        let reaper = AnvilReaper::spawn(instance.child().id())?;
+        let rpc_url = Self::local_url("http", &instance);
+        let ws_url = Self::local_url("ws", &instance);
 
         Ok(Self {
+            _reaper: reaper,
             instance,
             rpc_url,
             ws_url,
@@ -617,6 +670,33 @@ impl TestAnvil {
         Self::deploy_contract(provider, bytecode, Bytes::new()).await
     }
 
+    /// Links `PackedAccountData` into the V3 verifier implementation bytecode and deploys it.
+    async fn deploy_linked_verifier_impl<P: Provider>(
+        provider: P,
+        packed_account_data_addr: Address,
+    ) -> Result<Address> {
+        let impl_json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/UnreleasedWorldIDVerifierV3.sol/WorldIDVerifierV3.json"
+        ));
+        let json_value: serde_json::Value = serde_json::from_str(impl_json)?;
+        let bytecode_str = json_value["bytecode"]["object"]
+            .as_str()
+            .context("bytecode not found in JSON")?
+            .strip_prefix("0x")
+            .context("bytecode should be 0x-prefixed")?;
+
+        let bytecode_str = Self::link_bytecode_hex(
+            impl_json,
+            bytecode_str,
+            "src/core/libraries/PackedAccountData.sol:PackedAccountData",
+            packed_account_data_addr,
+        )?;
+
+        let bytecode = Bytes::from(hex::decode(bytecode_str)?);
+        Self::deploy_contract(provider, bytecode, Bytes::new()).await
+    }
+
     /// Deploys the `RpRegistry` contract using the supplied signer.
     #[allow(dead_code)]
     pub async fn deploy_rp_registry(
@@ -695,10 +775,14 @@ impl TestAnvil {
             .await
             .context("failed to deploy Verifier (Groth16) contract")?;
 
-        // WorldID verifier (upgradeable, delegates to Groth16 verifier)
-        let world_id_verifier = WorldIDVerifierV3::deploy(provider.clone())
+        let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
-            .context("failed to deploy WorldIDVerifierV3 contract")?;
+            .context("failed to deploy PackedAccountData library")?;
+
+        // WorldID verifier (upgradeable, delegates to Groth16 verifier)
+        let world_id_verifier =
+            Self::deploy_linked_verifier_impl(provider.clone(), *packed_account_data.address())
+                .await?;
 
         let init_data = Bytes::from(
             WorldIDVerifierV3::initializeCall {
@@ -711,7 +795,7 @@ impl TestAnvil {
             .abi_encode(),
         );
 
-        let proxy = ERC1967Proxy::deploy(provider, *world_id_verifier.address(), init_data)
+        let proxy = ERC1967Proxy::deploy(provider, world_id_verifier, init_data)
             .await
             .context("failed to deploy WorldIDVerifier proxy")?;
 
@@ -967,7 +1051,7 @@ impl TestAnvil {
             world_id_registry,
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .connect(&self.instance.endpoint())
+                .connect(&self.rpc_url)
                 .await
                 .unwrap(),
         );
@@ -999,7 +1083,7 @@ impl TestAnvil {
             world_id_registry,
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .connect(&self.instance.endpoint())
+                .connect(&self.rpc_url)
                 .await
                 .unwrap(),
         );

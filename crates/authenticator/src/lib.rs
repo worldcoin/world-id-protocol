@@ -5,9 +5,11 @@ mod error;
 pub use error::AuthenticatorError;
 
 mod account;
+pub use account::AccountAuthenticators;
 mod init;
 mod prove;
 mod recovery;
+pub mod registration;
 mod traits;
 pub use init::InitializingAuthenticator;
 pub use traits::OnchainKeyRepresentable;

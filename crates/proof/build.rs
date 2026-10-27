@@ -240,13 +240,13 @@ mod noir_artifacts {
     /// The exact nargo version required to produce artifacts byte-identical to
     /// every other builder's. Must match the pin in `flake.nix` (`nix/nargo.nix`)
     /// and what provekit expects (see https://github.com/worldfnd/provekit).
-    const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.11";
+    const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.26";
 
     pub(super) fn should_embed() -> bool {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
-        target_arch.as_deref() != Some("wasm32")
-            && (env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_PROVER").is_some()
-                || env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some())
+        env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_PROVER").is_some()
+            || (target_arch.as_deref() != Some("wasm32")
+                && env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some())
     }
 
     /// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].
