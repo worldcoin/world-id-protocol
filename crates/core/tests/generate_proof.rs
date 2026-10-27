@@ -167,7 +167,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let MerkleFixture {
         key_set,
         inclusion_proof: merkle_inclusion_proof,
-        root: _,
         ..
     } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index)
         .wrap_err("failed to construct merkle fixture")?;

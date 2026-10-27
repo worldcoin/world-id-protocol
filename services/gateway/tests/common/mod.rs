@@ -1,4 +1,3 @@
-#![recursion_limit = "256"]
 use alloy::primitives::{Address, U256};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use reqwest::{Client, StatusCode};
