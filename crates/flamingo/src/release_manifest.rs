@@ -5,6 +5,8 @@ use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
+use crate::{MAX_COMPARED, MAX_ENTRIES};
+
 /// The JWS `typ` of a release manifest.
 pub const MANIFEST_TYP: &str = "world-id-engine-manifest";
 
@@ -312,7 +314,24 @@ impl Pipeline {
             "inputs",
         )?;
         invalid(self.inputs.iter().all(|i| i.max >= i.min), "inputs")?;
-        invalid(!self.compare.is_empty(), "compare")?;
+        // A pipeline whose minimum entries exceed `MAX_ENTRIES` accepts no request.
+        let min_entries = self
+            .inputs
+            .iter()
+            .try_fold(0_u64, |sum, i| sum.checked_add(i.min));
+        invalid(
+            min_entries.is_some_and(|sum| sum <= MAX_ENTRIES as u64),
+            "inputs",
+        )?;
+        let distinct = self
+            .compare
+            .iter()
+            .enumerate()
+            .all(|(i, entry)| !self.compare[..i].contains(entry));
+        invalid(
+            (2..=MAX_COMPARED).contains(&self.compare.len()) && distinct,
+            "compare",
+        )?;
         for entry in &self.compare {
             let Some(input) = self.inputs.iter().find(|i| i.role == entry.role) else {
                 return Err(ManifestError::Invalid("compare"));
@@ -631,6 +650,21 @@ mod tests {
                 "inputs",
             ),
             (Box::new(|p| p.pipelines[0].compare.clear()), "compare"),
+            (Box::new(|p| p.pipelines[0].compare.truncate(1)), "compare"),
+            (
+                Box::new(|p| {
+                    let first = p.pipelines[0].compare[0].clone();
+                    p.pipelines[0].compare[1] = first;
+                }),
+                "compare",
+            ),
+            (
+                Box::new(|p| {
+                    p.pipelines[0].inputs[1].min = 7;
+                    p.pipelines[0].inputs[1].max = 7;
+                }),
+                "inputs",
+            ),
             (
                 Box::new(|p| p.pipelines[0].compare[0].role = "unknown".into()),
                 "compare",
