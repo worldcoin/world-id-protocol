@@ -11,3 +11,12 @@ All World ID Protocol Contracts are designed explicitly to operate from behind a
 - Ensure that all newly-added functionality is carefully access controlled using `onlyOwner`, or a more granular access mechanism as appropriate.
 - Do not assign any contract-level variables at the definition site unless they are `constant`.
 - Initialization and ownership management are not protected behind `onlyProxy` intentionally. This ensures that the contract can safely be disposed of after it is no longer used.
+
+### Reproducing original V1 artifacts
+
+The original V1 registry artifacts can be reproduced from commit `f387e0100f1f17414c13438059015c80cebe3977`, which is the latest main-branch commit before the current contract changes affected the exact V1 bytecode:
+
+```bash
+git checkout f387e0100f1f17414c13438059015c80cebe3977
+cd contracts && forge build --contracts src/core/WorldIDRegistry.sol
+```

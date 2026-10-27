@@ -31,16 +31,18 @@ use std::sync::Arc;
 use ark_bn254::Bn254;
 use circom_types::groth16::VerificationKey;
 use eyre::Context;
-use taceo_oprf::service::{
-    OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService,
+use taceo_oprf::{
+    service::{OprfServiceBuilder, StartedServices, secret_manager::SecretManagerService},
+    types::service::NodeInformation,
 };
-use tokio_util::sync::CancellationToken;
 use world_id_primitives::oprf::OprfModule;
 
 use crate::{
     auth::{
         credential_blinding_factor::CredentialBlindingFactorModuleAuth,
-        merkle_watcher::MerkleWatcher, nonce_history::NonceHistory, rp_module::RpModuleAuth,
+        merkle_watcher::MerkleWatcher,
+        nonce_history::NonceHistory,
+        rp_module::{RpModuleAuth, RpModuleAuthArgs},
         rp_registry_watcher::RpRegistryWatcher,
         schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
     },
@@ -57,8 +59,8 @@ pub mod metrics;
 /// Starts the OPRF node and initializes all required services.
 ///
 /// This is the main entry point for running an OPRF node. It sets up all
-/// watchers, authentication services, and the OPRF service itself, and
-/// returns the HTTP router together with the spawned background tasks.
+/// watchers, authentication services, and the OPRF service itself, and returns
+/// the HTTP router.
 ///
 /// The initialization flow consists of:
 /// - Initializing on-chain watchers:
@@ -71,18 +73,13 @@ pub mod metrics;
 /// - Initializing the OPRF service and registering its modules
 /// - Constructing the Axum router for handling incoming HTTP requests
 ///
-/// The returned [`WorldOprfNodeTasks`] contains all long-running background
-/// tasks (key event handling).
-///
 /// # Arguments
 /// - `config`: Full node configuration.
 /// - `secret_manager`: Service responsible for managing oprf secret shares
-/// - `cancellation_token`: Token used to gracefully shut down all services
+/// - `node_information`: Identity of this node within the OPRF network
 ///
 /// # Returns
-/// A tuple containing:
-/// - The configured [`axum::Router`] for serving HTTP requests
-/// - [`WorldOprfNodeTasks`] with all spawned background tasks
+/// The configured [`axum::Router`] for serving HTTP requests.
 ///
 /// # Errors
 /// Returns an error if any component fails to initialize.
@@ -90,10 +87,10 @@ pub mod metrics;
     clippy::missing_panics_doc,
     reason = "Can realistically not panic as we embed the key at compile time"
 )]
-pub async fn start(
+pub fn start(
     config: WorldOprfNodeConfig,
     secret_manager: SecretManagerService,
-    cancellation_token: CancellationToken,
+    node_information: &NodeInformation,
 ) -> eyre::Result<axum::Router> {
     let node_config = config.node_config;
     let started_services = StartedServices::default();
@@ -126,30 +123,27 @@ pub async fn start(
 
     let nonce_history = NonceHistory::init(
         // keep cache for 2x so that we catch all replays that would be valid and some that would be invalid anyways
-        config.current_time_stamp_max_difference * 2,
+        config.created_at_max_difference * 2,
     );
 
     tracing::info!("init nullifier oprf request auth service..");
-    let nullifier_oprf_req_auth_service = Arc::new(RpModuleAuth::new_uniqueness(
-        merkle_watcher.clone(),
-        rp_registry_watcher.clone(),
-        nonce_history.clone(),
-        config.current_time_stamp_max_difference,
-        config.timeout_external_eth_call,
-        http_rpc_provider.clone(),
-        Arc::clone(&query_vk),
-    ));
+    let rp_module_args = RpModuleAuthArgs {
+        merkle_watcher: merkle_watcher.clone(),
+        rp_registry_watcher,
+        nonce_history,
+        created_at_max_difference: chrono::Duration::from_std(config.created_at_max_difference)
+            .context("while building created_at_max_difference")?,
+        expires_at_max_difference: chrono::Duration::from_std(config.expires_at_max_difference)
+            .context("while building expires_at_max_difference")?,
+        timeout_external_eth_call: config.timeout_external_eth_call,
+        rpc_provider: http_rpc_provider.clone(),
+        query_vk: Arc::clone(&query_vk),
+    };
+    let nullifier_oprf_req_auth_service =
+        Arc::new(RpModuleAuth::new_uniqueness(rp_module_args.clone()));
 
     tracing::info!("init session oprf request auth service..");
-    let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(
-        merkle_watcher.clone(),
-        rp_registry_watcher.clone(),
-        nonce_history,
-        config.current_time_stamp_max_difference,
-        config.timeout_external_eth_call,
-        http_rpc_provider.clone(),
-        Arc::clone(&query_vk),
-    ));
+    let session_oprf_req_auth_service = Arc::new(RpModuleAuth::new_session(rp_module_args));
 
     tracing::info!("init CredentialSchemaIssuerRegistry watcher..");
     let schema_issuer_registry_watcher = SchemaIssuerRegistryWatcher::init(
@@ -171,9 +165,9 @@ pub async fn start(
         node_config,
         secret_manager,
         started_services,
-        cancellation_token.clone(),
+        node_information,
+        taceo_nodes_common::version_info!(),
     )
-    .await?
     .module(
         &format!("/{}", OprfModule::Nullifier),
         nullifier_oprf_req_auth_service,

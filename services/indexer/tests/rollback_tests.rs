@@ -5,14 +5,8 @@
 //!
 //! # Running these tests
 //!
-//! These tests require a PostgreSQL database to be running. Use Docker Compose:
-//!
-//! ```bash
-//! docker compose up -d postgres
-//! cargo test -p world-id-indexer --test rollback_tests
-//! ```
-//!
-//! The tests will automatically create unique test databases for isolation.
+//! These tests start a PostgreSQL testcontainer and create unique databases for
+//! isolation. Run them with `cargo test -p world-id-indexer --test rollback_tests`.
 
 mod helpers;
 
@@ -354,6 +348,7 @@ async fn test_rollback_with_mixed_event_types() {
         account.authenticator_addresses[1],
         Some(Address::from([2u8; 20]))
     );
+    assert_eq!(account.recovery_counter, 0); // replays AccountCreated, so the recovery counter must reset
 }
 
 /// Test that rollback to current state has no effect

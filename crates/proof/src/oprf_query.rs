@@ -1,13 +1,12 @@
 //! Shared helpers for generating query proofs and executing
 //! distributed generic OPRF computations.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{io::Read, path::Path};
 
 use ark_bn254::Bn254;
-use ark_ff::PrimeField;
 use ark_groth16::Proof;
 use eyre::Context;
-use groth16_material::circom::CircomGroth16Material;
+use groth16_material::circom::{CircomGroth16Material, CircomGroth16MaterialBuilder};
 use serde::Serialize;
 
 use taceo_oprf::{
@@ -17,19 +16,60 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, ProofRequest, SessionFeType, SessionFieldElement, TREE_DEPTH,
-    oprf::{CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule},
+    FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, ProofType, TREE_DEPTH,
+    oprf::{
+        CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule,
+        RpSignatureVerification,
+    },
 };
 
 use crate::circuit_inputs::QueryProofCircuitInput;
 
-use crate::{
-    AuthenticatorProofInput, ProofError,
-    proof::{OPRF_PROOF_DS, errors},
-};
+use crate::{AuthenticatorProofInput, ProofError, nullifier_proof::errors};
+use world_id_primitives::poseidon::ds;
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::SessionNullifier;
+
+/// The SHA-256 fingerprint of the `OPRFQuery` `ZKey`.
+pub const QUERY_ZKEY_FINGERPRINT: &str =
+    "616c98c6ba024b5a4015d3ebfd20f6cab12e1e33486080c5167a4bcfac111798";
+/// The SHA-256 fingerprint of the `OPRFQuery` witness graph.
+pub const QUERY_GRAPH_FINGERPRINT: &str =
+    "6b0cb90304c510f9142a555fe2b7cf31b9f68f6f37286f4471fd5d03e91da311";
+
+/// Loads the [`CircomGroth16Material`] for the query proof from the provided reader.
+///
+/// # Errors
+/// Will return an error if the material cannot be loaded or verified.
+pub fn load_query_material_from_reader(
+    zkey: impl Read,
+    graph: impl Read,
+) -> eyre::Result<CircomGroth16Material> {
+    Ok(build_query_builder().build_from_reader(zkey, graph)?)
+}
+
+/// Loads the [`CircomGroth16Material`] for the query proof from the provided paths.
+///
+/// # Errors
+/// Will return an error if the material cannot be loaded or verified.
+pub fn load_query_material_from_paths(
+    zkey: impl AsRef<Path>,
+    graph: impl AsRef<Path>,
+) -> eyre::Result<CircomGroth16Material> {
+    Ok(build_query_builder().build_from_paths(zkey, graph)?)
+}
+
+fn build_query_builder() -> CircomGroth16MaterialBuilder {
+    CircomGroth16MaterialBuilder::new()
+        .fingerprint_zkey(QUERY_ZKEY_FINGERPRINT.into())
+        .fingerprint_graph(QUERY_GRAPH_FINGERPRINT.into())
+        .bbf_num_2_bits_helper()
+        .bbf_inv()
+        .bbf_legendre()
+        .bbf_sqrt_input()
+        .bbf_sqrt_unchecked()
+}
 
 /// The main entry point to execute OPRF computations using the
 /// OPRF nodes.
@@ -142,6 +182,11 @@ impl<'a> OprfEntrypoint<'a> {
     /// Generates a nullifier through the provided OPRF nodes for
     /// a specific proof request.
     ///
+    /// # Arguments
+    /// - `rng`: cryptographically secure randomness for generating the query proof.
+    /// - `proof_request`: the request to authenticate and fulfill.
+    /// - `now`: the caller-supplied current Unix timestamp, used to reject expired requests.
+    ///
     /// # Note on Session Proofs
     /// A randomized action is required on Session Proofs to ensure the output nullifier from the Uniqueness Proof
     /// circuit is unique (otherwise the one-time use property of nullifiers would fail). Please see the "Future"
@@ -157,43 +202,24 @@ impl<'a> OprfEntrypoint<'a> {
         &self,
         rng: &mut R,
         proof_request: &ProofRequest,
+        now: u64,
     ) -> Result<FullOprfOutput, ProofError> {
         proof_request
             .validate_proof_type()
             .map_err(|err| ProofError::GenerationError(err.to_string()))?;
 
-        let (action, module) = if proof_request.is_session_proof() {
+        let (action, module) = match proof_request.proof_type {
             // For session proofs a random action is used internally. This is opaque to RPs who receive
             // it within the encoded `SessionNullifier`
-            let action = FieldElement::random_for_session(rng, SessionFeType::Action);
-            (action, OprfModule::Session)
-        } else {
-            // If the RP didn't provide an action, we provide a default.
-            let action = proof_request.action.unwrap_or(FieldElement::ZERO);
-            (action, OprfModule::Nullifier)
+            ProofType::Session => (
+                FieldElement::random_with_prefix(rng, OprfPrefix::SessionAction),
+                OprfModule::Session,
+            ),
+            ProofType::Uniqueness { action } => (action, OprfModule::Nullifier),
         };
 
-        // quick validation before performing the compute heavy `generate_query_proof` fn
-        if proof_request.created_at > proof_request.expires_at {
-            return Err(ProofError::ProofInputError(
-                errors::ProofInputError::InvalidExpiresAt {
-                    created_at: proof_request.created_at,
-                    expires_at: proof_request.expires_at,
-                },
-            ));
-        }
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time cannot go backward")
-            .as_secs();
-        if proof_request.is_expired(now) {
-            return Err(ProofError::ProofInputError(
-                errors::ProofInputError::ProofRequestExpired {
-                    current_timestamp: now,
-                    expires_at: proof_request.expires_at,
-                },
-            ));
-        }
+        // Quick validation before performing the compute-heavy `generate_query_proof` fn.
+        validate_proof_request_timestamps(proof_request.created_at, proof_request.expires_at, now)?;
 
         let result = Self::generate_query_proof(
             self.query_material,
@@ -209,11 +235,12 @@ impl<'a> OprfEntrypoint<'a> {
             action: *action,
             nonce: *proof_request.nonce,
             merkle_root: *self.authenticator_input.inclusion_proof.root,
-            current_time_stamp: proof_request.created_at,
-            expiration_timestamp: proof_request.expires_at,
+            created_at: proof_request.created_at,
+            expires_at: proof_request.expires_at,
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
             wip101_data: None,
+            rp_signature_verification: None,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -242,9 +269,9 @@ impl<'a> OprfEntrypoint<'a> {
         proof_request
             .validate_proof_type()
             .map_err(|err| ProofError::GenerationError(err.to_string()))?;
-        if !proof_request.is_session_proof() {
+        if proof_request.session_id.is_none() {
             return Err(ProofError::GenerationError(
-                "proof_type must be create_session or prove_session".to_string(),
+                "session randomness can only be derived for requests with a \"create\" or existing session_id".to_string(),
             ));
         }
 
@@ -257,16 +284,22 @@ impl<'a> OprfEntrypoint<'a> {
             rng,
         )?;
 
+        let rp_signature_verification = proof_request
+            .proof_type
+            .action()
+            .map(|action| RpSignatureVerification::UniquenessAction { action });
+
         let auth = NullifierOprfRequestAuthV1 {
             proof: result.proof.into(),
             action: *oprf_seed,
             nonce: *proof_request.nonce,
             merkle_root: *self.authenticator_input.inclusion_proof.root,
-            current_time_stamp: proof_request.created_at,
-            expiration_timestamp: proof_request.expires_at,
+            created_at: proof_request.created_at,
+            expires_at: proof_request.expires_at,
             signature: Some(proof_request.signature),
             rp_id: proof_request.rp_id,
             wip101_data: None,
+            rp_signature_verification,
         };
 
         let verifiable_oprf_output = Self::execute_distributed_oprf(
@@ -285,6 +318,30 @@ impl<'a> OprfEntrypoint<'a> {
             verifiable_oprf_output,
         })
     }
+}
+
+fn validate_proof_request_timestamps(
+    created_at: u64,
+    expires_at: u64,
+    now: u64,
+) -> Result<(), ProofError> {
+    if created_at > expires_at {
+        return Err(ProofError::ProofInputError(
+            errors::ProofInputError::InvalidExpiresAt {
+                created_at,
+                expires_at,
+            },
+        ));
+    }
+    if now > expires_at {
+        return Err(ProofError::ProofInputError(
+            errors::ProofInputError::ProofRequestExpired {
+                current_timestamp: now,
+                expires_at,
+            },
+        ));
+    }
+    Ok(())
 }
 
 impl<'a> OprfEntrypoint<'a> {
@@ -361,7 +418,7 @@ impl<'a> OprfEntrypoint<'a> {
             threshold,
             query_hash,
             blinding_factor,
-            ark_babyjubjub::Fq::from_be_bytes_mod_order(OPRF_PROOF_DS),
+            *ds::OPRF_PROOF.as_field_element(),
             auth,
             connector,
         )
@@ -377,4 +434,25 @@ struct QueryProofResult {
     proof: Proof<Bn254>,
     query_hash: ark_babyjubjub::Fq,
     blinding_factor: BlindingFactor,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    #[test_case(100, 200, 150 => matches Ok(()); "valid")]
+    #[test_case(201, 200, 150 => matches Err(ProofError::ProofInputError(
+        errors::ProofInputError::InvalidExpiresAt { created_at: 201, expires_at: 200 }
+    )); "created after expiration")]
+    #[test_case(100, 200, 201 => matches Err(ProofError::ProofInputError(
+        errors::ProofInputError::ProofRequestExpired { current_timestamp: 201, expires_at: 200 }
+    )); "expired at caller time")]
+    fn proof_request_timestamp_validation(
+        created_at: u64,
+        expires_at: u64,
+        now: u64,
+    ) -> Result<(), ProofError> {
+        validate_proof_request_timestamps(created_at, expires_at, now)
+    }
 }

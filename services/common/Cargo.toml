@@ -31,6 +31,7 @@ serde = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }
 tracing = { workspace = true }
+telemetry-batteries = { workspace = true }
 
 backon = { workspace = true }
 config = { workspace = true }
@@ -40,8 +41,11 @@ clap = { workspace = true, features = ["derive", "env"] }
 tower = { workspace = true }
 governor = { workspace = true }
 tokio = { workspace = true, features = ["time"] }
+metrics = { workspace = true }
 
 [dev-dependencies]
 axum = { workspace = true }
 tempfile = { workspace = true }
+test-case = { workspace = true }
 tokio = { workspace = true, features = ["full"] }
+metrics-util = { workspace = true }

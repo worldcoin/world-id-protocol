@@ -101,7 +101,7 @@ impl PostgresDB {
 
 /// Transaction isolation level
 ///
-/// PG docs: https://www.postgresql.org/docs/current/transaction-iso.html
+/// PG docs: <https://www.postgresql.org/docs/current/transaction-iso.html>
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IsolationLevel {
     ReadUncommitted,

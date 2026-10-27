@@ -3,14 +3,11 @@
 use std::{num::NonZeroU64, time::Duration};
 
 use alloy::primitives::Address;
-use backon::{BackoffBuilder, ExponentialBackoff, ExponentialBuilder};
 use serde::Deserialize;
 use taceo_nodes_common::web3::{self};
 use taceo_oprf::service::{VersionReq, config::OprfNodeServiceConfig};
 
 /// The configuration for the OPRF node.
-///
-/// It can be configured via environment variables or command line arguments using `clap`.
 #[derive(Clone, Debug, Deserialize)]
 #[non_exhaustive]
 pub struct WorldOprfNodeConfig {
@@ -31,24 +28,31 @@ pub struct WorldOprfNodeConfig {
     #[serde(rename = "rpc")]
     pub rpc_provider_config: web3::HttpRpcProviderConfig,
 
-    /// Cache configuration for the [`MerkleWatcher`](crate::auth::merkle_watcher::MerkleWatcher)
+    /// Cache configuration for the `MerkleWatcher`
     #[serde(default)]
     pub merkle_cache_config: WatcherCacheConfig,
 
-    /// Cache configuration for the [`RpRegistryWatcher`](crate::auth::rp_registry_watcher::RpRegistryWatcher)
+    /// Cache configuration for the `RpRegistryWatcher`
     #[serde(default)]
     pub rp_cache_config: WatcherCacheConfig,
 
-    /// Cache configuration for the [`SchemaIssuerRegistryWatcher`](crate::auth::schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher)
+    /// Cache configuration for the `SchemaIssuerRegistryWatcher`
     #[serde(default)]
     pub issuer_cache_config: WatcherCacheConfig,
 
-    /// Maximum delta between the received `current_time_stamp` and the node's `current_time_stamp`
+    /// Maximum delta between the received `created_at` and the node's local time.
     #[serde(
-        default = "WorldOprfNodeConfig::default_current_time_stamp_max_difference",
+        default = "WorldOprfNodeConfig::default_created_at_max_difference",
         with = "humantime_serde"
     )]
-    pub current_time_stamp_max_difference: Duration,
+    pub created_at_max_difference: Duration,
+
+    /// Maximum allowed delta between `expires_at` and `created_at` on RP signatures.
+    #[serde(
+        default = "WorldOprfNodeConfig::default_expires_at_max_difference",
+        with = "humantime_serde"
+    )]
+    pub expires_at_max_difference: Duration,
 
     /// Max time for an `eth_call` to an unknown contract.
     ///
@@ -83,32 +87,6 @@ pub struct WatcherCacheConfig {
     /// Will drop entries that are not accessed (read/write) for this time.
     #[serde(default, with = "humantime_serde")]
     pub time_to_idle: Option<Duration>,
-
-    /// Min interval for retry logic for fetching data from chain.
-    ///
-    /// This will fire on every unexpected message we get from the RPCs and is NOT for actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (i.e. root not valid).
-    #[serde(
-        default = "WatcherCacheConfig::default_retry_rpc_request_min_delay",
-        with = "humantime_serde"
-    )]
-    pub retry_rpc_request_min_delay: Duration,
-
-    /// Max interval for retry logic for fetching data from chain.
-    ///
-    /// This will fire on every unexpected message we get from the RPCs and is NOT for actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (i.e. root not valid).
-    #[serde(
-        default = "WatcherCacheConfig::default_retry_rpc_request_max_delay",
-        with = "humantime_serde"
-    )]
-    pub retry_rpc_request_max_delay: Duration,
-
-    /// Max attempts for retry logic for fetching data from chain.
-    ///
-    /// This will fire on every unexpected message we get from the RPCs and is NOT for actual errors. Nodes may lag behind, therefore we try to fetch multiple times if we get an unexpected message (i.e. root not valid).
-    ///
-    /// *Note*: this value defaults to 0, disabling this retry behaviour. If it is need, this value must be set explicitly.
-    #[serde(default = "WatcherCacheConfig::default_retry_rpc_request_max_attempts")]
-    pub retry_rpc_request_max_attempts: usize,
 }
 
 impl WatcherCacheConfig {
@@ -122,40 +100,29 @@ impl WatcherCacheConfig {
         Duration::from_mins(10)
     }
 
-    // Default min interval for RPC requests.
-    const fn default_retry_rpc_request_min_delay() -> Duration {
-        Duration::from_millis(250)
-    }
-
-    // Default max interval for RPC requests.
-    const fn default_retry_rpc_request_max_delay() -> Duration {
-        Duration::from_secs(2)
-    }
-
-    // Default max attempts for retrying RPC requests. Set to 0 (disabled on default).
-    const fn default_retry_rpc_request_max_attempts() -> usize {
-        0
-    }
-
     /// Initialize with default values for all fields
     const fn with_default_values() -> Self {
         Self {
             max_cache_size: Self::default_max_cache_size(),
             time_to_live: Self::default_time_to_live(),
             time_to_idle: None,
-            retry_rpc_request_min_delay: Self::default_retry_rpc_request_min_delay(),
-            retry_rpc_request_max_delay: Self::default_retry_rpc_request_max_delay(),
-            retry_rpc_request_max_attempts: Self::default_retry_rpc_request_max_attempts(),
         }
     }
 
-    #[inline]
-    pub(crate) fn backoff_strategy(&self) -> ExponentialBackoff {
-        ExponentialBuilder::new()
-            .with_max_times(self.retry_rpc_request_max_attempts)
-            .with_min_delay(self.retry_rpc_request_min_delay)
-            .with_max_delay(self.retry_rpc_request_max_delay)
-            .build()
+    /// Builds a [`moka::future::Cache`] with this configuration.
+    pub(crate) fn build_cache<K, V>(&self) -> moka::future::Cache<K, V>
+    where
+        K: std::hash::Hash + Eq + Send + Sync + 'static,
+        V: Clone + Send + Sync + 'static,
+    {
+        let builder = moka::future::Cache::builder()
+            .max_capacity(self.max_cache_size.get())
+            .time_to_live(self.time_to_live);
+        if let Some(time_to_idle) = self.time_to_idle {
+            builder.time_to_idle(time_to_idle).build()
+        } else {
+            builder.build()
+        }
     }
 }
 
@@ -167,12 +134,17 @@ impl Default for WatcherCacheConfig {
 
 impl WorldOprfNodeConfig {
     /// Default maximum allowed difference between received and node timestamp
-    fn default_current_time_stamp_max_difference() -> Duration {
+    const fn default_created_at_max_difference() -> Duration {
         Duration::from_mins(5)
     }
 
+    /// Default difference for `expires_at` and `created_at` on RP signatures. Difference must not be larger than this value.
+    const fn default_expires_at_max_difference() -> Duration {
+        Duration::from_mins(30)
+    }
+
     /// Default timeout for an `eth_call` to an unknown contract.
-    fn default_timeout_external_eth_call() -> Duration {
+    const fn default_timeout_external_eth_call() -> Duration {
         Duration::from_secs(10)
     }
 
@@ -198,7 +170,8 @@ impl WorldOprfNodeConfig {
             rp_registry_contract,
             credential_schema_issuer_registry_contract,
             rpc_provider_config,
-            current_time_stamp_max_difference: Self::default_current_time_stamp_max_difference(),
+            created_at_max_difference: Self::default_created_at_max_difference(),
+            expires_at_max_difference: Self::default_expires_at_max_difference(),
             timeout_external_eth_call: Self::default_timeout_external_eth_call(),
             node_config: OprfNodeServiceConfig::with_default_values(environment, version_req),
             rp_cache_config: WatcherCacheConfig::default(),

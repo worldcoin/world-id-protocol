@@ -6,10 +6,11 @@ use crate::{
     batcher::{
         BatcherHandle, CreateBatcherHandle, CreateBatcherRunner, OpsBatcherHandle, OpsBatcherRunner,
     },
-    config::{BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig},
+    config::{
+        BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
+    },
     error::{GatewayErrorBody, GatewayErrorResponse, GatewayResult},
     orphan_sweeper::run_orphan_sweeper,
-    registry_version::RegistryVersion,
     request::GatewayContext,
     request_tracker::RequestTracker,
     routes::{
@@ -48,6 +49,7 @@ use world_id_primitives::api_types::{
     UpdateRecoveryAgentRequest,
 };
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
 // Health and status routes
 mod health;
@@ -178,15 +180,18 @@ pub(crate) async fn build_app(
         // recovery agent management
         .route(
             "/initiate-recovery-agent-update",
-            post(initiate_recovery_agent_update),
+            post(initiate_recovery_agent_update)
+                .route_layer(V1RecoveryAgentMethodsDeprecationLayer::new()),
         )
         .route(
             "/cancel-recovery-agent-update",
-            post(cancel_recovery_agent_update),
+            post(cancel_recovery_agent_update)
+                .route_layer(V1RecoveryAgentMethodsDeprecationLayer::new()),
         )
         .route(
             "/execute-recovery-agent-update",
-            post(execute_recovery_agent_update),
+            post(execute_recovery_agent_update)
+                .route_layer(V1RecoveryAgentMethodsDeprecationLayer::new()),
         )
         // WIP-102 optimistic recovery agent update (gated on V2 contract)
         .route("/update-recovery-agent", post(update_recovery_agent))
@@ -199,11 +204,15 @@ pub(crate) async fn build_app(
         .route("/openapi.json", get(openapi))
         .with_state(state)
         .layer(from_fn(middleware::request_id_middleware))
+        .layer(from_fn(
+            world_id_services_common::request_latency_middleware,
+        ))
         .layer(world_id_services_common::timeout_layer(
             request_timeout_secs,
             GatewayErrorResponse::request_timeout(request_timeout_secs),
         ))
-        .layer(world_id_services_common::trace_layer()))
+        .layer(world_id_services_common::trace_layer())
+        .layer(world_id_services_common::cors_layer()))
 }
 
 #[utoipa::path(

@@ -6,12 +6,16 @@ use alloy::{
 };
 use redis::{AsyncTypedCommands, IntegerReplyOrNoOp, aio::ConnectionManager};
 use reqwest::{Client, StatusCode};
-use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, defaults, spawn_gateway_for_tests,
+};
 use world_id_primitives::api_types::GatewayStatusResponse;
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{GW_PRIVATE_KEY, start_redis, wait_for_finalized, wait_http_ready};
+use crate::common::{
+    GW_PRIVATE_KEY, authenticator_pubkey, start_redis, wait_for_finalized, wait_http_ready,
+};
 
 mod common;
 
@@ -28,7 +32,7 @@ async fn redis_integration() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer = PrivateKeySigner::random();
@@ -37,10 +41,10 @@ async fn redis_integration() {
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
-        registry_version: None,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![rpc_url.parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         max_create_batch_size: 10,
@@ -66,7 +70,7 @@ async fn redis_integration() {
     let body = world_id_primitives::api_types::CreateAccountRequest {
         recovery_address: Some(wallet_addr),
         authenticator_addresses: vec![address!("0x1111111111111111111111111111111111111111")],
-        authenticator_pubkeys: vec![U256::from(100)],
+        authenticator_pubkeys: vec![authenticator_pubkey(100)],
         offchain_signer_commitment: U256::from(1),
     };
 

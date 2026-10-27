@@ -17,12 +17,18 @@ include = [
 ]
 
 [features]
-default = ["embed-zkeys"]
+default = []
 embed-zkeys = ["world-id-proof/embed-zkeys"]
 # Compress the embedded zkeys to reduce binary size (ARK point compression)
 compress-zkeys = ["embed-zkeys", "world-id-proof/compress-zkeys"]
 # Compress the tar archive with zstd
 zstd-compress-zkeys = ["embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
+# Embed the Noir ownership prover/verifier (built ad-hoc with nargo)
+embed-ownership-prover = ["world-id-proof/embed-ownership-prover"]
+embed-ownership-verifier = ["world-id-proof/embed-ownership-verifier"]
+embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+# Embed everything
+embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
 [dependencies]
 # Use WASM-safe base features only
@@ -39,7 +45,6 @@ ark-babyjubjub = { workspace = true }
 ark-serialize = { workspace = true }
 groth16-material = { workspace = true }
 reqwest = { workspace = true, features = ["json"] }
-poseidon2 = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 world-id-primitives = { workspace = true }
@@ -52,6 +57,16 @@ backon = { workspace = true }
 ruint = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }
+strum = { workspace = true, features = ["derive"] }
+
+# WIP-109 authenticator registration
+aes-gcm = { workspace = true }
+argon2 = { workspace = true }
+ciborium = { workspace = true }
+hkdf = { workspace = true }
+quantum-box = { workspace = true }
+sha2 = { workspace = true }
+zeroize = { workspace = true }
 
 # OHTTP
 ohttp = { workspace = true, features = ["client", "rust-hpke"] }
@@ -66,15 +81,18 @@ world-id-registries = { workspace = true }
 # Native-only dependencies (not available on wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 alloy = { workspace = true, features = ["reqwest-rustls-tls"] }
-reqwest = { workspace = true, features = ["rustls-tls"] }
+reqwest = { workspace = true, features = ["rustls"] }
 tokio = { workspace = true, features = ["rt-multi-thread", "net"] }
 rustls = { workspace = true }
+webpki-root-certs = { workspace = true }
 webpki-roots = { workspace = true }
-world-id-proof = { workspace = true, features = ["zk-ownership-prove"] }
+world-id-proof = { workspace = true }
 
-# Enable getrandom's JS backend for OHTTP/HPKE on wasm32-unknown-unknown.
+# Enable JS randomness for OHTTP and the protocol's rand 0.8 stack.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = { workspace = true, features = ["wasm_js"] }
+getrandom-02 = { workspace = true, features = ["js"] }
+quantum-box = { workspace = true, features = ["wasm_js"] }
 
 [dev-dependencies]
 axum = { workspace = true }
@@ -85,6 +103,7 @@ hex = { workspace = true }
 ruint = { workspace = true }
 rand = { workspace = true }
 mockito = { workspace = true }
+test-case = { workspace = true }
 testcontainers = { workspace = true }
 world-id-test-utils = { workspace = true }
 

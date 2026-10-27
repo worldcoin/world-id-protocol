@@ -19,6 +19,7 @@ eyre = { workspace = true }
 humantime = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }
+reqwest.workspace = true
 rustls = { workspace = true }
 secrecy = { workspace = true }
 taceo-oprf = { workspace = true, features = ["core", "dev-client"] }

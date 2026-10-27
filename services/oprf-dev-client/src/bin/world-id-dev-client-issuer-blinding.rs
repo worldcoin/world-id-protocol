@@ -13,7 +13,9 @@ use taceo_oprf::{
     types::{OprfKeyId, ShareEpoch, api::OprfRequest, async_trait, crypto::OprfPublicKey},
 };
 use uuid::Uuid;
-use world_id_core::{EdDSAPrivateKey, EdDSASignature, FieldElement, proof::CircomGroth16Material};
+use world_id_core::{
+    EdDSAPrivateKey, EdDSASignature, FieldElement, nullifier_proof::CircomGroth16Material,
+};
 use world_id_oprf_dev_client::{SharedDevClientComponents, WorldDevClientConfig};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, TREE_DEPTH,
@@ -121,6 +123,16 @@ impl DevClient for WorldIdIssuerSchemaDevClient {
             .await?;
 
         Ok(share_epoch)
+    }
+
+    async fn run_delegate_oprf(
+        &self,
+        _config: &DevClientConfig,
+        _setup: Self::Setup,
+        _delegate_service: Option<String>,
+        _client: &reqwest::Client,
+    ) -> eyre::Result<ShareEpoch> {
+        eyre::bail!("delegated OPRF is not supported by the World ID issuer dev client")
     }
 
     async fn prepare_stress_test_item<R: Rng + CryptoRng + Send>(

@@ -234,12 +234,21 @@ pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
     pub key_index: u64,
     /// Private input. The full authenticator key set for the user's World ID
     pub key_set: AuthenticatorPublicKeySet,
-    /// Private input (**except** the `root` and `depth`). The inclusion proof in the `WorldIDRegistry`
+    /// Private input (**except** the `merkle_root` and `depth`). The inclusion proof in the `WorldIDRegistry`
     pub inclusion_proof: MerkleInclusionProof<MAX_DEPTH>,
     /// **Public input**. The nonce of the proof request as provided by the verifier.
     pub nonce: FieldElement,
+    /// **Public input**. The commitment being proven (e.g. a Credential's `sub`). The circuit
+    /// asserts it equals `H(domainSeparator, leaf_index, commitment_blinder)`, so proving fails
+    /// if it does not match the `inclusion_proof`'s leaf index and the `commitment_blinder`.
+    pub expected_commitment: FieldElement,
+    /// **Public input**. The verifier-supplied context for which the proof is valid. This usually encodes an
+    /// explicit operation to perform. For example, "delete a credential". Please review WIP-103 for details on how
+    /// the `context` should be used.
+    pub context: FieldElement,
     /// Private input. Signature from the authenticator on the query.
     pub signature: EdDSASignature,
-    /// Private input. The commitment's `r` blinder
+    /// Private input. The blinder used in the hash to compute the [`Self::expected_commitment`]. This is usually
+    /// a randomly generated seed.
     pub commitment_blinder: FieldElement,
 }

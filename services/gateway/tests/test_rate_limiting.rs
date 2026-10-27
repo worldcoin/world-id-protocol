@@ -6,13 +6,15 @@ use alloy::{
     sol_types::SolStruct,
 };
 use reqwest::{Client, StatusCode};
-use world_id_gateway::{BatchPolicyConfig, GatewayConfig, defaults, spawn_gateway_for_tests};
+use world_id_gateway::{
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, defaults, spawn_gateway_for_tests,
+};
 use world_id_primitives::api_types::{InsertAuthenticatorRequest, UpdateAuthenticatorRequest};
 use world_id_registries::world_id::{InsertAuthenticatorTypedData, UpdateAuthenticatorTypedData};
 use world_id_services_common::{ProviderArgs, SignerArgs};
 use world_id_test_utils::anvil::TestAnvil;
 
-use crate::common::{GW_PRIVATE_KEY, start_redis, wait_http_ready};
+use crate::common::{GW_PRIVATE_KEY, authenticator_pubkey, start_redis, wait_http_ready};
 
 mod common;
 
@@ -56,16 +58,16 @@ async fn test_rate_limit_basic() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
-        registry_version: None,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![rpc_url.parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         max_create_batch_size: 10,
@@ -98,7 +100,7 @@ async fn test_rate_limit_basic() {
         leaf_index,
         address!("0x1111111111111111111111111111111111111111"),
         0,
-        U256::from(100),
+        authenticator_pubkey(100),
         U256::from(2),
         U256::from(0),
         &signer,
@@ -111,7 +113,7 @@ async fn test_rate_limit_basic() {
         leaf_index,
         new_authenticator_address: address!("0x1111111111111111111111111111111111111111"),
         pubkey_id: 0,
-        new_authenticator_pubkey: U256::from(100),
+        new_authenticator_pubkey: authenticator_pubkey(100),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
         signature: signature1,
@@ -138,7 +140,7 @@ async fn test_rate_limit_basic() {
         leaf_index,
         address!("0x2222222222222222222222222222222222222222"),
         1,
-        U256::from(200),
+        authenticator_pubkey(200),
         U256::from(3),
         U256::from(0),
         &signer,
@@ -151,7 +153,7 @@ async fn test_rate_limit_basic() {
         leaf_index,
         new_authenticator_address: address!("0x2222222222222222222222222222222222222222"),
         pubkey_id: 1,
-        new_authenticator_pubkey: U256::from(200),
+        new_authenticator_pubkey: authenticator_pubkey(200),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(3),
         signature: signature2,
@@ -176,7 +178,7 @@ async fn test_rate_limit_basic() {
         leaf_index,
         address!("0x3333333333333333333333333333333333333333"),
         2,
-        U256::from(300),
+        authenticator_pubkey(300),
         U256::from(4),
         U256::from(0),
         &signer,
@@ -189,7 +191,7 @@ async fn test_rate_limit_basic() {
         leaf_index,
         new_authenticator_address: address!("0x3333333333333333333333333333333333333333"),
         pubkey_id: 2,
-        new_authenticator_pubkey: U256::from(300),
+        new_authenticator_pubkey: authenticator_pubkey(300),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(4),
         signature: signature3,
@@ -214,7 +216,7 @@ async fn test_rate_limit_basic() {
         leaf_index,
         address!("0x4444444444444444444444444444444444444444"),
         3,
-        U256::from(400),
+        authenticator_pubkey(400),
         U256::from(5),
         U256::from(0),
         &signer,
@@ -227,7 +229,7 @@ async fn test_rate_limit_basic() {
         leaf_index,
         new_authenticator_address: address!("0x4444444444444444444444444444444444444444"),
         pubkey_id: 3,
-        new_authenticator_pubkey: U256::from(400),
+        new_authenticator_pubkey: authenticator_pubkey(400),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(5),
         signature: signature4,
@@ -264,16 +266,16 @@ async fn test_rate_limit_different_leaf_indexes() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
-        registry_version: None,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![rpc_url.parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         max_create_batch_size: 10,
@@ -304,7 +306,7 @@ async fn test_rate_limit_different_leaf_indexes() {
             1000,
             Address::from([i as u8; 20]),
             i as u8,
-            U256::from(100 + i),
+            authenticator_pubkey(100 + i),
             U256::from(2 + i as u64),
             U256::from(0),
             &signer,
@@ -317,7 +319,7 @@ async fn test_rate_limit_different_leaf_indexes() {
             leaf_index: 1000,
             new_authenticator_address: Address::from([i as u8; 20]),
             pubkey_id: i,
-            new_authenticator_pubkey: U256::from(100 + i),
+            new_authenticator_pubkey: authenticator_pubkey(100 + i),
             old_offchain_signer_commitment: U256::from(1),
             new_offchain_signer_commitment: U256::from(2 + i as u64),
             signature,
@@ -340,7 +342,7 @@ async fn test_rate_limit_different_leaf_indexes() {
             2000,
             Address::from([10 + i as u8; 20]),
             i as u8,
-            U256::from(200 + i),
+            authenticator_pubkey(200 + i),
             U256::from(3 + i as u64),
             U256::from(0),
             &signer,
@@ -353,7 +355,7 @@ async fn test_rate_limit_different_leaf_indexes() {
             leaf_index: 2000,
             new_authenticator_address: Address::from([10 + i as u8; 20]),
             pubkey_id: i,
-            new_authenticator_pubkey: U256::from(200 + i),
+            new_authenticator_pubkey: authenticator_pubkey(200 + i),
             old_offchain_signer_commitment: U256::from(1),
             new_offchain_signer_commitment: U256::from(3 + i as u64),
             signature,
@@ -380,7 +382,7 @@ async fn test_rate_limit_different_leaf_indexes() {
         1000,
         address!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         5,
-        U256::from(500),
+        authenticator_pubkey(500),
         U256::from(10),
         U256::from(0),
         &signer,
@@ -393,7 +395,7 @@ async fn test_rate_limit_different_leaf_indexes() {
         leaf_index: 1000,
         new_authenticator_address: address!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
         pubkey_id: 5,
-        new_authenticator_pubkey: U256::from(500),
+        new_authenticator_pubkey: authenticator_pubkey(500),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(10),
         signature: signature_extra,
@@ -421,16 +423,16 @@ async fn test_rate_limit_sliding_window() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
-        registry_version: None,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![rpc_url.parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         max_create_batch_size: 10,
@@ -462,7 +464,7 @@ async fn test_rate_limit_sliding_window() {
             leaf_index,
             Address::from([i as u8; 20]),
             i as u8,
-            U256::from(100 + i),
+            authenticator_pubkey(100 + i),
             U256::from(2 + i as u64),
             U256::from(0),
             &signer,
@@ -475,7 +477,7 @@ async fn test_rate_limit_sliding_window() {
             leaf_index,
             new_authenticator_address: Address::from([i as u8; 20]),
             pubkey_id: i,
-            new_authenticator_pubkey: U256::from(100 + i),
+            new_authenticator_pubkey: authenticator_pubkey(100 + i),
             old_offchain_signer_commitment: U256::from(1),
             new_offchain_signer_commitment: U256::from(2 + i as u64),
             signature,
@@ -497,7 +499,7 @@ async fn test_rate_limit_sliding_window() {
         leaf_index,
         address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
         3,
-        U256::from(300),
+        authenticator_pubkey(300),
         U256::from(5),
         U256::from(0),
         &signer,
@@ -510,7 +512,7 @@ async fn test_rate_limit_sliding_window() {
         leaf_index,
         new_authenticator_address: address!("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
         pubkey_id: 3,
-        new_authenticator_pubkey: U256::from(300),
+        new_authenticator_pubkey: authenticator_pubkey(300),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(5),
         signature: signature3,
@@ -534,7 +536,7 @@ async fn test_rate_limit_sliding_window() {
         leaf_index,
         address!("0xcccccccccccccccccccccccccccccccccccccccc"),
         4,
-        U256::from(400),
+        authenticator_pubkey(400),
         U256::from(6),
         U256::from(0),
         &signer,
@@ -547,7 +549,7 @@ async fn test_rate_limit_sliding_window() {
         leaf_index,
         new_authenticator_address: address!("0xcccccccccccccccccccccccccccccccccccccccc"),
         pubkey_id: 4,
-        new_authenticator_pubkey: U256::from(400),
+        new_authenticator_pubkey: authenticator_pubkey(400),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(6),
         signature: signature4,
@@ -575,16 +577,16 @@ async fn test_rate_limit_multiple_endpoints() {
     // Start Anvil
     let anvil = TestAnvil::spawn().unwrap();
     let deployer = anvil.signer(0).unwrap();
-    let registry_addr = anvil.deploy_world_id_registry(deployer).await.unwrap();
+    let registry_addr = anvil.deploy_world_id_registry_v2(deployer).await.unwrap();
     let rpc_url = anvil.endpoint();
 
     let signer_args = SignerArgs::from_wallet(GW_PRIVATE_KEY.to_string());
     let cfg = GatewayConfig {
         registry_addr,
-        registry_version: None,
+        registry_version: RegistryVersion::V2,
         provider: ProviderArgs {
-            http: Some(vec![rpc_url.parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![rpc_url.parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         max_create_batch_size: 10,
@@ -615,7 +617,7 @@ async fn test_rate_limit_multiple_endpoints() {
         leaf_index,
         address!("0x1111111111111111111111111111111111111111"),
         0,
-        U256::from(100),
+        authenticator_pubkey(100),
         U256::from(2),
         U256::from(0),
         &signer,
@@ -628,7 +630,7 @@ async fn test_rate_limit_multiple_endpoints() {
         leaf_index,
         new_authenticator_address: address!("0x1111111111111111111111111111111111111111"),
         pubkey_id: 0,
-        new_authenticator_pubkey: U256::from(100),
+        new_authenticator_pubkey: authenticator_pubkey(100),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(2),
         signature: insert_signature,
@@ -649,7 +651,7 @@ async fn test_rate_limit_multiple_endpoints() {
         old_authenticator_address: address!("0x2222222222222222222222222222222222222222"),
         new_authenticator_address: address!("0x3333333333333333333333333333333333333333"),
         pubkey_id: 1,
-        new_authenticator_pubkey: U256::from(200),
+        new_authenticator_pubkey: authenticator_pubkey(200),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(3),
         signature: {
@@ -658,7 +660,7 @@ async fn test_rate_limit_multiple_endpoints() {
                 oldAuthenticatorAddress: address!("0x2222222222222222222222222222222222222222"),
                 newAuthenticatorAddress: address!("0x3333333333333333333333333333333333333333"),
                 pubkeyId: 1,
-                newAuthenticatorPubkey: U256::from(200),
+                newAuthenticatorPubkey: authenticator_pubkey(200),
                 newOffchainSignerCommitment: U256::from(3),
                 nonce: U256::from(0),
             };
@@ -688,7 +690,7 @@ async fn test_rate_limit_multiple_endpoints() {
         leaf_index,
         address!("0x4444444444444444444444444444444444444444"),
         2,
-        U256::from(300),
+        authenticator_pubkey(300),
         U256::from(4),
         U256::from(0),
         &signer,
@@ -701,7 +703,7 @@ async fn test_rate_limit_multiple_endpoints() {
         leaf_index,
         new_authenticator_address: address!("0x4444444444444444444444444444444444444444"),
         pubkey_id: 2,
-        new_authenticator_pubkey: U256::from(300),
+        new_authenticator_pubkey: authenticator_pubkey(300),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(4),
         signature: insert_signature2,
@@ -721,7 +723,7 @@ async fn test_rate_limit_multiple_endpoints() {
         leaf_index,
         address!("0x5555555555555555555555555555555555555555"),
         3,
-        U256::from(400),
+        authenticator_pubkey(400),
         U256::from(5),
         U256::from(0),
         &signer,
@@ -734,7 +736,7 @@ async fn test_rate_limit_multiple_endpoints() {
         leaf_index,
         new_authenticator_address: address!("0x5555555555555555555555555555555555555555"),
         pubkey_id: 3,
-        new_authenticator_pubkey: U256::from(400),
+        new_authenticator_pubkey: authenticator_pubkey(400),
         old_offchain_signer_commitment: U256::from(1),
         new_offchain_signer_commitment: U256::from(5),
         signature: insert_signature3,

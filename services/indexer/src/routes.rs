@@ -2,25 +2,28 @@ use crate::error::{IndexerErrorBody, IndexerErrorResponse};
 use axum::{Json, Router, middleware::from_fn, response::IntoResponse};
 use utoipa::OpenApi;
 use world_id_primitives::api_types::{
-    AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse, IndexerPackedAccountRequest,
-    IndexerPackedAccountResponse, IndexerPendingRecoveryAgentResponse, IndexerQueryRequest,
-    IndexerRecoveryAgentResponse, IndexerSignatureNonceResponse,
+    AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse,
+    IndexerAuthenticatorsResponse, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
+    IndexerPendingRecoveryAgentResponse, IndexerQueryRequest, IndexerRecoveryAgentResponse,
+    IndexerSignatureNonceResponse,
 };
+use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
 use crate::config::AppState;
 mod get_authenticator_pubkeys;
+mod get_authenticators;
 mod get_packed_account;
 mod get_pending_recovery_agent;
 mod get_recovery_agent;
 mod get_signature_nonce;
 mod health;
 mod inclusion_proof;
-mod middleware;
 
 #[derive(OpenApi)]
 #[openapi(
     paths(
         get_authenticator_pubkeys::handler,
+        get_authenticators::handler,
         get_packed_account::handler,
         get_signature_nonce::handler,
         get_recovery_agent::handler,
@@ -29,6 +32,7 @@ mod middleware;
     ),
     components(schemas(
         IndexerAuthenticatorPubkeysResponse,
+        IndexerAuthenticatorsResponse,
         IndexerPackedAccountRequest,
         IndexerPackedAccountResponse,
         IndexerQueryRequest,
@@ -59,6 +63,10 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
             axum::routing::post(get_authenticator_pubkeys::handler),
         )
         .route(
+            "/authenticators",
+            axum::routing::post(get_authenticators::handler),
+        )
+        .route(
             "/packed-account",
             axum::routing::post(get_packed_account::handler),
         )
@@ -72,15 +80,19 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
         )
         .route(
             "/pending-recovery-agent",
-            axum::routing::post(get_pending_recovery_agent::handler),
+            axum::routing::post(get_pending_recovery_agent::handler)
+                .route_layer(V1RecoveryAgentMethodsDeprecationLayer::new()),
         )
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))
         .with_state(state)
-        .layer(from_fn(middleware::request_latency_middleware))
+        .layer(from_fn(
+            world_id_services_common::request_latency_middleware,
+        ))
         .layer(world_id_services_common::timeout_layer(
             request_timeout_secs,
             IndexerErrorResponse::request_timeout(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer())
+        .layer(world_id_services_common::cors_layer())
 }

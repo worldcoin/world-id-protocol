@@ -1,20 +1,18 @@
 use std::{sync::Arc, time::Duration};
 
-use alloy::primitives::{Address, U256};
+use alloy::{
+    primitives::{Address, U256},
+    signers::local::PrivateKeySigner,
+};
 use ark_serialize::CanonicalSerialize;
 use axum::{Json, Router, extract::State, http::StatusCode, routing::post};
-use eyre::{Context as _, ContextCompat as _, Result};
+use eyre::{Context as _, Result};
 use secrecy::SecretString;
 use semver::VersionReq;
-use taceo_nodes_common::postgres::PostgresConfig;
-use taceo_oprf::service::web3::HttpRpcProviderConfig;
-use taceo_oprf_test_utils::{
-    OPRF_PEER_PRIVATE_KEY_0, OPRF_PEER_PRIVATE_KEY_1, OPRF_PEER_PRIVATE_KEY_2,
-    OPRF_PEER_PRIVATE_KEY_3, OPRF_PEER_PRIVATE_KEY_4,
-};
+use taceo_nodes_common::{postgres::PostgresConfig, web3::HttpRpcProviderConfig};
 use testcontainers::{
     ContainerAsync, GenericImage, ImageExt,
-    core::{IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
+    core::{Host, IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
     runners::AsyncRunner,
 };
 use tokio::{net::TcpListener, task::JoinHandle};
@@ -220,8 +218,12 @@ async fn spawn_orpf_node(
 
     tokio::spawn(async move {
         let cancellation_token = CancellationToken::new();
-        let router = world_id_oprf_node::start(config, secret_manager, cancellation_token.clone())
+        let node_information = secret_manager
+            .load_node_information()
             .await
+            .expect("Can load node information");
+
+        let router = world_id_oprf_node::start(config, secret_manager, &node_information)
             .expect("Can start");
         let listener = tokio::net::TcpListener::bind(bind_addr)
             .await
@@ -312,19 +314,16 @@ pub struct SpawnedKeyGens {
     _containers: [ContainerAsync<GenericImage>; 5],
 }
 
+/// Hostname the key-gen containers use to reach services running on the host. Mapped to the
+/// Docker bridge gateway, so these tests need a Docker daemon local to the test process.
+const HOST_INTERNAL_NAME: &str = "host.testcontainers.internal";
+
 fn host_internal_url(raw_url: &str) -> Result<String> {
     let mut url =
         reqwest::Url::parse(raw_url).wrap_err_with(|| format!("failed to parse URL: {raw_url}"))?;
-    url.set_host(Some("host.testcontainers.internal"))
+    url.set_host(Some(HOST_INTERNAL_NAME))
         .wrap_err_with(|| format!("failed to rewrite host for URL: {raw_url}"))?;
     Ok(url.to_string())
-}
-
-fn host_exposed_port(raw_url: &str) -> Result<u16> {
-    let url =
-        reqwest::Url::parse(raw_url).wrap_err_with(|| format!("failed to parse URL: {raw_url}"))?;
-    url.port_or_known_default()
-        .wrap_err_with(|| format!("URL missing port: {raw_url}"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -333,20 +332,16 @@ async fn spawn_key_gen_container(
     chain_http_rpc_url: &str,
     chain_ws_rpc_url: &str,
     postgres_connection_string: &str,
-    wallet_private_key: &str,
+    wallet_private_key: PrivateKeySigner,
     schema: &str,
     oprf_key_registry_contract: Address,
 ) -> Result<(String, ContainerAsync<GenericImage>)> {
-    let http_port = host_exposed_port(chain_http_rpc_url)?;
-    let ws_port = host_exposed_port(chain_ws_rpc_url)?;
-    let postgres_port = host_exposed_port(postgres_connection_string)?;
-
     let container = GenericImage::new(OPRF_KEY_GEN_IMAGE, OPRF_KEY_GEN_TAG)
         .with_exposed_port(OPRF_KEY_GEN_INTERNAL_PORT.tcp())
         .with_wait_for(WaitFor::Http(Box::new(
             HttpWaitStrategy::new("/health").with_expected_status_code(200_u16),
         )))
-        .with_exposed_host_ports([http_port, ws_port, postgres_port])
+        .with_host(HOST_INTERNAL_NAME, Host::HostGateway)
         .with_env_var("RUST_LOG", "taceo=trace,warn")
         .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__ENVIRONMENT", "dev")
         .with_env_var(
@@ -371,7 +366,7 @@ async fn spawn_key_gen_container(
         )
         .with_env_var(
             "TACEO_OPRF_KEY_GEN__SERVICE__WALLET_PRIVATE_KEY",
-            wallet_private_key,
+            alloy::hex::encode_prefixed(wallet_private_key.to_bytes()),
         )
         .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_NUM_PEERS", "5")
         .with_env_var("TACEO_OPRF_KEY_GEN__SERVICE__EXPECTED_THRESHOLD", "3")
@@ -414,7 +409,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_0,
+            anvil.signer(5).expect("anvil has signer 5"),
             "node0",
             key_gen_contract,
         ),
@@ -423,7 +418,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_1,
+            anvil.signer(6).expect("anvil has signer 6"),
             "node1",
             key_gen_contract,
         ),
@@ -432,7 +427,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_2,
+            anvil.signer(7).expect("anvil has signer 7"),
             "node2",
             key_gen_contract,
         ),
@@ -441,7 +436,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_3,
+            anvil.signer(8).expect("anvil has signer 8"),
             "node3",
             key_gen_contract,
         ),
@@ -450,7 +445,7 @@ pub async fn spawn_key_gens(
             anvil.endpoint(),
             anvil.ws_endpoint(),
             postgres_connection_string,
-            OPRF_PEER_PRIVATE_KEY_4,
+            anvil.signer(9).expect("anvil has signer 9"),
             "node4",
             key_gen_contract,
         ),

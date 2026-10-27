@@ -6,6 +6,39 @@ use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 use world_id_primitives::ServiceEndpoint;
 
+/// The maximum time to establish a connection to a service.
+#[cfg(not(target_arch = "wasm32"))]
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// The maximum time for a whole request to a service, including reading the response.
+pub(crate) const REQUEST_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Builds the HTTP client for the gateway, the indexer, OHTTP relays and the RPC.
+///
+/// A native client trusts only the bundled Mozilla roots: reqwest's default platform verifier
+/// panics on Android unless it was initialized through JNI. It bounds connection setup with
+/// [`CONNECT_TIMEOUT`] and every request with [`REQUEST_TIMEOUT`]. A browser client uses the
+/// browser's TLS and cannot be bounded client-wide, so gateway, indexer and OHTTP relay requests
+/// also set [`REQUEST_TIMEOUT`] on each request; RPC requests from a browser are bounded only by
+/// the browser.
+///
+/// # Errors
+/// Returns [`AuthenticatorError::NetworkError`] if the TLS backend cannot be initialized.
+pub(crate) fn default_http_client() -> Result<reqwest::Client, AuthenticatorError> {
+    #[cfg(not(target_arch = "wasm32"))]
+    let builder = reqwest::Client::builder()
+        .tls_certs_only(
+            webpki_root_certs::TLS_SERVER_ROOT_CERTS
+                .iter()
+                .map(|cert| reqwest::Certificate::from_der(cert))
+                .collect::<Result<Vec<_>, _>>()?,
+        )
+        .connect_timeout(CONNECT_TIMEOUT)
+        .timeout(REQUEST_TIMEOUT);
+    #[cfg(target_arch = "wasm32")]
+    let builder = reqwest::Client::builder();
+    Ok(builder.build()?)
+}
+
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum ServiceKind {
     Gateway,
@@ -141,6 +174,7 @@ impl ServiceClient {
             HttpTransport::Direct(client) => {
                 let response = client
                     .post(format!("{base_url}{path}"))
+                    .timeout(REQUEST_TIMEOUT)
                     .json(body)
                     .send()
                     .await?;
@@ -180,7 +214,11 @@ impl ServiceClient {
     {
         let resp = match &self.transport {
             HttpTransport::Direct(client) => {
-                let response = client.get(format!("{base_url}{path}")).send().await?;
+                let response = client
+                    .get(format!("{base_url}{path}"))
+                    .timeout(REQUEST_TIMEOUT)
+                    .send()
+                    .await?;
                 Self::success_or_fallback_body(response).await?
             }
             HttpTransport::Ohttp(client) => {
@@ -205,5 +243,21 @@ impl ServiceClient {
                 }
             ))
         })
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bundled_roots_verify_public_tls() {
+        let response = default_http_client()
+            .unwrap()
+            .get("https://rpc.worldchain-sepolia.worldcoin.org")
+            .send()
+            .await;
+
+        assert!(response.is_ok(), "{response:?}");
     }
 }

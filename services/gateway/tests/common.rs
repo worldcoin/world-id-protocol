@@ -1,12 +1,11 @@
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
+use eddsa_babyjubjub::EdDSAPrivateKey;
 use reqwest::{Client, StatusCode};
 use std::time::Duration;
-use testcontainers_modules::{
-    redis::{REDIS_PORT, Redis},
-    testcontainers::{ContainerAsync, ImageExt as _, runners::AsyncRunner as _},
-};
+use testcontainers_modules::{redis::Redis, testcontainers::ContainerAsync};
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, GatewayHandle, SignerArgs, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, GatewayHandle, RegistryVersion, SignerArgs, defaults,
+    spawn_gateway_for_tests,
 };
 use world_id_primitives::api_types::{GatewayRequestState, GatewayStatusResponse};
 use world_id_services_common::ProviderArgs;
@@ -16,7 +15,19 @@ use world_id_test_utils::anvil::TestAnvil;
 /// key, not a real secret.
 pub(crate) const GW_PRIVATE_KEY: &str =
     "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-pub(crate) const RPC_FORK_URL: &str = "https://reth-ethereum.ithaca.xyz/rpc";
+
+/// Returns the registry encoding of a valid authenticator public key derived from `seed`.
+#[allow(dead_code)]
+pub(crate) fn authenticator_pubkey(seed: u32) -> U256 {
+    let mut private_key = [0u8; 32];
+    private_key[..4].copy_from_slice(&seed.to_le_bytes());
+    let pubkey = EdDSAPrivateKey::from_bytes(private_key).public();
+    U256::from_le_bytes(
+        pubkey
+            .to_compressed_bytes()
+            .expect("public key must compress"),
+    )
+}
 
 /// A running gateway + anvil + Redis stack for integration tests.
 ///
@@ -37,41 +48,39 @@ pub(crate) struct TestGateway {
     pub(crate) _redis: ContainerAsync<Redis>,
 }
 
-fn spawn_test_anvil() -> TestAnvil {
-    let mut fork_url = std::env::var("TESTS_RPC_FORK_URL").unwrap_or_default();
-    if fork_url.is_empty() {
-        fork_url = RPC_FORK_URL.to_string();
-    }
-    TestAnvil::spawn_fork(&fork_url).expect("failed to spawn forked anvil")
+async fn spawn_test_anvil() -> TestAnvil {
+    TestAnvil::spawn_with_multicall3()
+        .await
+        .expect("failed to spawn anvil with Multicall3")
 }
 
-/// Spawn a test gateway backed by a forked anvil chain and a Redis container.
+/// Spawn a test gateway backed by a fresh anvil chain and a Redis container.
 ///
 /// * `batch_ms` – when `None` the gateway uses `BatchPolicyConfig::default()`
 ///   and the standard sweeper/stale thresholds.  Pass `Some(ms)` to configure
 ///   a custom batch window (used by `test_inflight.rs`).
 #[allow(dead_code)]
 pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
-    let anvil = spawn_test_anvil();
+    let anvil = spawn_test_anvil().await;
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
         .deploy_world_id_registry(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry");
-    spawn_test_gateway_for_registry(anvil, registry_addr, batch_ms).await
+    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V1, batch_ms).await
 }
 
 /// Same as [`spawn_test_gateway`] but deploys the V2 (WIP-102) registry —
 /// the V1 implementation behind an ERC1967 proxy upgraded to V2.
 #[allow(dead_code)]
 pub(crate) async fn spawn_test_gateway_v2(batch_ms: Option<u64>) -> TestGateway {
-    let anvil = spawn_test_anvil();
+    let anvil = spawn_test_anvil().await;
     let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
     let registry_addr = anvil
         .deploy_world_id_registry_v2(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry V2");
-    spawn_test_gateway_for_registry(anvil, registry_addr, batch_ms).await
+    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V2, batch_ms).await
 }
 
 /// Spawn the gateway/Redis half of the stack against an already-deployed
@@ -79,6 +88,7 @@ pub(crate) async fn spawn_test_gateway_v2(batch_ms: Option<u64>) -> TestGateway 
 async fn spawn_test_gateway_for_registry(
     anvil: TestAnvil,
     registry_addr: Address,
+    registry_version: RegistryVersion,
     batch_ms: Option<u64>,
 ) -> TestGateway {
     let rpc_url = anvil.endpoint().to_string();
@@ -90,10 +100,10 @@ async fn spawn_test_gateway_for_registry(
     let cfg = match batch_ms {
         None => GatewayConfig {
             registry_addr,
-            registry_version: None,
+            registry_version,
             provider: ProviderArgs {
-                http: Some(vec![rpc_url.parse().unwrap()]),
-                signer: Some(signer_args),
+                http: vec![rpc_url.parse().unwrap()],
+                signer: signer_args,
                 ..Default::default()
             },
             max_create_batch_size: 10,
@@ -113,10 +123,10 @@ async fn spawn_test_gateway_for_registry(
             let reeval_ms = ms.min(200);
             GatewayConfig {
                 registry_addr,
-                registry_version: None,
+                registry_version,
                 provider: ProviderArgs {
-                    http: Some(vec![rpc_url.parse().unwrap()]),
-                    signer: Some(signer_args),
+                    http: vec![rpc_url.parse().unwrap()],
+                    signer: signer_args,
                     ..Default::default()
                 },
                 batch_policy: BatchPolicyConfig {
@@ -165,22 +175,9 @@ async fn spawn_test_gateway_for_registry(
 /// test that needs the Redis instance.
 #[allow(dead_code)]
 pub(crate) async fn start_redis() -> (String, ContainerAsync<Redis>) {
-    // Use redis:latest so CI (which already pulls this tag via docker-compose)
-    // can start the container from the local image cache with no network pull.
-    let container = Redis::default()
-        .with_tag("latest")
-        .start()
+    let (container, url) = world_id_test_utils::redis_testcontainer()
         .await
         .expect("failed to start Redis container");
-    let host = container
-        .get_host()
-        .await
-        .expect("failed to get Redis host");
-    let port = container
-        .get_host_port_ipv4(REDIS_PORT)
-        .await
-        .expect("failed to get Redis port");
-    let url = format!("redis://{host}:{port}");
     (url, container)
 }
 

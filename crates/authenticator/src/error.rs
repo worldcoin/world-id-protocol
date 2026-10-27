@@ -22,6 +22,10 @@ pub enum AuthenticatorError {
     #[error("Network error: {0}")]
     NetworkError(#[from] reqwest::Error),
 
+    /// The account has no free authenticator slot.
+    #[error("The account has no free authenticator slot.")]
+    MaxAuthenticatorsReached,
+
     /// Public key not found in the Authenticator public key set. Usually indicates the local state is out of sync with the registry.
     #[error("Public key not found.")]
     PublicKeyNotFound,
@@ -103,6 +107,10 @@ pub enum AuthenticatorError {
     #[error(transparent)]
     ProofError(#[from] ProofError),
 
+    /// Error loading ZK artifacts.
+    #[error(transparent)]
+    ZkArtifactError(#[from] world_id_proof::artifacts::ZkArtifactError),
+
     /// Indexer returned an authenticator key slot that exceeds supported key capacity.
     #[error(
         "Invalid indexer authenticator pubkey slot {slot_index}; max supported slot is {max_supported_slot}"
@@ -172,16 +180,11 @@ pub enum AuthenticatorError {
     #[error(transparent)]
     ResponseValidationError(#[from] ValidationError),
 
-    /// Proof materials not loaded. Call `with_proof_materials` before generating proofs.
-    #[error("Proof materials not loaded. Call `with_proof_materials` before generating proofs.")]
-    ProofMaterialsNotLoaded,
-
-    /// The session ID computed for this proof does not match the expected session ID from the proof request.
-    ///
-    /// This indicates the `session_id` provided by the RP is invalid or compromised, or
-    /// the authenticator cached the wrong `session_id_r_seed` for the `oprf_seed`.
-    #[error("the expected session id and the generated session id do not match")]
-    SessionIdMismatch,
+    /// Binding a session to a Uniqueness Proof requires the cached `session_id_r_seed`.
+    /// Re-deriving it inside a uniqueness request is not possible; run a session-type
+    /// request first to obtain it.
+    #[error("session binding requires a cached `session_id_r_seed`")]
+    SessionSeedRequired,
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]

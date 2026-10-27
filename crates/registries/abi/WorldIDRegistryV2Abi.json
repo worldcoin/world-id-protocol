@@ -733,6 +733,19 @@
   },
   {
     "type": "function",
+    "name": "migrateLegacyRecoveryAgentUpdate",
+    "inputs": [
+      {
+        "name": "leafIndex",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "owner",
     "inputs": [],
     "outputs": [
@@ -1801,11 +1814,6 @@
   },
   {
     "type": "error",
-    "name": "LeafDoesNotExist",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "LeafIndexOutOfRange",
     "inputs": []
   },
@@ -1907,11 +1915,6 @@
   {
     "type": "error",
     "name": "MismatchingArrayLengths",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NewLeafCannotEqualOldLeaf",
     "inputs": []
   },
   {
@@ -2081,11 +2084,6 @@
   },
   {
     "type": "error",
-    "name": "TreeIsFull",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
@@ -2114,11 +2112,6 @@
   {
     "type": "error",
     "name": "UnmanageableNotAllowed",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "ValueGreaterThanSnarkScalarField",
     "inputs": []
   },
   {

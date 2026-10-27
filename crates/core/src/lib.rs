@@ -10,8 +10,9 @@ pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 #[cfg(feature = "authenticator")]
 pub use world_id_authenticator::{
-    Authenticator, AuthenticatorError, CredentialInput, InitializingAuthenticator,
-    OhttpClientConfig, OnchainKeyRepresentable, ProofResult,
+    AccountAuthenticators, Authenticator, AuthenticatorError, CredentialInput,
+    InitializingAuthenticator, OhttpClientConfig, OnchainKeyRepresentable, ProofResult,
+    registration,
 };
 
 /// Re-export registry contract bindings for convenience
@@ -28,7 +29,7 @@ pub use world_id_issuer::Issuer;
 pub use world_id_primitives::Signer;
 
 #[cfg(feature = "authenticator")]
-pub use world_id_proof::proof;
+pub use world_id_proof::{artifacts, nullifier_proof};
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 pub use world_id_primitives::request as requests;

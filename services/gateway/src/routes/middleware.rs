@@ -1,6 +1,5 @@
-//! Request ID and metrics middleware.
+//! Request ID middleware.
 
-use crate::metrics;
 use axum::{extract::Request, http::HeaderValue, middleware::Next, response::Response};
 use uuid::Uuid;
 
@@ -8,20 +7,12 @@ use uuid::Uuid;
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub struct RequestId(pub Uuid);
 
-/// Middleware that generates and attaches a canonical request ID,
-/// and records request latency metrics.
+/// Middleware that generates and attaches a canonical request ID.
 pub async fn request_id_middleware(mut request: Request, next: Next) -> Response {
     let request_id = Uuid::new_v4();
-    let path = request.uri().path().to_string();
-
     request.extensions_mut().insert(RequestId(request_id));
 
-    let start = std::time::Instant::now();
     let mut response = next.run(request).await;
-    let latency_ms = start.elapsed().as_millis() as f64;
-
-    // Record latency metric
-    metrics::record_http_latency_ms(&path, response.status().as_u16(), latency_ms);
 
     // Add to response headers for client correlation
     if let Ok(value) = HeaderValue::from_str(&request_id.to_string()) {

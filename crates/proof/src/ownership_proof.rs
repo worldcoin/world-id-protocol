@@ -4,294 +4,644 @@
 //! with the authenticator's EdDSA key, then proving the Noir circuit
 //! via ProveKit.
 
-#[cfg(feature = "zk-ownership-prove")]
-pub use prover::generate_ownership_proof;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::{collections::BTreeMap, io::Read};
 
-#[cfg(feature = "zk-ownership-prove")]
-mod prover {
-    use crate::{
-        NoirCircuitInput, NoirRepresentable, ProofError, circuit_inputs::OwnershipProofCircuitInput,
+#[cfg(any(target_arch = "wasm32", test))]
+use acvm::{
+    acir::native_types::WitnessMap,
+    pwg::{ACVM, ACVMStatus},
+};
+use ark_ff::{BigInteger as _, PrimeField as _};
+#[cfg(any(target_arch = "wasm32", test))]
+use bn254_blackbox_solver::Bn254BlackBoxSolver;
+use provekit_common::{InputMap, InputValue, NoirElement};
+#[cfg(not(target_arch = "wasm32"))]
+use provekit_common::{NoirProof, PublicInputs};
+use provekit_prover::Prove;
+#[cfg(not(target_arch = "wasm32"))]
+use provekit_verifier::Verify;
+use world_id_primitives::{Credential, FieldElement, TREE_DEPTH, proof::OwnershipProof};
+
+use crate::{
+    NoirCircuitInput, NoirRepresentable, ProofError, artifacts::ZkArtifactSource,
+    circuit_inputs::OwnershipProofCircuitInput, errors::ProofInputError, to_noir_element,
+};
+
+/// Loads an ownership proof prover from a reader containing PKP bytes.
+///
+/// # Errors
+/// Returns an error if the reader cannot be read or the prover cannot be deserialized.
+pub fn load_ownership_prover_from_reader(
+    mut reader: impl Read,
+) -> eyre::Result<provekit_common::Prover> {
+    provekit_common::register_ntt();
+
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes)?;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        deserialize_prover(&bytes)
+    }
+}
+
+/// Decodes PKP bytes like `provekit_common::file::deserialize`, but in pure Rust: provekit's
+/// decoder links the C zstd and xz libraries, which don't build for wasm32. ProveKit always writes
+/// provers xz-compressed.
+#[cfg(any(
+    target_arch = "wasm32",
+    all(
+        test,
+        feature = "embed-ownership-prover",
+        feature = "embed-ownership-verifier"
+    )
+))]
+fn deserialize_prover(bytes: &[u8]) -> eyre::Result<provekit_common::Prover> {
+    const MAGIC: &[u8] = b"\xDC\xDFOZkp\x01\x00";
+    const FORMAT: &[u8] = b"PrvKitPr";
+    const VERSION: (u16, u16) = (1, 1);
+    const XZ_MAGIC: &[u8] = &[0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00];
+
+    let (header, compressed) = bytes
+        .split_at_checked(20)
+        .ok_or_else(|| eyre::eyre!("prover file is too short"))?;
+    eyre::ensure!(
+        &header[..8] == MAGIC && &header[8..16] == FORMAT,
+        "not a ProveKit prover file"
+    );
+    let major = u16::from_le_bytes([header[16], header[17]]);
+    let minor = u16::from_le_bytes([header[18], header[19]]);
+    eyre::ensure!(
+        major == VERSION.0 && minor >= VERSION.1,
+        "unsupported prover file version {major}.{minor}"
+    );
+    eyre::ensure!(
+        compressed.starts_with(XZ_MAGIC),
+        "prover file is not xz-compressed"
+    );
+
+    let mut decompressed = Vec::new();
+    lzma_rs::xz_decompress(&mut &compressed[..], &mut decompressed)
+        .map_err(|e| eyre::eyre!("while decompressing the prover: {e}"))?;
+    postcard::from_bytes(&decompressed).map_err(|e| eyre::eyre!("while decoding the prover: {e}"))
+}
+
+/// Loads an ownership proof prover from a PKP file path.
+///
+/// # Errors
+/// Returns an error if the file cannot be read or the prover cannot be deserialized.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_ownership_prover_from_path(
+    path: impl AsRef<Path>,
+) -> eyre::Result<provekit_common::Prover> {
+    provekit_common::register_ntt();
+    provekit_common::file::read(path.as_ref()).map_err(|e| eyre::eyre!(e.to_string()))
+}
+
+/// Loads an ownership proof verifier from a reader containing PKV bytes.
+///
+/// # Errors
+/// Returns an error if the reader cannot be read or the verifier cannot be deserialized.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_ownership_verifier_from_reader(
+    mut reader: impl Read,
+) -> eyre::Result<provekit_common::Verifier> {
+    provekit_common::register_ntt();
+
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes)?;
+    provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()))
+}
+
+/// Loads an ownership proof verifier from a PKV file path.
+///
+/// # Errors
+/// Returns an error if the file cannot be read or the verifier cannot be deserialized.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_ownership_verifier_from_path(
+    path: impl AsRef<Path>,
+) -> eyre::Result<provekit_common::Verifier> {
+    provekit_common::register_ntt();
+    provekit_common::file::read(path.as_ref()).map_err(|e| eyre::eyre!(e.to_string()))
+}
+
+/// Checks the ownership proof inputs by emulating the constraints the circuit enforces, so a
+/// caller mistake surfaces as a specific error instead of an opaque proving failure. This is only
+/// for error convenience, the actual constraints are verified in the circuit.
+///
+/// # Errors
+/// Returns a [`ProofInputError`] if any check fails.
+pub fn check_ownership_input_validity<const MAX_DEPTH: usize>(
+    inputs: &OwnershipProofCircuitInput<MAX_DEPTH>,
+) -> Result<(), ProofInputError> {
+    // 1. The verifier-supplied inputs must be set. Zero is a field element's default value.
+    if inputs.nonce == FieldElement::ZERO {
+        return Err(ProofInputError::ValueMustNotBeZero { name: "nonce" });
+    }
+    if inputs.context == FieldElement::ZERO {
+        return Err(ProofInputError::ValueMustNotBeZero { name: "context" });
+    }
+
+    // 2. The commitment being proven must match the leaf index and blinder it is derived from.
+    let derived =
+        Credential::compute_sub(inputs.inclusion_proof.leaf_index, inputs.commitment_blinder);
+    if derived != inputs.expected_commitment {
+        return Err(ProofInputError::InvalidExpectedCommitment);
+    }
+
+    Ok(())
+}
+
+/// Generates an ownership proof using artifacts from the provided source.
+///
+/// # Errors
+/// Returns [`ProofError`] if Noir artifacts cannot be loaded or proving fails.
+pub fn generate_ownership_proof(
+    input: OwnershipProofCircuitInput<TREE_DEPTH>,
+    artifacts: &dyn ZkArtifactSource,
+) -> Result<OwnershipProof, ProofError> {
+    let prover = artifacts.ownership_prover()?;
+    generate_ownership_proof_with_prover(input, prover)
+}
+
+/// Generates an ownership proof using the provided prover.
+///
+/// # Errors
+/// Returns [`ProofError`] if witness generation or proving fails.
+pub fn generate_ownership_proof_with_prover(
+    input: OwnershipProofCircuitInput<TREE_DEPTH>,
+    prover: provekit_common::Prover,
+) -> Result<OwnershipProof, ProofError> {
+    check_ownership_input_validity(&input)?;
+    provekit_common::register_ntt();
+
+    let merkle_root = input.inclusion_proof.root;
+    let witness = input.into_witness()?;
+    #[cfg(target_arch = "wasm32")]
+    let witness = solve_witness(&prover, witness)?;
+    #[cfg(target_arch = "wasm32")]
+    let noir_proof = prover.prove_with_witness(witness);
+    #[cfg(not(target_arch = "wasm32"))]
+    let noir_proof = prover.prove(witness);
+    let noir_proof = noir_proof.map_err(|e| ProofError::GenerationError(e.to_string()))?;
+
+    Ok(OwnershipProof {
+        proof: noir_proof.whir_r1cs_proof,
+        merkle_root,
+    })
+}
+
+/// Solves the circuit witness with ACVM directly rather than through `nargo`, which
+/// `Prove::prove` uses and which does not build for wasm32.
+///
+/// Supports single-function circuits without foreign or ACIR calls.
+///
+/// Errors never include witness values: they are private inputs.
+///
+/// # Errors
+/// Returns [`ProofError::GenerationError`] if the inputs don't satisfy the circuit.
+#[cfg(any(target_arch = "wasm32", test))]
+pub fn solve_witness(
+    prover: &provekit_common::Prover,
+    input: InputMap,
+) -> Result<WitnessMap<NoirElement>, ProofError> {
+    let generation_error = |reason: &str| ProofError::GenerationError(reason.to_string());
+
+    let initial_witness = prover
+        .witness_generator
+        .abi()
+        .encode(&input, None)
+        .map_err(|_| generation_error("inputs do not match the circuit ABI"))?;
+    let [circuit] = prover.program.functions.as_slice() else {
+        return Err(generation_error("expected a single-function circuit"));
     };
-    use provekit_common::{InputMap, InputValue, NoirElement};
-    use provekit_prover::Prove;
-    use std::collections::BTreeMap;
 
-    use ark_ff::{BigInteger as _, PrimeField as _};
-
-    use world_id_primitives::{TREE_DEPTH, proof::OwnershipProof};
-
-    /// Raw bytes of the embedded ProveKit Prover (PKP).
-    #[cfg(not(docsrs))]
-    const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
-
-    #[cfg(docsrs)]
-    const PKP_BYTES: &[u8] = &[];
-
-    /// Cached deserialized prover (or the error message from the first attempt).
-    static OWNERSHIP_PROVER: std::sync::OnceLock<Result<provekit_common::Prover, String>> =
-        std::sync::OnceLock::new();
-
-    /// Returns a clone of the cached [`provekit_common::Prover`] deserialized
-    /// from the embedded PKP bytes. The deserialization happens only once.
-    fn load_ownership_prover() -> Result<provekit_common::Prover, ProofError> {
-        let cached = OWNERSHIP_PROVER.get_or_init(|| {
-            provekit_common::register_ntt();
-            provekit_common::file::deserialize(PKP_BYTES).map_err(|e| e.to_string())
-        });
-        match cached {
-            Ok(prover) => Ok(prover.clone()),
-            Err(err) => Err(ProofError::InternalError(eyre::eyre!(err.clone()))),
-        }
-    }
-
-    /// Generates an ownership proof for WIP-103.
-    ///
-    /// # Errors
-    /// Returns [`ProofError`] if signing, serialization, or proving
-    /// fails.
-    pub fn generate_ownership_proof(
-        input: OwnershipProofCircuitInput<TREE_DEPTH>,
-    ) -> Result<OwnershipProof, ProofError> {
-        let merkle_root = input.inclusion_proof.root;
-        let prover = load_ownership_prover()?;
-        let witness = input.into_witness()?;
-        let noir_proof = prover
-            .prove(witness)
-            .map_err(|e| ProofError::GenerationError(e.to_string()))?;
-
-        Ok(OwnershipProof {
-            proof: noir_proof.whir_r1cs_proof,
-            merkle_root,
-        })
-    }
-
-    impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
-        fn into_witness(self) -> Result<InputMap, ProofError> {
-            let mut map = InputMap::new();
-
-            // Public inputs
-            map.insert("root".into(), self.inclusion_proof.root.into_noir_value());
-            map.insert(
-                "depth".into(),
-                InputValue::Field(NoirElement::from(TREE_DEPTH)),
-            );
-            map.insert("nonce".into(), self.nonce.into_noir_value());
-
-            // Private inputs struct
-            let mut inputs: BTreeMap<String, InputValue> = BTreeMap::new();
-
-            // user_pk: [PublicKey; 7]
-            let affine_keys = self.key_set.as_affine_array();
-            let user_pk: Vec<InputValue> = affine_keys
-                .iter()
-                .map(|pk| {
-                    let mut s = BTreeMap::new();
-                    s.insert("x".into(), InputValue::Field(NoirElement::from_repr(pk.x)));
-                    s.insert("y".into(), InputValue::Field(NoirElement::from_repr(pk.y)));
-                    InputValue::Struct(s)
-                })
-                .collect();
-            inputs.insert("user_pk".into(), InputValue::Vec(user_pk));
-
-            // pk_index
-            inputs.insert(
-                "pk_index".into(),
-                InputValue::Field(NoirElement::from(self.key_index)),
-            );
-
-            // query_s (babyjubjub scalar → bn254 scalar via big-endian bytes)
-            let s_native = ark_bn254::Fr::from_be_bytes_mod_order(
-                &self.signature.s.into_bigint().to_bytes_be(),
-            );
-            inputs.insert(
-                "query_s".into(),
-                InputValue::Field(NoirElement::from_repr(s_native)),
-            );
-
-            // query_r: [Field; 2]  (point x, y)
-            inputs.insert(
-                "query_r".into(),
-                InputValue::Vec(vec![
-                    InputValue::Field(NoirElement::from_repr(self.signature.r.x)),
-                    InputValue::Field(NoirElement::from_repr(self.signature.r.y)),
-                ]),
-            );
-
-            let siblings: Vec<InputValue> = self
-                .inclusion_proof
-                .siblings
-                .iter()
-                .map(|s| (*s).into_noir_value())
-                .collect();
-            let mut merkle = BTreeMap::new();
-            merkle.insert(
-                "mt_index".into(),
-                InputValue::Field(NoirElement::from(self.inclusion_proof.leaf_index)),
-            );
-            merkle.insert("siblings".into(), InputValue::Vec(siblings));
-            inputs.insert("merkle_proof".into(), InputValue::Struct(merkle));
-            inputs.insert(
-                "commitment_r".into(),
-                self.commitment_blinder.into_noir_value(),
-            );
-
-            map.insert("inputs".into(), InputValue::Struct(inputs));
-
-            Ok(map)
-        }
+    let solver = Bn254BlackBoxSolver;
+    let mut acvm = ACVM::new(
+        &solver,
+        &circuit.opcodes,
+        initial_witness,
+        &prover.program.unconstrained_functions,
+        &circuit.assert_messages,
+    );
+    match acvm.solve() {
+        ACVMStatus::Solved => Ok(acvm.finalize()),
+        ACVMStatus::Failure(_) => Err(generation_error("inputs do not satisfy the circuit")),
+        _ => Err(generation_error(
+            "circuit requires a foreign or ACIR call, which is unsupported",
+        )),
     }
 }
 
-#[cfg(feature = "zk-ownership-verify")]
-pub use verifier::verify_ownership_proof;
+/// Verifies an ownership proof using artifacts from the provided source.
+///
+/// # Errors
+/// Returns an error if Noir artifacts cannot be loaded, the proof bytes are malformed,
+/// or verification fails.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn verify_ownership_proof(
+    proof: &OwnershipProof,
+    nonce: FieldElement,
+    expected_commitment: FieldElement,
+    context: FieldElement,
+    artifacts: &dyn ZkArtifactSource,
+) -> Result<(), ProofError> {
+    let mut verifier = artifacts.ownership_verifier()?;
+    verify_ownership_proof_with_verifier(proof, nonce, expected_commitment, context, &mut verifier)
+}
 
-#[cfg(feature = "zk-ownership-verify")]
-mod verifier {
-    use crate::ProofError;
-    use ark_babyjubjub::Fq;
-    use provekit_common::{NoirProof, PublicInputs};
-    use provekit_verifier::Verify;
-    use world_id_primitives::{FieldElement, TREE_DEPTH, proof::OwnershipProof};
+/// Verifies an ownership proof using the provided verifier.
+///
+/// # Errors
+/// Returns an error if the proof bytes are malformed or verification fails.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn verify_ownership_proof_with_verifier(
+    proof: &OwnershipProof,
+    nonce: FieldElement,
+    expected_commitment: FieldElement,
+    context: FieldElement,
+    verifier: &mut provekit_common::Verifier,
+) -> Result<(), ProofError> {
+    provekit_common::register_ntt();
 
-    /// Raw bytes of the embedded Verifying Key Package (PKV).
-    #[cfg(not(docsrs))]
-    const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
+    // Order must match the public parameters of `main` in the Noir circuit.
+    let public_inputs = PublicInputs::from_vec(vec![
+        *proof.merkle_root,
+        ark_babyjubjub::Fq::from(TREE_DEPTH as u64),
+        *nonce,
+        *expected_commitment,
+        *context,
+    ]);
 
-    #[cfg(docsrs)]
-    const PKV_BYTES: &[u8] = &[];
+    let noir_proof = NoirProof {
+        public_inputs,
+        whir_r1cs_proof: proof.proof.clone(),
+    };
+    verifier
+        .verify(&noir_proof)
+        .map_err(|e| ProofError::Verification(e.to_string()))
+}
 
-    /// Cached deserialized verifier (or the error message from the first attempt).
-    static OWNERSHIP_VERIFIER: std::sync::OnceLock<Result<provekit_common::Verifier, String>> =
-        std::sync::OnceLock::new();
+impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
+    fn into_witness(self) -> Result<InputMap, ProofError> {
+        let mut map = InputMap::new();
 
-    /// Returns a clone of the cached [`provekit_common::Verifier`] deserialized
-    /// from the embedded PKV bytes. The deserialization happens only once.
-    fn load_ownership_verifier() -> Result<provekit_common::Verifier, ProofError> {
-        let cached = OWNERSHIP_VERIFIER.get_or_init(|| {
-            provekit_common::register_ntt();
-            provekit_common::file::deserialize(PKV_BYTES).map_err(|e| e.to_string())
-        });
-        match cached {
-            Ok(verifier) => Ok(verifier.clone()),
-            Err(err) => Err(ProofError::InternalError(eyre::eyre!(err.clone()))),
-        }
-    }
+        // Public inputs
+        map.insert(
+            "merkle_root".into(),
+            self.inclusion_proof.root.into_noir_value(),
+        );
+        map.insert(
+            "depth".into(),
+            InputValue::Field(NoirElement::from(TREE_DEPTH)),
+        );
+        map.insert("nonce".into(), self.nonce.into_noir_value());
+        map.insert(
+            "expected_commitment".into(),
+            self.expected_commitment.into_noir_value(),
+        );
+        map.insert("context".into(), self.context.into_noir_value());
 
-    /// Verifies an ownership proof.
-    ///
-    /// # Errors
-    /// Returns an error if the proof bytes are malformed, the verifier
-    /// cannot be loaded, or verification fails.
-    pub fn verify_ownership_proof(
-        proof: &OwnershipProof,
-        nonce: FieldElement,
-        commitment: FieldElement,
-    ) -> Result<(), ProofError> {
-        let mut verifier = load_ownership_verifier()?;
+        // Private inputs struct
+        let mut inputs: BTreeMap<String, InputValue> = BTreeMap::new();
 
-        let public_inputs = PublicInputs::from_vec(vec![
-            *proof.merkle_root,
-            Fq::from(TREE_DEPTH as u64),
-            *nonce,
-            *commitment,
-        ]);
+        // user_pk: [PublicKey; 7]
+        let affine_keys = self.key_set.as_affine_array();
+        let user_pk: Vec<InputValue> = affine_keys
+            .iter()
+            .map(|pk| {
+                let mut s = BTreeMap::new();
+                s.insert("x".into(), InputValue::Field(to_noir_element(pk.x)));
+                s.insert("y".into(), InputValue::Field(to_noir_element(pk.y)));
+                InputValue::Struct(s)
+            })
+            .collect();
+        inputs.insert("user_pk".into(), InputValue::Vec(user_pk));
 
-        let noir_proof = NoirProof {
-            public_inputs,
-            whir_r1cs_proof: proof.proof.clone(),
-        };
-        verifier
-            .verify(&noir_proof)
-            .map_err(|e| ProofError::Verification(e.to_string()))
+        // pk_index
+        inputs.insert(
+            "pk_index".into(),
+            InputValue::Field(NoirElement::from(self.key_index)),
+        );
+
+        // query_s (babyjubjub scalar → bn254 scalar via big-endian bytes)
+        let s_native =
+            ark_bn254::Fr::from_be_bytes_mod_order(&self.signature.s.into_bigint().to_bytes_be());
+        inputs.insert(
+            "query_s".into(),
+            InputValue::Field(to_noir_element(s_native)),
+        );
+
+        // query_r: [Field; 2]  (point x, y)
+        inputs.insert(
+            "query_r".into(),
+            InputValue::Vec(vec![
+                InputValue::Field(to_noir_element(self.signature.r.x)),
+                InputValue::Field(to_noir_element(self.signature.r.y)),
+            ]),
+        );
+
+        let siblings: Vec<InputValue> = self
+            .inclusion_proof
+            .siblings
+            .iter()
+            .map(|s| (*s).into_noir_value())
+            .collect();
+        let mut merkle = BTreeMap::new();
+        merkle.insert(
+            "leaf_index".into(),
+            InputValue::Field(NoirElement::from(self.inclusion_proof.leaf_index)),
+        );
+        merkle.insert("siblings".into(), InputValue::Vec(siblings));
+        inputs.insert("merkle_proof".into(), InputValue::Struct(merkle));
+        inputs.insert(
+            "commitment_blinder".into(),
+            self.commitment_blinder.into_noir_value(),
+        );
+
+        map.insert("inputs".into(), InputValue::Struct(inputs));
+
+        Ok(map)
     }
 }
 
-#[cfg(all(test, feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
+#[cfg(test)]
+mod input_validation_tests {
+    use world_id_primitives::poseidon::{self, ds};
+
+    use super::*;
+    use std::str::FromStr as _;
+
+    use crate::fixtures::ownership_proof_fixture;
+
+    /// Known-answer tests sharing their inputs and expected outputs with the Noir known-answer tests
+    /// in `noir/ownership-proof/src/commitment.nr`
+    #[test]
+    fn test_commitment_matches_the_circuit() {
+        assert_eq!(
+            Credential::compute_sub(1, FieldElement::from(100u64)),
+            FieldElement::from_str(
+                "0x26dc60a1544db4dad905da6967a536d6c37b3ae4b7cf951b925275096f5cbb1e"
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_message_digest_matches_the_circuit() {
+        assert_eq!(
+            poseidon::hash(
+                ds::OWNERSHIP_PROOF,
+                [
+                    FieldElement::from(1u64),
+                    FieldElement::from(100u64),
+                    FieldElement::from(7u64)
+                ]
+            ),
+            FieldElement::from_str(
+                "0x0574b3d43408903579cd25e90b560aa74fb096d4c65ce65c3b178fc9292032f4"
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn test_accepts_the_valid_fixture() {
+        check_ownership_input_validity(&ownership_proof_fixture()).expect("fixture is valid");
+    }
+
+    #[test]
+    fn test_rejects_zero_nonce() {
+        let mut input = ownership_proof_fixture();
+        input.nonce = FieldElement::ZERO;
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::ValueMustNotBeZero { name: "nonce" }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_zero_context() {
+        let mut input = ownership_proof_fixture();
+        input.context = FieldElement::ZERO;
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::ValueMustNotBeZero { name: "context" }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_expected_commitment_for_another_leaf_index() {
+        let mut input = ownership_proof_fixture();
+        input.expected_commitment = Credential::compute_sub(
+            input.inclusion_proof.leaf_index + 1,
+            input.commitment_blinder,
+        );
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(err, ProofInputError::InvalidExpectedCommitment));
+    }
+
+    #[test]
+    fn test_rejects_tampered_commitment_blinder() {
+        let mut input = ownership_proof_fixture();
+        input.commitment_blinder = FieldElement::from(1000u64);
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(err, ProofInputError::InvalidExpectedCommitment));
+    }
+}
+
+#[cfg(all(
+    test,
+    not(target_arch = "wasm32"),
+    feature = "embed-ownership-prover",
+    feature = "embed-ownership-verifier"
+))]
 mod tests {
-    use crate::{ProofError, circuit_inputs::OwnershipProofCircuitInput};
+    use crate::artifacts::embedded::EmbeddedZkArtifacts;
 
     use super::*;
 
-    use eddsa_babyjubjub::EdDSAPrivateKey;
-    use world_id_primitives::{
-        AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
-        merkle::MerkleInclusionProof, proof::OwnershipProof,
-    };
+    use crate::fixtures::ownership_proof_fixture;
+    use world_id_primitives::Credential;
 
-    fn build_merkle_proof(leaf: ark_bn254::Fr) -> MerkleInclusionProof<TREE_DEPTH> {
-        let (siblings, root) = world_id_test_utils::merkle::first_leaf_merkle_path(leaf);
-        MerkleInclusionProof::new(root, 1, siblings)
-    }
+    /// A valid proof together with its `(nonce, expected_commitment, context)` public inputs.
+    fn generate_valid_ownership_proof_fixture()
+    -> (OwnershipProof, FieldElement, FieldElement, FieldElement) {
+        let circuit_input = ownership_proof_fixture();
+        let (nonce, commitment, context) = (
+            circuit_input.nonce,
+            circuit_input.expected_commitment,
+            circuit_input.context,
+        );
+        let root = circuit_input.inclusion_proof.root;
 
-    fn generate_valid_ownership_proof_fixture() -> (OwnershipProof, FieldElement, FieldElement) {
-        let sk = EdDSAPrivateKey::from_bytes([42u8; 32]);
-        let pk = sk.public();
-        let key_set = AuthenticatorPublicKeySet::new(vec![pk]).expect("single key fits");
-        let leaf = key_set.leaf_hash();
-        let inclusion_proof = build_merkle_proof(leaf);
-
-        let nonce = FieldElement::from(1234567890u64);
-        let commitment_blinder = FieldElement::from(999u64);
-        let commitment = Credential::compute_sub(1, commitment_blinder);
-        let signature = sk.sign(*commitment);
-
-        let circuit_input = OwnershipProofCircuitInput {
-            key_index: 0,
-            key_set,
-            inclusion_proof: inclusion_proof.clone(),
-            nonce,
-            signature,
-            commitment_blinder,
-        };
-
-        let proof = generate_ownership_proof(circuit_input).unwrap();
+        let artifacts = EmbeddedZkArtifacts;
+        let proof = generate_ownership_proof(circuit_input, &artifacts).unwrap();
 
         // Public input: merkle root is directly accessible
-        assert_eq!(proof.merkle_root, inclusion_proof.root);
+        assert_eq!(proof.merkle_root, root);
         assert!(!proof.proof.narg_string.is_empty());
 
-        (proof, nonce, commitment)
+        (proof, nonce, commitment, context)
     }
 
     #[test]
     fn test_generate_and_verify_ownership_proof() {
-        let (proof, nonce, commitment) = generate_valid_ownership_proof_fixture();
+        let (proof, nonce, commitment, context) = generate_valid_ownership_proof_fixture();
 
         // Verification succeeds with correct public inputs. Depth is currently hardcoded in the
         // verification call.
-        verify_ownership_proof(&proof, nonce, commitment).expect("ownership proof verifies");
+        let artifacts = EmbeddedZkArtifacts;
+        verify_ownership_proof(&proof, nonce, commitment, context, &artifacts)
+            .expect("ownership proof verifies");
 
         // Wrong commitment → verification fails
-        let err = verify_ownership_proof(&proof, nonce, FieldElement::from(1u64)).unwrap_err();
+        let err =
+            verify_ownership_proof(&proof, nonce, FieldElement::from(1u64), context, &artifacts)
+                .unwrap_err();
         assert!(matches!(err, ProofError::Verification(_)));
 
         // Wrong nonce → verification fails
-        let err = verify_ownership_proof(&proof, FieldElement::from(1234567891u64), commitment)
-            .unwrap_err();
+        let err = verify_ownership_proof(
+            &proof,
+            FieldElement::from(1234567891u64),
+            commitment,
+            context,
+            &artifacts,
+        )
+        .unwrap_err();
+        assert!(matches!(err, ProofError::Verification(_)));
+
+        // Wrong context → verification fails
+        let err = verify_ownership_proof(
+            &proof,
+            nonce,
+            commitment,
+            FieldElement::from(43u64),
+            &artifacts,
+        )
+        .unwrap_err();
         assert!(matches!(err, ProofError::Verification(_)));
     }
 
     #[test]
     fn test_verify_ownership_proof_fails_with_wrong_merkle_root() {
-        let (proof, nonce, commitment) = generate_valid_ownership_proof_fixture();
+        let (proof, nonce, commitment, context) = generate_valid_ownership_proof_fixture();
 
         let mut tampered_proof = proof.clone();
         let mut merkle_root_bytes = tampered_proof.merkle_root.to_be_bytes();
         merkle_root_bytes[31] ^= 0x01;
         tampered_proof.merkle_root = FieldElement::from_be_bytes(&merkle_root_bytes).unwrap();
 
-        let err = verify_ownership_proof(&tampered_proof, nonce, commitment).unwrap_err();
+        let artifacts = EmbeddedZkArtifacts;
+        let err = verify_ownership_proof(&tampered_proof, nonce, commitment, context, &artifacts)
+            .unwrap_err();
         assert!(matches!(err, ProofError::Verification(_)));
     }
 
     #[test]
     fn test_verify_ownership_proof_fails_with_tampered_proof_bytes() {
-        let (proof, nonce, commitment) = generate_valid_ownership_proof_fixture();
+        let (proof, nonce, commitment, context) = generate_valid_ownership_proof_fixture();
 
         let mut tampered_proof = proof.clone();
         tampered_proof.proof.narg_string[0] ^= 0x01;
 
-        let err = verify_ownership_proof(&tampered_proof, nonce, commitment).unwrap_err();
+        let artifacts = EmbeddedZkArtifacts;
+        let err = verify_ownership_proof(&tampered_proof, nonce, commitment, context, &artifacts)
+            .unwrap_err();
         assert!(matches!(err, ProofError::Verification(_)));
+    }
+
+    /// [`check_ownership_input_validity`] rejects a bad input before proving, so it is bypassed
+    /// here to assert the constraint is also enforced by the *compiled* circuit.
+    #[test]
+    fn test_compiled_circuit_rejects_mismatched_commitment() {
+        let mut input = ownership_proof_fixture();
+
+        // The fixture signature stays valid over the commitment the circuit derives, so the only
+        // violated constraint is `commitment == expected_commitment`
+        input.expected_commitment = Credential::compute_sub(
+            input.inclusion_proof.leaf_index + 1,
+            input.commitment_blinder,
+        );
+
+        let prover = EmbeddedZkArtifacts
+            .ownership_prover()
+            .expect("embedded prover loads");
+        let witness = input.into_witness().expect("witness maps");
+
+        let err = solve_witness(&prover, witness.clone())
+            .expect_err("the WASM solver must reject a commitment it cannot derive");
+        assert!(matches!(err, ProofError::GenerationError(_)));
+        prover
+            .prove(witness)
+            .expect_err("the native prover must reject a commitment it cannot derive");
+    }
+
+    #[test]
+    fn test_wasm_witness_solver_matches_provekit() {
+        let mut prover = EmbeddedZkArtifacts
+            .ownership_prover()
+            .expect("embedded prover loads");
+        let input = ownership_proof_fixture().into_witness().unwrap();
+        let actual = solve_witness(&prover, input.clone()).expect("WASM solver succeeds");
+        let expected = prover
+            .generate_witness(input)
+            .expect("native solver succeeds");
+
+        assert_eq!(
+            postcard::to_allocvec(&actual).unwrap(),
+            postcard::to_allocvec(&expected).unwrap()
+        );
+    }
+
+    const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
+
+    #[test]
+    fn test_prover_decoder_matches_provekit() {
+        let decoded = deserialize_prover(PKP_BYTES).expect("embedded prover decodes");
+        let expected: provekit_common::Prover =
+            provekit_common::file::deserialize(PKP_BYTES).expect("provekit decodes the prover");
+
+        assert_eq!(
+            postcard::to_allocvec(&decoded).unwrap(),
+            postcard::to_allocvec(&expected).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_native_prover_reader_accepts_zstd() {
+        let expected: provekit_common::Prover =
+            provekit_common::file::deserialize(PKP_BYTES).expect("provekit decodes the prover");
+        let serialized = postcard::to_allocvec(&expected).unwrap();
+        let mut zstd_pkp = PKP_BYTES[..20].to_vec();
+        zstd_pkp.extend(zstd::stream::encode_all(serialized.as_slice(), 3).unwrap());
+
+        let decoded = load_ownership_prover_from_reader(zstd_pkp.as_slice())
+            .expect("native reader accepts zstd-compressed provers");
+        assert_eq!(postcard::to_allocvec(&decoded).unwrap(), serialized);
+    }
+
+    #[test]
+    fn test_prover_decoder_rejects_other_files() {
+        let pkv = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
+        assert!(deserialize_prover(pkv).is_err());
+        assert!(deserialize_prover(&PKP_BYTES[..20]).is_err());
+
+        let mut wrong_version = PKP_BYTES.to_vec();
+        wrong_version[16] = 2;
+        assert!(deserialize_prover(&wrong_version).is_err());
     }
 }

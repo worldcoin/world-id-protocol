@@ -7,6 +7,132 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.17.0...world-id-primitives-v0.17.1) - 2026-10-23
+
+### Added
+
+- *(proof)* enable ownership proofs on wasm32 ([#1132](https://github.com/worldcoin/world-id-protocol/pull/1132))
+
+### Other
+
+- update Cargo.toml dependencies
+
+## [0.17.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.16.0...world-id-primitives-v0.17.0) - 2026-10-22
+
+### Added
+
+- implement the WIP-106 TAKT and AAT in Rust and Noir ([#1112](https://github.com/worldcoin/world-id-protocol/pull/1112))
+- add deterministic CBOR, COSE_Sign1 and field-element helpers to primitives ([#1122](https://github.com/worldcoin/world-id-protocol/pull/1122))
+- add world-id-flamingo crate with the WIP-201 wire formats ([#1079](https://github.com/worldcoin/world-id-protocol/pull/1079))
+
+### Other
+
+- enable world-id-flamingo publication ([#1131](https://github.com/worldcoin/world-id-protocol/pull/1131))
+
+## [0.16.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.15.0...world-id-primitives-v0.16.0) - 2026-10-19
+
+### Added
+
+- *(indexer)* add POST /authenticators ([#1104](https://github.com/worldcoin/world-id-protocol/pull/1104))
+- *(primitives)* add strict CBOR serde adapters and the WIP-109 signature separator ([#1095](https://github.com/worldcoin/world-id-protocol/pull/1095))
+- *(primitives)* add CBOR authenticator messages ([#1059](https://github.com/worldcoin/world-id-protocol/pull/1059))
+- *(authenticator)* add account lookups, insert_authenticator_at and Proving Authenticator init ([#1061](https://github.com/worldcoin/world-id-protocol/pull/1061))
+- *(authenticator)* add WIP-109 registration response ([#1060](https://github.com/worldcoin/world-id-protocol/pull/1060))
+- *(authenticator)* add WIP-109 registration request and pairing URI ([#1097](https://github.com/worldcoin/world-id-protocol/pull/1097))
+- *(authenticator)* add WIP-109 pairing session and transport encryption ([#1096](https://github.com/worldcoin/world-id-protocol/pull/1096))
+
+### Fixed
+
+- docs for poseidon2 t=12 permutation ([#1092](https://github.com/worldcoin/world-id-protocol/pull/1092))
+- *(authenticator)* trust bundled roots in the HTTP client ([#1109](https://github.com/worldcoin/world-id-protocol/pull/1109))
+
+### Other
+
+- *(authenticator)* derive RegistrationErrorReason codes with strum ([#1103](https://github.com/worldcoin/world-id-protocol/pull/1103))
+
+## [0.15.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.1...world-id-primitives-v0.15.0) - 2026-10-06
+
+### Added
+
+- bump provekit to 1.0.1 and noir to beta.26 ([#978](https://github.com/worldcoin/world-id-protocol/pull/978))
+- WIP-100 Cryptographic Primitives for the Protocol ([#888](https://github.com/worldcoin/world-id-protocol/pull/888))
+- decouple the TAKT from the AAT and gate verification behind one entrypoint ([#884](https://github.com/worldcoin/world-id-protocol/pull/884))
+
+### Other
+
+- *(deps)* [**breaking**] update taceo crates to newer versions, update arkworks to 0.6 everywhere ([#1038](https://github.com/worldcoin/world-id-protocol/pull/1038))
+- update Cargo.toml dependencies
+- publish wip-103 audit ([#1053](https://github.com/worldcoin/world-id-protocol/pull/1053))
+
+## [0.14.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.14.0...world-id-primitives-v0.14.1) - 2026-09-08
+
+### Fixed
+
+- *(authenticator)* compare packed account data recovery counter to actual recovery counter when initializing the authenticator ([#981](https://github.com/worldcoin/world-id-protocol/pull/981))
+
+### Other
+
+- update Cargo.toml dependencies
+- *(deps)* consolidate compatible dependency updates ([#962](https://github.com/worldcoin/world-id-protocol/pull/962))
+
+## [0.14.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.13.0...world-id-primitives-v0.14.0) - 2026-08-28
+
+### Added
+
+- tolerate unknown JSON fields in proof request/response envelopes ([#955](https://github.com/worldcoin/world-id-protocol/pull/955))
+- create an abstraction layer for poseidon hashing ([#915](https://github.com/worldcoin/world-id-protocol/pull/915))
+- allow binding uniqueness proofs to an existing session ([#855](https://github.com/worldcoin/world-id-protocol/pull/855))
+- *(node)* check expires_at max difference ([#853](https://github.com/worldcoin/world-id-protocol/pull/853))
+- add is_blocked at node ([#848](https://github.com/worldcoin/world-id-protocol/pull/848))
+- add verifyWithSession verifier entry point for session-bound proofs ([#862](https://github.com/worldcoin/world-id-protocol/pull/862))
+- [**breaking**] ownership proof (wip-103) correctness improvements ([#885](https://github.com/worldcoin/world-id-protocol/pull/885))
+- WIP-106 tokens generation & circuits ([#852](https://github.com/worldcoin/world-id-protocol/pull/852))
+
+### Fixed
+
+- [**breaking**] don't expose fe with modulo reduction ([#932](https://github.com/worldcoin/world-id-protocol/pull/932))
+- set claims hash capacity ([#892](https://github.com/worldcoin/world-id-protocol/pull/892))
+- pass current time into nullifier generation ([#957](https://github.com/worldcoin/world-id-protocol/pull/957))
+
+### Other
+
+- *(authenticator)* move session r-seed verification to SessionId ([#908](https://github.com/worldcoin/world-id-protocol/pull/908))
+- *(node)* remove is_blocked and billing contract ([#939](https://github.com/worldcoin/world-id-protocol/pull/939))
+- [**breaking**] unify field element domain prefixes into FePrefix ([#912](https://github.com/worldcoin/world-id-protocol/pull/912))
+- [**breaking**] collapse create_session proof type into session x create ([#866](https://github.com/worldcoin/world-id-protocol/pull/866))
+- provision integration dependencies with testcontainers ([#956](https://github.com/worldcoin/world-id-protocol/pull/956))
+- *(services)* normalize provider configuration ([#935](https://github.com/worldcoin/world-id-protocol/pull/935))
+- *(oprf)* bump to oprf version 0.18.1. Also remove test-utils and use alloy mock asserter over compiled solidity mocks ([#913](https://github.com/worldcoin/world-id-protocol/pull/913))
+- [**breaking**] rename proof module to nullifier_proof ([#847](https://github.com/worldcoin/world-id-protocol/pull/847))
+- update the Noir Prover.toml example from fixture ([#870](https://github.com/worldcoin/world-id-protocol/pull/870))
+
+## [0.13.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.12.0...world-id-primitives-v0.13.0) - 2026-07-08
+
+### Added
+
+- Remove probing of registry version ([#818](https://github.com/worldcoin/world-id-protocol/pull/818))
+- distribute noir artifacts via GH release artifacts ([#827](https://github.com/worldcoin/world-id-protocol/pull/827))
+
+### Other
+
+- *(deps)* bump oprf to version 0.17.2 ([#826](https://github.com/worldcoin/world-id-protocol/pull/826))
+- granular embed features, no-embed defaults ([#833](https://github.com/worldcoin/world-id-protocol/pull/833))
+- introduce ZkArtifactSource abstraction ([#831](https://github.com/worldcoin/world-id-protocol/pull/831))
+- *(proof)* single provenance per ZK artifact type ([#828](https://github.com/worldcoin/world-id-protocol/pull/828))
+
+## [0.12.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.11.0...world-id-primitives-v0.12.0) - 2026-06-24
+
+### Added
+
+- introduce issuer version attribute to credential ([#725](https://github.com/worldcoin/world-id-protocol/pull/725))
+- WIP-103 make nonce part of the authenticator sig ([#656](https://github.com/worldcoin/world-id-protocol/pull/656))
+- implement WIP-102 v1 to v2 migration method for legacy pending recovery agent updates ([#807](https://github.com/worldcoin/world-id-protocol/pull/807))
+
+### Other
+
+- *(node)* add retry logic for RPC requests + bump oprf deps ([#764](https://github.com/worldcoin/world-id-protocol/pull/764))
+- *(contracts)* internal `compress` ([#558](https://github.com/worldcoin/world-id-protocol/pull/558))
+
 ## [0.11.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.10.2...world-id-primitives-v0.11.0) - 2026-05-15
 
 ### Added

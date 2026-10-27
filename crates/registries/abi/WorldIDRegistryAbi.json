@@ -1627,11 +1627,6 @@
   },
   {
     "type": "error",
-    "name": "LeafDoesNotExist",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "LeafIndexOutOfRange",
     "inputs": []
   },
@@ -1728,11 +1723,6 @@
   {
     "type": "error",
     "name": "MismatchingArrayLengths",
-    "inputs": []
-  },
-  {
-    "type": "error",
-    "name": "NewLeafCannotEqualOldLeaf",
     "inputs": []
   },
   {
@@ -1859,11 +1849,6 @@
   },
   {
     "type": "error",
-    "name": "TreeIsFull",
-    "inputs": []
-  },
-  {
-    "type": "error",
     "name": "UUPSUnauthorizedCallContext",
     "inputs": []
   },
@@ -1877,11 +1862,6 @@
         "internalType": "bytes32"
       }
     ]
-  },
-  {
-    "type": "error",
-    "name": "ValueGreaterThanSnarkScalarField",
-    "inputs": []
   },
   {
     "type": "error",

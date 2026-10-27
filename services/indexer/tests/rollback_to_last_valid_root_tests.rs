@@ -1,11 +1,6 @@
 //! Integration tests for `rollback_to_last_valid_root`.
 //!
-//! These tests require a PostgreSQL database and Anvil.
-//!
-//! ```bash
-//! docker compose up -d postgres
-//! cargo test -p world-id-indexer --test rollback_to_last_valid_root_tests
-//! ```
+//! These tests start a PostgreSQL testcontainer and an Anvil instance.
 
 mod helpers;
 

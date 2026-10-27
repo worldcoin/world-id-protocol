@@ -1,33 +1,51 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 
+// Enforce the portable transcript version even though ProveKit uses Spongefish indirectly.
+use spongefish as _;
+
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::Groth16Error;
 
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, PrimitiveError, TREE_DEPTH, merkle::MerkleInclusionProof,
     oprf::WorldIdRequestAuthError,
 };
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
+/// ZK artifact source abstractions.
+pub mod artifacts;
+
 /// Circuit input types for Circom/Groth16 circuits (query, nullifier, ownership proofs).
 pub mod circuit_inputs;
+
+/// Static circuit input fixtures shared by the tests and the generated circuit examples.
+#[cfg(test)]
+mod fixtures;
 
 pub mod compress;
 pub use compress::ProofCompression;
 pub(crate) mod oprf_query;
-pub use oprf_query::{FullOprfOutput, OprfEntrypoint};
+pub use oprf_query::{
+    FullOprfOutput, OprfEntrypoint, QUERY_GRAPH_FINGERPRINT, QUERY_ZKEY_FINGERPRINT,
+    load_query_material_from_paths, load_query_material_from_reader,
+};
 
-pub mod proof;
-pub use proof::*;
+pub mod nullifier_proof;
+pub use nullifier_proof::*;
 
+/// Moved to [`world_id_primitives::authenticator_assertion`]; re-exported for existing imports.
+pub use world_id_primitives::authenticator_assertion;
+
+use ark_ff::BigInteger as _;
 use provekit_common::{InputMap, InputValue, NoirElement};
 
 use world_id_primitives::FieldElement;
 
-#[cfg(any(feature = "zk-ownership-prove", feature = "zk-ownership-verify"))]
 pub mod ownership_proof;
 
-pub use provekit_common::{NoirProof, WhirR1CSProof};
+pub use provekit_common::{
+    NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
+};
 
 /// Error type for OPRF operations and proof generation.
 #[derive(Debug, thiserror::Error)]
@@ -44,12 +62,18 @@ pub enum ProofError {
     /// Errors originating from Groth16 proof generation or verification.
     #[error(transparent)]
     ZkError(#[from] Groth16Error),
+    /// Error loading ZK artifacts from a [`artifacts::ZkArtifactSource`].
+    #[error(transparent)]
+    ZkArtifact(#[from] artifacts::ZkArtifactError),
     /// Error generating a Noir Proof with ProveKit
     #[error("proof generation error: {0}")]
     GenerationError(String),
     /// Error verifying a Noir Proof with ProveKit. This usually means the proof is invalid.
     #[error("proof verification error: {0}")]
     Verification(String),
+    /// The proof cannot be generated because the credential has an error
+    #[error(transparent)]
+    CredentialError(#[from] PrimitiveError),
     /// Catch-all for other internal errors.
     #[error(transparent)]
     InternalError(#[from] eyre::Report),
@@ -63,9 +87,19 @@ pub trait NoirRepresentable {
     fn into_noir_value(self) -> InputValue;
 }
 
+/// Re-encodes a prime field element as provekit's `NoirElement` via its canonical big-endian bytes.
+///
+/// Reduction is a no-op for any field whose modulus does not exceed BN254's scalar field, which
+/// holds for every caller here (including Baby Jubjub scalars).
+pub(crate) fn to_noir_element<F: ark_ff::PrimeField>(value: F) -> NoirElement {
+    NoirElement::from_repr(ark_ff::PrimeField::from_be_bytes_mod_order(
+        &value.into_bigint().to_bytes_be(),
+    ))
+}
+
 impl NoirRepresentable for FieldElement {
     fn into_noir_value(self) -> InputValue {
-        InputValue::Field(NoirElement::from_repr(*self))
+        InputValue::Field(to_noir_element(*self))
     }
 }
 

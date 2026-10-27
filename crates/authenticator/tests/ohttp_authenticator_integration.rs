@@ -11,7 +11,7 @@ use ruint::aliases::U256;
 use serde_json::json;
 use testcontainers::{
     GenericImage, ImageExt,
-    core::{IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
+    core::{Host, IntoContainerPort, WaitFor, wait::HttpWaitStrategy},
     runners::AsyncRunner,
 };
 use tokio::{net::TcpListener, sync::Mutex};
@@ -22,9 +22,13 @@ use world_id_authenticator::{
         IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
         InsertAuthenticatorRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     },
+    proof::artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource},
 };
 use world_id_primitives::{Config, ServiceEndpoint};
 
+fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(DummyZkArtifactSource)
+}
 const OHTTP_GATEWAY_IMAGE: &str = "ghcr.io/worldcoin/ohttp-tools/ohttp-gateway";
 const OHTTP_GATEWAY_TAG: &str = "latest";
 
@@ -141,7 +145,7 @@ impl OhttpFixture {
             .with_wait_for(WaitFor::Http(Box::new(
                 HttpWaitStrategy::new("/health").with_expected_status_code(200_u16),
             )))
-            .with_exposed_host_ports([gw_port, idx_port])
+            .with_host("host.testcontainers.internal", Host::HostGateway)
             .with_env_var(
                 "SEED_SECRET_KEY",
                 "0000000000000000000000000000000000000000000000000000000000000001",
@@ -398,7 +402,7 @@ async fn init_fetches_packed_account_through_ohttp() -> eyre::Result<()> {
 
     let config = f.authenticator_config();
 
-    let auth = Authenticator::init(&TEST_SEED, config).await?;
+    let auth = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await?;
     assert_eq!(auth.packed_account_data, packed);
 
     let idx_req = f
@@ -427,7 +431,7 @@ async fn fetch_inclusion_proof_roundtrips_through_ohttp() -> eyre::Result<()> {
     .await;
 
     let config = f.authenticator_config();
-    let auth = Authenticator::init(&TEST_SEED, config).await?;
+    let auth = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await?;
 
     let proof = build_test_inclusion_proof(leaf_index);
     let expected_root: U256 = proof.inclusion_proof.root.into();
@@ -471,7 +475,7 @@ async fn fetch_authenticator_pubkeys_roundtrips_through_ohttp() -> eyre::Result<
     .await;
 
     let config = f.authenticator_config();
-    let auth = Authenticator::init(&TEST_SEED, config).await?;
+    let auth = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await?;
 
     f.set_indexer_response(
         "/authenticator-pubkeys",
@@ -511,7 +515,7 @@ async fn signing_nonce_roundtrips_through_ohttp_when_no_rpc() -> eyre::Result<()
     .await;
 
     let config = f.authenticator_config();
-    let auth = Authenticator::init(&TEST_SEED, config).await?;
+    let auth = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await?;
 
     f.set_indexer_response(
         "/signature-nonce",
@@ -550,7 +554,7 @@ async fn init_authenticator_for_mutations(
     .await;
 
     let config = f.authenticator_config();
-    Authenticator::init(&TEST_SEED, config).await
+    Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await
 }
 
 /// Pre-seeds the indexer stubs needed by mutation methods.
@@ -703,7 +707,7 @@ async fn packed_account_not_found_maps_to_account_does_not_exist() -> eyre::Resu
 
     let config = f.authenticator_config();
 
-    let result = Authenticator::init(&TEST_SEED, config).await;
+    let result = Authenticator::init(&TEST_SEED, config, dummy_zk_source()).await;
     assert!(
         matches!(result, Err(AuthenticatorError::AccountDoesNotExist)),
         "expected AccountDoesNotExist, got: {result:?}"

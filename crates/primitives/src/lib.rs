@@ -22,14 +22,26 @@ use getrandom as _;
 /// Contains types related to the Authenticator.
 pub mod authenticator;
 
+/// Trust Anchor Key Tokens and Authenticator Assertion Tokens (WIP-106): issuance, encoding and verification.
+pub mod authenticator_assertion;
+
+pub mod authenticator_message;
+
+/// Deterministic CBOR and `COSE_Sign1` for the encodings WIPs specify.
+pub mod cbor;
+
 mod key_set;
 pub use key_set::{
     AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, SparseAuthenticatorPubkeysError,
+    decode_authenticator_pubkey,
 };
 
 /// Contains the global configuration for interacting with the World ID Protocol.
 mod config;
 pub use config::{Config, ServiceEndpoint};
+
+pub mod poseidon;
+pub use poseidon::{DomainSeparator, VariableLengthDomainSeparator};
 
 /// SAFE-style sponge utilities and helpers.
 pub mod sponge;
@@ -45,18 +57,25 @@ pub mod merkle;
 pub mod api_types;
 
 /// Contains types specifically related to the OPRF services.
+#[cfg(feature = "protocol")]
 pub mod oprf;
+#[cfg(feature = "protocol")]
+pub use oprf::{OprfPrefix, OprfPrefixedFieldElement};
 
 /// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
 mod nullifier;
 pub use nullifier::Nullifier;
 
 /// Contains types relevant for Session Proofs.
+#[cfg(feature = "protocol")]
 mod session;
-pub use session::{SessionFeType, SessionFieldElement, SessionId, SessionNullifier};
+#[cfg(feature = "protocol")]
+pub use session::{SessionId, SessionNullifier, SessionRef};
 
 /// Contains the quintessential zero-knowledge proof type.
+#[cfg(feature = "protocol")]
 pub mod proof;
+#[cfg(feature = "protocol")]
 pub use proof::{OwnershipProof, ZeroKnowledgeProof};
 
 /// Contains types specifically related to relying parties.
@@ -65,17 +84,22 @@ pub mod rp;
 pub mod serde_utils;
 
 /// Contains signer primitives for on-chain and off-chain signatures.
+#[cfg(feature = "protocol")]
 mod signer;
+#[cfg(feature = "protocol")]
 pub use signer::Signer;
 
 /// Contains request/response types and validation helpers for RP proof requests.
+#[cfg(feature = "protocol")]
 pub mod request;
+#[cfg(feature = "protocol")]
 pub use request::{
     ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
     ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+#[cfg(feature = "protocol")]
 pub use taceo_oprf::types::{OprfKeyId, ShareEpoch};
 
 /// The scalar field used in the World ID Protocol.
@@ -129,11 +153,21 @@ impl FieldElement {
     /// # Warning
     /// Use this function carefully. This function will perform modulo reduction on the input, which may
     /// lead to unexpected results if the input should not be reduced. For example, this is **not** appropriate
-    /// when parsing a canonical field-element encoding.
+    /// when parsing a canonical field-element encoding. Because of the potential footgun, it is not exposed beyond
+    /// this crate.
     #[must_use]
-    pub fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
+    pub(crate) fn from_be_bytes_mod_order(bytes: &[u8]) -> Self {
         let field_element = Fq::from_be_bytes_mod_order(bytes);
         Self(field_element)
+    }
+
+    /// `R(d)`: a 256-bit digest read as a big-endian integer modulo the field order (WIP-201 §2).
+    ///
+    /// Only for hash outputs, where two digests a multiple of the modulus apart are as hard to find
+    /// as a hash collision. Parse canonical encodings with [`Self::from_be_bytes`].
+    #[must_use]
+    pub fn from_digest(digest: &[u8; 32]) -> Self {
+        Self::from_be_bytes_mod_order(digest)
     }
 
     /// Takes arbitrary raw bytes, hashes them with a byte-friendly gas-efficient hash function
@@ -324,12 +358,25 @@ pub enum PrimitiveError {
         /// The reason the input is invalid
         reason: String,
     },
+    /// A session ID commitment does not match the commitment derived from its inputs.
+    #[error("Session ID commitment does not match the derived commitment")]
+    SessionIdCommitmentMismatch,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use ruint::uint;
+
+    #[test]
+    fn a_digest_above_the_modulus_is_reduced() {
+        let digest = [0xff; 32];
+        assert_eq!(
+            FieldElement::from_digest(&digest),
+            FieldElement::from_be_bytes_mod_order(&digest)
+        );
+        assert!(FieldElement::from_be_bytes(&digest).is_err());
+    }
 
     #[test]
     fn test_field_element_encoding() {

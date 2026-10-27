@@ -1,31 +1,17 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
-use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
-use serde::{Deserialize, Serialize};
 use tokio::time::Instant;
-use utoipa::ToSchema;
 use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
 
+pub use crate::storage::request_store::RequestRecord;
 use crate::{
     batch_policy::BacklogUrgencyStats,
     config::RateLimitConfig,
     error::{GatewayErrorResponse, GatewayResult},
     metrics,
+    storage::request_store::{CreateRequestOutcome, RateLimitOutcome, RequestStore},
 };
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct RequestRecord {
-    pub kind: GatewayRequestKind,
-    pub status: GatewayRequestState,
-    pub updated_at: u64,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub inflight_keys: Vec<String>,
-}
-
-const REQUESTS_TTL: Duration = Duration::from_secs(86_400); // 24 hours
-/// TTL for in-flight authenticator addresses (5 minutes safety fallback).
-const INFLIGHT_TTL: Duration = Duration::from_secs(300);
-const PENDING_SET_KEY: &str = "gateway:pending_requests";
 
 /// Scope used to compute queued backlog stats for a specific batcher.
 #[derive(Clone, Copy, Debug)]
@@ -51,11 +37,11 @@ pub fn now_unix_secs() -> u64 {
 /// Also tracks in-flight authenticator addresses to prevent duplicate requests.
 /// Includes rate limiting for leaf_index-based requests.
 ///
-/// Uses Redis for persistent, multi-node request storage.
+/// Uses shared persistent storage so tracking works across gateway replicas.
 #[derive(Clone)]
 pub struct RequestTracker {
-    /// The Redis connection manager.
-    redis_manager: ConnectionManager,
+    /// Persistent request storage.
+    store: RequestStore,
     /// Rate limiting configuration, if enabled.
     rate_limit: Option<RateLimitConfig>,
     /// Safety timeout for receipt polling tasks so they don't run forever.
@@ -72,32 +58,11 @@ impl RequestTracker {
         rate_limit: Option<RateLimitConfig>,
         receipt_timeout_secs: u64,
     ) -> Self {
-        let client = Client::open(redis_url.as_str()).expect("Unable to connect to Redis");
-        let redis_manager = ConnectionManager::new(client)
-            .await
-            .expect("Unable to create Redis connection manager");
-
-        tracing::info!("Connection to Redis established");
-
         Self {
-            redis_manager,
+            store: RequestStore::connect(&redis_url).await,
             rate_limit,
             receipt_timeout_secs,
         }
-    }
-
-    /// Returns the Redis key for a request record.
-    fn request_key(id: &str) -> String {
-        format!("gateway:request:{}", id)
-    }
-
-    /// Returns the Redis key for an in-flight lock given a raw identifier.
-    fn inflight_redis_key(kind: GatewayRequestKind, raw: &str) -> String {
-        let tag = match kind {
-            GatewayRequestKind::CreateAccount => "create",
-            _ => "leaf",
-        };
-        format!("gateway:inflight:{tag}:{raw}")
     }
 
     /// Records a terminal request with a specific ID without adding it to the
@@ -120,132 +85,41 @@ impl RequestTracker {
             "new_terminal_request_with_id should only be used with terminal states"
         );
 
-        let record = RequestRecord {
-            kind,
-            status,
-            updated_at: now_unix_secs(),
-            inflight_keys: Vec::new(),
-        };
-
-        let mut manager = self.redis_manager.clone();
-        let key = Self::request_key(&id);
-        let json_str = serde_json::to_string(&record).map_err(|e| {
-            tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
-            GatewayErrorResponse::internal_server_error()
-        })?;
-
-        let result: Result<(), redis::RedisError> = redis::cmd("SET")
-            .arg(&key)
-            .arg(&json_str)
-            .arg("NX")
-            .arg("EX")
-            .arg(REQUESTS_TTL.as_secs())
-            .query_async(&mut manager)
-            .await;
-
-        if let Err(e) = result {
-            tracing::error!("Error creating terminal request {id}: {e}");
-            return Err(GatewayErrorResponse::internal_server_error());
-        }
-
-        Ok(())
+        self.store
+            .create_terminal_request(&id, kind, status, now_unix_secs())
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, request_id = id, "Error creating terminal request");
+                GatewayErrorResponse::internal_server_error()
+            })
     }
 
     /// Creates a new request with a specific ID, atomically acquiring in-flight
-    /// lock keys via `SET NX`.
+    /// lock keys.
     ///
-    /// If any inflight key already exists, the entire operation is aborted and a
-    /// `DuplicateRequestInFlight` error is returned. On success, both the request
-    /// record and all inflight keys are guaranteed to exist in Redis.
+    /// If any in-flight key already exists, the operation is aborted and a
+    /// `DuplicateRequestInFlight` error is returned.
     pub async fn new_request_with_id(
         &self,
         id: String,
         kind: GatewayRequestKind,
         inflight_keys: Vec<String>,
     ) -> Result<(), GatewayErrorResponse> {
-        let redis_inflight_keys: Vec<String> = inflight_keys
-            .iter()
-            .map(|raw| Self::inflight_redis_key(kind, raw))
-            .collect();
-
-        let record = RequestRecord {
-            kind,
-            status: GatewayRequestState::Queued,
-            updated_at: now_unix_secs(),
-            inflight_keys: redis_inflight_keys.clone(),
-        };
-
-        let mut manager = self.redis_manager.clone();
-        let key = Self::request_key(&id);
-        let json_str = serde_json::to_string(&record).map_err(|e| {
-            tracing::error!("FATAL: unable to serialize a RequestRecord: {e}");
-            GatewayErrorResponse::internal_server_error()
-        })?;
-
-        // KEYS: [request_key, pending_set_key, inflight_key_1, ..., inflight_key_N]
-        // ARGV: [record_json, request_ttl, request_id, inflight_ttl]
-        let script = r#"
-            -- KEYS: [request_key, pending_set_key, inflight_key_1, ..., inflight_key_N]
-            local inflight_start = 3
-            local inflight_ttl = tonumber(ARGV[4])
-
-            -- Atomically check if any inflight key already exists
-            -- When the any key exists, return it immediately.
-            for i = inflight_start, #KEYS do
-                if redis.call('EXISTS', KEYS[i]) == 1 then
-                    return KEYS[i]
-                end
-            end
-
-            -- Set all inflight keys
-            for i = inflight_start, #KEYS do
-                redis.call('SET', KEYS[i], '1', 'EX', inflight_ttl)
-            end
-
-            -- Create the request record if record for this ID does not exist
-            local ok = redis.call('SET', KEYS[1], ARGV[1], 'NX', 'EX', ARGV[2])
-            if not ok then
-                -- Rollback inflight keys
-                for i = inflight_start, #KEYS do
-                    redis.call('DEL', KEYS[i])
-                end
-                return redis.error_reply('request already exists')
-            end
-
-            -- Add the request ID to the pending set
-            redis.call('SADD', KEYS[2], ARGV[3])
-            return nil
-        "#;
-
-        let script = redis::Script::new(script);
-        let mut invocation = script.prepare_invoke();
-        invocation.key(&key);
-        invocation.key(PENDING_SET_KEY);
-        for inflight_key in &redis_inflight_keys {
-            invocation.key(inflight_key);
-        }
-        invocation.arg(&json_str);
-        invocation.arg(REQUESTS_TTL.as_secs());
-        invocation.arg(&id);
-        invocation.arg(INFLIGHT_TTL.as_secs());
-
-        let result: Result<Option<String>, redis::RedisError> =
-            invocation.invoke_async(&mut manager).await;
-
-        match result {
-            Ok(None) => Ok(()),
-            Ok(Some(duplicate_key)) => {
-                tracing::info!(
-                    key = %duplicate_key,
-                    "Duplicate in-flight request detected"
-                );
+        match self
+            .store
+            .create_request(&id, kind, &inflight_keys, now_unix_secs())
+            .await
+        {
+            Ok(CreateRequestOutcome::Created) => Ok(()),
+            Ok(CreateRequestOutcome::DuplicateInflight(key)) => {
+                tracing::info!(%key, "Duplicate in-flight request detected");
                 metrics::increment_request_rejected("duplicate_inflight");
                 Err(GatewayErrorResponse::bad_request(
                     GatewayErrorCode::DuplicateRequestInFlight,
                 ))
             }
-            Err(e) => {
-                tracing::error!("Error creating request {id}: {e}");
+            Err(error) => {
+                tracing::error!(%error, request_id = id, "Error creating request");
                 Err(GatewayErrorResponse::internal_server_error())
             }
         }
@@ -254,7 +128,7 @@ impl RequestTracker {
     /// Updates the status of multiple requests in a batch.
     pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
         for id in ids {
-            if let Err(e) = self.set_status_on_redis(id, &status).await {
+            if let Err(e) = self.update_stored_status(id, &status).await {
                 tracing::error!("Error updating status for request {id}: {e}");
             }
         }
@@ -367,81 +241,22 @@ impl RequestTracker {
 
     /// Returns a snapshot of the current state of a request, if it exists.
     pub async fn snapshot(&self, id: &str) -> Option<RequestRecord> {
-        let mut manager = self.redis_manager.clone();
-        let key = Self::request_key(id);
-        let result: Result<Option<String>, redis::RedisError> = manager.get(&key).await;
-
-        match result {
-            Ok(Some(json_str)) => match serde_json::from_str::<RequestRecord>(&json_str) {
-                Ok(record) => Some(record),
-                Err(e) => {
-                    tracing::error!("Failed to deserialize request from Redis: {}", e);
-                    None
-                }
-            },
-            Ok(None) => None,
-            Err(e) => {
-                tracing::error!("Failed to get request from Redis: {}", e);
+        match self.store.request(id).await {
+            Ok(record) => record,
+            Err(error) => {
+                tracing::error!(%error, request_id = id, "Failed to get request");
                 None
             }
         }
     }
 
-    /// Sets the status of a specific request in Redis.
-    ///
-    /// Atomically updates the status and `updated_at` timestamp. When the new
-    /// status is terminal (`finalized` or `failed`), the request ID is also
-    /// removed from the pending set in the same Lua script invocation.
-    async fn set_status_on_redis(
+    /// Atomically updates a request's status and timestamp.
+    async fn update_stored_status(
         &self,
         id: &str,
         status: &GatewayRequestState,
     ) -> GatewayResult<()> {
-        let mut manager = self.redis_manager.clone();
-        let key = Self::request_key(id);
-        let status_json = serde_json::to_string(status)?;
-        let now = now_unix_secs();
-
-        let script = r#"
-            local record = redis.call('GET', KEYS[1])
-            if not record then
-                return redis.error_reply('attempted to update inexistent request')
-            end
-
-            local decoded = cjson.decode(record)
-            decoded.status = cjson.decode(ARGV[1])
-            decoded.updated_at = tonumber(ARGV[2])
-            local updated = cjson.encode(decoded)
-
-            redis.call('SET', KEYS[1], updated, 'KEEPTTL')
-
-            -- If the request is finalized or failed, remove it from the pending set
-            -- and atomically clean up any associated in-flight lock keys.
-            local state = decoded.status.state
-            if state == 'finalized' or state == 'failed' then
-                redis.call('SREM', KEYS[2], ARGV[3])
-                local inflight = decoded.inflight_keys
-                if inflight then
-                    for _, k in ipairs(inflight) do
-                        redis.call('DEL', k)
-                    end
-                end
-            end
-
-            return redis.status_reply('OK')
-        "#;
-
-        let result: Result<(), redis::RedisError> = redis::Script::new(script)
-            .key(&key)
-            .key(PENDING_SET_KEY)
-            .arg(&status_json)
-            .arg(now)
-            .arg(id)
-            .invoke_async(&mut manager)
-            .await;
-
-        result?;
-        Ok(())
+        self.store.update_status(id, status, now_unix_secs()).await
     }
 
     // =========================================================================
@@ -450,9 +265,7 @@ impl RequestTracker {
 
     /// Returns all request IDs currently in the pending set.
     pub async fn get_pending_requests(&self) -> GatewayResult<Vec<String>> {
-        let mut manager = self.redis_manager.clone();
-        let ids: std::collections::HashSet<String> = manager.smembers(PENDING_SET_KEY).await?;
-        Ok(ids.into_iter().collect())
+        self.store.pending_request_ids().await
     }
 
     /// Fetches multiple request records in a single `MGET` round-trip.
@@ -460,32 +273,7 @@ impl RequestTracker {
         &self,
         ids: &[String],
     ) -> GatewayResult<Vec<(String, Option<RequestRecord>)>> {
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        let keys: Vec<String> = ids.iter().map(|id| Self::request_key(id)).collect();
-        let mut manager = self.redis_manager.clone();
-
-        let values: Vec<Option<String>> = redis::cmd("MGET")
-            .arg(&keys)
-            .query_async(&mut manager)
-            .await?;
-
-        Ok(ids
-            .iter()
-            .zip(values)
-            .map(|(id, maybe_json)| {
-                let record = maybe_json.and_then(|json_str| {
-                    serde_json::from_str::<RequestRecord>(&json_str)
-                        .map_err(|e| {
-                            tracing::error!("Failed to deserialize request {id} from Redis: {e}");
-                        })
-                        .ok()
-                });
-                (id.clone(), record)
-            })
-            .collect())
+        self.store.requests(ids).await
     }
 
     /// Computes queued-backlog urgency statistics from pending requests.
@@ -538,21 +326,14 @@ impl RequestTracker {
 
     /// Removes a request ID from the pending set (safety-net cleanup).
     pub async fn remove_from_pending_set(&self, id: &str) {
-        let mut manager = self.redis_manager.clone();
-        let result: Result<usize, redis::RedisError> = manager.srem(PENDING_SET_KEY, id).await;
-        if let Err(e) = result {
-            tracing::error!("Failed to SREM {id} from pending set: {e}");
+        if let Err(error) = self.store.remove_pending_request(id).await {
+            tracing::error!(%error, request_id = id, "Failed to remove request from pending set");
         }
     }
 
     // =========================================================================
     // Rate limiting
     // =========================================================================
-
-    /// Returns the Redis key for a rate limit entry.
-    fn rate_limit_key(leaf_index: u64) -> String {
-        format!("gateway:ratelimit:leaf:{}", leaf_index)
-    }
 
     /// Checks if a request for the given leaf_index should be allowed.
     ///
@@ -570,53 +351,19 @@ impl RequestTracker {
         };
         let (window_secs, max_requests) = (rl.window_secs, rl.max_requests);
 
-        let key = Self::rate_limit_key(leaf_index);
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("Time went backwards")
-            .as_secs();
-
-        let mut manager = self.redis_manager.clone();
-
-        let script = redis::Script::new(
-            r#"
-            local key = KEYS[1]
-            local now = tonumber(ARGV[1])
-            local window = tonumber(ARGV[2])
-            local limit = tonumber(ARGV[3])
-            local request_id = ARGV[4]
-
-            -- Remove old entries outside the window
-            local min_timestamp = now - window
-            redis.call('ZREMRANGEBYSCORE', key, '-inf', min_timestamp)
-
-            -- Count current entries in the window
-            local current = redis.call('ZCARD', key)
-
-            -- Check if we're under the limit
-            if current < limit then
-                -- Add the new request with current timestamp as score
-                redis.call('ZADD', key, now, request_id)
-                -- Set expiration on the key to cleanup old keys
-                redis.call('EXPIRE', key, window)
-                return current + 1
-            else
-                -- Rate limit exceeded
-                return -1
-            end
-            "#,
-        );
-        let result: Result<i64, redis::RedisError> = script
-            .key(&key)
-            .arg(now)
-            .arg(window_secs)
-            .arg(max_requests)
-            .arg(request_id)
-            .invoke_async(&mut manager)
+        let result = self
+            .store
+            .check_rate_limit(
+                leaf_index,
+                request_id,
+                now_unix_secs(),
+                window_secs,
+                max_requests,
+            )
             .await;
 
         match result {
-            Ok(-1) => {
+            Ok(RateLimitOutcome::Exceeded) => {
                 tracing::warn!(
                     leaf_index = leaf_index,
                     request_id = request_id,
@@ -628,19 +375,19 @@ impl RequestTracker {
                     max_requests,
                 ))
             }
-            Ok(count) => {
+            Ok(RateLimitOutcome::Allowed(count)) => {
                 tracing::debug!(
-                    leaf_index = leaf_index,
-                    request_id = request_id,
-                    count = count,
+                    leaf_index,
+                    request_id,
+                    count,
                     max = max_requests,
                     "Rate limit check passed"
                 );
                 Ok(())
             }
-            Err(e) => {
-                tracing::error!("Redis error during rate limit check: {}", e);
-                tracing::warn!("Rate limit check failed due to Redis error, allowing request");
+            Err(error) => {
+                tracing::error!(%error, "Storage error during rate limit check");
+                tracing::warn!("Rate limit check failed due to storage error, allowing request");
                 Ok(())
             }
         }

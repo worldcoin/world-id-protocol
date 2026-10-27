@@ -2,56 +2,34 @@ name: Release OPRF Node
 
 on:
   push:
-    branches:
-      - main
+    tags:
+      - "world-id-oprf-node-v*"
 
 permissions:
   contents: read
 
 jobs:
-  release:
-    name: Release OPRF Node
+  prepare:
+    name: Prepare release metadata
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     outputs:
-      released: ${{ steps.release-plz.outputs.releases_created }}
-      version: ${{ steps.version.outputs.value }}
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9
-        with:
-          toolchain: stable
-
-      - name: Run release-plz release
-        id: release-plz
-        uses: release-plz/action@1528104d2ca23787631a1c1f022abb64b34c1e11 # v0.5.128 (https://github.com/release-plz/action/releases/tag/v0.5.128)
-        with:
-          command: release
-          config: services/oprf-node/release-plz.toml
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Derive image version
-        if: steps.release-plz.outputs.releases_created == 'true'
-        id: version
+      - name: Resolve version
+        id: v
         run: |
-          set -euo pipefail
-          version="$(cargo metadata --format-version 1 --no-deps \
-            --manifest-path services/oprf-node/Cargo.toml \
-            | jq -er '.packages[] | select(.name == "world-id-oprf-node") | .version')"
-          echo "value=v$version" >> "$GITHUB_OUTPUT"
+          VERSION="${GITHUB_REF_NAME#world-id-oprf-node-}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          fi
 
   build-docker:
     name: Build Docker
-    needs: release
-    if: needs.release.outputs.released == 'true'
+    needs: prepare
     permissions:
       contents: read
       id-token: write
@@ -60,5 +38,37 @@ jobs:
     uses: ./.github/workflows/build-docker.yml
     with:
       service: oprf-node
-      version: ${{ needs.release.outputs.version }}
+      version: ${{ needs.prepare.outputs.version }}
     secrets: inherit
+
+  github-release:
+    name: GitHub Release
+    needs: [prepare, build-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Generate release notes
+        id: notes
+        uses: orhun/git-cliff-action@f50e11560dce63f7c33227798f90b924471a88b5 # v4.8.0 https://github.com/orhun/git-cliff-action/releases/tag/v4.8.0
+        with:
+          config: services/oprf-node/cliff.toml
+          args: --include-path "services/oprf-node/**" --latest --strip all
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRERELEASE_FLAG=""
+          if [[ "${{ needs.prepare.outputs.prerelease }}" == "true" ]]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --title "world-id-oprf-node ${{ needs.prepare.outputs.version }}" \
+            --notes-file "${{ steps.notes.outputs.changelog }}" \
+            $PRERELEASE_FLAG

@@ -30,6 +30,7 @@ mod sanity_check;
 pub mod tree;
 
 static BLOCKCHAIN_RETRY_DELAY: Duration = Duration::from_secs(1);
+const BLOCKCHAIN_PULL_STREAM_ERROR_THRESHOLD: u64 = 5;
 
 /// Initializes the in-memory tree from a cache file if it exists, otherwise builds from DB.
 ///
@@ -352,6 +353,8 @@ pub async fn process_registry_events(
     db: &DB,
     tree_state: &tree::TreeState,
 ) -> IndexerResult<()> {
+    let mut consecutive_stream_errors = 0u64;
+
     loop {
         tracing::info!("starting blockchain pull stream");
 
@@ -379,6 +382,7 @@ pub async fn process_registry_events(
                     let block_number = event.block_number;
                     match handle_registry_event(&mut events_committer, event).await {
                         Ok(()) => {
+                            consecutive_stream_errors = 0;
                             crate::metrics::set_chain_processed_block(block_number);
                         }
                         Err(IndexerError::ReorgDetected {
@@ -419,7 +423,21 @@ pub async fn process_registry_events(
                     }
                 }
                 Err(e) => {
-                    tracing::error!(?e, "blockchain pull stream error");
+                    consecutive_stream_errors += 1;
+                    if consecutive_stream_errors >= BLOCKCHAIN_PULL_STREAM_ERROR_THRESHOLD {
+                        tracing::error!(
+                            ?e,
+                            consecutive_stream_errors,
+                            "blockchain pull stream error"
+                        );
+                    } else {
+                        tracing::warn!(
+                            ?e,
+                            consecutive_stream_errors,
+                            error_threshold = BLOCKCHAIN_PULL_STREAM_ERROR_THRESHOLD,
+                            "blockchain pull stream error"
+                        );
+                    }
                     break;
                 }
             }

@@ -255,6 +255,9 @@ pub struct RecoverAccountRequest {
     #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
     pub nonce: U256,
     /// The new authenticator pubkey.
+    ///
+    /// The gateway rejects requests without it: the registry would store a zero key, which no
+    /// authenticator can prove with.
     #[serde(default, with = "hex_u256_opt")]
     #[cfg_attr(feature = "openapi", schema(value_type = Option<String>, format = "hex"))]
     pub new_authenticator_pubkey: Option<U256>,
@@ -496,6 +499,34 @@ pub struct IndexerAuthenticatorPubkeysResponse {
     pub offchain_signer_commitment: U256,
 }
 
+/// The registered authenticators of an account, read from a single indexed account state.
+///
+/// `authenticator_pubkeys` and `authenticator_addresses` are indexed by `pubkey_id` and always
+/// have the same length. A removed slot is `null` in both. A Proving Authenticator (WIP-104) has
+/// the zero address, and an Admin Authenticator has its management key's address.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerAuthenticatorsResponse {
+    /// The compressed authenticator public keys, by `pubkey_id`.
+    #[serde(with = "hex_u256_opt_vec")]
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<Option<String>>, format = "hex"))]
+    pub authenticator_pubkeys: Vec<Option<U256>>,
+
+    /// The authenticator addresses, by `pubkey_id`.
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<Option<String>>, format = "hex"))]
+    pub authenticator_addresses: Vec<Option<Address>>,
+
+    /// The commitment to all the authenticator pubkeys, as stored in the `WorldIDRegistry`.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub offchain_signer_commitment: U256,
+
+    /// The number of recoveries of the account.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub recovery_counter: u64,
+}
+
 /// Health response for an API service (gateway or indexer).
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -526,6 +557,7 @@ pub struct IsValidRootResponse {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[strum(serialize_all = "snake_case")]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum IndexerErrorCode {
     /// Internal server error occurred in the indexer.
     InternalServerError,
@@ -539,6 +571,10 @@ pub enum IndexerErrorCode {
     AccountDoesNotExist,
     /// The request timed out.
     RequestTimeout,
+    /// An authenticator public key stored for the account is not a valid public key.
+    ///
+    /// The account cannot produce proofs until the key is replaced.
+    InvalidAuthenticatorPubkey,
 }
 
 /// Gateway error codes.

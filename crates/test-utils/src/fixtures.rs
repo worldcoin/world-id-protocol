@@ -12,7 +12,6 @@ use eyre::{Context as _, Result};
 use k256::ecdsa::SigningKey;
 use rand::{Rng, thread_rng};
 use taceo_oprf::types::{OprfKeyId, ShareEpoch};
-use taceo_oprf_test_utils::PEER_ADDRESSES;
 use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, credential::Credential,
     merkle::MerkleInclusionProof, rp::RpId as WorldRpId,
@@ -31,7 +30,7 @@ pub struct RegistryTestContext {
 }
 
 impl RegistryTestContext {
-    /// Spawns Anvil, deploys the WorldIDRegistry and CredentialSchemaIssuerRegistry,
+    /// Spawns Anvil, deploys the V2-upgraded WorldIDRegistry and protocol registries,
     /// and registers a random issuer.
     pub async fn new() -> Result<Self> {
         let anvil = TestAnvil::spawn_with_multicall3()
@@ -41,9 +40,9 @@ impl RegistryTestContext {
             .signer(0)
             .wrap_err("failed to acquire default anvil signer")?;
         let world_id_registry = anvil
-            .deploy_world_id_registry(deployer.clone())
+            .deploy_world_id_registry_v2(deployer.clone())
             .await
-            .wrap_err("failed to deploy WorldIDRegistry")?;
+            .wrap_err("failed to deploy WorldIDRegistry V2")?;
         let oprf_key_registry = anvil
             .deploy_oprf_key_registry(deployer.clone())
             .await
@@ -67,7 +66,11 @@ impl RegistryTestContext {
             .wrap_err("failed to deploy Verifier")?;
 
         anvil
-            .register_oprf_nodes(oprf_key_registry, deployer.clone(), PEER_ADDRESSES.to_vec())
+            .register_oprf_nodes(
+                oprf_key_registry,
+                deployer.clone(),
+                anvil.oprf_peer_addresses()?,
+            )
             .await?;
 
         // add RpRegistry as OprfKeyRegistry admin because it needs to init key-gens
@@ -88,43 +91,6 @@ impl RegistryTestContext {
             credential_registry,
             rp_registry,
             world_id_verifier,
-        })
-    }
-
-    /// Spawns Anvil and deploys protocol registries with a lightweight mock OPRF key registry.
-    ///
-    /// This variant is useful for auth tests that need issuer removal without running OPRF key-gen rounds.
-    pub async fn new_with_mock_oprf_key_registry() -> Result<Self> {
-        let anvil = TestAnvil::spawn_with_multicall3()
-            .await
-            .wrap_err("failed to spawn anvil")?;
-        let deployer = anvil
-            .signer(0)
-            .wrap_err("failed to acquire default anvil signer")?;
-        let world_id_registry = anvil
-            .deploy_world_id_registry(deployer.clone())
-            .await
-            .wrap_err("failed to deploy WorldIDRegistry")?;
-        let oprf_key_registry = anvil
-            .deploy_mock_oprf_key_registry(deployer.clone())
-            .await
-            .wrap_err("failed to deploy mock OprfKeyRegistry")?;
-        let credential_registry = anvil
-            .deploy_credential_schema_issuer_registry(deployer.clone(), oprf_key_registry)
-            .await
-            .wrap_err("failed to deploy CredentialSchemaIssuerRegistry")?;
-        let rp_registry = anvil
-            .deploy_rp_registry(deployer.clone(), oprf_key_registry)
-            .await
-            .wrap_err("failed to deploy RpRegistry")?;
-
-        Ok(Self {
-            anvil,
-            world_id_registry,
-            oprf_key_registry,
-            credential_registry,
-            rp_registry,
-            world_id_verifier: Address::ZERO,
         })
     }
 }

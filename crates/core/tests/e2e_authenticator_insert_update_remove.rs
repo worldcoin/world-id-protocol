@@ -1,6 +1,6 @@
 #![cfg(feature = "authenticator")]
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use alloy::{
     primitives::{Address, U256},
@@ -12,14 +12,18 @@ use reqwest::Client;
 use world_id_core::{
     Authenticator, AuthenticatorError,
     api_types::{GatewayRequestState, GatewayStatusResponse},
+    artifacts::{ZkArtifactSource, dummy::DummyZkArtifactSource},
 };
 use world_id_gateway::{
-    BatchPolicyConfig, GatewayConfig, SignerArgs, defaults, spawn_gateway_for_tests,
+    BatchPolicyConfig, GatewayConfig, RegistryVersion, SignerArgs, defaults,
+    spawn_gateway_for_tests,
 };
 use world_id_primitives::{Config, ServiceEndpoint, TREE_DEPTH, merkle::AccountInclusionProof};
+
 use world_id_test_utils::{
     anvil::{TestAnvil, WorldIDRegistry},
     fixtures::{MerkleFixture, single_leaf_merkle_fixture},
+    redis_testcontainer,
     stubs::MutableIndexerStub,
 };
 
@@ -92,6 +96,11 @@ fn make_config(
 
 // Tests that the on-chain nonce increments correctly after each authenticator operation.
 // Flow: create account (nonce=0) -> insert (nonce=1) -> update (nonce=2) -> remove (nonce=3)
+
+fn dummy_zk_source() -> Arc<dyn ZkArtifactSource> {
+    Arc::new(DummyZkArtifactSource)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn e2e_authenticator_insert_update_remove() {
     rustls::crypto::aws_lc_rs::default_provider()
@@ -100,7 +109,11 @@ async fn e2e_authenticator_insert_update_remove() {
     let anvil = TestAnvil::spawn_with_multicall3()
         .await
         .expect("failed to spawn anvil with multicall3");
+    let (_redis, redis_url) = redis_testcontainer()
+        .await
+        .expect("failed to start Redis testcontainer");
     let deployer = anvil.signer(0).unwrap();
+    // This test covers the legacy updateAuthenticator route, which V2 removes.
     let registry_address = anvil
         .deploy_world_id_registry(deployer.clone())
         .await
@@ -109,17 +122,16 @@ async fn e2e_authenticator_insert_update_remove() {
     let signer_args = SignerArgs::from_wallet(hex::encode(deployer.to_bytes()));
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
-        registry_version: None,
+        registry_version: RegistryVersion::V1,
         provider: world_id_gateway::ProviderArgs {
-            http: Some(vec![anvil.endpoint().parse().unwrap()]),
-            signer: Some(signer_args),
+            http: vec![anvil.endpoint().parse().unwrap()],
+            signer: signer_args,
             ..Default::default()
         },
         listen_addr: (std::net::Ipv4Addr::LOCALHOST, 0).into(),
         max_create_batch_size: 10,
         max_ops_batch_size: 10,
-        redis_url: std::env::var("REDIS_URL")
-            .unwrap_or_else(|_| "redis://localhost:6379".to_string()),
+        redis_url,
         request_timeout_secs: 10,
         rate_limit_max_requests: None,
         rate_limit_window_secs: None,
@@ -149,15 +161,20 @@ async fn e2e_authenticator_insert_update_remove() {
         "http://127.0.0.1:0",
         &gateway_url,
     );
-    let result = Authenticator::init(&primary_seed, config.clone()).await;
+    let result = Authenticator::init(&primary_seed, config.clone(), dummy_zk_source()).await;
     assert!(matches!(
         result,
         Err(AuthenticatorError::AccountDoesNotExist)
     ));
 
-    let primary = Authenticator::init_or_register(&primary_seed, config, Some(recovery_address))
-        .await
-        .unwrap();
+    let primary = Authenticator::init_or_register(
+        &primary_seed,
+        config,
+        Some(recovery_address),
+        dummy_zk_source(),
+    )
+    .await
+    .unwrap();
 
     assert_eq!(primary.leaf_index(), 1);
     assert_eq!(primary.signing_nonce().await.unwrap(), U256::from(0));
@@ -183,7 +200,9 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config).await.unwrap();
+    let auth = Authenticator::init(&primary_seed, config, dummy_zk_source())
+        .await
+        .unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(0));
     let req_id = auth
@@ -221,7 +240,9 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&primary_seed, config).await.unwrap();
+    let auth = Authenticator::init(&primary_seed, config, dummy_zk_source())
+        .await
+        .unwrap();
 
     let updated_pubkey = EdDSAPrivateKey::random(&mut rand::thread_rng()).public();
     let updated_address = anvil.signer(3).unwrap().address();
@@ -274,7 +295,9 @@ async fn e2e_authenticator_insert_update_remove() {
         &indexer.url,
         &gateway_url,
     );
-    let auth = Authenticator::init(&secondary_seed, config).await.unwrap();
+    let auth = Authenticator::init(&secondary_seed, config, dummy_zk_source())
+        .await
+        .unwrap();
 
     assert_eq!(auth.signing_nonce().await.unwrap(), U256::from(2));
     let req_id = auth.remove_authenticator(updated_address, 0).await.unwrap();

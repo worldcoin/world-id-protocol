@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     batcher::{BatcherHandle, Command},
+    config::RegistryVersion,
     error::GatewayErrorResponse,
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
@@ -19,8 +20,6 @@ use world_id_primitives::api_types::{
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
 };
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
-
-use crate::registry_version::RegistryVersion;
 
 /// Type alias for the registry instance.
 pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
@@ -109,7 +108,7 @@ pub trait IntoRequest: RequestValidation + Sized {
         id: Uuid,
         ctx: &GatewayContext,
     ) -> Result<Request<Self>, GatewayErrorResponse> {
-        let calldata = self.validate_and_calldata(&ctx.registry).await?;
+        let calldata = self.validate_and_calldata(ctx).await?;
 
         Ok(Request {
             id,

@@ -8,11 +8,13 @@ use alloy::{
     sol_types::{Eip712Domain, SolCall as _, SolEvent as _, SolStruct as _, eip712_domain},
     uint,
 };
+use std::process::{Child, Command, Stdio};
+
 use alloy_node_bindings::{Anvil, AnvilInstance};
 use ark_ff::PrimeField as _;
 use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::{Context, ContextCompat, Result};
-use taceo_oprf_test_utils::TestOprfKeyRegistry;
+use taceo_oprf::anvil::OprfKeyRegistry;
 use world_id_primitives::{FieldElement, TREE_DEPTH, rp::RpId};
 
 /// Canonical Multicall3 address (same on all EVM chains).
@@ -49,19 +51,19 @@ sol!(
 
 sol!(
     #[sol(rpc)]
-    Poseidon2T2,
+    PackedAccountData,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/Poseidon2.sol/Poseidon2T2.json"
+        "/../../contracts/out/PackedAccountData.sol/PackedAccountData.json"
     )
 );
 
 sol!(
     #[sol(rpc)]
-    PackedAccountData,
+    FullStorageBinaryIMT,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/PackedAccountData.sol/PackedAccountData.json"
+        "/../../contracts/out/FullStorageBinaryIMT.sol/FullStorageBinaryIMT.json"
     )
 );
 
@@ -90,7 +92,7 @@ sol!(
     WorldIDRegistryV2,
     concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../../contracts/out/WorldIDRegistryV2Unreleased.sol/WorldIDRegistryV2.json"
+        "/../../contracts/out/WorldIDRegistryV2.sol/WorldIDRegistryV2.json"
     )
 );
 
@@ -146,6 +148,16 @@ sol!(
     concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/../../contracts/out/WorldIDVerifier.sol/WorldIDVerifier.json"
+    )
+);
+
+sol!(
+    #[allow(clippy::too_many_arguments)]
+    #[sol(rpc, ignore_unlinked)]
+    WorldIDVerifierV3,
+    concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../contracts/out/UnreleasedWorldIDVerifierV3.sol/WorldIDVerifierV3.json"
     )
 );
 
@@ -256,9 +268,49 @@ pub async fn get_latest_chain_commitment(
 // ── TestAnvil ────────────────────────────────────────────────────────────
 
 pub struct TestAnvil {
+    // Declared first so it drops before `instance`; see `AnvilReaper`.
+    _reaper: AnvilReaper,
     pub instance: AnvilInstance,
     pub rpc_url: String,
     pub ws_url: String,
+}
+
+/// Kills anvil when the process that spawned it exits without running destructors.
+///
+/// `AnvilInstance` stops anvil in `Drop`, which never runs if the test process is killed (SIGKILL,
+/// a harness timeout, `panic = "abort"`) or if the instance lives in a static. The orphaned anvil
+/// then keeps mining a block per second and its memory grows without bound.
+///
+/// The reaper is a `sh` child blocked reading a pipe whose write end only this process holds.
+/// When this process exits for any reason, the kernel closes the write end, `read` returns, and
+/// the reaper kills anvil.
+struct AnvilReaper(Child);
+
+impl AnvilReaper {
+    fn spawn(anvil_pid: u32) -> Result<Self> {
+        let child = Command::new("sh")
+            .args([
+                "-c",
+                r#"read -r _; kill -9 "$1" 2>/dev/null"#,
+                "anvil-reaper",
+            ])
+            .arg(anvil_pid.to_string())
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .context("failed to start anvil reaper")?;
+        Ok(Self(child))
+    }
+}
+
+impl Drop for AnvilReaper {
+    fn drop(&mut self) {
+        // Stop the reaper before `AnvilInstance` stops and reaps anvil, so the reaper can never
+        // signal a recycled PID. Errors only mean the reaper has already exited.
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
 }
 
 fn rp_registry_domain(chain_id: u64, verifying_contract: Address) -> Eip712Domain {
@@ -285,6 +337,16 @@ fn credential_schema_issuer_registry_domain(
 impl TestAnvil {
     const MNEMONIC: &'static str = "test test test test test test test test test test test junk";
 
+    /// Anvil must listen on all interfaces, not just loopback, so that containers started by
+    /// `stubs` can reach it through the Docker bridge gateway.
+    const BIND_HOST: &'static str = "0.0.0.0";
+
+    /// The endpoint host-side clients use. `AnvilInstance::endpoint` reports the bind host, which
+    /// is not a usable destination for every caller.
+    fn local_url(scheme: &str, instance: &AnvilInstance) -> String {
+        format!("{scheme}://127.0.0.1:{}", instance.port())
+    }
+
     /// Spawns a fresh `anvil` instance configured for integration tests.
     pub fn spawn() -> Result<Self> {
         Self::spawn_from_builder(Anvil::new())
@@ -299,6 +361,26 @@ impl TestAnvil {
     /// This avoids the need to fork from mainnet just to get Multicall3.
     pub async fn spawn_with_multicall3() -> Result<Self> {
         let anvil = Self::spawn()?;
+        anvil.deploy_multicall3().await?;
+        Ok(anvil)
+    }
+
+    /// Spawns a fresh `anvil` instance with auto-mining: a block is mined instantly for every
+    /// transaction instead of the 1-second interval used by [`Self::spawn`]. Prefer this for
+    /// tests that only need transactions included and don't depend on periodic block production.
+    pub fn spawn_auto_mine() -> Result<Self> {
+        let instance = Anvil::new()
+            .host(Self::BIND_HOST)
+            .mnemonic(Self::MNEMONIC)
+            .try_spawn()
+            .context("failed to start anvil")?;
+
+        Self::from_instance(instance)
+    }
+
+    /// Auto-mining variant of [`Self::spawn_with_multicall3`].
+    pub async fn spawn_auto_mine_with_multicall3() -> Result<Self> {
+        let anvil = Self::spawn_auto_mine()?;
         anvil.deploy_multicall3().await?;
         Ok(anvil)
     }
@@ -322,15 +404,22 @@ impl TestAnvil {
 
     fn spawn_from_builder(builder: Anvil) -> Result<Self> {
         let instance = builder
+            .host(Self::BIND_HOST)
             .mnemonic(Self::MNEMONIC)
             .block_time(1)
             .try_spawn()
             .context("failed to start anvil")?;
 
-        let rpc_url = instance.endpoint().to_string();
-        let ws_url = instance.ws_endpoint();
+        Self::from_instance(instance)
+    }
+
+    fn from_instance(instance: AnvilInstance) -> Result<Self> {
+        let reaper = AnvilReaper::spawn(instance.child().id())?;
+        let rpc_url = Self::local_url("http", &instance);
+        let ws_url = Self::local_url("ws", &instance);
 
         Ok(Self {
+            _reaper: reaper,
             instance,
             rpc_url,
             ws_url,
@@ -356,6 +445,12 @@ impl TestAnvil {
             .context("requested anvil account index out of bounds")?;
 
         Ok(PrivateKeySigner::from(key))
+    }
+
+    /// Addresses of anvil accounts 5-9, used as the five-node OPRF committee
+    /// (must match the signers used by `stubs::spawn_key_gens`).
+    pub fn oprf_peer_addresses(&self) -> Result<Vec<Address>> {
+        (5..10).map(|i| Ok(self.signer(i)?.address())).collect()
     }
 
     /// Creates a read-only provider connected to the `anvil` instance.
@@ -415,12 +510,12 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        let poseidon = Poseidon2T2::deploy(provider.clone())
-            .await
-            .context("failed to deploy Poseidon2T2 library")?;
         let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
             .context("failed to deploy PackedAccountData library")?;
+        let full_storage_binary_imt = FullStorageBinaryIMT::deploy(provider.clone())
+            .await
+            .context("failed to deploy FullStorageBinaryIMT library")?;
 
         let v1_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -429,7 +524,7 @@ impl TestAnvil {
         let implementation_address = Self::deploy_linked_registry_impl(
             provider.clone(),
             v1_json,
-            *poseidon.address(),
+            *full_storage_binary_imt.address(),
             *packed_account_data.address(),
         )
         .await
@@ -464,13 +559,13 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        // 1. Deploy the libraries shared by both V1 and V2 bytecode.
-        let poseidon = Poseidon2T2::deploy(provider.clone())
-            .await
-            .context("failed to deploy Poseidon2T2 library")?;
+        // 1. Deploy the libraries used by the registry bytecode.
         let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
             .context("failed to deploy PackedAccountData library")?;
+        let full_storage_binary_imt = FullStorageBinaryIMT::deploy(provider.clone())
+            .await
+            .context("failed to deploy FullStorageBinaryIMT library")?;
 
         // 2. Deploy V1 implementation, link, and stand up the proxy.
         let v1_json = include_str!(concat!(
@@ -480,7 +575,7 @@ impl TestAnvil {
         let v1_impl = Self::deploy_linked_registry_impl(
             provider.clone(),
             v1_json,
-            *poseidon.address(),
+            *full_storage_binary_imt.address(),
             *packed_account_data.address(),
         )
         .await
@@ -495,12 +590,12 @@ impl TestAnvil {
         // 3. Deploy V2 implementation linked against the same libraries.
         let v2_json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../contracts/out/WorldIDRegistryV2Unreleased.sol/WorldIDRegistryV2.json"
+            "/../../contracts/out/WorldIDRegistryV2.sol/WorldIDRegistryV2.json"
         ));
         let v2_impl = Self::deploy_linked_registry_impl(
             provider.clone(),
             v2_json,
-            *poseidon.address(),
+            *full_storage_binary_imt.address(),
             *packed_account_data.address(),
         )
         .await
@@ -539,12 +634,11 @@ impl TestAnvil {
         )
     }
 
-    /// Links Poseidon2T2 + PackedAccountData into a registry implementation
-    /// bytecode (`WorldIDRegistry` or `WorldIDRegistryV2`) and deploys it.
+    /// Links the registry implementation bytecode and deploys it.
     async fn deploy_linked_registry_impl<P: Provider>(
         provider: P,
         impl_json: &str,
-        poseidon_addr: Address,
+        full_storage_binary_imt_addr: Address,
         packed_account_data_addr: Address,
     ) -> Result<Address> {
         let json_value: serde_json::Value = serde_json::from_str(impl_json)?;
@@ -562,12 +656,39 @@ impl TestAnvil {
         bytecode_str = Self::link_bytecode_hex(
             impl_json,
             &bytecode_str,
-            "src/core/hash/Poseidon2.sol:Poseidon2T2",
-            poseidon_addr,
+            "src/core/libraries/FullStorageBinaryIMT.sol:FullStorageBinaryIMT",
+            full_storage_binary_imt_addr,
         )?;
         bytecode_str = Self::link_bytecode_hex(
             impl_json,
             &bytecode_str,
+            "src/core/libraries/PackedAccountData.sol:PackedAccountData",
+            packed_account_data_addr,
+        )?;
+
+        let bytecode = Bytes::from(hex::decode(bytecode_str)?);
+        Self::deploy_contract(provider, bytecode, Bytes::new()).await
+    }
+
+    /// Links `PackedAccountData` into the V3 verifier implementation bytecode and deploys it.
+    async fn deploy_linked_verifier_impl<P: Provider>(
+        provider: P,
+        packed_account_data_addr: Address,
+    ) -> Result<Address> {
+        let impl_json = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/UnreleasedWorldIDVerifierV3.sol/WorldIDVerifierV3.json"
+        ));
+        let json_value: serde_json::Value = serde_json::from_str(impl_json)?;
+        let bytecode_str = json_value["bytecode"]["object"]
+            .as_str()
+            .context("bytecode not found in JSON")?
+            .strip_prefix("0x")
+            .context("bytecode should be 0x-prefixed")?;
+
+        let bytecode_str = Self::link_bytecode_hex(
+            impl_json,
+            bytecode_str,
             "src/core/libraries/PackedAccountData.sol:PackedAccountData",
             packed_account_data_addr,
         )?;
@@ -619,12 +740,9 @@ impl TestAnvil {
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
 
-        taceo_oprf_test_utils::deploy_anvil::deploy_oprf_key_registry_25(
-            provider.erased(),
-            signer.address(),
-        )
-        .await
-        .context("failed to deploy OprfKeyRegistry contract")
+        taceo_oprf::anvil::deploy_oprf_key_registry_25(provider.erased(), signer.address())
+            .await
+            .context("failed to deploy OprfKeyRegistry contract")
     }
 
     /// Deploys a lightweight mock `OprfKeyRegistry` used by auth tests.
@@ -657,13 +775,17 @@ impl TestAnvil {
             .await
             .context("failed to deploy Verifier (Groth16) contract")?;
 
-        // WorldID verifier (upgradeable, delegates to Groth16 verifier)
-        let world_id_verifier = WorldIDVerifier::deploy(provider.clone())
+        let packed_account_data = PackedAccountData::deploy(provider.clone())
             .await
-            .context("failed to deploy WorldIDVerifier contract")?;
+            .context("failed to deploy PackedAccountData library")?;
+
+        // WorldID verifier (upgradeable, delegates to Groth16 verifier)
+        let world_id_verifier =
+            Self::deploy_linked_verifier_impl(provider.clone(), *packed_account_data.address())
+                .await?;
 
         let init_data = Bytes::from(
-            WorldIDVerifier::initializeCall {
+            WorldIDVerifierV3::initializeCall {
                 credentialIssuerRegistry: credential_issuer_registry,
                 worldIDRegistry: world_id_registry,
                 oprfKeyRegistry: oprf_key_registry,
@@ -673,7 +795,7 @@ impl TestAnvil {
             .abi_encode(),
         );
 
-        let proxy = ERC1967Proxy::deploy(provider, *world_id_verifier.address(), init_data)
+        let proxy = ERC1967Proxy::deploy(provider, world_id_verifier, init_data)
             .await
             .context("failed to deploy WorldIDVerifier proxy")?;
 
@@ -690,7 +812,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .registerOprfPeers(node_addresses)
             .send()
@@ -713,7 +835,7 @@ impl TestAnvil {
         let provider = ProviderBuilder::new()
             .wallet(EthereumWallet::from(signer.clone()))
             .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
-        let oprf_key_registry = TestOprfKeyRegistry::new(oprf_key_registry_contract, provider);
+        let oprf_key_registry = OprfKeyRegistry::new(oprf_key_registry_contract, provider);
         let receipt = oprf_key_registry
             .addKeyGenAdmin(admin)
             .send()
@@ -929,7 +1051,7 @@ impl TestAnvil {
             world_id_registry,
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .connect(&self.instance.endpoint())
+                .connect(&self.rpc_url)
                 .await
                 .unwrap(),
         );
@@ -961,7 +1083,7 @@ impl TestAnvil {
             world_id_registry,
             ProviderBuilder::new()
                 .wallet(EthereumWallet::from(signer))
-                .connect(&self.instance.endpoint())
+                .connect(&self.rpc_url)
                 .await
                 .unwrap(),
         );

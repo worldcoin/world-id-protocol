@@ -27,6 +27,7 @@ pub struct Account {
     pub authenticator_addresses: Vec<Option<Address>>,
     pub authenticator_pubkeys: Vec<Option<U256>>,
     pub offchain_signer_commitment: U256,
+    pub recovery_counter: u64,
     pub latest_event_id: AccountLatestEventId,
 }
 
@@ -110,6 +111,7 @@ where
                     authenticator_addresses,
                     authenticator_pubkeys,
                     offchain_signer_commitment,
+                    recovery_counter,
                     latest_block_number,
                     latest_log_index
                 FROM accounts
@@ -122,6 +124,28 @@ where
         .await?;
 
         result.map(|row| Self::map_account(&row)).transpose()
+    }
+
+    /// Returns the number of recoveries observed for `leaf_index`, or `None` if the account is
+    /// not indexed yet.
+    #[instrument(level = "info", skip(self))]
+    pub async fn get_recovery_counter(self, leaf_index: u64) -> DBResult<Option<u64>> {
+        let result = sqlx::query(
+            r#"
+                SELECT
+                    recovery_counter
+                FROM accounts
+                WHERE
+                    leaf_index = $1
+            "#,
+        )
+        .bind(leaf_index as i64)
+        .fetch_optional(self.executor)
+        .await?;
+
+        result
+            .map(|row| Self::map_recovery_counter(&row))
+            .transpose()
     }
 
     #[instrument(level = "info", skip(self))]
@@ -244,6 +268,7 @@ where
                     authenticator_addresses = $2,
                     authenticator_pubkeys = $3,
                     offchain_signer_commitment = $4,
+                    recovery_counter = recovery_counter + 1,
                     latest_block_number = $5,
                     latest_log_index = $6
                 WHERE
@@ -283,12 +308,19 @@ where
         latest_block_number: u64,
         latest_log_index: u64,
     ) -> DBResult<()> {
-        // Ensure arrays are large enough and insert at specific index
+        // `jsonb_set` appends when the index is past the end, so pad both arrays with nulls up
+        // to `pubkey_id` first. Otherwise a sparse insertion would land at the wrong slot.
+        let padded_len = i32::try_from(pubkey_id)
+            .map_err(|_| invalid_field!("pubkey_id", "exceeds the JSON array index range"))?;
         sqlx::query(
             r#"
                 UPDATE accounts SET
-                    authenticator_addresses = jsonb_set(authenticator_addresses, $2::text[], to_jsonb($3::text), true),
-                    authenticator_pubkeys = jsonb_set(authenticator_pubkeys, $2::text[], to_jsonb($4::text), true),
+                    authenticator_addresses = jsonb_set(
+                        authenticator_addresses || to_jsonb(array_fill(NULL::text, ARRAY[GREATEST($8 - jsonb_array_length(authenticator_addresses), 0)])),
+                        $2::text[], to_jsonb($3::text), true),
+                    authenticator_pubkeys = jsonb_set(
+                        authenticator_pubkeys || to_jsonb(array_fill(NULL::text, ARRAY[GREATEST($8 - jsonb_array_length(authenticator_pubkeys), 0)])),
+                        $2::text[], to_jsonb($4::text), true),
                     offchain_signer_commitment = $5,
                     latest_block_number = $6,
                     latest_log_index = $7
@@ -303,6 +335,7 @@ where
             .bind(new_commitment)
             .bind(latest_block_number as i64)
             .bind(latest_log_index as i64)
+            .bind(padded_len)
             .execute(self.executor)
             .await?;
         Ok(())
@@ -394,12 +427,17 @@ where
             authenticator_addresses: Self::map_authenticator_addresses(row)?,
             authenticator_pubkeys: Self::map_authenticator_pub_keys(row)?,
             offchain_signer_commitment: Self::map_offchain_signer_commitment(row)?,
+            recovery_counter: Self::map_recovery_counter(row)?,
             latest_event_id: Self::map_latest_event_id(row)?,
         })
     }
 
     fn map_leaf_index(row: &PgRow) -> DBResult<u64> {
         Ok(row.get::<i64, _>("leaf_index") as u64)
+    }
+
+    fn map_recovery_counter(row: &PgRow) -> DBResult<u64> {
+        Ok(row.get::<i64, _>("recovery_counter") as u64)
     }
 
     fn map_recovery_address(row: &PgRow) -> DBResult<Address> {

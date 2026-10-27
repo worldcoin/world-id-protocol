@@ -8,11 +8,13 @@ use world_id_indexer::{
     db::{DB, DBResult},
     tree::{self, TreeState, VersionedTreeState},
 };
+use world_id_test_utils::shared_postgres_testcontainer;
 
 /// RAII guard that ensures test database cleanup on drop
 pub struct TestDatabase {
     pub db: DB,
     db_url: String,
+    base_url: String,
     db_name: Option<String>,
 }
 
@@ -37,7 +39,7 @@ impl TestDatabase {
     /// if you want to handle cleanup errors
     pub async fn cleanup(mut self) {
         if let Some(db_name) = self.db_name.take() {
-            cleanup_test_db(&db_name).await;
+            cleanup_test_db(&self.base_url, &db_name).await;
         }
     }
 }
@@ -45,6 +47,7 @@ impl TestDatabase {
 impl Drop for TestDatabase {
     fn drop(&mut self) {
         if let Some(db_name) = self.db_name.take() {
+            let base_url = self.base_url.clone();
             // Best effort cleanup - spawn a thread with its own runtime
             // This is not ideal but necessary since Drop is synchronous
             let _ = std::thread::spawn(move || {
@@ -53,7 +56,7 @@ impl Drop for TestDatabase {
                     .build()
                 {
                     rt.block_on(async {
-                        cleanup_test_db(&db_name).await;
+                        cleanup_test_db(&base_url, &db_name).await;
                     });
                 }
             })
@@ -66,8 +69,10 @@ impl Drop for TestDatabase {
 /// Returns a TestDatabase guard that will automatically cleanup on drop
 pub async fn create_unique_test_db() -> TestDatabase {
     let unique_name = format!("test_db_{}", Uuid::new_v4().to_string().replace('-', "_"));
-    let base_url = std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
+    let base_url = shared_postgres_testcontainer()
+        .await
+        .expect("failed to start Postgres testcontainer")
+        .to_owned();
 
     // Connect to postgres database to create our test database
     let pool = PgPoolOptions::new()
@@ -101,18 +106,16 @@ pub async fn create_unique_test_db() -> TestDatabase {
     TestDatabase {
         db,
         db_url: test_db_url,
+        base_url,
         db_name: Some(unique_name),
     }
 }
 
 /// Cleanup test database
-pub async fn cleanup_test_db(db_name: &str) {
-    let base_url = std::env::var("TEST_DATABASE_URL")
-        .unwrap_or_else(|_| "postgresql://postgres:postgres@localhost:5432/postgres".to_string());
-
+pub async fn cleanup_test_db(base_url: &str, db_name: &str) {
     if let Ok(pool) = PgPoolOptions::new()
         .max_connections(1)
-        .connect(&base_url)
+        .connect(base_url)
         .await
     {
         // Terminate connections to the database first

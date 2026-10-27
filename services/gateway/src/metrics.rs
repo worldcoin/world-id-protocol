@@ -1,7 +1,7 @@
 //! Metrics definitions and helpers for the world-id-gateway.
 
 // HTTP metrics
-pub const METRICS_HTTP_LATENCY_MS: &str = "http.latency_ms";
+pub use world_id_services_common::METRICS_HTTP_LATENCY_MS;
 
 // Root cache metrics
 pub const METRICS_ROOT_CACHE_HITS: &str = "root_cache.hits";
@@ -30,11 +30,8 @@ pub const METRICS_BATCH_POLICY_TARGET_SIZE: &str = "batch.policy.target_size";
 pub const METRICS_REQUEST_REJECTED: &str = "request.rejected";
 
 pub fn describe_metrics() {
-    ::metrics::describe_histogram!(
-        METRICS_HTTP_LATENCY_MS,
-        ::metrics::Unit::Milliseconds,
-        "Gateway HTTP request latency in milliseconds."
-    );
+    world_id_services_common::describe_http_request_metrics();
+    world_id_services_common::describe_deprecated_endpoint_metrics();
 
     ::metrics::describe_counter!(
         METRICS_ROOT_CACHE_HITS,
@@ -114,24 +111,8 @@ pub fn describe_metrics() {
         ::metrics::Unit::Count,
         "Number of rejected requests by reason."
     );
-}
 
-pub fn record_http_latency_ms(path: &str, status: u16, latency_ms: f64) {
-    let status_class = match status / 100 {
-        1 => "1xx",
-        2 => "2xx",
-        3 => "3xx",
-        4 => "4xx",
-        5 => "5xx",
-        _ => "other",
-    };
-
-    ::metrics::histogram!(
-        METRICS_HTTP_LATENCY_MS,
-        "route" => normalize_path(path),
-        "status_class" => status_class
-    )
-    .record(latency_ms);
+    world_id_services_common::describe_provider_transport_metrics();
 }
 
 pub fn increment_root_cache_hit() {
@@ -204,12 +185,4 @@ pub fn increment_policy_defer(batch_type: &'static str, reason: &'static str) {
 
 pub fn increment_request_rejected(reason: &'static str) {
     ::metrics::counter!(METRICS_REQUEST_REJECTED, "reason" => reason).increment(1);
-}
-
-fn normalize_path(path: &str) -> String {
-    // Replace dynamic segments like /status/{id} with /status/:id
-    if path.starts_with("/status/") {
-        return "/status/:id".to_string();
-    }
-    path.to_string()
 }

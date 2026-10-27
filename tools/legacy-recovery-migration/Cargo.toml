@@ -1,0 +1,35 @@
+[package]
+name = "legacy-recovery-migration"
+description = "Migrates legacy V1 pending Recovery Agent updates into WorldIDRegistryV2 semantics"
+publish = false
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "legacy-recovery-migration"
+path = "src/main.rs"
+
+[dependencies]
+alloy = { workspace = true, features = [
+  "sol-types",
+  "contract",
+  "json",
+  "network",
+  "signers",
+  "signer-local",
+  "provider-http",
+  "reqwest-rustls-tls",
+  "rpc-types",
+] }
+clap = { workspace = true, features = ["derive", "env"] }
+eyre = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+world-id-registries = { workspace = true }
