@@ -40,12 +40,10 @@ pub struct ManifestPayload {
     /// `SHA-256` of the Engine bundle; 64 lowercase hex digits on the wire.
     #[serde(with = "lowercase_hex")]
     pub engine_hash: [u8; 32],
-    /// The Engine Provider's label for the release, for people and logs.
-    pub version: String,
+    /// Greater than the `version` of every earlier release of the Engine Provider.
+    pub version: u64,
     /// The release's pipelines.
     pub pipelines: Vec<Pipeline>,
-    /// The release's strictness levels, ascending.
-    pub match_strictness_levels: Vec<MatchStrictnessLevel>,
 }
 
 /// One pipeline of a release.
@@ -54,22 +52,38 @@ pub struct ManifestPayload {
 pub struct Pipeline {
     /// Pipeline identifier, unique within the manifest.
     pub pipeline: u16,
-    /// Its checks and the meaning of each `compare` position.
-    pub description: String,
+    /// Roles the Engine reads, with their `min` and `max` counts; `entries` follow this order.
+    pub inputs: Vec<PipelineInput>,
+    /// Compared positions: each names a `role` and an `index` below that role's `min`.
+    pub compare: Vec<CompareEntry>,
+    /// Strictness levels this pipeline supports, strictly ascending.
+    pub match_strictness_levels: Vec<u8>,
     /// When the Verifier may release responses.
     pub response_slots: ResponseSlots,
     /// The largest sealed request the pipeline accepts, in bytes.
     pub max_request_bytes: u64,
 }
 
-/// One strictness level of a release.
+/// One role in a pipeline's `inputs`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct MatchStrictnessLevel {
-    /// Level identifier, unique within the manifest.
-    pub match_strictness: u8,
-    /// What a pass at this level means.
-    pub description: String,
+pub struct PipelineInput {
+    /// Role name; unique within the pipeline's `inputs`.
+    pub role: String,
+    /// Minimum number of entries of this role.
+    pub min: u64,
+    /// Maximum number of entries of this role.
+    pub max: u64,
+}
+
+/// One compared position in a pipeline's `compare`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompareEntry {
+    /// A `role` listed in `inputs`.
+    pub role: String,
+    /// Index among that role's entries; MUST be below the role's `min`.
+    pub index: u64,
 }
 
 /// A pipeline's response release times, in milliseconds after a request's arrival (WIP-201
@@ -220,13 +234,11 @@ impl ReleaseManifest {
             .find(|p| p.pipeline == pipeline)
     }
 
-    /// The strictness level `match_strictness`, if the release defines it.
+    /// Whether the pipeline `pipeline` lists `match_strictness`.
     #[must_use]
-    pub fn match_strictness_level(&self, match_strictness: u8) -> Option<&MatchStrictnessLevel> {
-        self.payload
-            .match_strictness_levels
-            .iter()
-            .find(|l| l.match_strictness == match_strictness)
+    pub fn has_match_strictness(&self, pipeline: u16, match_strictness: u8) -> bool {
+        self.pipeline(pipeline)
+            .is_some_and(|p| p.match_strictness_levels.contains(&match_strictness))
     }
 
     /// The largest `max_request_bytes` of the release's pipelines.
@@ -272,10 +284,44 @@ impl ManifestPayload {
             self.pipelines.iter().all(|p| p.max_request_bytes > 0),
             "max_request_bytes",
         )?;
-        let ascending = self
-            .match_strictness_levels
-            .windows(2)
-            .all(|w| w[0].match_strictness < w[1].match_strictness);
+        for pipeline in &self.pipelines {
+            pipeline.validate()?;
+        }
+        Ok(())
+    }
+}
+
+impl Pipeline {
+    /// Checks the rules of WIP-201 §3.5.2 for one pipeline.
+    fn validate(&self) -> Result<(), ManifestError> {
+        let invalid = |ok: bool, field| {
+            if ok {
+                Ok(())
+            } else {
+                Err(ManifestError::Invalid(field))
+            }
+        };
+        invalid(!self.inputs.is_empty(), "inputs")?;
+        let unique_roles = self.inputs.iter().enumerate().all(|(i, input)| {
+            self.inputs[..i]
+                .iter()
+                .all(|other| other.role != input.role)
+        });
+        invalid(
+            unique_roles && self.inputs.iter().all(|i| !i.role.is_empty()),
+            "inputs",
+        )?;
+        invalid(self.inputs.iter().all(|i| i.max >= i.min), "inputs")?;
+        invalid(!self.compare.is_empty(), "compare")?;
+        for entry in &self.compare {
+            let Some(input) = self.inputs.iter().find(|i| i.role == entry.role) else {
+                return Err(ManifestError::Invalid("compare"));
+            };
+            if entry.index >= input.min {
+                return Err(ManifestError::Invalid("compare"));
+            }
+        }
+        let ascending = self.match_strictness_levels.windows(2).all(|w| w[0] < w[1]);
         invalid(
             !self.match_strictness_levels.is_empty() && ascending,
             "match_strictness_levels",
@@ -346,23 +392,44 @@ pub(crate) mod fixtures {
     pub fn payload() -> ManifestPayload {
         ManifestPayload {
             engine_hash: [0x2a; 32],
-            version: "1.0.0".into(),
+            version: 1,
             pipelines: vec![Pipeline {
                 pipeline: 1,
-                description: "credential image, live capture, challenge".into(),
+                inputs: vec![
+                    PipelineInput {
+                        role: "credential_image".into(),
+                        min: 1,
+                        max: 1,
+                    },
+                    PipelineInput {
+                        role: "live_frame".into(),
+                        min: 1,
+                        max: 1,
+                    },
+                    PipelineInput {
+                        role: "challenge".into(),
+                        min: 1,
+                        max: 1,
+                    },
+                ],
+                compare: vec![
+                    CompareEntry {
+                        role: "credential_image".into(),
+                        index: 0,
+                    },
+                    CompareEntry {
+                        role: "live_frame".into(),
+                        index: 0,
+                    },
+                    CompareEntry {
+                        role: "challenge".into(),
+                        index: 0,
+                    },
+                ],
+                match_strictness_levels: vec![1, 2],
                 response_slots: ResponseSlots(vec![500, 1587, 5039, 16_000]),
                 max_request_bytes: 8 << 20,
             }],
-            match_strictness_levels: vec![
-                MatchStrictnessLevel {
-                    match_strictness: 1,
-                    description: "loose".into(),
-                },
-                MatchStrictnessLevel {
-                    match_strictness: 2,
-                    description: "strict".into(),
-                },
-            ],
         }
     }
 
@@ -425,10 +492,7 @@ mod tests {
         assert_eq!(manifest.payload().engine_hash, [0x2a; 32]);
         assert!(manifest.verify(&jwk(&signing_key(), KID)).is_ok());
         assert!(manifest.pipeline(1).is_some() && manifest.pipeline(2).is_none());
-        assert!(
-            manifest.match_strictness_level(2).is_some()
-                && manifest.match_strictness_level(3).is_none()
-        );
+        assert!(manifest.has_match_strictness(1, 2) && !manifest.has_match_strictness(1, 3));
         assert_eq!(manifest.max_request_bytes(), 8 << 20);
     }
 
@@ -465,7 +529,7 @@ mod tests {
         let (header, rest) = compact.split_once('.').unwrap();
         let (_, signature) = rest.split_once('.').unwrap();
         let mut changed = payload();
-        changed.version = "1.0.1".into();
+        changed.version = 2;
         let tampered = format!(
             "{header}.{}.{signature}",
             URL_SAFE_NO_PAD.encode(serde_json::to_vec(&changed).unwrap())
@@ -554,12 +618,34 @@ mod tests {
                 Box::new(|p| p.pipelines[0].max_request_bytes = 0),
                 "max_request_bytes",
             ),
+            (Box::new(|p| p.pipelines[0].inputs.clear()), "inputs"),
+            (Box::new(|p| p.pipelines[0].inputs[0].max = 0), "inputs"),
             (
-                Box::new(|p| p.match_strictness_levels.reverse()),
+                Box::new(|p| {
+                    p.pipelines[0].inputs.push(PipelineInput {
+                        role: "credential_image".into(),
+                        min: 1,
+                        max: 1,
+                    });
+                }),
+                "inputs",
+            ),
+            (Box::new(|p| p.pipelines[0].compare.clear()), "compare"),
+            (
+                Box::new(|p| p.pipelines[0].compare[0].role = "unknown".into()),
+                "compare",
+            ),
+            (Box::new(|p| p.pipelines[0].compare[0].index = 1), "compare"),
+            (
+                Box::new(|p| p.pipelines[0].match_strictness_levels.reverse()),
                 "match_strictness_levels",
             ),
             (
-                Box::new(|p| p.match_strictness_levels[1].match_strictness = 1),
+                Box::new(|p| p.pipelines[0].match_strictness_levels[1] = 1),
+                "match_strictness_levels",
+            ),
+            (
+                Box::new(|p| p.pipelines[0].match_strictness_levels.clear()),
                 "match_strictness_levels",
             ),
         ];
