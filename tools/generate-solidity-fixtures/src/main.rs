@@ -265,13 +265,14 @@ async fn main() -> Result<()> {
     let uniqueness_request = ProofRequest {
         id: "fixture_uniqueness".to_string(),
         version: RequestVersion::V1,
-        proof_type: ProofType::Uniqueness,
+        proof_type: ProofType::Uniqueness {
+            action: rp_fixture.action.into(),
+        },
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
         session_id: SessionRef::None,
-        action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
@@ -347,9 +348,10 @@ async fn main() -> Result<()> {
         .sign_message_sync(&create_msg)?;
     let bound_create_request = ProofRequest {
         id: "fixture_uniqueness_create".to_string(),
-        proof_type: ProofType::Uniqueness,
+        proof_type: ProofType::Uniqueness {
+            action: rp_fixture.action.into(),
+        },
         session_id: SessionRef::Create,
-        action: Some(rp_fixture.action.into()),
         nonce: create_nonce,
         signature: create_signature,
         ..uniqueness_request.clone()
@@ -422,7 +424,6 @@ async fn main() -> Result<()> {
     let session_request = ProofRequest {
         proof_type: ProofType::Session,
         session_id: SessionRef::Existing(session_id),
-        action: None,
         nonce: session_nonce,
         signature: session_signature,
         ..uniqueness_request.clone()

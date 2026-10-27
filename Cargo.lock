@@ -3306,6 +3306,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "773648b94d0e5d620f64f280777445740e61fe701025087ec8b57f45c791888b"
 
 [[package]]
+name = "coset"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1eb98d5e9155e2cf7cd942c8b3033097d4563b6fb0a00b9caecb74669555c058"
+dependencies = [
+ "ciborium",
+ "ciborium-io",
+]
+
+[[package]]
 name = "cpubits"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3422,9 +3432,9 @@ dependencies = [
 
 [[package]]
 name = "crypto-bigint"
-version = "0.7.5"
+version = "0.7.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1a52aa3fcda4e6302a9f48734f234d35d4721b96f8fe07d073f07ce9df4f0271"
+checksum = "9c035cb64cba03dad2fb921f3e218785e8cf9a41790da5eb3a1400f62fa2be11"
 dependencies = [
  "cpubits",
  "ctutils",
@@ -3468,9 +3478,9 @@ dependencies = [
 
 [[package]]
 name = "ctutils"
-version = "0.4.2"
+version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7d5515a3834141de9eafb9717ad39eea8247b5674e6066c404e8c4b365d2a29e"
+checksum = "fe3e9d21d39e6f39ff46e03d5b621424f88ee23d8a1672c6bfc9ccc7f2da4f6a"
 dependencies = [
  "cmov",
  "subtle",
@@ -3869,7 +3879,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9d65aa39b3a5c1c9c1b745c9a019234bb7a21b77abcb4f4d266d706e2d577d65"
 dependencies = [
  "base16ct 1.0.0",
- "crypto-bigint 0.7.5",
+ "crypto-bigint 0.7.10",
  "crypto-common 0.2.1",
  "digest 0.11.2",
  "ff 0.14.0",
@@ -4354,7 +4364,7 @@ checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.16.0"
+version = "0.17.1"
 dependencies = [
  "alloy",
  "eyre",
@@ -5388,6 +5398,40 @@ dependencies = [
 ]
 
 [[package]]
+name = "jose-b64"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bec69375368709666b21c76965ce67549f2d2db7605f1f8707d17c9656801b56"
+dependencies = [
+ "base64ct",
+ "serde",
+ "subtle",
+ "zeroize",
+]
+
+[[package]]
+name = "jose-jwa"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9ab78e053fe886a351d67cf0d194c000f9d0dcb92906eb34d853d7e758a4b3a7"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "jose-jwk"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "280fa263807fe0782ecb6f2baadc28dffc04e00558a58e33bfdb801d11fd58e7"
+dependencies = [
+ "jose-b64",
+ "jose-jwa",
+ "p256 0.13.2",
+ "serde",
+ "zeroize",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.99"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5594,7 +5638,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "legacy-recovery-migration"
-version = "0.16.0"
+version = "0.17.1"
 dependencies = [
  "alloy",
  "clap",
@@ -5681,6 +5725,16 @@ name = "lru-slab"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "112b39cec0b298b6c1999fee3e31427f74f676e4cb9879ed1a121b43661a4154"
+
+[[package]]
+name = "lzma-rs"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "297e814c836ae64db86b36cf2a557ba54368d03f6afcd7d947c266692f71115e"
+dependencies = [
+ "byteorder",
+ "crc",
+]
 
 [[package]]
 name = "lzma-sys"
@@ -6976,7 +7030,7 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c555a6e4eb7d4e158fcb028c835c3b8642206ddc279b5c6b202ef9a8bdb592f4"
 dependencies = [
- "crypto-bigint 0.7.5",
+ "crypto-bigint 0.7.10",
  "crypto-common 0.2.1",
  "ff 0.14.0",
  "rand_core 0.10.1",
@@ -7188,9 +7242,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-spongefish"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "36fae7879976a7da05091f70da9652465b0dbba51adb8ae8e71731b1d47d047d"
+checksum = "041f618ad7143f0fd2485c96ce492bbfd740e91b2b2cfe9ba61f742468988838"
 dependencies = [
  "ark-ff 0.6.0",
  "ark-serialize 0.6.0",
@@ -7206,9 +7260,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-spongefish-pow"
-version = "0.2.0"
+version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2482a98b65f7545992cc59f92d0e439c9ec0fcbc53e262c3be81d57bf9b33c0"
+checksum = "7384b4cf746f295cd570ad42586ef09d3e992dbe7a713ca259ecc9c0067ac510"
 dependencies = [
  "blake3",
  "bytemuck",
@@ -8316,7 +8370,7 @@ version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4a459cddafb3fe76b31fd8f1108007566c40301feb64dc7b54656eb7388172b"
 dependencies = [
- "crypto-bigint 0.7.5",
+ "crypto-bigint 0.7.10",
  "hmac 0.13.0",
 ]
 
@@ -10295,7 +10349,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0136791f7c95b1f6dd99f9cc786b91bb81c3800b639b3478e561ddb7be95e5f1"
 dependencies = [
  "fastrand",
- "getrandom 0.4.1",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -10619,9 +10673,9 @@ checksum = "1f3ccbac311fea05f86f61904b462b55fb3df8837a366dfc601a0161d0532f20"
 
 [[package]]
 name = "tokio"
-version = "1.53.1"
+version = "1.53.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
+checksum = "ce3335fa71841cda333a58d7615b03901380ecf09d59b3296d21f8bbac0dde4e"
 dependencies = [
  "bytes",
  "libc",
@@ -12217,7 +12271,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.16.0"
+version = "0.17.1"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -12265,7 +12319,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.16.0"
+version = "0.17.1"
 dependencies = [
  "alloy",
  "backon",
@@ -12308,6 +12362,23 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
+ "world-id-primitives",
+]
+
+[[package]]
+name = "world-id-flamingo"
+version = "0.17.1"
+dependencies = [
+ "base64 0.22.1",
+ "coset",
+ "hex",
+ "jose-jwk",
+ "p256 0.13.2",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "taceo-eddsa-babyjubjub",
+ "thiserror 2.0.18",
  "world-id-primitives",
 ]
 
@@ -12400,7 +12471,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.16.0"
+version = "0.17.1"
 dependencies = [
  "alloy",
  "ark-ff 0.6.0",
@@ -12485,7 +12556,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.16.0"
+version = "0.17.1"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -12496,11 +12567,13 @@ dependencies = [
  "arrayvec",
  "cbor-diag",
  "ciborium",
+ "coset",
  "embed-doc-image",
  "eyre",
  "getrandom 0.4.1",
  "hex",
  "k256 0.13.4",
+ "p256 0.13.2",
  "percent-encoding",
  "provekit-common",
  "rand 0.8.6",
@@ -12526,7 +12599,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.16.0"
+version = "0.17.1"
 dependencies = [
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
@@ -12534,11 +12607,16 @@ dependencies = [
  "ark-groth16",
  "ark-serialize 0.6.0",
  "eyre",
+ "lzma-rs",
  "once_cell",
+ "postcard",
  "provekit-common",
  "provekit-prover",
  "provekit-r1cs-compiler",
+ "provekit-spongefish",
  "provekit-verifier",
+ "provekit_acvm",
+ "provekit_bn254_blackbox_solver",
  "rand 0.8.6",
  "rayon",
  "reqwest 0.13.2",
@@ -12563,7 +12641,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-registries"
-version = "0.16.0"
+version = "0.17.1"
 dependencies = [
  "alloy",
  "anyhow",
@@ -12836,6 +12914,7 @@ version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
 dependencies = [
+ "serde",
  "zeroize_derive",
 ]
 

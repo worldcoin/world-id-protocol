@@ -244,9 +244,9 @@ mod noir_artifacts {
 
     pub(super) fn should_embed() -> bool {
         let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
-        target_arch.as_deref() != Some("wasm32")
-            && (env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_PROVER").is_some()
-                || env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some())
+        env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_PROVER").is_some()
+            || (target_arch.as_deref() != Some("wasm32")
+                && env::var_os("CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER").is_some())
     }
 
     /// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].
