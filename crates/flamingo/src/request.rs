@@ -44,10 +44,14 @@ pub struct Request {
     pub payload: Vec<u8>,
     /// Inputs for verifying an AAT, if the Authenticator has one.
     pub aat_inputs: Option<AatInputs>,
+    /// The WIP-107 `billingNullifier` of the Authenticator's registration for `aud` in an active
+    /// billing period, or `0` if it holds none. The Verifier signs the value WIP-107 §4.7
+    /// determines, not necessarily this one.
+    pub billing_nullifier: FieldElement,
 }
 
 impl Request {
-    /// Builds a request over `payload`, checking its bounds.
+    /// Builds a request over `payload` with `billing_nullifier = 0`, checking its bounds.
     ///
     /// # Errors
     /// Fails when `payload` or `nonce` is out of bounds.
@@ -62,6 +66,7 @@ impl Request {
             nonce,
             payload: payload.encode()?,
             aat_inputs,
+            billing_nullifier: FieldElement::ZERO,
         };
         request.validate()?;
         Ok(request)
@@ -79,6 +84,10 @@ impl Request {
         if let Some(aat) = &self.aat_inputs {
             fields.push(("aat_inputs", aat.to_value()));
         }
+        fields.push((
+            "billing_nullifier",
+            cbor::field_element(self.billing_nullifier),
+        ));
         cbor::encode(&map(fields))
     }
 
@@ -99,14 +108,16 @@ impl Request {
         if fields.uint::<u64>("version")? != REQUEST_VERSION {
             return Err(malformed());
         }
+        let aat_inputs = fields
+            .optional("aat_inputs")
+            .map(AatInputs::from_value)
+            .transpose()?;
         let request = Self {
             aud,
             nonce,
             payload,
-            aat_inputs: fields
-                .optional("aat_inputs")
-                .map(AatInputs::from_value)
-                .transpose()?,
+            aat_inputs,
+            billing_nullifier: fields.field_element("billing_nullifier")?,
         };
         fields.finish()?;
         if request.encode() != bytes {
@@ -145,6 +156,9 @@ impl Request {
     fn validate(&self) -> Result<(), RequestError> {
         if self.nonce == FieldElement::ZERO {
             return Err(RequestError::OutOfBounds("nonce"));
+        }
+        if self.aud.to_be_bytes()[..24].iter().any(|b| *b != 0) {
+            return Err(RequestError::OutOfBounds("aud"));
         }
         self.payload().map(|_| ())
     }
@@ -520,14 +534,15 @@ mod tests {
 
     #[test]
     fn rejects_an_aud_above_u64() {
-        let request = Request::new(
-            FieldElement::from(u128::from(u64::MAX) + 1),
-            42u64.into(),
-            &payload(),
-            Some(aat_inputs()),
-        )
-        .unwrap();
-        assert_eq!(request.verify_aat(), Err(RequestError::OutOfBounds("aud")));
+        assert_eq!(
+            Request::new(
+                FieldElement::from(u128::from(u64::MAX) + 1),
+                42u64.into(),
+                &payload(),
+                Some(aat_inputs()),
+            ),
+            Err(RequestError::OutOfBounds("aud"))
+        );
     }
 
     #[test]
@@ -549,7 +564,11 @@ mod tests {
 
     #[test]
     fn requests_round_trip() {
-        for request in [request(None), request(Some(aat_inputs()))] {
+        let billed = Request {
+            billing_nullifier: 7u64.into(),
+            ..request(Some(aat_inputs()))
+        };
+        for request in [request(None), request(Some(aat_inputs())), billed] {
             assert_eq!(Request::decode(&request.encode(), LIMIT), Ok(request));
         }
     }
@@ -635,13 +654,25 @@ mod tests {
         cbor::encode(&map)
     }
 
+    /// Re-encodes a canonical map without `key`.
+    fn without(bytes: &[u8], key: &str) -> Vec<u8> {
+        let mut map: Value = cbor::decode(bytes, "test").unwrap();
+        if let Value::Map(entries) = &mut map {
+            entries.retain(|(k, _)| k.as_text() != Some(key));
+        }
+        cbor::encode(&map)
+    }
+
     #[test]
     fn rejects_non_canonical_or_foreign_encodings() {
         let encoded = request(Some(aat_inputs())).encode();
         let payload = request(None).payload;
         for bytes in [
             reversed(&encoded),
-            with(&encoded, "version", Value::Integer(2.into())),
+            // Version 1 predates `billing_nullifier`.
+            with(&encoded, "version", Value::Integer(1.into())),
+            without(&encoded, "billing_nullifier"),
+            with(&encoded, "billing_nullifier", Value::Bytes(vec![0xff; 32])),
             with(&encoded, "extra", Value::Integer(1.into())),
             with(&encoded, "aud", Value::Bytes(vec![0xff; 32])),
             with(&encoded, "payload", Value::Bytes(reversed(&payload))),

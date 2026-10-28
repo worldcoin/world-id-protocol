@@ -27,6 +27,7 @@ const CLAIM_AAT_FLAGS: i64 = -90_007;
 const CLAIM_HAS_AAT: i64 = -90_008;
 const CLAIM_NOW: i64 = -90_009;
 const CLAIM_ENGINE_CONFIG_HASH: i64 = -90_010;
+const CLAIM_BILLING_NULLIFIER: i64 = -90_011;
 
 /// Why a Flamingo Token could not be built or verified.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -82,16 +83,18 @@ pub struct FlamingoClaims {
     pub aat: Option<FlamingoAatClaims>,
     /// See [`engine_config_hash`](crate::engine_config_hash).
     pub engine_config_hash: FieldElement,
+    /// The WIP-107 `billingNullifier` the Verifier checked, or `0` for an RP it does not bill.
+    pub billing_nullifier: FieldElement,
 }
 
 impl FlamingoClaims {
     /// The signed digest, `H_16(DS_SIGN; now, compared_entry_hash_0..3, aud, nonce,
-    /// trust_anchor_key_hash, aat_flags, has_aat, engine_config_hash)`.
+    /// trust_anchor_key_hash, aat_flags, has_aat, engine_config_hash, billing_nullifier)`.
     #[must_use]
     pub fn digest(&self) -> FieldElement {
         let aat = self.aat.unwrap_or(FlamingoAatClaims::ZERO);
         let [c0, c1, c2, c3] = self.compared_entry_hashes;
-        // The last four rate slots of the `t=16` state stay zero.
+        // The last three rate slots of the `t=16` state stay zero.
         let zero = FieldElement::ZERO;
         poseidon::hash(
             DS_SIGN,
@@ -107,7 +110,7 @@ impl FlamingoClaims {
                 aat.aat_flags.into(),
                 u64::from(self.aat.is_some()).into(),
                 self.engine_config_hash,
-                zero,
+                self.billing_nullifier,
                 zero,
                 zero,
                 zero,
@@ -134,6 +137,7 @@ impl FlamingoClaims {
             uint(CLAIM_HAS_AAT, u64::from(self.aat.is_some())),
             uint(CLAIM_NOW, u64::from(aat.now)),
             field(CLAIM_ENGINE_CONFIG_HASH, self.engine_config_hash),
+            field(CLAIM_BILLING_NULLIFIER, self.billing_nullifier),
         ]);
         cbor::encode(&cbor::map(entries))
     }
@@ -153,6 +157,7 @@ impl FlamingoClaims {
         let has_aat: u8 = claims.uint(CLAIM_HAS_AAT)?;
         let now = claims.uint(CLAIM_NOW)?;
         let engine_config_hash = claims.field_element(CLAIM_ENGINE_CONFIG_HASH)?;
+        let billing_nullifier = claims.field_element(CLAIM_BILLING_NULLIFIER)?;
         claims.finish()?;
 
         let aat = FlamingoAatClaims {
@@ -171,6 +176,7 @@ impl FlamingoClaims {
             nonce,
             aat,
             engine_config_hash,
+            billing_nullifier,
         })
     }
 }
@@ -307,12 +313,17 @@ mod tests {
     const TRUST_ANCHOR_KEY_HASH: &str =
         "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
     const DIGEST_WITH_AAT: &str =
-        "0f493d3e4f266f81950ad5c9ebe359b2085f1ab82173e7b3d6cff4c30c17fa5e";
+        "137d97fa13ab493e7cfb9f732abd43e5808e8c7ac5b0353973c944e871293c50";
     const DIGEST_WITHOUT_AAT: &str =
-        "046b836383d9d9fd350fbed1197e1c1c17f2b187fb6ef1571e5f9b42ec6fc8fc";
+        "108e2e05c6330f9c3feafd0aa64f213ca71b8573aa71705e8c9b4490c7e2a494";
+    // The digests and CWTs follow the 12-input `SIGN2` digest and come from this implementation;
+    // Appendix A1 still lists the 11-input values. The billed vector signs `billing_nullifier = 7`
+    // over the AAT claims.
+    const DIGEST_BILLED: &str = "154bc1daab533df76072bdd1c404d284008855a8717c86776e5f2c0137bd817f";
     const KID: &str = "f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12";
-    const CWT_WITH_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a059017dac190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582014b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d83a00015f961b00a3000007d601023a00015f97013a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d584078ee99f6c862bfc10345cdeded780ae0d7cc7ed3d82904a245a6df5ba9f966030e06db33888dab460704558a8c5095d0b3d2c4fb3c6c67a7a428e75ae5e6d900";
-    const CWT_WITHOUT_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a0590171ac190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582000000000000000000000000000000000000000000000000000000000000000003a00015f96003a00015f97003a00015f98003a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d5840a2c1883fd414440ca4df81723869407caa35ef840b0438ec1fb9280757b572abe2ebb272225105813188bff8dd3d5d236636ad7c9aa002413121164697265705";
+    const CWT_WITH_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a05901a4ad190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582014b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d83a00015f961b00a3000007d601023a00015f97013a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a5820000000000000000000000000000000000000000000000000000000000000000058405271d485d07872b7d354123c8d6122fee09a7d5f0d6cff8e0101bd5693e4c2aaa8edebb6384ef1ecee2fbfa85a2d089e5cf8899505a846c042628057053c2c01";
+    const CWT_WITHOUT_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a0590198ad190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582000000000000000000000000000000000000000000000000000000000000000003a00015f96003a00015f97003a00015f98003a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a582000000000000000000000000000000000000000000000000000000000000000005840633facb3212adcd28cc2df0399767911256a2900381968899bdc890e77804c9009249d1460843d05c81dd2512caed792c1155738473915fb507af993f3d2a601";
+    const CWT_BILLED: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a05901a4ad190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582014b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d83a00015f961b00a3000007d601023a00015f97013a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a58200000000000000000000000000000000000000000000000000000000000000007584051976fd09f1b8095620f3e0e2a581a856fab5940a0c86da80def14c0e44bac8a5c8a8bd6d27c3797d3d8889f5dfe2dea5ab774611f315c8334d2f644c9a74e02";
 
     fn hex_field(hex: &str) -> FieldElement {
         FieldElement::from_be_bytes(&hex::decode(hex).unwrap().try_into().unwrap()).unwrap()
@@ -338,6 +349,7 @@ mod tests {
             nonce: 42u64.into(),
             aat,
             engine_config_hash: hex_field(ENGINE_CONFIG_HASH),
+            billing_nullifier: FieldElement::ZERO,
         }
     }
 
@@ -364,7 +376,7 @@ mod tests {
     fn domain_separators_match_the_spec() {
         assert_eq!(
             (*DS_SIGN.as_field_element()).to_string(),
-            "127603488023523044162070750169730750022280897185614"
+            "32666492934021899305490112043451072005703909679517234"
         );
         assert_eq!(
             (*DS_ENGINE.as_field_element()).to_string(),
@@ -389,6 +401,14 @@ mod tests {
         for (claims, digest, cwt) in [
             (with_aat(), DIGEST_WITH_AAT, CWT_WITH_AAT),
             (claims(None), DIGEST_WITHOUT_AAT, CWT_WITHOUT_AAT),
+            (
+                FlamingoClaims {
+                    billing_nullifier: 7u64.into(),
+                    ..with_aat()
+                },
+                DIGEST_BILLED,
+                CWT_BILLED,
+            ),
         ] {
             assert_eq!(claims.digest(), hex_field(digest));
             let token = sign(&claims);
@@ -420,6 +440,10 @@ mod tests {
                 ..base
             },
             FlamingoClaims { aat: None, ..base },
+            FlamingoClaims {
+                billing_nullifier: one,
+                ..base
+            },
         ];
         for k in 0..MAX_COMPARED {
             let mut claims = base;

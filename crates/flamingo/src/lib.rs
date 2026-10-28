@@ -14,8 +14,8 @@ pub use token::{
     EAT_PROFILE, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_COMPARED, TokenError,
 };
 
-/// Version of the request map.
-pub const REQUEST_VERSION: u64 = 1;
+/// Version of the request map; version `1`, without `billing_nullifier`, belongs to earlier drafts.
+pub const REQUEST_VERSION: u64 = 2;
 /// Entries per request.
 pub const MAX_ENTRIES: usize = 8;
 /// Maximum size of the request-level `hints`, in bytes.
@@ -33,7 +33,10 @@ pub const CHANNEL_KEY_DOMAIN: &[u8] = b"WORLD-ID/WIP-201/CHANNEL-KEY\0";
 
 /// Separates the signed digest of a Flamingo Token. The digest runs at `t=16`, so the
 /// separator pins 15 inputs.
-pub const DS_SIGN: DomainSeparator<15> = DomainSeparator::new(b"WORLD-ID/WIP-201/SIGN");
+///
+/// `SIGN2` marks the digest with `billing_nullifier`; under the earlier label, a token without it
+/// would verify as one with `billing_nullifier = 0`.
+pub const DS_SIGN: DomainSeparator<15> = DomainSeparator::new(b"WORLD-ID/WIP-201/SIGN2");
 /// Separates [`engine_config_hash`].
 pub const DS_ENGINE: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/WIP-201/ENGINE");
 
