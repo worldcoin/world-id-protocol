@@ -30,6 +30,7 @@ openapi = ["dep:utoipa"]
 
 [dependencies]
 ciborium = { workspace = true }
+coset = { workspace = true }
 alloy = { workspace = true, optional = true, features = ["sol-types", "signer-local"] }
 alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
@@ -44,6 +45,7 @@ circom-types = { workspace = true, optional = true, features = ["groth16", "proo
 eddsa-babyjubjub = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
+p256 = { workspace = true, features = ["ecdsa"] }
 taceo-oprf = { workspace = true, optional = true, features = ["types"] }
 ruint = { workspace = true, features = ["ark-ff-06"] }
 serde_json = { workspace = true }

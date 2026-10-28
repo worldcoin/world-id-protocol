@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.17.1...world-id-primitives-v0.18.0) - 2026-10-28
+
+### Added
+
+- clearer OHTTP client error messages ([#785](https://github.com/worldcoin/world-id-protocol/pull/785))
+
+### Other
+
+- bump rust to 1.98 ([#967](https://github.com/worldcoin/world-id-protocol/pull/967))
+- carry each proof flow's parameters in the ProofType enum ([#1083](https://github.com/worldcoin/world-id-protocol/pull/1083))
+- *(deps)* upgrade ProveKit to 1.0.3 ([#1147](https://github.com/worldcoin/world-id-protocol/pull/1147))
+
+## [0.17.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.17.0...world-id-primitives-v0.17.1) - 2026-10-23
+
+### Added
+
+- *(proof)* enable ownership proofs on wasm32 ([#1132](https://github.com/worldcoin/world-id-protocol/pull/1132))
+
+### Other
+
+- update Cargo.toml dependencies
+
+## [0.17.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.16.0...world-id-primitives-v0.17.0) - 2026-10-22
+
+### Added
+
+- implement the WIP-106 TAKT and AAT in Rust and Noir ([#1112](https://github.com/worldcoin/world-id-protocol/pull/1112))
+- add deterministic CBOR, COSE_Sign1 and field-element helpers to primitives ([#1122](https://github.com/worldcoin/world-id-protocol/pull/1122))
+- add world-id-flamingo crate with the WIP-201 wire formats ([#1079](https://github.com/worldcoin/world-id-protocol/pull/1079))
+
+### Other
+
+- enable world-id-flamingo publication ([#1131](https://github.com/worldcoin/world-id-protocol/pull/1131))
+
 ## [0.16.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.15.0...world-id-primitives-v0.16.0) - 2026-10-19
 
 ### Added

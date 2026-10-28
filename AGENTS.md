@@ -51,6 +51,7 @@
 
 - `crates/authenticator/`: Authenticator functionality for World ID.
 - `crates/core/`: Top-level integration layer that exposes full protocol functionality.
+- `crates/flamingo/`: WIP-201 Flamingo Verifier types (Flamingo Token, Engine configuration hash).
 - `crates/issuer/`: Issuer functionality for World ID.
 - `crates/primitives/`: Foundational raw types with minimal dependencies.
 - `crates/proof/`: Proof generation/verification; ZK artifacts provided at runtime via `ZkArtifactSource`, with opt-in embed features (`embed-zkeys`, `embed-ownership-prover`/`-verifier`, umbrella `embed-zk-artifacts`); nothing is embedded by default.

@@ -13,10 +13,7 @@ use crate::{
     authenticator::{Authenticator, CredentialInput, ProofResult},
     error::AuthenticatorError,
 };
-#[cfg(not(target_arch = "wasm32"))]
-use world_id_primitives::OwnershipProof;
-use world_id_primitives::TREE_DEPTH;
-#[cfg(not(target_arch = "wasm32"))]
+use world_id_primitives::{OwnershipProof, TREE_DEPTH};
 use world_id_proof::{
     circuit_inputs::OwnershipProofCircuitInput,
     ownership_proof::generate_ownership_proof_with_prover,
@@ -356,7 +353,7 @@ impl Authenticator {
                 cred_input.blinding_factor,
                 resolved_session_r_seed,
                 resolved_session_id,
-                proof_request.proof_type,
+                &proof_request.proof_type,
                 proof_request.created_at,
             )?;
             responses.push(response_item);
@@ -415,7 +412,7 @@ impl Authenticator {
         credential_sub_blinding_factor: FieldElement,
         session_id_r_seed: Option<FieldElement>,
         session_id: Option<SessionId>,
-        proof_type: ProofType,
+        proof_type: &ProofType,
         request_timestamp: u64,
     ) -> Result<ResponseItem, AuthenticatorError> {
         let mut rng = rand::rngs::OsRng;
@@ -477,7 +474,6 @@ impl Authenticator {
     ///
     /// # Returns
     /// The [`OwnershipProof`] containing the ZKP and Merkle root.
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn prove_credential_sub(
         &self,
         nonce: FieldElement,
@@ -600,7 +596,6 @@ mod tests {
             rp_id: RpId::new(1),
             oprf_key_id: OprfKeyId::new(uint!(1_U160)),
             session_id: SessionRef::Existing(session_id),
-            action: None,
             signature: Signature::new(U256::ZERO, U256::ZERO, false),
             nonce: FieldElement::from(1u64),
             requests: Vec::new(),

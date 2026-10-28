@@ -1,0 +1,27 @@
+[package]
+name = "world-id-flamingo"
+description = "WIP-201 Flamingo Verifier types for the World ID Protocol"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+
+[dependencies]
+base64 = { workspace = true }
+coset = { workspace = true }
+eddsa-babyjubjub = { workspace = true }
+hex = { workspace = true }
+jose-jwk = { workspace = true }
+p256 = { workspace = true, features = ["ecdsa"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+# Core types only: no OPRF, proof or alloy dependencies for the Verifier and Authenticators.
+world-id-primitives = { version = "0.18.0", path = "../primitives", default-features = false }
+
+[lints]
+workspace = true

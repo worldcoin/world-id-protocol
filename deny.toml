@@ -45,4 +45,5 @@ ignore = [
     "RUSTSEC-2026-0251", # Unmaintained `sized-chunks`; transitive via `provekit`, no safe upgrade available (2026-08-11)
     "RUSTSEC-2026-0173", # Unmaintained `proc-macro-error2`; transitive via alloy-sol-macro, no safe upgrade available (2026-06-08)
     "RUSTSEC-2026-0374", # Unmaintained `basic-toml` (2026-10-20)
+    "RUSTSEC-2026-0387", # Non-constant-time ops in `crypto-bigint` 0.5.x; transitive via `k256` 0.13 (alloy), fixed only in >=0.7.6, no safe upgrade available (2026-10-23)
 ]

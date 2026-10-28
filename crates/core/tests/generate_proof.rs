@@ -1,4 +1,5 @@
 #![cfg(feature = "authenticator")]
+#![recursion_limit = "256"]
 
 use std::{
     path::PathBuf,
@@ -166,7 +167,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let MerkleFixture {
         key_set,
         inclusion_proof: merkle_inclusion_proof,
-        root: _,
         ..
     } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index)
         .wrap_err("failed to construct merkle fixture")?;
@@ -300,13 +300,14 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let proof_request = ProofRequest {
         id: "test_request".to_string(),
         version: RequestVersion::V1,
-        proof_type: ProofType::Uniqueness,
+        proof_type: ProofType::Uniqueness {
+            action: rp_fixture.action.into(),
+        },
         created_at: rp_fixture.current_timestamp,
         expires_at: rp_fixture.expiration_timestamp,
         rp_id: rp_fixture.world_rp_id,
         oprf_key_id: rp_fixture.oprf_key_id,
         session_id: SessionRef::None,
-        action: Some(rp_fixture.action.into()),
         signature: rp_fixture.signature,
         nonce: rp_fixture.nonce.into(),
         requests: vec![RequestItem {
@@ -378,7 +379,6 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let create_request = ProofRequest {
         id: "test_uniqueness_create".to_string(),
         session_id: SessionRef::Create,
-        action: Some(rp_fixture.action.into()),
         nonce: create_nonce,
         signature: create_signature,
         ..proof_request.clone()

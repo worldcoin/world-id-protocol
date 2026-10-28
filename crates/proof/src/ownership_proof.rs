@@ -4,11 +4,23 @@
 //! with the authenticator's EdDSA key, then proving the Noir circuit
 //! via ProveKit.
 
-use std::{collections::BTreeMap, io::Read, path::Path};
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::Path;
+use std::{collections::BTreeMap, io::Read};
 
+#[cfg(any(target_arch = "wasm32", test))]
+use acvm::{
+    acir::native_types::WitnessMap,
+    pwg::{ACVM, ACVMStatus},
+};
 use ark_ff::{BigInteger as _, PrimeField as _};
-use provekit_common::{InputMap, InputValue, NoirElement, NoirProof, PublicInputs};
+#[cfg(any(target_arch = "wasm32", test))]
+use bn254_blackbox_solver::Bn254BlackBoxSolver;
+use provekit_common::{InputMap, InputValue, NoirElement};
+#[cfg(not(target_arch = "wasm32"))]
+use provekit_common::{NoirProof, PublicInputs};
 use provekit_prover::Prove;
+#[cfg(not(target_arch = "wasm32"))]
 use provekit_verifier::Verify;
 use world_id_primitives::{Credential, FieldElement, TREE_DEPTH, proof::OwnershipProof};
 
@@ -28,13 +40,63 @@ pub fn load_ownership_prover_from_reader(
 
     let mut bytes = Vec::new();
     reader.read_to_end(&mut bytes)?;
-    provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()))
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        provekit_common::file::deserialize(&bytes).map_err(|e| eyre::eyre!(e.to_string()))
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        deserialize_prover(&bytes)
+    }
+}
+
+/// Decodes PKP bytes like `provekit_common::file::deserialize`, but in pure Rust: provekit's
+/// decoder links the C zstd and xz libraries, which don't build for wasm32. ProveKit always writes
+/// provers xz-compressed.
+#[cfg(any(
+    target_arch = "wasm32",
+    all(
+        test,
+        feature = "embed-ownership-prover",
+        feature = "embed-ownership-verifier"
+    )
+))]
+fn deserialize_prover(bytes: &[u8]) -> eyre::Result<provekit_common::Prover> {
+    const MAGIC: &[u8] = b"\xDC\xDFOZkp\x01\x00";
+    const FORMAT: &[u8] = b"PrvKitPr";
+    const VERSION: (u16, u16) = (1, 1);
+    const XZ_MAGIC: &[u8] = &[0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00];
+
+    let (header, compressed) = bytes
+        .split_at_checked(20)
+        .ok_or_else(|| eyre::eyre!("prover file is too short"))?;
+    eyre::ensure!(
+        &header[..8] == MAGIC && &header[8..16] == FORMAT,
+        "not a ProveKit prover file"
+    );
+    let major = u16::from_le_bytes([header[16], header[17]]);
+    let minor = u16::from_le_bytes([header[18], header[19]]);
+    eyre::ensure!(
+        major == VERSION.0 && minor >= VERSION.1,
+        "unsupported prover file version {major}.{minor}"
+    );
+    eyre::ensure!(
+        compressed.starts_with(XZ_MAGIC),
+        "prover file is not xz-compressed"
+    );
+
+    let mut decompressed = Vec::new();
+    lzma_rs::xz_decompress(&mut &compressed[..], &mut decompressed)
+        .map_err(|e| eyre::eyre!("while decompressing the prover: {e}"))?;
+    postcard::from_bytes(&decompressed).map_err(|e| eyre::eyre!("while decoding the prover: {e}"))
 }
 
 /// Loads an ownership proof prover from a PKP file path.
 ///
 /// # Errors
 /// Returns an error if the file cannot be read or the prover cannot be deserialized.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_ownership_prover_from_path(
     path: impl AsRef<Path>,
 ) -> eyre::Result<provekit_common::Prover> {
@@ -46,6 +108,7 @@ pub fn load_ownership_prover_from_path(
 ///
 /// # Errors
 /// Returns an error if the reader cannot be read or the verifier cannot be deserialized.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_ownership_verifier_from_reader(
     mut reader: impl Read,
 ) -> eyre::Result<provekit_common::Verifier> {
@@ -60,6 +123,7 @@ pub fn load_ownership_verifier_from_reader(
 ///
 /// # Errors
 /// Returns an error if the file cannot be read or the verifier cannot be deserialized.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_ownership_verifier_from_path(
     path: impl AsRef<Path>,
 ) -> eyre::Result<provekit_common::Verifier> {
@@ -119,9 +183,13 @@ pub fn generate_ownership_proof_with_prover(
 
     let merkle_root = input.inclusion_proof.root;
     let witness = input.into_witness()?;
-    let noir_proof = prover
-        .prove(witness)
-        .map_err(|e| ProofError::GenerationError(e.to_string()))?;
+    #[cfg(target_arch = "wasm32")]
+    let witness = solve_witness(&prover, witness)?;
+    #[cfg(target_arch = "wasm32")]
+    let noir_proof = prover.prove_with_witness(witness);
+    #[cfg(not(target_arch = "wasm32"))]
+    let noir_proof = prover.prove(witness);
+    let noir_proof = noir_proof.map_err(|e| ProofError::GenerationError(e.to_string()))?;
 
     Ok(OwnershipProof {
         proof: noir_proof.whir_r1cs_proof,
@@ -129,11 +197,54 @@ pub fn generate_ownership_proof_with_prover(
     })
 }
 
+/// Solves the circuit witness with ACVM directly rather than through `nargo`, which
+/// `Prove::prove` uses and which does not build for wasm32.
+///
+/// Supports single-function circuits without foreign or ACIR calls.
+///
+/// Errors never include witness values: they are private inputs.
+///
+/// # Errors
+/// Returns [`ProofError::GenerationError`] if the inputs don't satisfy the circuit.
+#[cfg(any(target_arch = "wasm32", test))]
+pub fn solve_witness(
+    prover: &provekit_common::Prover,
+    input: InputMap,
+) -> Result<WitnessMap<NoirElement>, ProofError> {
+    let generation_error = |reason: &str| ProofError::GenerationError(reason.to_string());
+
+    let initial_witness = prover
+        .witness_generator
+        .abi()
+        .encode(&input, None)
+        .map_err(|_| generation_error("inputs do not match the circuit ABI"))?;
+    let [circuit] = prover.program.functions.as_slice() else {
+        return Err(generation_error("expected a single-function circuit"));
+    };
+
+    let solver = Bn254BlackBoxSolver;
+    let mut acvm = ACVM::new(
+        &solver,
+        &circuit.opcodes,
+        initial_witness,
+        &prover.program.unconstrained_functions,
+        &circuit.assert_messages,
+    );
+    match acvm.solve() {
+        ACVMStatus::Solved => Ok(acvm.finalize()),
+        ACVMStatus::Failure(_) => Err(generation_error("inputs do not satisfy the circuit")),
+        _ => Err(generation_error(
+            "circuit requires a foreign or ACIR call, which is unsupported",
+        )),
+    }
+}
+
 /// Verifies an ownership proof using artifacts from the provided source.
 ///
 /// # Errors
 /// Returns an error if Noir artifacts cannot be loaded, the proof bytes are malformed,
 /// or verification fails.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn verify_ownership_proof(
     proof: &OwnershipProof,
     nonce: FieldElement,
@@ -149,6 +260,7 @@ pub fn verify_ownership_proof(
 ///
 /// # Errors
 /// Returns an error if the proof bytes are malformed or verification fails.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn verify_ownership_proof_with_verifier(
     proof: &OwnershipProof,
     nonce: FieldElement,
@@ -352,6 +464,7 @@ mod input_validation_tests {
 
 #[cfg(all(
     test,
+    not(target_arch = "wasm32"),
     feature = "embed-ownership-prover",
     feature = "embed-ownership-verifier"
 ))]
@@ -362,6 +475,24 @@ mod tests {
 
     use crate::fixtures::ownership_proof_fixture;
     use world_id_primitives::Credential;
+
+    #[test]
+    fn test_ownership_artifacts_bind_public_input_count() {
+        let artifacts = EmbeddedZkArtifacts;
+        let prover = artifacts.ownership_prover().expect("embedded prover loads");
+        let verifier = artifacts
+            .ownership_verifier()
+            .expect("embedded verifier loads");
+
+        // ProveKit 1.0.2 artifacts recorded zero here despite the circuit's five public inputs.
+        // Both keys must be regenerated with 1.0.3 for its stricter verifier checks to pass.
+        assert_eq!(prover.r1cs.num_public_inputs, 5);
+        assert_eq!(verifier.r1cs.num_public_inputs, 5);
+        let r1cs_hash = prover.r1cs.hash();
+        assert_eq!(verifier.r1cs.hash(), r1cs_hash);
+        assert_eq!(prover.whir_for_witness.r1cs_hash, r1cs_hash);
+        assert_eq!(verifier.whir_for_witness.unwrap().r1cs_hash, r1cs_hash);
+    }
 
     /// A valid proof together with its `(nonce, expected_commitment, context)` public inputs.
     fn generate_valid_ownership_proof_fixture()
@@ -469,8 +600,66 @@ mod tests {
             .expect("embedded prover loads");
         let witness = input.into_witness().expect("witness maps");
 
+        let err = solve_witness(&prover, witness.clone())
+            .expect_err("the WASM solver must reject a commitment it cannot derive");
+        assert!(matches!(err, ProofError::GenerationError(_)));
         prover
             .prove(witness)
-            .expect_err("the circuit must reject a commitment it cannot derive");
+            .expect_err("the native prover must reject a commitment it cannot derive");
+    }
+
+    #[test]
+    fn test_wasm_witness_solver_matches_provekit() {
+        let mut prover = EmbeddedZkArtifacts
+            .ownership_prover()
+            .expect("embedded prover loads");
+        let input = ownership_proof_fixture().into_witness().unwrap();
+        let actual = solve_witness(&prover, input.clone()).expect("WASM solver succeeds");
+        let expected = prover
+            .generate_witness(input)
+            .expect("native solver succeeds");
+
+        assert_eq!(
+            postcard::to_allocvec(&actual).unwrap(),
+            postcard::to_allocvec(&expected).unwrap()
+        );
+    }
+
+    const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkp"));
+
+    #[test]
+    fn test_prover_decoder_matches_provekit() {
+        let decoded = deserialize_prover(PKP_BYTES).expect("embedded prover decodes");
+        let expected: provekit_common::Prover =
+            provekit_common::file::deserialize(PKP_BYTES).expect("provekit decodes the prover");
+
+        assert_eq!(
+            postcard::to_allocvec(&decoded).unwrap(),
+            postcard::to_allocvec(&expected).unwrap()
+        );
+    }
+
+    #[test]
+    fn test_native_prover_reader_accepts_zstd() {
+        let expected: provekit_common::Prover =
+            provekit_common::file::deserialize(PKP_BYTES).expect("provekit decodes the prover");
+        let serialized = postcard::to_allocvec(&expected).unwrap();
+        let mut zstd_pkp = PKP_BYTES[..20].to_vec();
+        zstd_pkp.extend(zstd::stream::encode_all(serialized.as_slice(), 3).unwrap());
+
+        let decoded = load_ownership_prover_from_reader(zstd_pkp.as_slice())
+            .expect("native reader accepts zstd-compressed provers");
+        assert_eq!(postcard::to_allocvec(&decoded).unwrap(), serialized);
+    }
+
+    #[test]
+    fn test_prover_decoder_rejects_other_files() {
+        let pkv = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
+        assert!(deserialize_prover(pkv).is_err());
+        assert!(deserialize_prover(&PKP_BYTES[..20]).is_err());
+
+        let mut wrong_version = PKP_BYTES.to_vec();
+        wrong_version[16] = 2;
+        assert!(deserialize_prover(&wrong_version).is_err());
     }
 }

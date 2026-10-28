@@ -46,33 +46,25 @@ impl ZkArtifactSource for EmbeddedZkArtifacts {
     }
 
     fn ownership_prover(&self) -> Result<OwnershipProver, ZkArtifactError> {
-        // NOTE: Relying on wasm32 as a gate might seem weird here
-        //       but it's because the relevant code from provekit that allows
-        //       deserializing ProveKit artifacts has io/fs dependencies (and some C-based
-        //       libraries) - once that's resolved we should only rely on the
-        //       embed-ownership-prover feature gate.
-
-        #[cfg(all(not(target_arch = "wasm32"), feature = "embed-ownership-prover"))]
+        #[cfg(feature = "embed-ownership-prover")]
         {
             noir::load_embedded_ownership_prover()
                 .map_err(|e| ZkArtifactError::load(ZkArtifactKind::OwnershipProver, e))
         }
 
-        #[cfg(any(target_arch = "wasm32", not(feature = "embed-ownership-prover")))]
+        #[cfg(not(feature = "embed-ownership-prover"))]
         {
             Err(ZkArtifactError::Unavailable {
                 kind: ZkArtifactKind::OwnershipProver,
-                reason: "enable `embed-ownership-prover` on a native target",
+                reason: "enable `embed-ownership-prover`",
             })
         }
     }
 
     fn ownership_verifier(&self) -> Result<OwnershipVerifier, ZkArtifactError> {
-        // NOTE: Relying on wasm32 as a gate might seem weird here
-        //       but it's because the relevant code from provekit that allows
-        //       deserializing ProveKit artifacts has io/fs dependencies (and some C-based
-        //       libraries) - once that's resolved we should only rely on the
-        //       embed-ownership-verifier feature gate.
+        // NOTE: Verification is native-only. This crate depends on `provekit-verifier` only on
+        //       native targets, and the PKV file is zstd-compressed, which the PKP decoder
+        //       in `ownership_proof` does not handle. Browser authenticators only need to prove.
 
         #[cfg(all(not(target_arch = "wasm32"), feature = "embed-ownership-verifier"))]
         {
@@ -249,12 +241,9 @@ pub mod zkeys {
     }
 }
 
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    any(
-        feature = "embed-ownership-prover",
-        feature = "embed-ownership-verifier"
-    )
+#[cfg(any(
+    feature = "embed-ownership-prover",
+    all(not(target_arch = "wasm32"), feature = "embed-ownership-verifier")
 ))]
 pub mod noir {
     #[cfg(all(feature = "embed-ownership-prover", not(docsrs)))]
@@ -272,17 +261,25 @@ pub mod noir {
         crate::ownership_proof::load_ownership_prover_from_reader(PKP_BYTES)
     }
 
-    #[cfg(all(feature = "embed-ownership-verifier", not(docsrs)))]
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        feature = "embed-ownership-verifier",
+        not(docsrs)
+    ))]
     const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ownership_proof.pkv"));
 
-    #[cfg(all(feature = "embed-ownership-verifier", docsrs))]
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        feature = "embed-ownership-verifier",
+        docsrs
+    ))]
     const PKV_BYTES: &[u8] = &[];
 
     /// Loads the embedded ownership proof verifier.
     ///
     /// # Errors
     /// Returns an error if embedded Noir artifacts are missing or invalid.
-    #[cfg(feature = "embed-ownership-verifier")]
+    #[cfg(all(not(target_arch = "wasm32"), feature = "embed-ownership-verifier"))]
     pub fn load_embedded_ownership_verifier() -> eyre::Result<crate::OwnershipVerifier> {
         crate::ownership_proof::load_ownership_verifier_from_reader(PKV_BYTES)
     }
