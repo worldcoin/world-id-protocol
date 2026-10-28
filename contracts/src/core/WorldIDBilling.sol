@@ -328,6 +328,11 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     }
 
     /// @inheritdoc IWorldIDBilling
+    function priceSource() external view virtual onlyProxy onlyInitialized returns (address) {
+        return address(_priceSource);
+    }
+
+    /// @inheritdoc IWorldIDBilling
     function pricePerWorldID() external view virtual onlyProxy onlyInitialized returns (uint256) {
         return _pricePerWorldID;
     }

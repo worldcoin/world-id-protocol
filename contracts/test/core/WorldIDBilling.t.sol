@@ -1470,10 +1470,12 @@ contract WorldIDBillingTest is Test {
         assertEq(billing.getFeeRecipient(), user);
         assertEq(billing.owner(), address(this));
 
+        assertEq(billing.priceSource(), address(priceSource));
         MockPriceSource newSource = new MockPriceSource();
         vm.expectEmit(address(billing));
         emit IWorldIDBilling.PriceSourceUpdated(address(priceSource), address(newSource));
         billing.setPriceSource(address(newSource));
+        assertEq(billing.priceSource(), address(newSource));
     }
 
     function test_Implementation_CannotBeUsedDirectly() public {
@@ -1490,6 +1492,8 @@ contract WorldIDBillingTest is Test {
         implementation.usedNonces(RP_ID, 1);
         vm.expectRevert();
         implementation.getPinnedOprfKey(RP_ID, OCT_2026);
+        vm.expectRevert();
+        implementation.priceSource();
         vm.expectRevert();
         implementation.pricePerWorldID();
         vm.expectRevert();

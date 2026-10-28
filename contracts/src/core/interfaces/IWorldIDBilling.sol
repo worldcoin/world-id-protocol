@@ -171,6 +171,8 @@ interface IWorldIDBilling {
     /// @notice Whether purchases and new registrations are paused.
     function paused() external view returns (bool);
 
+    /// @notice WLD/USD adapter for verified Data Streams reports (WIP-107 §4.9).
+    function priceSource() external view returns (address);
     /// @notice USD price of one registration for one period, scaled by 1e18.
     function pricePerWorldID() external view returns (uint256);
     /// @notice Maximum accepted age of the WLD/USD price, in seconds.
