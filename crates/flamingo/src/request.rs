@@ -15,7 +15,7 @@ use world_id_primitives::{
 };
 
 use crate::{
-    FlamingoAatClaims, Layout, MAX_COMPARED, MAX_ENTRIES, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES,
+    FlamingoAatClaims, Layout, MAX_COMPARED, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES,
     REQUEST_VERSION, release_manifest::Pipeline,
 };
 
@@ -245,10 +245,6 @@ impl Payload {
         bound(self.hints.len() <= MAX_HINTS_BYTES, "hints")?;
         bound(!self.captures.is_empty(), "captures")?;
         bound(
-            self.captures.len() + self.references.len() <= MAX_ENTRIES,
-            "entries",
-        )?;
-        bound(
             self.captures
                 .iter()
                 .chain(&self.references)
@@ -264,7 +260,11 @@ impl Payload {
         bound(
             (2..=MAX_COMPARED).contains(&self.compare.len()) && distinct && in_range,
             "compare",
-        )
+        )?;
+        // A reference is only compared, so one that `compare` does not name serves no purpose.
+        let all_compared = (0..self.references.len())
+            .all(|j| u8::try_from(j).is_ok_and(|j| self.compare.contains(&Compared::Reference(j))));
+        bound(all_compared, "references")
     }
 
     /// The comparison layout under `pipeline`: each compared capture's role, `None` for a
@@ -664,7 +664,7 @@ mod tests {
             (|p| p.compare[2] = Compared::Reference(0), "compare"),
             (|p| p.compare[0] = Compared::Reference(2), "compare"),
             (|p| p.compare[1] = Compared::Capture(1), "compare"),
-            (|p| p.references.resize(MAX_ENTRIES, entry(b"")), "entries"),
+            (|p| p.references.push(entry(b"unused")), "references"),
         ];
         for (change, field) in cases {
             let mut payload = payload();

@@ -21,8 +21,6 @@ pub use token::{
 
 /// Version of the request map.
 pub const REQUEST_VERSION: u64 = 1;
-/// Captures plus references per request.
-pub const MAX_ENTRIES: usize = 8;
 /// Maximum size of the request-level `hints`, in bytes.
 pub const MAX_HINTS_BYTES: usize = 1024;
 /// Maximum size of one entry's `meta`, in bytes.

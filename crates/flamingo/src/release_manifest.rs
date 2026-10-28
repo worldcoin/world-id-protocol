@@ -5,8 +5,6 @@ use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use crate::MAX_ENTRIES;
-
 /// The JWS `typ` of a release manifest.
 pub const MANIFEST_TYP: &str = "world-id-engine-manifest";
 
@@ -272,9 +270,9 @@ impl ManifestPayload {
 }
 
 impl Pipeline {
-    /// `1..=MAX_ENTRIES` captures, each with a role and at least one media type.
+    /// At least one capture, each with a role and at least one media type.
     fn has_valid_captures(&self) -> bool {
-        (1..=MAX_ENTRIES).contains(&self.captures.len())
+        !self.captures.is_empty()
             && self.captures.iter().all(|c| {
                 !c.role.is_empty()
                     && !c.media_types.is_empty()
@@ -561,13 +559,6 @@ mod tests {
             (Box::new(|p| p.iss = "https://e.example/?a=1".into()), "iss"),
             (Box::new(|p| p.iss = "https://e.example/#x".into()), "iss"),
             (Box::new(|p| p.pipelines[0].captures.clear()), "captures"),
-            (
-                Box::new(|p| {
-                    let capture = p.pipelines[0].captures[0].clone();
-                    p.pipelines[0].captures = vec![capture; MAX_ENTRIES + 1];
-                }),
-                "captures",
-            ),
             (
                 Box::new(|p| p.pipelines[0].captures[0].role = String::new()),
                 "captures",
