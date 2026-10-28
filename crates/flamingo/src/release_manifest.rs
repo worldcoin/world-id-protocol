@@ -1,11 +1,11 @@
-//! Engine release manifests (WIP-201 §3.5.2).
+//! Engine release manifests (WIP-201 §4.3.2).
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use crate::{MAX_COMPARED, MAX_ENTRIES};
+use crate::MAX_ENTRIES;
 
 /// The JWS `typ` of a release manifest.
 pub const MANIFEST_TYP: &str = "world-id-engine-manifest";
@@ -16,7 +16,7 @@ pub enum ManifestError {
     /// Not a compact JWS with the required header, or not the specified JSON.
     #[error("malformed {0}")]
     Malformed(&'static str),
-    /// A field breaks a rule of WIP-201 §3.5.2.
+    /// A field breaks a rule of WIP-201 §4.3.2.
     #[error("invalid {0}")]
     Invalid(&'static str),
     /// The signature does not verify under the given key.
@@ -39,57 +39,43 @@ pub struct ReleaseManifest {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ManifestPayload {
+    /// The Engine Provider: an `https` URL without query or fragment.
+    pub iss: String,
     /// `SHA-256` of the Engine bundle; 64 lowercase hex digits on the wire.
     #[serde(with = "lowercase_hex")]
     pub engine_hash: [u8; 32],
-    /// Greater than the `version` of every earlier release of the Engine Provider.
+    /// Greater than the `version` of every earlier release of the same `iss`.
     pub version: u64,
+    /// The release's strictness levels, strictly ascending; each means the same in every pipeline.
+    pub match_strictness_levels: Vec<u8>,
     /// The release's pipelines.
     pub pipelines: Vec<Pipeline>,
 }
 
-/// One pipeline of a release.
+/// One fraud and liveness pipeline of a release.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Pipeline {
     /// Pipeline identifier, unique within the manifest.
     pub pipeline: u16,
-    /// Roles the Engine reads, with their `min` and `max` counts; `entries` follow this order.
-    pub inputs: Vec<PipelineInput>,
-    /// Compared positions: each names a `role` and an `index` below that role's `min`.
-    pub compare: Vec<CompareEntry>,
-    /// Strictness levels this pipeline supports, strictly ascending.
-    pub match_strictness_levels: Vec<u8>,
+    /// The captures the pipeline checks; item `i` is the request's capture `i`.
+    pub captures: Vec<Capture>,
     /// When the Verifier may release responses.
     pub response_slots: ResponseSlots,
-    /// The largest sealed request the pipeline accepts, in bytes.
-    pub max_request_bytes: u64,
 }
 
-/// One role in a pipeline's `inputs`.
+/// One capture a pipeline checks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct PipelineInput {
-    /// Role name; unique within the pipeline's `inputs`.
+pub struct Capture {
+    /// What the capture is, e.g. `live_frame`; roles may repeat.
     pub role: String,
-    /// Minimum number of entries of this role.
-    pub min: u64,
-    /// Maximum number of entries of this role.
-    pub max: u64,
-}
-
-/// One compared position in a pipeline's `compare`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct CompareEntry {
-    /// A `role` listed in `inputs`.
-    pub role: String,
-    /// Index among that role's entries; MUST be below the role's `min`.
-    pub index: u64,
+    /// Media types the Engine accepts for it, e.g. `image/jpeg`.
+    pub media_types: Vec<String>,
 }
 
 /// A pipeline's response release times, in milliseconds after a request's arrival (WIP-201
-/// §3.5.4). A request still running at the last slot fails.
+/// §4.4.6). A request still running at the last slot fails.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ResponseSlots(pub Vec<u64>);
@@ -142,7 +128,7 @@ impl ReleaseManifest {
     ///
     /// # Errors
     /// Fails for a header other than `ES256`/`world-id-engine-manifest` with a `kid`, a payload
-    /// that is not the specified JSON, or a rule of WIP-201 §3.5.2 it breaks.
+    /// that is not the specified JSON, or a rule of WIP-201 §4.3.2 it breaks.
     pub fn from_jws(jws: &str) -> Result<Self, ManifestError> {
         let malformed = || ManifestError::Malformed("release manifest");
         let mut parts = jws.split('.');
@@ -236,27 +222,17 @@ impl ReleaseManifest {
             .find(|p| p.pipeline == pipeline)
     }
 
-    /// Whether the pipeline `pipeline` lists `match_strictness`.
+    /// Whether the release lists `match_strictness`.
     #[must_use]
-    pub fn has_match_strictness(&self, pipeline: u16, match_strictness: u8) -> bool {
-        self.pipeline(pipeline)
-            .is_some_and(|p| p.match_strictness_levels.contains(&match_strictness))
-    }
-
-    /// The largest `max_request_bytes` of the release's pipelines.
-    #[must_use]
-    pub fn max_request_bytes(&self) -> u64 {
+    pub fn has_match_strictness(&self, match_strictness: u8) -> bool {
         self.payload
-            .pipelines
-            .iter()
-            .map(|p| p.max_request_bytes)
-            .max()
-            .unwrap_or(0)
+            .match_strictness_levels
+            .contains(&match_strictness)
     }
 }
 
 impl ManifestPayload {
-    /// Checks the rules of WIP-201 §3.5.2 that do not need the bundle.
+    /// Checks the rules of WIP-201 §4.3.2 that do not need the bundle.
     ///
     /// # Errors
     /// Returns [`ManifestError::Invalid`] naming the first violated field.
@@ -268,6 +244,12 @@ impl ManifestPayload {
                 Err(ManifestError::Invalid(field))
             }
         };
+        invalid(is_issuer(&self.iss), "iss")?;
+        let ascending = self.match_strictness_levels.windows(2).all(|w| w[0] < w[1]);
+        invalid(
+            !self.match_strictness_levels.is_empty() && ascending,
+            "match_strictness_levels",
+        )?;
         invalid(!self.pipelines.is_empty(), "pipelines")?;
         let unique_pipelines = self
             .pipelines
@@ -283,69 +265,32 @@ impl ManifestPayload {
             "response_slots",
         )?;
         invalid(
-            self.pipelines.iter().all(|p| p.max_request_bytes > 0),
-            "max_request_bytes",
-        )?;
-        for pipeline in &self.pipelines {
-            pipeline.validate()?;
-        }
-        Ok(())
+            self.pipelines.iter().all(Pipeline::has_valid_captures),
+            "captures",
+        )
     }
 }
 
 impl Pipeline {
-    /// Checks the rules of WIP-201 §3.5.2 for one pipeline.
-    fn validate(&self) -> Result<(), ManifestError> {
-        let invalid = |ok: bool, field| {
-            if ok {
-                Ok(())
-            } else {
-                Err(ManifestError::Invalid(field))
-            }
-        };
-        invalid(!self.inputs.is_empty(), "inputs")?;
-        let unique_roles = self.inputs.iter().enumerate().all(|(i, input)| {
-            self.inputs[..i]
-                .iter()
-                .all(|other| other.role != input.role)
-        });
-        invalid(
-            unique_roles && self.inputs.iter().all(|i| !i.role.is_empty()),
-            "inputs",
-        )?;
-        invalid(self.inputs.iter().all(|i| i.max >= i.min), "inputs")?;
-        // A pipeline whose minimum entries exceed `MAX_ENTRIES` accepts no request.
-        let min_entries = self
-            .inputs
-            .iter()
-            .try_fold(0_u64, |sum, i| sum.checked_add(i.min));
-        invalid(
-            min_entries.is_some_and(|sum| sum <= MAX_ENTRIES as u64),
-            "inputs",
-        )?;
-        let distinct = self
-            .compare
-            .iter()
-            .enumerate()
-            .all(|(i, entry)| !self.compare[..i].contains(entry));
-        invalid(
-            (2..=MAX_COMPARED).contains(&self.compare.len()) && distinct,
-            "compare",
-        )?;
-        for entry in &self.compare {
-            let Some(input) = self.inputs.iter().find(|i| i.role == entry.role) else {
-                return Err(ManifestError::Invalid("compare"));
-            };
-            if entry.index >= input.min {
-                return Err(ManifestError::Invalid("compare"));
-            }
-        }
-        let ascending = self.match_strictness_levels.windows(2).all(|w| w[0] < w[1]);
-        invalid(
-            !self.match_strictness_levels.is_empty() && ascending,
-            "match_strictness_levels",
-        )
+    /// `1..=MAX_ENTRIES` captures, each with a role and at least one media type.
+    fn has_valid_captures(&self) -> bool {
+        (1..=MAX_ENTRIES).contains(&self.captures.len())
+            && self.captures.iter().all(|c| {
+                !c.role.is_empty()
+                    && !c.media_types.is_empty()
+                    && c.media_types.iter().all(|t| t.contains('/'))
+            })
     }
+}
+
+/// Whether `iss` is an `https` URL with a host and no query or fragment (RFC 8414 §2).
+pub(crate) fn is_issuer(iss: &str) -> bool {
+    iss.strip_prefix("https://").is_some_and(|rest| {
+        !rest.is_empty()
+            && !rest.starts_with('/')
+            && !rest.contains(['?', '#'])
+            && !rest.chars().any(char::is_whitespace)
+    })
 }
 
 /// A release key: a public P-256 JWK ([RFC 7517](https://www.rfc-editor.org/rfc/rfc7517)) with
@@ -408,46 +353,22 @@ pub(crate) mod fixtures {
         }
     }
 
+    pub const ISS: &str = "https://engines.example.com";
+
     pub fn payload() -> ManifestPayload {
+        let live_frame = || Capture {
+            role: "live_frame".into(),
+            media_types: vec!["image/jpeg".into(), "image/png".into()],
+        };
         ManifestPayload {
+            iss: ISS.into(),
             engine_hash: [0x2a; 32],
             version: 1,
+            match_strictness_levels: vec![1, 2],
             pipelines: vec![Pipeline {
                 pipeline: 1,
-                inputs: vec![
-                    PipelineInput {
-                        role: "credential_image".into(),
-                        min: 1,
-                        max: 1,
-                    },
-                    PipelineInput {
-                        role: "live_frame".into(),
-                        min: 1,
-                        max: 1,
-                    },
-                    PipelineInput {
-                        role: "challenge".into(),
-                        min: 1,
-                        max: 1,
-                    },
-                ],
-                compare: vec![
-                    CompareEntry {
-                        role: "credential_image".into(),
-                        index: 0,
-                    },
-                    CompareEntry {
-                        role: "live_frame".into(),
-                        index: 0,
-                    },
-                    CompareEntry {
-                        role: "challenge".into(),
-                        index: 0,
-                    },
-                ],
-                match_strictness_levels: vec![1, 2],
+                captures: vec![live_frame()],
                 response_slots: ResponseSlots(vec![500, 1587, 5039, 16_000]),
-                max_request_bytes: 8 << 20,
             }],
         }
     }
@@ -511,8 +432,7 @@ mod tests {
         assert_eq!(manifest.payload().engine_hash, [0x2a; 32]);
         assert!(manifest.verify(&jwk(&signing_key(), KID)).is_ok());
         assert!(manifest.pipeline(1).is_some() && manifest.pipeline(2).is_none());
-        assert!(manifest.has_match_strictness(1, 2) && !manifest.has_match_strictness(1, 3));
-        assert_eq!(manifest.max_request_bytes(), 8 << 20);
+        assert!(manifest.has_match_strictness(2) && !manifest.has_match_strictness(3));
     }
 
     #[test]
@@ -634,52 +554,42 @@ mod tests {
                 "response_slots",
             ),
             (
-                Box::new(|p| p.pipelines[0].max_request_bytes = 0),
-                "max_request_bytes",
+                Box::new(|p| p.iss = "http://engines.example.com".into()),
+                "iss",
             ),
-            (Box::new(|p| p.pipelines[0].inputs.clear()), "inputs"),
-            (Box::new(|p| p.pipelines[0].inputs[0].max = 0), "inputs"),
+            (Box::new(|p| p.iss = "https://".into()), "iss"),
+            (Box::new(|p| p.iss = "https://e.example/?a=1".into()), "iss"),
+            (Box::new(|p| p.iss = "https://e.example/#x".into()), "iss"),
+            (Box::new(|p| p.pipelines[0].captures.clear()), "captures"),
             (
                 Box::new(|p| {
-                    p.pipelines[0].inputs.push(PipelineInput {
-                        role: "credential_image".into(),
-                        min: 1,
-                        max: 1,
-                    });
+                    let capture = p.pipelines[0].captures[0].clone();
+                    p.pipelines[0].captures = vec![capture; MAX_ENTRIES + 1];
                 }),
-                "inputs",
-            ),
-            (Box::new(|p| p.pipelines[0].compare.clear()), "compare"),
-            (Box::new(|p| p.pipelines[0].compare.truncate(1)), "compare"),
-            (
-                Box::new(|p| {
-                    let first = p.pipelines[0].compare[0].clone();
-                    p.pipelines[0].compare[1] = first;
-                }),
-                "compare",
+                "captures",
             ),
             (
-                Box::new(|p| {
-                    p.pipelines[0].inputs[1].min = 7;
-                    p.pipelines[0].inputs[1].max = 7;
-                }),
-                "inputs",
+                Box::new(|p| p.pipelines[0].captures[0].role = String::new()),
+                "captures",
             ),
             (
-                Box::new(|p| p.pipelines[0].compare[0].role = "unknown".into()),
-                "compare",
+                Box::new(|p| p.pipelines[0].captures[0].media_types.clear()),
+                "captures",
             ),
-            (Box::new(|p| p.pipelines[0].compare[0].index = 1), "compare"),
             (
-                Box::new(|p| p.pipelines[0].match_strictness_levels.reverse()),
+                Box::new(|p| p.pipelines[0].captures[0].media_types = vec!["jpeg".into()]),
+                "captures",
+            ),
+            (
+                Box::new(|p| p.match_strictness_levels.reverse()),
                 "match_strictness_levels",
             ),
             (
-                Box::new(|p| p.pipelines[0].match_strictness_levels[1] = 1),
+                Box::new(|p| p.match_strictness_levels[1] = 1),
                 "match_strictness_levels",
             ),
             (
-                Box::new(|p| p.pipelines[0].match_strictness_levels.clear()),
+                Box::new(|p| p.match_strictness_levels.clear()),
                 "match_strictness_levels",
             ),
         ];
