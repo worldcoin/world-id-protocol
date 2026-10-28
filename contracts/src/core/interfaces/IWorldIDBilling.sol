@@ -142,7 +142,10 @@ interface IWorldIDBilling {
     function isRegistered(uint256 billingNullifier) external view returns (bool);
 
     /// @notice Purchased capacity and registration count for the RP and period.
-    function periods(uint64 rpId, uint64 periodStart) external view returns (uint256 capacity, uint256 registeredCount);
+    function getPeriodCapacity(uint64 rpId, uint64 periodStart)
+        external
+        view
+        returns (uint256 capacity, uint256 registeredCount);
 
     /// @notice Whether an authorization nonce was consumed for the RP.
     function usedNonces(uint64 rpId, uint256 nonce) external view returns (bool);

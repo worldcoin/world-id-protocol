@@ -455,8 +455,8 @@ contract WorldIDBillingTest is Test {
         entries[0] = _entry(january, NULLIFIER + 1);
         entries[0].expiresAtMin = uint64(vm.getBlockTimestamp());
         assertTrue(billing.registerMany(january, entries)[0]);
-        (, uint256 decemberCount) = billing.periods(RP_ID, DEC_2026);
-        (, uint256 januaryCount) = billing.periods(RP_ID, JAN_2027);
+        (, uint256 decemberCount) = billing.getPeriodCapacity(RP_ID, DEC_2026);
+        (, uint256 januaryCount) = billing.getPeriodCapacity(RP_ID, JAN_2027);
         assertEq(decemberCount, 1);
         assertEq(januaryCount, 1);
 
@@ -534,7 +534,7 @@ contract WorldIDBillingTest is Test {
         priceSource.set(USD_PER_WLD, vm.getBlockTimestamp());
         _buy(NOV_2026, 5);
         assertEq(wld.balanceOf(feeRecipient), 83333333333333334 + 0.0375e18);
-        (uint256 capacity, uint256 count) = billing.periods(RP_ID, NOV_2026);
+        (uint256 capacity, uint256 count) = billing.getPeriodCapacity(RP_ID, NOV_2026);
         assertEq(capacity, 15);
         assertEq(count, 0);
     }
@@ -608,14 +608,14 @@ contract WorldIDBillingTest is Test {
         billing.purchaseCapacity(_scope(OCT_2026), 10, 205645161290322581);
 
         assertEq(wld.balanceOf(feeRecipient), 205645161290322581);
-        (uint256 capacity, uint256 count) = billing.periods(RP_ID, OCT_2026);
+        (uint256 capacity, uint256 count) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(capacity, 10);
         assertEq(count, 0);
 
         _buy(OCT_2026, 5);
-        (capacity,) = billing.periods(RP_ID, OCT_2026);
+        (capacity,) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(capacity, 15);
-        (capacity,) = billing.periods(RP_ID + 1, OCT_2026);
+        (capacity,) = billing.getPeriodCapacity(RP_ID + 1, OCT_2026);
         assertEq(capacity, 0, "no cross-RP capacity");
     }
 
@@ -754,7 +754,7 @@ contract WorldIDBillingTest is Test {
         vm.prank(rp);
         vm.expectRevert(IWorldIDBilling.PriceUnavailable.selector);
         billing.purchaseCapacity(_scope(OCT_2026), 1, type(uint256).max);
-        (uint256 capacity,) = billing.periods(RP_ID, OCT_2026);
+        (uint256 capacity,) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(capacity, 3);
     }
 
@@ -779,7 +779,7 @@ contract WorldIDBillingTest is Test {
         _buy(NOV_2026, 4);
         billing.setPricePerWorldID(1e18);
         _buy(NOV_2026, 1);
-        (uint256 capacity,) = billing.periods(RP_ID, NOV_2026);
+        (uint256 capacity,) = billing.getPeriodCapacity(RP_ID, NOV_2026);
         assertEq(capacity, 5);
         assertEq(wld.balanceOf(feeRecipient), 0.1e18 + 0.5e18);
     }
@@ -804,7 +804,7 @@ contract WorldIDBillingTest is Test {
         IWorldIDBilling.RegistrationAuthorization memory auth2 = _authorize(scope);
         assertFalse(_register(auth2, NULLIFIER));
         assertTrue(billing.usedNonces(RP_ID, auth2.nonce));
-        (uint256 capacity, uint256 count) = billing.periods(RP_ID, OCT_2026);
+        (uint256 capacity, uint256 count) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(capacity, 1);
         assertEq(count, 1);
     }
@@ -860,7 +860,7 @@ contract WorldIDBillingTest is Test {
         assertTrue(successes[0]);
         assertTrue(successes[1]);
         assertFalse(successes[2]);
-        (, uint256 count) = billing.periods(RP_ID, OCT_2026);
+        (, uint256 count) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(count, 2);
         for (uint256 i = 0; i < 3; ++i) {
             assertTrue(billing.usedNonces(RP_ID, entries[i].authorization.nonce));
@@ -880,7 +880,7 @@ contract WorldIDBillingTest is Test {
 
         assertFalse(billing.isRegistered(NULLIFIER));
         assertFalse(billing.usedNonces(RP_ID, entries[0].authorization.nonce));
-        (, uint256 count) = billing.periods(RP_ID, OCT_2026);
+        (, uint256 count) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(count, 0);
     }
 
@@ -1020,7 +1020,7 @@ contract WorldIDBillingTest is Test {
         vm.expectRevert(Verifier.ProofInvalid.selector);
         _register(auth, NULLIFIER);
         assertFalse(billing.usedNonces(RP_ID, auth.nonce));
-        (, uint256 count) = billing.periods(RP_ID, OCT_2026);
+        (, uint256 count) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(count, 0);
     }
 
@@ -1163,7 +1163,7 @@ contract WorldIDBillingTest is Test {
         vm.prank(rp);
         vm.expectRevert(IWorldIDBilling.PinnedOprfKeyChanged.selector);
         billing.purchaseCapacity(_scope(OCT_2026), 10, type(uint256).max);
-        (uint256 capacity,) = billing.periods(RP_ID, OCT_2026);
+        (uint256 capacity,) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(capacity, 1);
         assertEq(wld.balanceOf(rp), balanceBefore, "no payment for a frozen period");
 
@@ -1173,7 +1173,7 @@ contract WorldIDBillingTest is Test {
         // Restoring the pinned key makes the period usable, and purchasable, again.
         oprfKeyRegistry.set(OPRF_KEY_ID, 21, 22);
         _buy(OCT_2026, 1);
-        (capacity,) = billing.periods(RP_ID, OCT_2026);
+        (capacity,) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(capacity, 2);
     }
 
@@ -1183,12 +1183,12 @@ contract WorldIDBillingTest is Test {
         vm.prank(rp);
         vm.expectRevert(PausableUpgradeable.EnforcedPause.selector);
         billing.purchaseCapacity(_scope(OCT_2026), 1, type(uint256).max);
-        (uint256 capacity,) = billing.periods(RP_ID, OCT_2026);
+        (uint256 capacity,) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(capacity, 2, "pause preserves purchased capacity");
 
         billing.setPaused(false);
         _buy(OCT_2026, 1);
-        (capacity,) = billing.periods(RP_ID, OCT_2026);
+        (capacity,) = billing.getPeriodCapacity(RP_ID, OCT_2026);
         assertEq(capacity, 3);
     }
 
@@ -1485,7 +1485,7 @@ contract WorldIDBillingTest is Test {
         vm.expectRevert();
         implementation.isRegistered(NULLIFIER);
         vm.expectRevert();
-        implementation.periods(RP_ID, OCT_2026);
+        implementation.getPeriodCapacity(RP_ID, OCT_2026);
         vm.expectRevert();
         implementation.usedNonces(RP_ID, 1);
         vm.expectRevert();
