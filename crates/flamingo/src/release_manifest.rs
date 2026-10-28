@@ -282,7 +282,7 @@ impl Pipeline {
 }
 
 /// Whether `iss` is an `https` URL with a host and no query or fragment (RFC 8414 §2).
-pub(crate) fn is_issuer(iss: &str) -> bool {
+fn is_issuer(iss: &str) -> bool {
     iss.strip_prefix("https://").is_some_and(|rest| {
         !rest.is_empty()
             && !rest.starts_with('/')
