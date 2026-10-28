@@ -166,8 +166,6 @@ pub struct Payload {
     pub pipeline_inputs: Vec<u8>,
     /// Distinct indices into `entries`; `compare[k]` becomes `compared_entry_hash_k`.
     pub compare: Vec<u8>,
-    /// The `release_hash` of the loaded release.
-    pub release_hash: [u8; 32],
 }
 
 /// One Engine input.
@@ -203,7 +201,6 @@ impl Payload {
             .map(Entry::from_value)
             .collect::<Result<Vec<_>, _>>()?;
         let pipeline = fields.uint("pipeline")?;
-        let release_hash = fields.bytes("release_hash")?;
         let pipeline_inputs = indices(fields.take("pipeline_inputs")?)?;
         let payload = Self {
             pipeline,
@@ -212,7 +209,6 @@ impl Payload {
             entries,
             pipeline_inputs,
             compare,
-            release_hash,
         };
         fields.finish()?;
         if cbor::encode(&payload.to_value()) != bytes {
@@ -314,7 +310,6 @@ impl Payload {
             ),
             ("pipeline_inputs", indices(&self.pipeline_inputs)),
             ("compare", indices(&self.compare)),
-            ("release_hash", Value::Bytes(self.release_hash.to_vec())),
         ])
     }
 }
@@ -465,10 +460,10 @@ mod tests {
     use world_id_primitives::EdDSAPrivateKey;
 
     // WIP-201 Appendix A1, "With an AAT".
-    const PAYLOAD: &str = "a76568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d6574614068706970656c696e65016c72656c656173655f6861736858202a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a6f706970656c696e655f696e707574738101706d617463685f7374726963746e65737302";
-    const CDH: &str = "068974e18ef1f394816ccf1eb13b6a37cd62efc6a57fe1076a7fdb4a82ecaa3c";
+    const PAYLOAD: &str = "a66568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d6574614068706970656c696e65016f706970656c696e655f696e707574738101706d617463685f7374726963746e65737302";
+    const CDH: &str = "0af15a9a4cc88809249b5f77c77c062ab531c738c426d0230ae8e7d627b47818";
     const TAKT: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
-    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f5820068974e18ef1f394816ccf1eb13b6a37cd62efc6a57fe1076a7fdb4a82ecaa3c3a000138805820000000000000000000000000000000000000000000000000000000000000000a5840b270c5eb66fe6eacd04dc4a63e63bf8c0555dc2f04cb0b3bbff080a316db6bcf37d606eeaa935ce09b1d446e8f4ad27a336bf6c41d23d8575ce7d14a56c58f79";
+    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f58200af15a9a4cc88809249b5f77c77c062ab531c738c426d0230ae8e7d627b478183a000138805820000000000000000000000000000000000000000000000000000000000000000a584057b96a95fd3497149d4dda9a5b7d5ae9ffd8f290d396358c15225bc2289987306533b6b8bf250ab216d69da30c840a6da7b6cc9c0e20d4695a53fe16354651b3";
     const TRUST_ANCHOR_KEY_HASH: &str =
         "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
     const COMPARED: [&str; 3] = [
@@ -503,7 +498,6 @@ mod tests {
             ],
             pipeline_inputs: vec![1],
             compare: vec![0, 1, 2],
-            release_hash: [0x2a; 32],
         }
     }
 
@@ -696,7 +690,6 @@ mod tests {
         }
         for bytes in [
             reversed(&payload),
-            with(&payload, "release_hash", Value::Bytes(vec![0x2a; 31])),
             with(&payload, "pipeline", Value::Integer(65_536.into())),
             with(
                 &payload,
