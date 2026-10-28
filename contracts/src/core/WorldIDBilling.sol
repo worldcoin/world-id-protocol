@@ -54,7 +54,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     uint64 internal _maxPriceAge;
 
     /// @dev Purchased capacity and registration count per RP and period.
-    mapping(uint64 rpId => mapping(uint64 periodStart => Period)) internal _periods;
+    mapping(uint64 rpId => mapping(uint64 periodStart => PeriodCapacity)) internal _periods;
 
     /// @dev Registered billing nullifiers; `billingAction` already scopes each to one RP and period.
     mapping(uint256 billingNullifier => bool) internal _isRegistered;
@@ -282,7 +282,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         onlyInitialized
         returns (uint256 capacity, uint256 registeredCount)
     {
-        Period storage period = _periods[rpId][periodStart];
+        PeriodCapacity storage period = _periods[rpId][periodStart];
         return (period.capacity, period.registeredCount);
     }
 
@@ -484,7 +484,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
         // Duplicates above still succeed while paused; only new registrations stop.
         _requireNotPaused();
-        Period storage period = _periods[scope.rpId][scope.periodStart];
+        PeriodCapacity storage period = _periods[scope.rpId][scope.periodStart];
         if (period.registeredCount >= period.capacity) revert CapacityExhausted();
 
         period.registeredCount += 1;

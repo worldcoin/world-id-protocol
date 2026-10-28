@@ -42,7 +42,7 @@ interface IWorldIDBilling {
     }
 
     /// @notice Purchased capacity and registrations for one RP and period.
-    struct Period {
+    struct PeriodCapacity {
         uint256 capacity;
         uint256 registeredCount;
     }
