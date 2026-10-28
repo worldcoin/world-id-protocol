@@ -39,9 +39,9 @@ pub struct ReleaseManifest {
 pub struct ManifestPayload {
     /// The Engine Provider: an `https` URL without query or fragment.
     pub iss: String,
-    /// `SHA-256` of the Engine bundle; 64 lowercase hex digits on the wire.
+    /// `SHA-384` of the Engine bundle; 96 lowercase hex digits on the wire.
     #[serde(with = "lowercase_hex")]
-    pub engine_hash: [u8; 32],
+    pub engine_hash: [u8; 48],
     /// Greater than the `version` of every earlier release of the same `iss`.
     pub version: u64,
     /// The release's strictness levels, strictly ascending; each means the same in every pipeline.
@@ -309,21 +309,21 @@ pub fn verifying_key(jwk: &ReleaseKeyJwk) -> Result<VerifyingKey, ManifestError>
     }
 }
 
-/// A 32-byte hash as exactly 64 lowercase hex digits.
+/// A 48-byte `SHA-384` hash as exactly 96 lowercase hex digits.
 mod lowercase_hex {
     use serde::{Deserialize as _, Deserializer, Serializer, de::Error as _};
 
-    pub fn serialize<S: Serializer>(hash: &[u8; 32], serializer: S) -> Result<S::Ok, S::Error> {
+    pub fn serialize<S: Serializer>(hash: &[u8; 48], serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(&hex::encode(hash))
     }
 
-    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[u8; 32], D::Error> {
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<[u8; 48], D::Error> {
         let hex = String::deserialize(deserializer)?;
-        let mut hash = [0u8; 32];
+        let mut hash = [0u8; 48];
         if hex.bytes().any(|b| b.is_ascii_uppercase())
             || hex::decode_to_slice(&hex, &mut hash).is_err()
         {
-            return Err(D::Error::custom("expected 64 lowercase hex digits"));
+            return Err(D::Error::custom("expected 96 lowercase hex digits"));
         }
         Ok(hash)
     }
@@ -360,7 +360,7 @@ pub(crate) mod fixtures {
         };
         ManifestPayload {
             iss: ISS.into(),
-            engine_hash: [0x2a; 32],
+            engine_hash: [0x2a; 48],
             version: 1,
             match_strictness_levels: vec![1, 2],
             pipelines: vec![Pipeline {
@@ -427,7 +427,7 @@ mod tests {
         let manifest = ReleaseManifest::from_jws(&compact).unwrap();
         assert_eq!(manifest.kid(), KID);
         assert_eq!(manifest.payload(), &payload());
-        assert_eq!(manifest.payload().engine_hash, [0x2a; 32]);
+        assert_eq!(manifest.payload().engine_hash, [0x2a; 48]);
         assert!(manifest.verify(&jwk(&signing_key(), KID)).is_ok());
         assert!(manifest.pipeline(1).is_some() && manifest.pipeline(2).is_none());
         assert!(manifest.has_match_strictness(2) && !manifest.has_match_strictness(3));
@@ -595,12 +595,13 @@ mod tests {
     }
 
     #[test]
-    fn engine_hash_must_be_64_lowercase_hex_digits() {
+    fn engine_hash_must_be_96_lowercase_hex_digits() {
         for engine_hash in [
-            "2A".repeat(32),
-            "2a".repeat(31),
-            "2a".repeat(33),
-            "zz".repeat(32),
+            "2A".repeat(48),
+            "2a".repeat(32),
+            "2a".repeat(47),
+            "2a".repeat(49),
+            "zz".repeat(48),
         ] {
             let mut payload = serde_json::to_value(payload()).unwrap();
             payload["engine_hash"] = engine_hash.into();
@@ -616,7 +617,7 @@ mod tests {
         }
         assert_eq!(
             serde_json::to_value(payload()).unwrap()["engine_hash"],
-            "2a".repeat(32)
+            "2a".repeat(48)
         );
     }
 
