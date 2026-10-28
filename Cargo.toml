@@ -59,7 +59,7 @@ ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.6.1", defa
 ] }
 ark-bn254 = "0.6"
 ark-ff = "0.6"
-ark-groth16 = "0.6"
+ark-groth16 = { version = "0.6", default-features = false }
 ark-serialize = "0.6"
 backon = "1"
 base64 = "0.22"
