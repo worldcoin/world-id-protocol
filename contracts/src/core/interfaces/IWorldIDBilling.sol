@@ -47,10 +47,12 @@ interface IWorldIDBilling {
         uint256 registeredCount;
     }
 
-    /// @notice RP and period a billing nullifier was registered under; `periodStart` is zero while unregistered.
+    /// @notice RP and period a billing nullifier was registered under, and when; `periodStart` is zero while
+    ///  unregistered. Packs into one storage slot.
     struct RegisteredContext {
         uint64 rpId;
         uint64 periodStart;
+        uint64 registeredAt;
     }
 
     /// @notice RP OPRF key pinned by the first registration in a period (WIP-107 §4.4.2).
@@ -97,10 +99,22 @@ interface IWorldIDBilling {
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
 
+    /// @dev `usdPerWld` and `pricePerWorldID` are the inputs that produced `wldPaid`, so each charge can be checked
+    ///  offline against WIP-107 §4.9.
     event CapacityPurchased(
-        uint64 indexed rpId, uint64 indexed periodStart, address indexed payer, uint256 capacityAmount, uint256 wldPaid
+        uint64 indexed rpId,
+        uint64 indexed periodStart,
+        address indexed payer,
+        uint256 capacityAmount,
+        uint256 wldPaid,
+        uint256 usdPerWld,
+        uint256 pricePerWorldID
     );
-    event Registered(uint64 indexed rpId, uint64 indexed periodStart, uint256 billingNullifier);
+    event Registered(uint64 indexed rpId, uint64 indexed periodStart, uint256 indexed billingNullifier);
+    /// @notice A valid registration of an already registered nullifier; it consumed `nonce` but no capacity.
+    event DuplicateRegistration(
+        uint64 indexed rpId, uint64 indexed periodStart, uint256 indexed billingNullifier, uint256 nonce
+    );
 
     event PricePerWorldIDUpdated(uint256 oldPricePerWorldID, uint256 newPricePerWorldID);
     event MaxPriceAgeUpdated(uint64 oldMaxPriceAge, uint64 newMaxPriceAge);
@@ -147,8 +161,12 @@ interface IWorldIDBilling {
     /// @notice Whether `billingNullifier` is registered; `billingAction` already scopes it to one RP and period.
     function isRegistered(uint256 billingNullifier) external view returns (bool);
 
-    /// @notice RP and period `billingNullifier` was registered under; both zero if it is not registered.
-    function registrationOf(uint256 billingNullifier) external view returns (uint64 rpId, uint64 periodStart);
+    /// @notice RP and period `billingNullifier` was registered under, and the registration time; all zero if it is
+    ///  not registered.
+    function registrationOf(uint256 billingNullifier)
+        external
+        view
+        returns (uint64 rpId, uint64 periodStart, uint64 registeredAt);
 
     /// @notice Purchased capacity and registration count for the RP and period.
     function getPeriodCapacity(uint64 rpId, uint64 periodStart)
@@ -167,6 +185,13 @@ interface IWorldIDBilling {
 
     /// @notice AoE month containing `timestamp`; `periodEnd` is exclusive and registration opens 26 hours early.
     function getBillingPeriod(uint64 timestamp) external view returns (uint64 periodStart, uint64 periodEnd);
+
+    /// @notice Periods that accept registrations at `timestamp`: the period containing it and, during the last 26
+    ///  hours before the next period starts, that next period; `nextPeriodStart` is zero otherwise (WIP-107 §4.3).
+    function getActivePeriods(uint64 timestamp)
+        external
+        view
+        returns (uint64 currentPeriodStart, uint64 nextPeriodStart);
 
     /// @notice Billing OPRF action for `scope` (WIP-107 §4.3).
     function getBillingAction(BillingContext calldata scope) external pure returns (uint256);

@@ -169,7 +169,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         // key change, which reject every registration until they end (WIP-107 §4.9).
         (uint160 oprfKeyId,) = RP_REGISTRY.getOprfKeyIdAndSigner(scope.rpId);
         _requireCurrentKeyMatchesPin(scope, oprfKeyId);
-        uint256 wldPaid = quotePurchase(scope, capacityAmount);
+        (uint256 wldPaid, uint256 usdPerWld) = _quotePurchase(scope, capacityAmount);
         if (wldPaid > maxWldAmount) revert MaxWldAmountExceeded(wldPaid, maxWldAmount);
 
         _capacities[scope.rpId][scope.periodStart].capacity += capacityAmount;
@@ -180,7 +180,9 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         uint256 received = _feeToken.balanceOf(recipient) - balanceBefore;
         if (received != wldPaid) revert FeeTransferMismatch(wldPaid, received);
 
-        emit CapacityPurchased(scope.rpId, scope.periodStart, msg.sender, capacityAmount, wldPaid);
+        emit CapacityPurchased(
+            scope.rpId, scope.periodStart, msg.sender, capacityAmount, wldPaid, usdPerWld, _pricePerWorldID
+        );
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -235,25 +237,23 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         onlyInitialized
         returns (uint256 wldAmount)
     {
-        _validateScope(scope);
-        if (capacityAmount == 0) revert ZeroCapacityAmount();
-
-        uint256 currentStart = _monthStart(block.timestamp);
-        uint64 nextStart = _addMonths(currentStart, 1);
-        if (scope.periodStart < currentStart || scope.periodStart > nextStart) revert PeriodOutsidePurchaseWindow();
-
-        uint256 usdPerWld = _verifiedUsdPerWld();
-        uint256 usdTotal = capacityAmount * _pricePerWorldID;
-        uint256 monthEnd = _addMonths(scope.periodStart, 1);
-        uint256 duration = monthEnd - scope.periodStart;
-        uint256 remaining = monthEnd - Math.max(block.timestamp, scope.periodStart);
-        return Math.mulDiv(usdTotal, remaining * TOKEN_UNIT, duration * usdPerWld, Math.Rounding.Ceil);
+        (wldAmount,) = _quotePurchase(scope, capacityAmount);
     }
 
     /// @inheritdoc IWorldIDBilling
     function getBillingPeriod(uint64 timestamp) external pure virtual returns (uint64 periodStart, uint64 periodEnd) {
         periodStart = _monthStart(timestamp);
         periodEnd = _addMonths(periodStart, 1);
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function getActivePeriods(uint64 timestamp)
+        external
+        pure
+        virtual
+        returns (uint64 currentPeriodStart, uint64 nextPeriodStart)
+    {
+        return _activePeriods(timestamp);
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -281,10 +281,10 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         virtual
         onlyProxy
         onlyInitialized
-        returns (uint64 rpId, uint64 periodStart)
+        returns (uint64 rpId, uint64 periodStart, uint64 registeredAt)
     {
         RegisteredContext storage registration = _registrations[billingNullifier];
-        return (registration.rpId, registration.periodStart);
+        return (registration.rpId, registration.periodStart, registration.registeredAt);
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -455,11 +455,44 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     /// @dev Validates the context shared by every entry of a call and returns its billing action.
     function _validateRegistrationContext(BillingContext calldata scope) internal view virtual returns (uint256) {
         _validateScope(scope);
-        if (block.timestamp + PERIOD_OVERLAP < scope.periodStart || block.timestamp >= _addMonths(scope.periodStart, 1))
-        {
-            revert PeriodNotCurrent();
-        }
+        // A canonical `periodStart` is never zero, so it cannot match an absent next period.
+        (uint64 currentPeriodStart, uint64 nextPeriodStart) = _activePeriods(block.timestamp);
+        if (scope.periodStart != currentPeriodStart && scope.periodStart != nextPeriodStart) revert PeriodNotCurrent();
         return getBillingAction(scope);
+    }
+
+    /// @dev The period containing `timestamp` and, within `PERIOD_OVERLAP` of its end, the next period (WIP-107 §4.3).
+    function _activePeriods(uint256 timestamp)
+        internal
+        pure
+        virtual
+        returns (uint64 currentPeriodStart, uint64 nextPeriodStart)
+    {
+        currentPeriodStart = _monthStart(timestamp);
+        uint64 followingPeriodStart = _addMonths(currentPeriodStart, 1);
+        if (timestamp + PERIOD_OVERLAP >= followingPeriodStart) nextPeriodStart = followingPeriodStart;
+    }
+
+    /// @dev Validates `scope` and the purchase window, and quotes the prorated charge at the verified rate.
+    function _quotePurchase(BillingContext calldata scope, uint256 capacityAmount)
+        internal
+        view
+        virtual
+        returns (uint256 wldAmount, uint256 usdPerWld)
+    {
+        _validateScope(scope);
+        if (capacityAmount == 0) revert ZeroCapacityAmount();
+
+        uint256 currentStart = _monthStart(block.timestamp);
+        uint64 nextStart = _addMonths(currentStart, 1);
+        if (scope.periodStart < currentStart || scope.periodStart > nextStart) revert PeriodOutsidePurchaseWindow();
+
+        usdPerWld = _verifiedUsdPerWld();
+        uint256 usdTotal = capacityAmount * _pricePerWorldID;
+        uint256 monthEnd = _addMonths(scope.periodStart, 1);
+        uint256 duration = monthEnd - scope.periodStart;
+        uint256 remaining = monthEnd - Math.max(block.timestamp, scope.periodStart);
+        wldAmount = Math.mulDiv(usdTotal, remaining * TOKEN_UNIT, duration * usdPerWld, Math.Rounding.Ceil);
     }
 
     /// @dev Registers one entry; `scope` must already pass `_validateRegistrationContext`.
@@ -499,7 +532,10 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
             proof
         );
 
-        if (_registrations[billingNullifier].periodStart != 0) return false;
+        if (_registrations[billingNullifier].periodStart != 0) {
+            emit DuplicateRegistration(scope.rpId, scope.periodStart, billingNullifier, authorization.nonce);
+            return false;
+        }
 
         // Duplicates above still succeed while paused; only new registrations stop.
         _requireNotPaused();
@@ -507,7 +543,8 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         if (period.registeredCount >= period.capacity) revert CapacityExhausted();
 
         period.registeredCount += 1;
-        _registrations[billingNullifier] = RegisteredContext(scope.rpId, scope.periodStart);
+        _registrations[billingNullifier] =
+            RegisteredContext(scope.rpId, scope.periodStart, SafeCast.toUint64(block.timestamp));
         emit Registered(scope.rpId, scope.periodStart, billingNullifier);
         return true;
     }

@@ -428,16 +428,19 @@ contract WorldIDBillingTest is Test {
         assertTrue(billing.isRegistered(NULLIFIER + 2));
         assertTrue(billing.isRegistered(NULLIFIER));
         // NULLIFIER registered for November during the overlap, while October was still the current month.
-        (uint64 rpId, uint64 periodStart) = billing.registrationOf(NULLIFIER);
+        (uint64 rpId, uint64 periodStart, uint64 registeredAt) = billing.registrationOf(NULLIFIER);
         assertEq(rpId, RP_ID);
         assertEq(periodStart, NOV_2026);
-        (rpId, periodStart) = billing.registrationOf(NULLIFIER + 2);
+        assertEq(registeredAt, NOV_2026 - 26 hours);
+        (rpId, periodStart, registeredAt) = billing.registrationOf(NULLIFIER + 2);
         assertEq(rpId, RP_ID);
         assertEq(periodStart, OCT_2026);
+        assertEq(registeredAt, NOV_2026 - 1);
         assertFalse(billing.isRegistered(NULLIFIER + 1));
-        (rpId, periodStart) = billing.registrationOf(NULLIFIER + 1);
+        (rpId, periodStart, registeredAt) = billing.registrationOf(NULLIFIER + 1);
         assertEq(rpId, 0);
         assertEq(periodStart, 0);
+        assertEq(registeredAt, 0);
 
         vm.warp(NOV_2026);
         auth = _authorize(october);
@@ -614,7 +617,9 @@ contract WorldIDBillingTest is Test {
 
     function test_Purchase_TransfersAndAddsCapacity() public {
         vm.expectEmit(address(billing));
-        emit IWorldIDBilling.CapacityPurchased(RP_ID, OCT_2026, rp, 10, 205645161290322581);
+        emit IWorldIDBilling.CapacityPurchased(
+            RP_ID, OCT_2026, rp, 10, 205645161290322581, USD_PER_WLD, PRICE_PER_WORLD_ID
+        );
         vm.prank(rp);
         billing.purchaseCapacity(_scope(OCT_2026), 10, 205645161290322581);
 
@@ -799,6 +804,23 @@ contract WorldIDBillingTest is Test {
     //                     REGISTRATION                       //
     ////////////////////////////////////////////////////////////
 
+    /// @dev Same boundaries as `test_Register_OverlapBoundaries`, through the view clients use to pick contexts.
+    function test_GetActivePeriods_Overlap() public view {
+        _assertActivePeriods(NOV_2026 - 26 hours - 1, OCT_2026, 0);
+        _assertActivePeriods(NOV_2026 - 26 hours, OCT_2026, NOV_2026);
+        _assertActivePeriods(NOV_2026 - 1, OCT_2026, NOV_2026);
+        _assertActivePeriods(NOV_2026, NOV_2026, 0);
+        // Across a year boundary, with a 31-day December.
+        _assertActivePeriods(JAN_2027 - 26 hours, DEC_2026, JAN_2027);
+        _assertActivePeriods(JAN_2027, JAN_2027, 0);
+    }
+
+    function _assertActivePeriods(uint64 timestamp, uint64 expectedCurrent, uint64 expectedNext) internal view {
+        (uint64 current, uint64 next) = billing.getActivePeriods(timestamp);
+        assertEq(current, expectedCurrent, "current period");
+        assertEq(next, expectedNext, "next period");
+    }
+
     function test_Register_FirstAndDuplicate() public {
         _buy(OCT_2026, 1);
         IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
@@ -813,6 +835,8 @@ contract WorldIDBillingTest is Test {
         // Duplicate succeeds with `false` even when capacity is exhausted and registrations are paused.
         billing.setPaused(true);
         IWorldIDBilling.RegistrationAuthorization memory auth2 = _authorize(scope);
+        vm.expectEmit(address(billing));
+        emit IWorldIDBilling.DuplicateRegistration(RP_ID, OCT_2026, NULLIFIER, auth2.nonce);
         assertFalse(_register(auth2, NULLIFIER));
         assertTrue(billing.usedNonces(RP_ID, auth2.nonce));
         (uint256 capacity, uint256 count) = billing.getPeriodCapacity(RP_ID, OCT_2026);
