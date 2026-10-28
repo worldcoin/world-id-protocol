@@ -61,12 +61,12 @@ impl Layout {
     }
 }
 
-/// `engine_config_hash = H_8(DS_ENGINE; R(release_hash), pipeline, match_strictness,
+/// `engine_config_hash = H_8(DS_ENGINE; R(release_hash), pipeline_id, match_strictness,
 /// R(SHA-256(layout)))`, the value RPs allowlist.
 #[must_use]
 pub fn engine_config_hash(
     release_hash: &[u8; 32],
-    pipeline: u16,
+    pipeline_id: u16,
     match_strictness: u8,
     layout: &Layout,
 ) -> FieldElement {
@@ -74,7 +74,7 @@ pub fn engine_config_hash(
         DS_ENGINE,
         [
             FieldElement::from_digest(release_hash),
-            u64::from(pipeline).into(),
+            u64::from(pipeline_id).into(),
             u64::from(match_strictness).into(),
             layout.hash(),
         ],

@@ -154,8 +154,8 @@ impl Request {
 /// What the Engine receives, unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Payload {
-    /// The release's pipeline, nonzero.
-    pub pipeline: u16,
+    /// The chosen pipeline of the release, nonzero.
+    pub pipeline_id: u16,
     /// Matching strictness level defined by the release manifest.
     pub match_strictness: u8,
     /// Request-level Engine hints that never weaken `match_strictness`.
@@ -200,10 +200,10 @@ impl Payload {
             .into_iter()
             .map(Entry::from_value)
             .collect::<Result<Vec<_>, _>>()?;
-        let pipeline = fields.uint("pipeline")?;
+        let pipeline_id = fields.uint("pipeline_id")?;
         let pipeline_inputs = indices(fields.take("pipeline_inputs")?)?;
         let payload = Self {
-            pipeline,
+            pipeline_id,
             match_strictness: fields.uint("match_strictness")?,
             hints,
             entries,
@@ -235,7 +235,7 @@ impl Payload {
                 !list[..i].contains(index) && usize::from(*index) < self.entries.len()
             })
         };
-        bound(self.pipeline != 0, "pipeline")?;
+        bound(self.pipeline_id != 0, "pipeline_id")?;
         bound(self.hints.len() <= MAX_HINTS_BYTES, "hints")?;
         bound(
             self.entries
@@ -298,7 +298,7 @@ impl Payload {
         let indices =
             |list: &[u8]| Value::Array(list.iter().map(|&i| Value::Integer(i.into())).collect());
         map(vec![
-            ("pipeline", Value::Integer(self.pipeline.into())),
+            ("pipeline_id", Value::Integer(self.pipeline_id.into())),
             (
                 "match_strictness",
                 Value::Integer(self.match_strictness.into()),
@@ -460,10 +460,10 @@ mod tests {
     use world_id_primitives::EdDSAPrivateKey;
 
     // WIP-201 Appendix A1, "With an AAT".
-    const PAYLOAD: &str = "a66568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d6574614068706970656c696e65016f706970656c696e655f696e707574738101706d617463685f7374726963746e65737302";
-    const CDH: &str = "0af15a9a4cc88809249b5f77c77c062ab531c738c426d0230ae8e7d627b47818";
+    const PAYLOAD: &str = "a66568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d657461406b706970656c696e655f6964016f706970656c696e655f696e707574738101706d617463685f7374726963746e65737302";
+    const CDH: &str = "03ca8744a87789b5684fd3569cc3ac735de925464f2cd29e87bdfc2a45591d27";
     const TAKT: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
-    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f58200af15a9a4cc88809249b5f77c77c062ab531c738c426d0230ae8e7d627b478183a000138805820000000000000000000000000000000000000000000000000000000000000000a584057b96a95fd3497149d4dda9a5b7d5ae9ffd8f290d396358c15225bc2289987306533b6b8bf250ab216d69da30c840a6da7b6cc9c0e20d4695a53fe16354651b3";
+    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582003ca8744a87789b5684fd3569cc3ac735de925464f2cd29e87bdfc2a45591d273a000138805820000000000000000000000000000000000000000000000000000000000000000a58403c24fd0eb59bdcb7ca3177348f69f7ad45affbce19eb3aa85b1a51dcc3499683e84559b276e8bf5d1b6b7e28d2d45dd7ad86eb3e90c09292370f7e2c27feb09f";
     const TRUST_ANCHOR_KEY_HASH: &str =
         "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
     const COMPARED: [&str; 3] = [
@@ -488,7 +488,7 @@ mod tests {
 
     fn payload() -> Payload {
         Payload {
-            pipeline: 1,
+            pipeline_id: 1,
             match_strictness: 2,
             hints: vec![],
             entries: vec![
@@ -606,7 +606,7 @@ mod tests {
     #[test]
     fn rejects_payloads_out_of_bounds() {
         let cases: [Case; 11] = [
-            (|p| p.pipeline = 0, "pipeline"),
+            (|p| p.pipeline_id = 0, "pipeline_id"),
             (|p| p.hints = vec![0; MAX_HINTS_BYTES + 1], "hints"),
             (
                 |p| p.entries[0].meta = vec![0; MAX_ENTRY_META_BYTES + 1],
@@ -690,7 +690,7 @@ mod tests {
         }
         for bytes in [
             reversed(&payload),
-            with(&payload, "pipeline", Value::Integer(65_536.into())),
+            with(&payload, "pipeline_id", Value::Integer(65_536.into())),
             with(
                 &payload,
                 "compare",

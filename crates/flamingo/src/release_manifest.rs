@@ -50,12 +50,12 @@ pub struct ManifestPayload {
     pub pipelines: Vec<Pipeline>,
 }
 
-/// One fraud and liveness pipeline of a release.
+/// One pipeline of a release: a set of pass/fail checks on its inputs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Pipeline {
-    /// Pipeline identifier, unique within the manifest.
-    pub pipeline: u16,
+    /// Pipeline identifier, nonzero and unique within the manifest.
+    pub pipeline_id: u16,
     /// The inputs the pipeline checks; item `i` describes the entry `pipeline_inputs[i]`.
     pub inputs: Vec<Input>,
     /// When the Verifier may release responses.
@@ -211,13 +211,13 @@ impl ReleaseManifest {
         Ok(&self.payload)
     }
 
-    /// The pipeline `pipeline`, if the release defines it.
+    /// The pipeline with `pipeline_id`, if the release defines it.
     #[must_use]
-    pub fn pipeline(&self, pipeline: u16) -> Option<&Pipeline> {
+    pub fn pipeline(&self, pipeline_id: u16) -> Option<&Pipeline> {
         self.payload
             .pipelines
             .iter()
-            .find(|p| p.pipeline == pipeline)
+            .find(|p| p.pipeline_id == pipeline_id)
     }
 
     /// Whether the release lists `match_strictness`.
@@ -249,14 +249,14 @@ impl ManifestPayload {
             "match_strictness_levels",
         )?;
         invalid(!self.pipelines.is_empty(), "pipelines")?;
-        let unique_pipelines = self
-            .pipelines
-            .iter()
-            .enumerate()
-            .all(|(i, p)| self.pipelines[..i].iter().all(|q| q.pipeline != p.pipeline));
+        let unique_pipelines = self.pipelines.iter().enumerate().all(|(i, p)| {
+            self.pipelines[..i]
+                .iter()
+                .all(|q| q.pipeline_id != p.pipeline_id)
+        });
         invalid(
-            unique_pipelines && self.pipelines.iter().all(|p| p.pipeline != 0),
-            "pipeline",
+            unique_pipelines && self.pipelines.iter().all(|p| p.pipeline_id != 0),
+            "pipeline_id",
         )?;
         invalid(
             self.pipelines.iter().all(|p| p.response_slots.is_valid()),
@@ -364,7 +364,7 @@ pub(crate) mod fixtures {
             version: 1,
             match_strictness_levels: vec![1, 2],
             pipelines: vec![Pipeline {
-                pipeline: 1,
+                pipeline_id: 1,
                 inputs: vec![live_frame()],
                 response_slots: ResponseSlots(vec![500, 1587, 5039, 16_000]),
             }],
@@ -532,9 +532,9 @@ mod tests {
             (Box::new(|p| p.pipelines.clear()), "pipelines"),
             (
                 Box::new(|p| p.pipelines.push(p.pipelines[0].clone())),
-                "pipeline",
+                "pipeline_id",
             ),
-            (Box::new(|p| p.pipelines[0].pipeline = 0), "pipeline"),
+            (Box::new(|p| p.pipelines[0].pipeline_id = 0), "pipeline_id"),
             (
                 Box::new(move |p| p.pipelines[0].response_slots = slots(&[0, 10])),
                 "response_slots",
