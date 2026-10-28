@@ -1,0 +1,556 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>WIP-107: Experimental Fees Per-Period - World ID Protocol</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-7757d090.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-8a3cf9ca.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol/edit/main/docs/WIPs/wip-107.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <h2 id="1-abstract"><a class="header" href="#1-abstract">1. Abstract</a></h2>
+<p>This spec introduces a protocol fee that Relying Parties (RPs) pay in order to authorize proofs for specific World ID(s). Paid users (World ID holders) must provide a valid proof of the RP’s payment in order to present proofs to the RP in a given billing period. During a billing period, a paid World ID can perform any number of proofs.</p>
+<blockquote class="blockquote-tag blockquote-tag-important">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v9.5A1.75 1.75 0 0 1 14.25 13H8.06l-2.573 2.573A1.458 1.458 0 0 1 3 14.543V13H1.75A1.75 1.75 0 0 1 0 11.25Zm1.75-.25a.25.25 0 0 0-.25.25v9.5c0 .138.112.25.25.25h2a.75.75 0 0 1 .75.75v2.19l2.72-2.72a.749.749 0 0 1 .53-.22h6.5a.25.25 0 0 0 .25-.25v-9.5a.25.25 0 0 0-.25-.25Zm7 2.25v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 9a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Important</p>
+<p><strong>This spec is introduced as an experiment, and it applies only to select RPs and only to Proofs of Embedding Similarity (<a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-202.md">WIP-202</a>)</strong>. Other Proofs and other RPs keep their existing behavior. This spec is expected to be updated based on experimentation results, and may inform the billing mechanics introduced throughout the World ID Protocol. Accordingly, no organization or individual is making a commitment, promise, or obligation to develop, implement, or make available any feature, product, or functionality described in this spec, and there is no guarantee that they will ever exist or perform as described in the future.</p>
+</blockquote>
+<h2 id="2-motivation"><a class="header" href="#2-motivation">2. Motivation</a></h2>
+<p>Fees are charged to RPs receiving proofs, not individual end users making proofs, because RPs can more easily estimate the value generated by World ID and compare it to the fees charged for using World ID. It also follows that RPs usually pay fees for services they use.</p>
+<p>Monthly per-World ID billing lets an RP budget for distinct users without paying for each repeat proof. They make it easier for RPs to trade off per-monthly-user value against fees compared to per-proof fees. Repeated Embedding Similarity comparisons motivate this design. The World ID protocol is uniquely able to support such a fee mechanism because it exposes “unique human” as a protocol primitive.</p>
+<h2 id="3-high-level-overview"><a class="header" href="#3-high-level-overview">3. High-Level Overview</a></h2>
+<p>This section introduces a <strong>non-normative</strong> high-level description of the billing mechanism.</p>
+<ol>
+<li><strong>This spec is experimentally introduced</strong>. This means that it will apply only to a specific set of RPs and only to Embedding Similarity Proofs. This is likely to be extended in the future with a spec update.</li>
+<li>An RP must pay for fees during a billing period in order to request proofs from a user.</li>
+<li>Each calendar month is valid from 00:00:00 UTC+14:00 on its first day until 00:00:00 Anywhere on Earth (AoE, UTC−12:00) on the next month’s first day. Periods overlap by 26 hours.</li>
+<li>Billing is done through a smart contract (the “<strong>Billing Contract</strong>”).</li>
+<li>Registration capacity is priced in USD and purchased with WLD.</li>
+<li>Capacity is purchased for one RP and one billing period. Each unit permits one distinct World ID to register. <em>A capacity of 2 means that the RP can receive proofs from two distinct World IDs during that period.</em></li>
+<li>When an RP requests a proof from a user (see <a href="https://docs.rs/world-id-primitives/latest/world_id_primitives/request/struct.ProofRequest.html">ProofRequest</a>), the RP signs the request with its own action. The same signature also authorizes usage of a capacity of at most one.</li>
+<li>A user generates a Uniqueness Proof for the billing action corresponding to the current period using a valid credential. The billing action is derived from the RP and the period; the RP does not directly sign it. This proof results in a special type of nullifier denominated the <code>billingNullifier</code>, which is submitted once to the <strong>Billing Contract</strong> with the RP’s authorization to claim capacity. The Authenticator caches the nullifier and private OPRF witness for the billing period.</li>
+<li>Billing for Proofs of Embedding Similarity is enforced by TEE Verifiers (<a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-201.md">WIP-201</a>) where a valid proof of payment (through a <code>billingNullifier</code>) must be presented. If a proof is not presented, the Verifier rejects the request. Furthermore, the Embedding Similarity circuit (<a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-202.md">WIP-202</a>) proves that the <code>billingNullifier</code> belongs to the World ID making the proof.</li>
+<li>An RP may purchase or top up registration capacity for the current AoE month and the next calendar month. Current-month purchases are prorated by seconds left in the AoE month. Future months are paid in full. Capacity cannot move between RPs or periods.</li>
+<li>Unused capacity receives no rebate and does not roll over.</li>
+<li>Users do not pay for fees; only RPs (or an entity acting on an RP’s behalf) pay.</li>
+<li>Fees are set per World ID and period in the Billing Contract. An administrator may update the USD fee amount on-chain. Payments settle in WLD; earlier purchases remain unchanged. An oracle price is used to convert between USD and WLD.</li>
+</ol>
+<h2 id="4-specification"><a class="header" href="#4-specification">4. Specification</a></h2>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<p>The Field ($<code>F</code>$), the Curve (<code>BabyJubJub</code>), and the Hashing ($<code>H_t</code>$) definitions MUST follow the requirements of <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100</a>.</p>
+<h3 id="41-constants"><a class="header" href="#41-constants">4.1 Constants</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Constant</th><th>Value</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>CHAIN_ID</code></td><td><code>480</code></td><td>World Chain mainnet, which hosts the production Billing Contract.</td></tr>
+<tr><td><code>WLD_TOKEN</code></td><td><code>0x2cFc85d8E48F8EAB294be644d9E25C3030863003</code></td><td>WLD ERC-20 on World Chain (18 decimals). The production fee token.</td></tr>
+<tr><td><code>PERIOD_OVERLAP</code></td><td><code>93600</code> seconds (26 hours)</td><td>Overlap between consecutive billing periods (§4.3).</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="42-billing-contract"><a class="header" href="#42-billing-contract">4.2 Billing Contract</a></h3>
+<p>The Billing Contract enables the RP to purchase capacity and the registration of payment-authorized World IDs for a given RP.</p>
+<ol>
+<li>
+<p>RPs MAY purchase registration capacity through <code>purchaseCapacity</code> for the current period or the next period. Importantly anyone can purchase capacity for an RP, but each purchase belongs to its <code>rpId</code> and <code>periodStart</code>.</p>
+</li>
+<li>
+<p>Users MAY register against that capacity through <code>register</code>. They supply their period <code>billingNullifier</code>, a Uniqueness Proof, its credential verification inputs and the RP’s <code>RegistrationAuthorization</code>.</p>
+</li>
+<li>
+<p>The following interface is normative. Implementations MUST also enforce the requirements below.</p>
+<pre><code class="language-solidity">interface WorldIDBilling {
+    struct BillingContext {
+        uint256 chainId;
+        address billingContract;
+        uint64 rpId;
+        uint64 periodStart;
+    }
+
+    struct RegistrationAuthorization {
+        uint8 version;
+        uint160 oprfKeyId;
+        uint256 nonce;
+        uint64 createdAt;
+        uint64 expiresAt;
+        uint256 signedAction;
+        bytes signature;
+        bytes wip101Data;
+    }
+
+    struct Registration {
+        RegistrationAuthorization authorization;
+        uint64 issuerSchemaId;
+        uint64 expiresAtMin;
+        uint256 billingNullifier;
+        uint256[5] proof;
+    }
+
+    function quotePurchase(BillingContext calldata scope, uint256 capacityAmount)
+        external view returns (uint256 wldAmount);
+
+    function purchaseCapacity(
+        BillingContext calldata scope,
+        uint256 capacityAmount,
+        uint256 maxWldAmount
+    ) external;
+
+    function register(
+        BillingContext calldata scope,
+        RegistrationAuthorization calldata authorization,
+        uint64 issuerSchemaId,
+        uint64 expiresAtMin,
+        uint256 billingNullifier,
+        uint256[5] calldata proof
+    ) external returns (bool success);
+
+    function registerMany(BillingContext calldata scope, Registration[] calldata registrations)
+        external returns (bool[] memory successes);
+
+    function isRegistered(uint256 billingNullifier) external view returns (bool);
+    function registrationOf(uint256 billingNullifier)
+        external view returns (uint64 rpId, uint64 periodStart, uint64 registeredAt);
+    function getPeriodCapacity(uint64 rpId, uint64 periodStart)
+        external view returns (uint256 capacity, uint256 registeredCount);
+    function usedNonces(uint64 rpId, uint256 nonce) external view returns (bool);
+    function getPinnedOprfKey(uint64 rpId, uint64 periodStart)
+        external view returns (uint160 oprfKeyId, uint256[2] memory oprfPublicKey);
+
+    function getBillingPeriod(uint64 timestamp)
+        external view returns (uint64 periodStart, uint64 periodEnd);
+    function getActivePeriods(uint64 timestamp)
+        external view returns (uint64 currentPeriodStart, uint64 nextPeriodStart);
+    function getBillingAction(BillingContext calldata scope) external pure returns (uint256);
+    function getFeeToken() external view returns (address);
+    function setFeeToken(address feeToken) external;
+    function getFeeRecipient() external view returns (address);
+    function setFeeRecipient(address feeRecipient) external;
+    function priceSource() external view returns (address);
+    function setPriceSource(address priceSource) external;
+    function pricePerWorldID() external view returns (uint256);
+    function setPricePerWorldID(uint256 pricePerWorldID) external;
+    function maxPriceAge() external view returns (uint64);
+    function setMaxPriceAge(uint64 maxPriceAge) external;
+    function maxRequestAge() external view returns (uint64);
+    function maxRequestLifetime() external view returns (uint64);
+    function setRequestLimits(uint64 maxRequestAge, uint64 maxRequestLifetime) external;
+    function owner() external view returns (address);
+    function paused() external view returns (bool);
+    function setPaused(bool paused) external;
+
+    event CapacityPurchased(
+        uint64 indexed rpId,
+        uint64 indexed periodStart,
+        address indexed payer,
+        uint256 capacityAmount,
+        uint256 wldPaid,
+        uint256 usdPerWld,
+        uint256 pricePerWorldID
+    );
+    event Registered(
+        uint64 indexed rpId,
+        uint64 indexed periodStart,
+        uint256 indexed billingNullifier
+    );
+    event DuplicateRegistration(
+        uint64 indexed rpId,
+        uint64 indexed periodStart,
+        uint256 indexed billingNullifier,
+        uint256 nonce
+    );
+    event OprfKeyPinned(
+        uint64 indexed rpId,
+        uint64 indexed periodStart,
+        uint160 oprfKeyId
+    );
+}
+</code></pre>
+</li>
+<li>
+<p>The contract MUST enforce these requirements.</p>
+<ul>
+<li><strong>Configuration:</strong> Production deployments run on <code>CHAIN_ID</code> with fee token <code>WLD_TOKEN</code> (§4.1); the fee recipient is the designated protocol fee address. The initialized proxy owner is the administrator. Only that owner may perform administrative operations. Address settings MUST be nonzero; the price source MUST implement §4.9. Configuration changes MUST emit events and MUST NOT alter purchased capacity, registrations, period boundaries or pinned keys. Request limits MUST agree with the OPRF nodes (§4.5).</li>
+<li><strong>Periods:</strong> <code>getBillingPeriod</code> returns the AoE month containing <code>timestamp</code> and its exclusive <code>periodEnd</code> (§4.3). The contract MUST reject a context unless <code>scope.chainId == block.chainid</code>, <code>scope.billingContract == address(this)</code> and <code>periodStart</code> is canonical (§4.3).</li>
+<li><strong>Purchases:</strong> <code>quotePurchase</code> and <code>purchaseCapacity</code> MUST validate the context and the current-period/next-period purchase window. <code>purchaseCapacity</code> MUST quote the prorated price (§4.9) at execution and reject <code>wldPaid &gt; maxWldAmount</code>. It MUST add exactly <code>capacityAmount</code> to that RP and period, transfer exactly <code>wldPaid</code> from the caller to the configured fee recipient, and require the recipient’s balance to increase by exactly <code>wldPaid</code>. Payment, capacity and <code>CapacityPurchased</code> MUST be atomic and protected against reentrancy.</li>
+<li><strong>Registration:</strong> <code>register</code> MUST require an active period under §4.3, reject a used nonce for that RP and verify all authorization and proof inputs under §§4.4–4.5. A new nullifier requires registrations to be unpaused and <code>registeredCount &lt; capacity</code>; it increments the count once, records the nullifier with its <code>rpId</code> and <code>periodStart</code> and emits <code>Registered</code>. A valid duplicate returns <code>false</code> and consumes no further capacity, including while new registrations are paused. It still requires fresh valid authorization, consumes that authorization’s nonce and emits <code>DuplicateRegistration</code>. <code>CapacityPurchased</code> MUST carry the <code>usdPerWld</code> and <code>pricePerWorldID</code> that produced <code>wldPaid</code> (§4.9).</li>
+<li><strong>Atomicity:</strong> <code>purchaseCapacity</code>, <code>register</code> and <code>registerMany</code> MUST be protected against reentrancy. <code>registerMany</code> applies <code>register</code> to each entry and reverts entirely if any entry fails. <code>isRegistered</code> reports whether the nullifier is registered. <code>registrationOf</code> returns the <code>rpId</code> and <code>periodStart</code> it was registered under and the registration time, or zeros if it is not registered; <code>billingAction</code> already scopes each nullifier to one RP and period.</li>
+</ul>
+</li>
+</ol>
+<h3 id="43-billing-context"><a class="header" href="#43-billing-context">4.3 Billing Context</a></h3>
+<p>Every RP uses the same AoE calendar months. <code>periodStart</code> is 00:00:00 AoE on the month’s first day (12:00:00 UTC). <code>periodEnd</code> is 00:00:00 AoE on the next month’s first day and is exclusive. The active interval is <code>[periodStart - PERIOD_OVERLAP, periodEnd)</code>, clipped at Unix timestamp zero. Months overlap by <code>PERIOD_OVERLAP</code> (§4.1). Either active context MUST be accepted. Capacity, registrations and billing actions remain separate for each period. Nonces are consumed per RP across periods.</p>
+<p>A <code>periodStart</code> is canonical if and only if it equals <code>getBillingPeriod(periodStart).periodStart</code>, i.e. it is 00:00:00 AoE on a month’s first day. The Billing Contract and billing verifiers MUST reject a noncanonical <code>periodStart</code>. <code>getBillingPeriod</code> returns the AoE month containing <code>timestamp</code> and its exclusive end; months beginning before Unix timestamp zero MUST be rejected. Clients MUST use the selected context’s active interval for registration and proof acceptance. <code>getActivePeriods(timestamp)</code> returns the <code>periodStart</code> of the month containing <code>timestamp</code> and, while <code>timestamp</code> is within <code>PERIOD_OVERLAP</code> of the next month’s start, that next <code>periodStart</code> (otherwise zero); the Contract’s registration check uses the same rule. Purchases and top-ups remain limited to the purchase window in §4.2; the overlap does not permit purchases after <code>periodEnd</code>. Any future configurable-period extension MUST expose its boundaries on-chain and preserve already purchased periods.</p>
+<pre><code class="language-solidity">uint256 billingAction = uint256(keccak256(abi.encode(
+    "world-id-billing-v1",
+    scope.chainId, scope.billingContract, scope.rpId, scope.periodStart
+))) &gt;&gt; 8;
+</code></pre>
+<p><code>billingAction: Field</code> is the billing OPRF input. It is derived from <code>scope</code> and it is not directly signed by the RP, instead the RP authorizes its own <code>ProofRequest.action</code> to avoid the need for double signing (§4.5). The billing nullifier is <code>UniquenessNullifier(rpOprfKey, worldIdLeafIndex, scope.rpId, billingAction)</code>. <code>UniquenessNullifier</code> means the existing <a href="https://github.com/worldcoin/world-id-protocol/blob/main/circom/client_side_proofs/oprf_nullifier.circom">Uniqueness Proof nullifier computation</a>, using these inputs and the unblinded OPRF response under the selected key.</p>
+<h3 id="44-registration-proof"><a class="header" href="#44-registration-proof">4.4 Registration Proof</a></h3>
+<p>Registration MUST reuse the existing <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/world-id-4-specs/README.md#uniqueness-proofs">Uniqueness Proof</a> circuit, public-input order, proving artifacts and verification key. This spec introduces no new circuit or trusted setup. The user MUST present a valid credential from a registered issuer/schema; the billing nullifier remains independent of which credential is used.</p>
+<h4 id="441-inputs"><a class="header" href="#441-inputs">4.4.1 Inputs</a></h4>
+<p>The Authenticator derives the billing query <code>H_4(DS_QUERY; leaf_index, scope.rpId, billingAction)</code> (§4.7) and sends it with the RP’s request (§4.5), which supplies the OPRF key and the nonce. The nonce authenticates the request and is a public input of the proof (§4.4.1), but it is not an OPRF-query input. <em>Note that the action in the RP’s request is only used for authorization, it’s not used on the OPRF query or nullifier computation</em>. The registration proof omits the signal and session creation, and sets the minimum credential genesis issuance time to zero.</p>
+<p>The Contract MUST construct the existing uniqueness verifier’s public inputs as follows:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Input</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td><code>nullifier</code>, <code>action</code>, <code>rpId</code>, <code>nonce</code></td><td><code>billingNullifier</code>, <code>billingAction</code>, <code>scope.rpId</code>, <code>authorization.nonce</code>.</td></tr>
+<tr><td><code>issuerSchemaId</code>, <code>expiresAtMin</code></td><td>Supplied by the Authenticator to <code>register</code>. They are not matched against the RP’s request; only §4.4.2 applies.</td></tr>
+<tr><td><code>signalHash</code>, <code>credentialGenesisIssuedAtMin</code>, <code>sessionId</code></td><td>Zero.</td></tr>
+<tr><td>Account root, tree depth and credential issuer public key</td><td>Root from <code>proof[4]</code>, depth <code>MAX_DEPTH</code> (<a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md#51-parameters">WIP-100 §5.1</a>), and issuer key from <code>CredentialSchemaIssuerRegistry</code>.</td></tr>
+<tr><td>OPRF public key</td><td>The RP’s OPRF public key pinned for the context (§4.4.2).</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>proof: uint256[5]</code> is the World ID Proof Envelope of <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md#372-world-id-proof-envelope">WIP-100 §3.7.2</a>.</p>
+<h4 id="442-verification"><a class="header" href="#442-verification">4.4.2 Verification</a></h4>
+<p>These checks apply to the Contract’s <code>register</code>. TEE Verifiers check billing as in §4.7.</p>
+<p>All existing account, authenticator signature, OPRF, nullifier and credential constraints MUST remain enforced, including WIP-100 field, scalar and point validation. The Contract MUST validate the account root and issuer/schema against the existing registries and enforce the existing uniqueness verifier’s credential expiry freshness policy.</p>
+<p>For the first registration in a billing context, the Contract MUST resolve the RP’s existing authorized OPRF key from the registries and pin its key ID and public key.</p>
+<h3 id="45-rp-authorization"><a class="header" href="#45-rp-authorization">4.5 RP Authorization</a></h3>
+<p>The RP’s normal <code>ProofRequest</code> authorizes registration. The RP signs nothing extra, keeps its own <code>action</code>, and does not need to know whether the user is registered. An Authenticator without a cached registration for the active context (§4.6) registers with that request before proving.</p>
+<p>The request’s <code>action</code> is the RP’s own action and is not restricted by this spec. The RP signs the <a href="https://github.com/worldcoin/world-id-protocol/blob/main/crates/primitives/src/rp.rs">RP signature message</a> with that action as usual: <code>version || nonce || createdAt || expiresAt || signedAction</code>, 81 bytes. This is the packed message, not the SHA-256 value returned by <code>ProofRequest::digest_hash</code>. A request without an action cannot authorize registration.</p>
+<p>To reiterate from the original specs, it is strongly RECOMMENDED that RPs always generate fresh private keys from a cryptographically-secure randomness source for signing keys and store it in secure environments (e.g. HSMs). If an RP registers a signing key that someone else possesses, or a smart contract that someone else controls, that party can consume capacity on the RP’s behalf.</p>
+<p>The registration proof always uses <code>billingAction</code> (§4.3) as the action for the OPRF Query and subsequently the nullifier computation. A valid RP signature over <code>signedAction</code> authorizes exactly two actions for the same <code>rpId</code>: a proof for the <code>signedAction</code> itself (which is processed out of the scope of this spec), and billing authorization for the current active billing context. It MUST NOT authorize any other action.</p>
+<p><code>RegistrationAuthorization</code> copies the request’s version, nonce, timestamps, OPRF key ID, action (as <code>signedAction</code>), signature and WIP-101 data. The request’s <code>rp_id</code> and <code>oprf_key_id</code> MUST match <code>scope.rpId</code> and the context’s pinned key (§4.4.2). The Contract MUST reject a version it does not support.</p>
+<ul>
+<li><strong>Contract:</strong> <code>register</code> MUST verify the authorization as OPRF nodes verify RP requests, with <code>signedAction</code> as the action, and MUST verify the proof with <code>billingAction</code> as the action. A registered signer without code is verified by EIP-191 recovery, and <code>wip101Data</code> MUST be empty. A signer with code MUST support <code>IWIP101</code> through ERC-165 and is verified through <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-101.md">WIP-101</a> <code>verifyRpRequest</code> with <code>signedAction</code>, with <code>wip101Data</code> of at most 1024 bytes.</li>
+<li><strong>OPRF nodes:</strong> Nodes MUST accept a billing query: an OPRF query whose action is <code>billingAction</code>, carrying <code>scope</code> and the RP’s <code>signedAction</code> as signature verification data, as session create-and-bind queries carry the uniqueness action. Nodes MUST verify the RP signature over <code>signedAction</code>, and MUST recompute <code>billingAction</code> from <code>scope</code> and check that <code>scope.chainId</code> and <code>scope.billingContract</code> match their configuration, <code>scope.rpId</code> matches the request, and <code>scope.periodStart</code> is canonical and active (§4.3). Billing queries MUST use a dedicated nonce scope, so one RP request authorizes at most one application query and one billing query. Nodes MUST reject a billing query for any action other than the recomputed <code>billingAction</code>.</li>
+<li><strong>Freshness:</strong> The Contract MUST enforce <code>createdAt &lt;= now &lt; expiresAt</code>, <code>now - createdAt &lt;= maxRequestAge</code> and <code>expiresAt - createdAt &lt;= maxRequestLifetime</code>. The <code>uint64</code> limits MUST agree with the OPRF nodes.</li>
+</ul>
+<p>Unsigned request fields MUST NOT be treated as RP-authenticated.</p>
+<h3 id="46-authenticator-cache"><a class="header" href="#46-authenticator-cache">4.6 Authenticator Cache</a></h3>
+<p>The Authenticator MUST:</p>
+<ul>
+<li>Cache the billing nullifier and private OPRF witness by account, <code>BillingContext</code>, and the RP’s OPRF key ID and OPRF public key.</li>
+<li>Keep OPRF witnesses, credential witnesses and query authorization inputs private.</li>
+<li>Refresh account membership, RP authorization and credential verification inputs before generating a new registration proof.</li>
+<li>Expire entries at period end.</li>
+<li>Recover lost entries, including after switching Authenticators, through a fresh authorized query for the same World ID and BillingContext under the same pinned key. The nullifier MUST remain unchanged. An existing registration remains valid and recovery MUST NOT consume more capacity.</li>
+<li>Not apply single-use nullifier replay protection to <code>billingNullifier</code> within its <code>BillingContext</code>, so that retries after a failed <code>register</code> and recovery remain possible. Before exempting a nullifier, the Authenticator MUST recompute <code>billingAction</code> for a trusted Billing Contract and a canonical, active <code>periodStart</code>.</li>
+</ul>
+<p>Without a cached registration for the active context, the Authenticator makes two OPRF queries from the same RP request: one for the RP’s action and one for <code>billingAction</code>.</p>
+<h3 id="47-billing-verification"><a class="header" href="#47-billing-verification">4.7 Billing Verification</a></h3>
+<p>Billing for the Proof of Embedding Similarity is enforced by the <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-201.md">WIP-201</a> TEE Verifier. The sealed request to the Verifier carries <code>scope: BillingContext</code>, <code>billingNullifier: Field</code> and <code>request: ProofRequest</code>.</p>
+<p>The TEE Verifier MUST reject <code>scope</code> unless <code>scope.chainId</code> matches its configured chain (<code>CHAIN_ID</code> in production, §4.1) and <code>scope.billingContract</code> matches its configured Billing Contract. It MUST use that chain and Billing Contract for every <code>registrationOf</code> and <code>getPinnedOprfKey</code> call, never targets taken from the sealed request. It MUST check the RP, active period (§4.3) and the RP’s authorization of the request over its own action. Before other processing, it MUST confirm in finalized state that <code>registrationOf(billingNullifier)</code> returns <code>scope.rpId</code> and <code>scope.periodStart</code>.</p>
+<p>The Proof of Embedding Similarity (<a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-202.md">WIP-202</a>) MUST prove that <code>billingNullifier</code> belongs to the World ID it proves. Its circuit takes <code>billingNullifier</code>, <code>scope.rpId</code>, <code>billingAction</code> and the context’s pinned OPRF public key as public inputs, and the cached OPRF witness (§4.6) as private inputs. It MUST:</p>
+<ol>
+<li>Compute the query <code>H_4(DS_QUERY; leaf_index, scope.rpId, billingAction)</code> (<a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md#38-shared-constants">WIP-100 §3.8</a>), using the same <code>leaf_index</code> as its Merkle inclusion proof.</li>
+<li>Verify the OPRF evaluation’s DLogEq proof (<a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md#36-discrete-logarithm-equality-proof">WIP-100 §3.6</a>) against the pinned key and the blinded query.</li>
+<li>Unblind the response and constrain <code>billingNullifier</code> to the resulting <code>UniquenessNullifier</code> (§4.3).</li>
+</ol>
+<p>The TEE Verifier MUST supply these public inputs itself, reading the pinned key through <code>getPinnedOprfKey</code>. The cached OPRF witness does not depend on a Merkle root, so the proof uses its own fresh root and WIP-202 Root Freshness is unchanged.</p>
+<h3 id="48-chain-state"><a class="header" href="#48-chain-state">4.8 Chain State</a></h3>
+<p>TEE Verifiers MUST:</p>
+<ul>
+<li>Cache only positive finalized registrations by <code>(BillingContext, billingNullifier)</code>; bound the cache and expire entries at period end.</li>
+<li>Read state through an approved provider with TLS terminating inside the enclave. The provider is trusted for state and finality.</li>
+<li>Any cache MUST NOT outlive the period’s duration plus 24 hours of grace.</li>
+</ul>
+<p>Valid cached registrations MAY serve during provider outages, subject to current authorization, credentials, trusted time and security policy. Provider failure MUST NOT fail process liveness. TEE Verifiers SHOULD apply a two-second timeout to each request-path chain read, make no retries, and share concurrent lookups for the same key.</p>
+<h3 id="49-fees"><a class="header" href="#49-fees">4.9 Fees</a></h3>
+<p>Fees are configured in USD per World ID per period and paid in WLD. Each unit of registration capacity permits one distinct World ID to register.</p>
+<p>The RP approves the Billing Contract’s WLD allowance, then calls <code>purchaseCapacity</code>. The contract transfers WLD from the payer to the designated protocol fee address and adds capacity atomically (§4.2). Approval alone does not pay the fee.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Value</th><th>Type</th><th>Units</th></tr>
+</thead>
+<tbody>
+<tr><td><code>pricePerWorldID</code>, <code>usdPerWld</code></td><td><code>uint256</code></td><td>USD scaled by <code>10^18</code>.</td></tr>
+<tr><td><code>TOKEN_UNIT</code></td><td><code>uint256</code></td><td><code>10^decimals</code> for the configured WLD token; MUST fit in <code>uint256</code>.</td></tr>
+<tr><td><code>observedAt</code>, <code>maxPriceAge</code></td><td><code>uint64</code></td><td>Exchange-rate timestamp and maximum age, in seconds.</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>pricePerWorldID</code> is the full-month price. Current-month purchases and top-ups MUST be prorated by seconds left in the AoE month. Future months pay in full. Overlap adds no fee.</p>
+<pre><code>duration  = periodEnd - periodStart
+remaining = periodEnd - max(block.timestamp, periodStart)
+charge    = ceil(capacityAmount * pricePerWorldID * remaining * TOKEN_UNIT / (duration * usdPerWld))
+</code></pre>
+<p>For example, a purchase with 10 days left in a 30-day AoE month costs <code>10/30</code>, about 33.33% of the full-month price. <code>duration</code> is the AoE month’s own length: 28, 29, 30 or 31 days.</p>
+<p>Charges are in WLD base units. The contract MUST use checked USD totals and full-precision conversion.</p>
+<p>The price source MUST be an on-chain adapter for the <a href="https://data.chain.link/streams/wld-usd-cexprice-streams">Chainlink WLD/USD Data Stream</a>. A report submitter obtains a signed report and submits it to the adapter. The adapter MUST verify it through the configured Chainlink verifier, require the configured feed ID, and normalize its price to USD scaled by <code>10^18</code>. It MUST expose only verified <code>usdPerWld</code> and <code>observedAt</code> values to the Billing Contract. Unverified reports MUST NOT update the stored rate.</p>
+<p><code>quotePurchase</code> and <code>purchaseCapacity</code> read that verified rate; a getter alone does not obtain or authenticate a report. The charge MUST NOT exceed the payer’s <code>maxWldAmount</code>. Zero, future-dated, stale or unavailable prices MUST reject the purchase without affecting existing capacity. The feed ID, verifier, adapter, report format, source scale and <code>maxPriceAge</code> MUST be selected and tested before release (§8).</p>
+<p>Unused capacity receives no refund and does not roll over. Top-ups and later parameter changes MUST NOT alter earlier purchases.</p>
+<blockquote class="blockquote-tag blockquote-tag-warning">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M6.457 1.047c.659-1.234 2.427-1.234 3.086 0l6.082 11.378A1.75 1.75 0 0 1 14.082 15H1.918a1.75 1.75 0 0 1-1.543-2.575Zm1.763.707a.25.25 0 0 0-.44 0L1.698 13.132a.25.25 0 0 0 .22.368h12.164a.25.25 0 0 0 .22-.368Zm.53 3.996v2.5a.75.75 0 0 1-1.5 0v-2.5a.75.75 0 0 1 1.5 0ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"></path></svg>Warning</p>
+<p>OPRF key rotation is not currently supported. A rotation that replaces an RP’s pinned key before period end invalidates that period’s <code>billingNullifier</code>s without refund, and the Contract rejects every registration for that period until it ends.</p>
+</blockquote>
+<h2 id="5-rationale"><a class="header" href="#5-rationale">5. Rationale</a></h2>
+<ul>
+<li><strong>Billing nullifier:</strong> Counts one World ID across credentials without publishing its account leaf index.</li>
+<li><strong>Cached witness:</strong> Avoids repeated billing OPRF queries.</li>
+<li><strong>Registration capacity:</strong> One unit covers one distinct World ID for one RP and period, matching the RP’s monthly user budget.</li>
+<li><strong>Overlapping months:</strong> Capacity covers the calendar month in every time zone.</li>
+<li><strong>Prorating:</strong> An RP that starts or tops up mid-month pays only for the time left in the AoE month.</li>
+<li><strong>No rebate or rollover:</strong> Keeps each month’s capacity and revenue independent and avoids refund or carry-forward accounting.</li>
+<li><strong>Reusing the RP request:</strong> The RP cannot know whether a user is already registered, so its normal request must be enough to register.</li>
+<li><strong>Derived billing action:</strong> Deriving <code>billingAction</code> instead of having the RP sign it keeps the RP’s action free for its own proof. Proofs of Embedding Similarity do not use the RP’s action, but Uniqueness Proofs do, so this keeps billing extensible to other proof types.</li>
+</ul>
+<h2 id="6-security"><a class="header" href="#6-security">6. Security</a></h2>
+<p>An RP request is bearer authorization until bound to a holder. Consuming the nonce limits registrations but does not bind authorization to the intended holder.</p>
+<p>Any RP-signed request can authorize one registration in an active context of that RP, once per nonce. It yields only the <code>billingNullifier</code> in addition to the nullifier for the signed action. OPRF nodes and the Contract MUST treat the recomputed <code>billingAction</code> as the only additional action a signature authorizes; accepting any other derived action would let a signature over one action yield nullifiers for actions the RP never approved.</p>
+<p>The registration and the application proof share the RP’s nonce, which is public in <code>register</code> calldata. An observer who also sees the application proof’s nonce can link the application proof to the <code>billingNullifier</code>.</p>
+<p>A paid-state lookup alone does not prove that the prover owns the registered World ID. The Embedding Similarity circuit binds the two (§4.7).</p>
+<p>Registrations are linkable within their billing context. Implementations MUST NOT log credentials, private witnesses or sealed payloads.</p>
+<h2 id="7-backwards-compatibility"><a class="header" href="#7-backwards-compatibility">7. Backwards Compatibility</a></h2>
+<p>This spec is additive. It adds the Billing Contract and a billing check for select RPs’ Proofs of Embedding Similarity. OPRF nodes gain a billing query mode and nonce scope (§4.5) and need the Billing Contract’s chain and address configured; existing queries are unchanged. Other proof types, RPs and contracts are unchanged.</p>
+<p>The billing action encoding and pinned keys MUST remain fixed for active periods. Rollout, rollback and pauses MUST preserve purchased capacity and registrations.</p>
+<h2 id="8-experimental-release"><a class="header" href="#8-experimental-release">8. Experimental Release</a></h2>
+<p>Before enablement:</p>
+<ul>
+<li>Select RPs, deployment addresses, the proxy administrator, designated protocol fee address, initial USD price and request limits. Select the Chainlink feed, verifier, adapter, report format, scale and price-age limit (§4.9).</li>
+<li>The contract, OPRF nodes and TEEs MUST adopt the billing authorization of §4.5. OPRF nodes supporting billing queries MUST be deployed before enablement. WIP-202 requests MUST carry an action, including with a <code>session_id</code>, and WIP-202 MUST adopt the billing constraints of §4.7.</li>
+<li>WIP-101 contract-backed RPs are excluded until OPRF nodes support signature verification data for them.</li>
+</ul>
+<p>The proxy owner updates <code>pricePerWorldID</code> and other billing settings through the authorized on-chain setters. Changing the price does not require a node software release and MUST preserve earlier purchases.</p>
+<p>TEE operators deploy compatible verifier images. Authenticators and RPs approve the accepted attestation measurements and keys under <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-201.md">WIP-201</a>. The Engine Provider signs engine releases; the RP’s engine policy decides which releases to accept. Operators MUST NOT treat an unsigned or unapproved release as accepted.</p>
+<p>OPRF operators deploy compatible node software and keep pinned period keys available through period end. Clients verify OPRF proofs against the registry-authorized public keys, including the pinned key for an active billing context. Before enablement, record the operators, policy owners and contract upgrade owner and agree on compatible versions and key retention.</p>
+<h2 id="9-rejected-alternatives"><a class="header" href="#9-rejected-alternatives">9. Rejected Alternatives</a></h2>
+<ul>
+<li><strong>Per-proof charging:</strong> Rejected for this experiment because it charges repeated comparisons and makes monthly costs less predictable. Any future per-proof scheme requires a separate proposal defining pre-purchase and expiry rules.</li>
+<li><strong>Credential-specific registration:</strong> Charges one World ID more than once across credentials or renewals.</li>
+<li><strong>Off-chain-only billing:</strong> Rejected for this experiment because capacity and registration would depend on a billing operator.</li>
+<li><strong>RP signs <code>billingAction</code> directly:</strong> Works only when the RP’s action is unused, as in Proofs of Embedding Similarity. It prevents billing Uniqueness Proofs, which need the RP’s own action, and makes RPs compute a period-dependent action for every request.</li>
+<li><strong>Arbitrary registration action:</strong> The billing unit would become one World ID per action, so a changing or random action would bill per proof. It would also publish the RP’s application nullifier on-chain and make it linkable across periods.</li>
+</ul>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../WIPs/wip-106.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../WIPs/wip-109.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../WIPs/wip-106.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../WIPs/wip-109.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/mermaid-eefea253.min.js"></script>
+        <script src="../docs/mermaid-init-ccf746f1.js"></script>
+        <script src="../docs/mathjax/config-bab89348.js"></script>
+        <script src="../docs/mathjax/tex-svg-23c036de.js"></script>
+
+
+
+    </div>
+    </body>
+</html>
