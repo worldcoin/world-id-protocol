@@ -19,5 +19,6 @@
 - [WIP-107: Experimental Fees Per-Period](WIPs/wip-107.md)
 - [WIP-109: Authenticator Registration](WIPs/wip-109.md)
 - [WIP-110: Message Bridge](WIPs/wip-110.md)
+- [WIP-118: Proof Request Format](WIPs/wip-118.md)
 - [WIP-201: Flamingo Verifier](WIPs/wip-201.md)
 - [WIP-202: Proof of Embedding Similarity](WIPs/wip-202.md)
