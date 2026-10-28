@@ -110,7 +110,7 @@ uuid = { version = "1" }
 webpki-root-certs = "1.0"
 webpki-roots = "1.0"
 zeroize = "1"
-zstd = "0.13"
+zstd = "0.14.3"
 axum = { version = "0.8", features = ["macros", "json"] }
 moka = { version = "0.12.13", features = ["future"] }
 dashmap = { version = "6.1.0" }
@@ -142,10 +142,10 @@ humantime-serde = "1"
 indoc = "2"
 once_cell = "1"
 # Keep ProveKit aligned with the exact Noir dependencies used by the WASM witness solver.
-provekit-common = { version = "=1.0.2" }
-provekit-prover = { version = "=1.0.2" }
-provekit-verifier = { version = "=1.0.2" }
-provekit-r1cs-compiler = { version = "=1.0.2" }
+provekit-common = { version = "=1.0.3" }
+provekit-prover = { version = "=1.0.3" }
+provekit-verifier = { version = "=1.0.3" }
+provekit-r1cs-compiler = { version = "=1.0.3" }
 provekit-spongefish = "0.2.1"
 # The ownership prover's witness solver; must match the Noir version provekit pins.
 acvm = { package = "provekit_acvm", version = "=1.0.0-beta.26" }

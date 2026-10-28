@@ -46,11 +46,4 @@ ignore = [
     "RUSTSEC-2026-0173", # Unmaintained `proc-macro-error2`; transitive via alloy-sol-macro, no safe upgrade available (2026-06-08)
     "RUSTSEC-2026-0374", # Unmaintained `basic-toml` (2026-10-20)
     "RUSTSEC-2026-0387", # Non-constant-time ops in `crypto-bigint` 0.5.x; transitive via `k256` 0.13 (alloy), fixed only in >=0.7.6, no safe upgrade available (2026-10-23)
-    # `zstd` 0.13.3 stream context leak; transitive via pinned `provekit-common` 1.0.2
-    # (`zstd ^0.13`), the fix requires zstd 0.14.3 (2026-10-27)
-    "RUSTSEC-2026-0391",
-    # `zstd-safe` 7.2.4 seekable decompress; transitive via pinned `provekit-common` 1.0.2
-    # (`zstd ^0.13` caps `zstd-safe ^7`), the fix requires zstd-safe 8.2.0 (2026-10-27)
-    "RUSTSEC-2026-0398",
-    "RUSTSEC-2026-0403", # `zstd-safe` 7.2.4 legacy-frame streaming; same cap as RUSTSEC-2026-0398 (2026-10-27)
 ]

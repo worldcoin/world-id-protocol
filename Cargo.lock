@@ -7165,9 +7165,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-common"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e252850a461c65ab2c37b0414e845abb02d4a550d396e60c4f8693f56e196752"
+checksum = "0d2f3f4d4fb6a6d5d538ac77201a63c5fa2d661cc9a2fd67c0f1614f0492df93"
 dependencies = [
  "anyhow",
  "ark-bn254 0.6.0",
@@ -7200,9 +7200,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-prover"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4e5bd93aaba4cc61d5c1d208afc1fe3994821c471fd2193c6aef0fce39178427"
+checksum = "6dd07328955323503b43aeb38b546f913426d8b80aeba3dfcde1210b86bdd943"
 dependencies = [
  "anyhow",
  "ark-ff 0.6.0",
@@ -7221,9 +7221,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-r1cs-compiler"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce6d273811128b2a5742b82a7253c804bec3c8caf1c374df3d6d92a681ca721e"
+checksum = "88cc475920fe068b5ce12ec0f5d18533109145488f668955658ef7aafc97b2fb"
 dependencies = [
  "anyhow",
  "ark-bn254 0.6.0",
@@ -7274,9 +7274,9 @@ dependencies = [
 
 [[package]]
 name = "provekit-verifier"
-version = "1.0.2"
+version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eb25ec252f3e221852a40ad2c202fbf9cd8035402386558107c9fce1b4eb8033"
+checksum = "724e15964dbd7fd94d2592643ae077f3106562e3f02d1fafb03432693146f0ca"
 dependencies = [
  "anyhow",
  "ark-std 0.6.0",
@@ -12995,18 +12995,18 @@ checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
 
 [[package]]
 name = "zstd"
-version = "0.13.3"
+version = "0.14.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+checksum = "db3ae9bf90af6e40197bef767eeefc46ad6397420fe873830bd85e5fbbfb3c70"
 dependencies = [
  "zstd-safe",
 ]
 
 [[package]]
 name = "zstd-safe"
-version = "7.2.4"
+version = "8.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+checksum = "ded520f16b29e1a9b771c722221b2b0a0398c2316d9bb3c42b458a5414d7434b"
 dependencies = [
  "zstd-sys",
 ]
