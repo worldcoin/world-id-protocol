@@ -90,9 +90,12 @@ public inputs, so both `ownership_proof.pkp` and `ownership_proof.pkv` must be r
 together with the pinned ProveKit 1.0.3 compiler. The Noir source and pinned `nargo` version
 remain unchanged.
 
-Building with both ownership embed features regenerates the pair from the checked-in source:
+Clear previous package build outputs first to avoid selecting stale keys left by older builds
+with a different feature set. Then build with both ownership embed features to regenerate the
+pair from the checked-in source:
 
 ```sh
+cargo clean -p world-id-proof
 cargo build --locked -p world-id-proof --features embed-noir-artifacts
 cargo test --locked -p world-id-proof --features embed-noir-artifacts ownership_proof
 ```
