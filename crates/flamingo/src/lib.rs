@@ -14,7 +14,7 @@ mod token;
 
 pub use engine_provider::{EngineProviderMetadata, ReleaseStatus};
 pub use release_manifest::{ManifestError, ReleaseManifest, ResponseSlots};
-pub use request::{AatInputs, Compared, Entry, Payload, Request, RequestError};
+pub use request::{AatInputs, Entry, Payload, Request, RequestError};
 pub use token::{
     EAT_PROFILE, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_COMPARED, TokenError,
 };

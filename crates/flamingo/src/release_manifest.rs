@@ -56,17 +56,17 @@ pub struct ManifestPayload {
 pub struct Pipeline {
     /// Pipeline identifier, unique within the manifest.
     pub pipeline: u16,
-    /// The captures the pipeline checks; item `i` is the request's capture `i`.
-    pub captures: Vec<Capture>,
+    /// The inputs the pipeline checks; item `i` describes the entry `pipeline_inputs[i]`.
+    pub inputs: Vec<Input>,
     /// When the Verifier may release responses.
     pub response_slots: ResponseSlots,
 }
 
-/// One capture a pipeline checks.
+/// One input a pipeline checks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct Capture {
-    /// What the capture is, e.g. `live_frame`; roles may repeat.
+pub struct Input {
+    /// What the input is, e.g. `live_frame`; roles may repeat.
     pub role: String,
     /// Media types the Engine accepts for it, e.g. `image/jpeg`.
     pub media_types: Vec<String>,
@@ -263,17 +263,17 @@ impl ManifestPayload {
             "response_slots",
         )?;
         invalid(
-            self.pipelines.iter().all(Pipeline::has_valid_captures),
-            "captures",
+            self.pipelines.iter().all(Pipeline::has_valid_inputs),
+            "inputs",
         )
     }
 }
 
 impl Pipeline {
-    /// At least one capture, each with a role and at least one media type.
-    fn has_valid_captures(&self) -> bool {
-        !self.captures.is_empty()
-            && self.captures.iter().all(|c| {
+    /// At least one input, each with a role and at least one media type.
+    fn has_valid_inputs(&self) -> bool {
+        !self.inputs.is_empty()
+            && self.inputs.iter().all(|c| {
                 !c.role.is_empty()
                     && !c.media_types.is_empty()
                     && c.media_types.iter().all(|t| t.contains('/'))
@@ -354,7 +354,7 @@ pub(crate) mod fixtures {
     pub const ISS: &str = "https://engines.example.com";
 
     pub fn payload() -> ManifestPayload {
-        let live_frame = || Capture {
+        let live_frame = || Input {
             role: "live_frame".into(),
             media_types: vec!["image/jpeg".into(), "image/png".into()],
         };
@@ -365,7 +365,7 @@ pub(crate) mod fixtures {
             match_strictness_levels: vec![1, 2],
             pipelines: vec![Pipeline {
                 pipeline: 1,
-                captures: vec![live_frame()],
+                inputs: vec![live_frame()],
                 response_slots: ResponseSlots(vec![500, 1587, 5039, 16_000]),
             }],
         }
@@ -558,18 +558,18 @@ mod tests {
             (Box::new(|p| p.iss = "https://".into()), "iss"),
             (Box::new(|p| p.iss = "https://e.example/?a=1".into()), "iss"),
             (Box::new(|p| p.iss = "https://e.example/#x".into()), "iss"),
-            (Box::new(|p| p.pipelines[0].captures.clear()), "captures"),
+            (Box::new(|p| p.pipelines[0].inputs.clear()), "inputs"),
             (
-                Box::new(|p| p.pipelines[0].captures[0].role = String::new()),
-                "captures",
+                Box::new(|p| p.pipelines[0].inputs[0].role = String::new()),
+                "inputs",
             ),
             (
-                Box::new(|p| p.pipelines[0].captures[0].media_types.clear()),
-                "captures",
+                Box::new(|p| p.pipelines[0].inputs[0].media_types.clear()),
+                "inputs",
             ),
             (
-                Box::new(|p| p.pipelines[0].captures[0].media_types = vec!["jpeg".into()]),
-                "captures",
+                Box::new(|p| p.pipelines[0].inputs[0].media_types = vec!["jpeg".into()]),
+                "inputs",
             ),
             (
                 Box::new(|p| p.match_strictness_levels.reverse()),

@@ -1,4 +1,5 @@
-//! The Verifier request (WIP-201 §4.4.4), including its optional Authenticator Assertion.
+//! The Verifier request (WIP-201 §4.4.4) with its Engine request (§4.3.1) and optional
+//! Authenticator Assertion.
 //!
 //! Both the request and its nested `payload` are deterministic CBOR maps. Decoding accepts
 //! only the canonical encoding, so `cdh` and every party see the same bytes.
@@ -159,13 +160,13 @@ pub struct Payload {
     pub match_strictness: u8,
     /// Request-level Engine hints that never weaken `match_strictness`.
     pub hints: Vec<u8>,
-    /// The pipeline's captures, in its order; fraud-checked by the Engine.
-    pub captures: Vec<Entry>,
-    /// Entries that are only compared, not fraud-checked.
-    pub references: Vec<Entry>,
-    /// Distinct compared entries; `compare[k]` becomes `compared_entry_hash_k`.
-    pub compare: Vec<Compared>,
-    /// The `release_hash` of the chosen release manifest.
+    /// The images or embeddings; each one is a pipeline input, compared, or both.
+    pub entries: Vec<Entry>,
+    /// Distinct indices into `entries` the pipeline checks, in the order of its `inputs`.
+    pub pipeline_inputs: Vec<u8>,
+    /// Distinct indices into `entries`; `compare[k]` becomes `compared_entry_hash_k`.
+    pub compare: Vec<u8>,
+    /// The `release_hash` of the loaded release.
     pub release_hash: [u8; 32],
 }
 
@@ -176,15 +177,6 @@ pub struct Entry {
     pub data: Vec<u8>,
     /// How the Engine reads `data`.
     pub meta: Vec<u8>,
-}
-
-/// A compared entry: an index into `captures` or into `references`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Compared {
-    /// `captures[i]`.
-    Capture(u8),
-    /// `references[j]`.
-    Reference(u8),
 }
 
 impl Payload {
@@ -202,24 +194,25 @@ impl Payload {
     /// # Errors
     /// Fails for any other encoding or shape, or a bound violation.
     pub fn decode(bytes: &[u8]) -> Result<Self, RequestError> {
+        // Canonical key order: shorter keys first, then bytewise.
         let mut fields = Fields::of(cbor::decode(bytes, "payload")?, "payload")?;
         let hints = fields.byte_string("hints")?;
-        let compare = array(fields.take("compare")?)?
+        let compare = indices(fields.take("compare")?)?;
+        let entries = array(fields.take("entries")?)?
             .into_iter()
-            .map(Compared::from_value)
+            .map(Entry::from_value)
             .collect::<Result<Vec<_>, _>>()?;
-        // Canonical key order: shorter keys first, then bytewise.
-        let captures = entries(fields.take("captures")?)?;
         let pipeline = fields.uint("pipeline")?;
-        let references = entries(fields.take("references")?)?;
+        let release_hash = fields.bytes("release_hash")?;
+        let pipeline_inputs = indices(fields.take("pipeline_inputs")?)?;
         let payload = Self {
             pipeline,
-            release_hash: fields.bytes("release_hash")?,
             match_strictness: fields.uint("match_strictness")?,
             hints,
-            captures,
-            references,
+            entries,
+            pipeline_inputs,
             compare,
+            release_hash,
         };
         fields.finish()?;
         if cbor::encode(&payload.to_value()) != bytes {
@@ -229,7 +222,7 @@ impl Payload {
         Ok(payload)
     }
 
-    /// Checks the bounds of WIP-201 §4.4.4.
+    /// Checks the bounds of WIP-201 §4.3.1.
     ///
     /// # Errors
     /// Returns [`RequestError::OutOfBounds`] naming the first violated field.
@@ -241,74 +234,73 @@ impl Payload {
                 Err(RequestError::OutOfBounds(field))
             }
         };
+        let distinct_in_range = |list: &[u8]| {
+            list.iter().enumerate().all(|(i, index)| {
+                !list[..i].contains(index) && usize::from(*index) < self.entries.len()
+            })
+        };
         bound(self.pipeline != 0, "pipeline")?;
         bound(self.hints.len() <= MAX_HINTS_BYTES, "hints")?;
-        bound(!self.captures.is_empty(), "captures")?;
         bound(
-            self.captures
+            self.entries
                 .iter()
-                .chain(&self.references)
                 .all(|e| e.meta.len() <= MAX_ENTRY_META_BYTES),
             "entries[].meta",
         )?;
-        let distinct = self
-            .compare
-            .iter()
-            .enumerate()
-            .all(|(i, item)| !self.compare[..i].contains(item));
-        let in_range = self.compare.iter().all(|&item| self.entry(item).is_some());
         bound(
-            (2..=MAX_COMPARED).contains(&self.compare.len()) && distinct && in_range,
+            !self.pipeline_inputs.is_empty() && distinct_in_range(&self.pipeline_inputs),
+            "pipeline_inputs",
+        )?;
+        bound(
+            (2..=MAX_COMPARED).contains(&self.compare.len()) && distinct_in_range(&self.compare),
             "compare",
         )?;
-        // A reference is only compared, so one that `compare` does not name serves no purpose.
-        let all_compared = (0..self.references.len())
-            .all(|j| u8::try_from(j).is_ok_and(|j| self.compare.contains(&Compared::Reference(j))));
-        bound(all_compared, "references")
+        // An entry that is neither checked nor compared serves no purpose.
+        let all_used = (0..self.entries.len()).all(|i| {
+            u8::try_from(i)
+                .is_ok_and(|i| self.pipeline_inputs.contains(&i) || self.compare.contains(&i))
+        });
+        bound(all_used, "entries")
     }
 
-    /// The comparison layout under `pipeline`: each compared capture's role, `None` for a
-    /// reference.
+    /// The comparison layout under `pipeline`: for each compared entry, its role if it is a
+    /// pipeline input, `None` otherwise.
     ///
     /// # Errors
-    /// Returns [`RequestError::OutOfBounds`] if `captures` does not have the pipeline's count.
+    /// Returns [`RequestError::OutOfBounds`] if `pipeline_inputs` does not have the pipeline's
+    /// count.
     pub fn layout(&self, pipeline: &Pipeline) -> Result<Layout, RequestError> {
-        if self.captures.len() != pipeline.captures.len() {
-            return Err(RequestError::OutOfBounds("captures"));
+        if self.pipeline_inputs.len() != pipeline.inputs.len() {
+            return Err(RequestError::OutOfBounds("pipeline_inputs"));
         }
         Ok(Layout(
             self.compare
                 .iter()
-                .map(|item| match item {
-                    Compared::Capture(i) => Some(pipeline.captures[usize::from(*i)].role.clone()),
-                    Compared::Reference(_) => None,
+                .map(|index| {
+                    self.pipeline_inputs
+                        .iter()
+                        .position(|i| i == index)
+                        .map(|k| pipeline.inputs[k].role.clone())
                 })
                 .collect(),
         ))
     }
 
-    /// `compared_entry_hash_k = R(SHA-256(data))` of the entry `compare[k]` names, `0` past the
-    /// last one.
+    /// `compared_entry_hash_k = R(SHA-256(entries[compare[k]].data))`, `0` past the last one.
     #[must_use]
     pub fn compared_entry_hashes(&self) -> [FieldElement; MAX_COMPARED] {
         let mut hashes = [FieldElement::ZERO; MAX_COMPARED];
-        for (hash, &item) in hashes.iter_mut().zip(&self.compare) {
-            if let Some(entry) = self.entry(item) {
+        for (hash, &index) in hashes.iter_mut().zip(&self.compare) {
+            if let Some(entry) = self.entries.get(usize::from(index)) {
                 *hash = FieldElement::from_digest(&Sha256::digest(&entry.data).into());
             }
         }
         hashes
     }
 
-    fn entry(&self, item: Compared) -> Option<&Entry> {
-        match item {
-            Compared::Capture(i) => self.captures.get(usize::from(i)),
-            Compared::Reference(j) => self.references.get(usize::from(j)),
-        }
-    }
-
     fn to_value(&self) -> Value {
-        let entries = |list: &[Entry]| Value::Array(list.iter().map(Entry::to_value).collect());
+        let indices =
+            |list: &[u8]| Value::Array(list.iter().map(|&i| Value::Integer(i.into())).collect());
         map(vec![
             ("pipeline", Value::Integer(self.pipeline.into())),
             (
@@ -316,18 +308,12 @@ impl Payload {
                 Value::Integer(self.match_strictness.into()),
             ),
             ("hints", Value::Bytes(self.hints.clone())),
-            ("captures", entries(&self.captures)),
-            ("references", entries(&self.references)),
             (
-                "compare",
-                Value::Array(
-                    self.compare
-                        .iter()
-                        .copied()
-                        .map(Compared::to_value)
-                        .collect(),
-                ),
+                "entries",
+                Value::Array(self.entries.iter().map(Entry::to_value).collect()),
             ),
+            ("pipeline_inputs", indices(&self.pipeline_inputs)),
+            ("compare", indices(&self.compare)),
             ("release_hash", Value::Bytes(self.release_hash.to_vec())),
         ])
     }
@@ -352,40 +338,20 @@ impl Entry {
     }
 }
 
-impl Compared {
-    fn to_value(self) -> Value {
-        let (key, index) = match self {
-            Self::Capture(i) => ("capture", i),
-            Self::Reference(j) => ("reference", j),
-        };
-        map(vec![(key, Value::Integer(index.into()))])
-    }
-
-    /// A map with exactly one of `capture` or `reference`.
-    fn from_value(value: Value) -> Result<Self, CborError> {
-        let mut fields = Fields::of(value, "payload")?;
-        let capture = fields.optional("capture");
-        let reference = fields.optional("reference");
-        fields.finish()?;
-        let index = |v: Value| {
-            v.as_integer()
-                .and_then(|i| u8::try_from(i).ok())
-                .ok_or(CborError("payload"))
-        };
-        match (capture, reference) {
-            (Some(i), None) => Ok(Self::Capture(index(i)?)),
-            (None, Some(j)) => Ok(Self::Reference(index(j)?)),
-            _ => Err(CborError("payload")),
-        }
-    }
-}
-
 fn array(value: Value) -> Result<Vec<Value>, CborError> {
     value.into_array().map_err(|_| CborError("payload"))
 }
 
-fn entries(value: Value) -> Result<Vec<Entry>, CborError> {
-    array(value)?.into_iter().map(Entry::from_value).collect()
+fn indices(value: Value) -> Result<Vec<u8>, CborError> {
+    array(value)?
+        .into_iter()
+        .map(|index| {
+            index
+                .as_integer()
+                .and_then(|i| u8::try_from(i).ok())
+                .ok_or(CborError("payload"))
+        })
+        .collect()
 }
 
 /// The TAKT, the AAT and the RP's minimum build, as the Authenticator sends them (WIP-201 §4.4.4).
@@ -499,10 +465,10 @@ mod tests {
     use world_id_primitives::EdDSAPrivateKey;
 
     // WIP-201 Appendix A1, "With an AAT".
-    const PAYLOAD: &str = "a76568696e74734067636f6d7061726583a1697265666572656e636500a1676361707475726500a1697265666572656e63650168636170747572657381a264646174614a6c69766520696d616765646d6574614068706970656c696e65016a7265666572656e63657382a264646174615063726564656e7469616c20696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d657461406c72656c656173655f6861736858202a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a706d617463685f7374726963746e65737302";
-    const CDH: &str = "26597806b93c95fccdcc634e1482b9051beedeac0effe3993a36804a119384da";
+    const PAYLOAD: &str = "a76568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d6574614068706970656c696e65016c72656c656173655f6861736858202a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a6f706970656c696e655f696e707574738101706d617463685f7374726963746e65737302";
+    const CDH: &str = "068974e18ef1f394816ccf1eb13b6a37cd62efc6a57fe1076a7fdb4a82ecaa3c";
     const TAKT: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
-    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582026597806b93c95fccdcc634e1482b9051beedeac0effe3993a36804a119384da3a000138805820000000000000000000000000000000000000000000000000000000000000000a58405e0264249fb49aeed6aa7688a95edc86865b8973f61418ebd058666d5778c1b2b52119b0ec2a5e1a2ac5e4d5323d611052fdb4e4ef66cdbe33ae23162d893a00";
+    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f5820068974e18ef1f394816ccf1eb13b6a37cd62efc6a57fe1076a7fdb4a82ecaa3c3a000138805820000000000000000000000000000000000000000000000000000000000000000a5840b270c5eb66fe6eacd04dc4a63e63bf8c0555dc2f04cb0b3bbff080a316db6bcf37d606eeaa935ce09b1d446e8f4ad27a336bf6c41d23d8575ce7d14a56c58f79";
     const TRUST_ANCHOR_KEY_HASH: &str =
         "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
     const COMPARED: [&str; 3] = [
@@ -530,13 +496,13 @@ mod tests {
             pipeline: 1,
             match_strictness: 2,
             hints: vec![],
-            captures: vec![entry(b"live image")],
-            references: vec![entry(b"credential image"), entry(b"challenge image")],
-            compare: vec![
-                Compared::Reference(0),
-                Compared::Capture(0),
-                Compared::Reference(1),
+            entries: vec![
+                entry(b"credential image"),
+                entry(b"live image"),
+                entry(b"challenge image"),
             ],
+            pipeline_inputs: vec![1],
+            compare: vec![0, 1, 2],
             release_hash: [0x2a; 32],
         }
     }
@@ -645,26 +611,21 @@ mod tests {
 
     #[test]
     fn rejects_payloads_out_of_bounds() {
-        let cases: [Case; 10] = [
+        let cases: [Case; 11] = [
             (|p| p.pipeline = 0, "pipeline"),
             (|p| p.hints = vec![0; MAX_HINTS_BYTES + 1], "hints"),
-            (|p| p.captures.clear(), "captures"),
             (
-                |p| p.references[0].meta = vec![0; MAX_ENTRY_META_BYTES + 1],
+                |p| p.entries[0].meta = vec![0; MAX_ENTRY_META_BYTES + 1],
                 "entries[].meta",
             ),
+            (|p| p.pipeline_inputs.clear(), "pipeline_inputs"),
+            (|p| p.pipeline_inputs = vec![1, 1], "pipeline_inputs"),
+            (|p| p.pipeline_inputs = vec![3], "pipeline_inputs"),
             (|p| p.compare.truncate(1), "compare"),
-            (
-                |p| {
-                    p.compare
-                        .extend([Compared::Capture(0), Compared::Reference(0)]);
-                },
-                "compare",
-            ),
-            (|p| p.compare[2] = Compared::Reference(0), "compare"),
-            (|p| p.compare[0] = Compared::Reference(2), "compare"),
-            (|p| p.compare[1] = Compared::Capture(1), "compare"),
-            (|p| p.references.push(entry(b"unused")), "references"),
+            (|p| p.compare = vec![0, 1, 2, 0, 1], "compare"),
+            (|p| p.compare[2] = 0, "compare"),
+            (|p| p.compare[0] = 3, "compare"),
+            (|p| p.entries.push(entry(b"unused")), "entries"),
         ];
         for (change, field) in cases {
             let mut payload = payload();
@@ -680,11 +641,11 @@ mod tests {
             payload().layout(&pipeline),
             Ok(Layout(vec![None, Some("live_frame".into()), None]))
         );
-        let mut two_captures = payload();
-        two_captures.captures.push(entry(b"second frame"));
+        let mut two_inputs = payload();
+        two_inputs.pipeline_inputs.push(2);
         assert_eq!(
-            two_captures.layout(&pipeline),
-            Err(RequestError::OutOfBounds("captures"))
+            two_inputs.layout(&pipeline),
+            Err(RequestError::OutOfBounds("pipeline_inputs"))
         );
     }
 
@@ -733,23 +694,16 @@ mod tests {
                 Err(RequestError::Malformed(_))
             ));
         }
-        let both = cbor::map(vec![
-            ("capture".into(), Value::Integer(0.into())),
-            ("reference".into(), Value::Integer(0.into())),
-        ]);
-        let compare = |item: Value| {
-            Value::Array(vec![
-                item,
-                cbor::map(vec![("capture".into(), Value::Integer(0.into()))]),
-            ])
-        };
         for bytes in [
             reversed(&payload),
             with(&payload, "release_hash", Value::Bytes(vec![0x2a; 31])),
             with(&payload, "pipeline", Value::Integer(65_536.into())),
-            with(&payload, "compare", compare(both)),
-            with(&payload, "compare", compare(cbor::map(vec![]))),
-            with(&payload, "compare", compare(Value::Integer(0.into()))),
+            with(
+                &payload,
+                "compare",
+                Value::Array(vec![Value::Text("0".into())]),
+            ),
+            with(&payload, "pipeline_inputs", Value::Integer(1.into())),
         ] {
             assert!(matches!(
                 Payload::decode(&bytes),
