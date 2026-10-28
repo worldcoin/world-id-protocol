@@ -427,6 +427,17 @@ contract WorldIDBillingTest is Test {
         );
         assertTrue(billing.isRegistered(NULLIFIER + 2));
         assertTrue(billing.isRegistered(NULLIFIER));
+        // NULLIFIER registered for November during the overlap, while October was still the current month.
+        (uint64 rpId, uint64 periodStart) = billing.registrationOf(NULLIFIER);
+        assertEq(rpId, RP_ID);
+        assertEq(periodStart, NOV_2026);
+        (rpId, periodStart) = billing.registrationOf(NULLIFIER + 2);
+        assertEq(rpId, RP_ID);
+        assertEq(periodStart, OCT_2026);
+        assertFalse(billing.isRegistered(NULLIFIER + 1));
+        (rpId, periodStart) = billing.registrationOf(NULLIFIER + 1);
+        assertEq(rpId, 0);
+        assertEq(periodStart, 0);
 
         vm.warp(NOV_2026);
         auth = _authorize(october);
@@ -1486,6 +1497,8 @@ contract WorldIDBillingTest is Test {
         // Getters revert instead of returning the implementation's empty storage.
         vm.expectRevert();
         implementation.isRegistered(NULLIFIER);
+        vm.expectRevert();
+        implementation.registrationOf(NULLIFIER);
         vm.expectRevert();
         implementation.getPeriodCapacity(RP_ID, OCT_2026);
         vm.expectRevert();

@@ -47,6 +47,12 @@ interface IWorldIDBilling {
         uint256 registeredCount;
     }
 
+    /// @notice RP and period a billing nullifier was registered under; `periodStart` is zero while unregistered.
+    struct RegisteredContext {
+        uint64 rpId;
+        uint64 periodStart;
+    }
+
     /// @notice RP OPRF key pinned by the first registration in a period (WIP-107 §4.4.2).
     struct PinnedOprfKey {
         uint160 oprfKeyId;
@@ -140,6 +146,9 @@ interface IWorldIDBilling {
 
     /// @notice Whether `billingNullifier` is registered; `billingAction` already scopes it to one RP and period.
     function isRegistered(uint256 billingNullifier) external view returns (bool);
+
+    /// @notice RP and period `billingNullifier` was registered under; both zero if it is not registered.
+    function registrationOf(uint256 billingNullifier) external view returns (uint64 rpId, uint64 periodStart);
 
     /// @notice Purchased capacity and registration count for the RP and period.
     function getPeriodCapacity(uint64 rpId, uint64 periodStart)

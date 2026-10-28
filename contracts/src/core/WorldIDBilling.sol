@@ -56,8 +56,9 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     /// @dev Purchased capacity and registration count per RP and period.
     mapping(uint64 rpId => mapping(uint64 periodStart => PeriodCapacity)) internal _capacities;
 
-    /// @dev Registered billing nullifiers; `billingAction` already scopes each to one RP and period.
-    mapping(uint256 billingNullifier => bool) internal _isRegistered;
+    /// @dev Context of each registered billing nullifier. A canonical `periodStart` is never zero, so a zero
+    ///  `periodStart` marks an unregistered nullifier. Packs into one slot, the same cost as a `bool`.
+    mapping(uint256 billingNullifier => RegisteredContext) internal _registrations;
 
     /// @dev Consumed authorization nonces per RP.
     mapping(uint64 rpId => mapping(uint256 nonce => bool)) internal _usedNonces;
@@ -270,7 +271,20 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
     /// @inheritdoc IWorldIDBilling
     function isRegistered(uint256 billingNullifier) external view virtual onlyProxy onlyInitialized returns (bool) {
-        return _isRegistered[billingNullifier];
+        return _registrations[billingNullifier].periodStart != 0;
+    }
+
+    /// @inheritdoc IWorldIDBilling
+    function registrationOf(uint256 billingNullifier)
+        external
+        view
+        virtual
+        onlyProxy
+        onlyInitialized
+        returns (uint64 rpId, uint64 periodStart)
+    {
+        RegisteredContext storage registration = _registrations[billingNullifier];
+        return (registration.rpId, registration.periodStart);
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -485,7 +499,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
             proof
         );
 
-        if (_isRegistered[billingNullifier]) return false;
+        if (_registrations[billingNullifier].periodStart != 0) return false;
 
         // Duplicates above still succeed while paused; only new registrations stop.
         _requireNotPaused();
@@ -493,7 +507,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         if (period.registeredCount >= period.capacity) revert CapacityExhausted();
 
         period.registeredCount += 1;
-        _isRegistered[billingNullifier] = true;
+        _registrations[billingNullifier] = RegisteredContext(scope.rpId, scope.periodStart);
         emit Registered(scope.rpId, scope.periodStart, billingNullifier);
         return true;
     }
