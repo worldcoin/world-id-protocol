@@ -367,7 +367,7 @@ fn indices(value: Value) -> Result<Vec<u8>, CborError> {
         .collect()
 }
 
-/// The TAKT, the AAT and the RP's minimum build, as the Authenticator sends them (WIP-201 §4.4.1).
+/// The TAKT, the AAT and the minimum build, as the Authenticator sends them (WIP-201 §4.4.1).
 #[derive(Clone, PartialEq, Eq)]
 pub struct AatInputs {
     /// Compressed `trust_anchor_key` that signed the TAKT.
@@ -376,7 +376,7 @@ pub struct AatInputs {
     pub takt: Vec<u8>,
     /// The AAT's CWT encoding.
     pub aat: Vec<u8>,
-    /// The RP's minimum `build_version`; `0` sets no minimum.
+    /// Minimum `build_version`, as the consuming protocol defines; `0` sets no minimum.
     pub min_build_version: u32,
 }
 

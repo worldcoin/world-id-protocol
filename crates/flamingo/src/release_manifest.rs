@@ -76,7 +76,7 @@ pub struct Input {
 }
 
 /// A pipeline's response release times, in milliseconds after a request's arrival (WIP-201
-/// §4.4.6). A request still running at the last slot fails.
+/// §4.4.4). A request still running at the last slot fails.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ResponseSlots(pub Vec<u64>);
