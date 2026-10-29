@@ -1,4 +1,4 @@
-//! The Verifier request (WIP-201 §4.4.4) with its Engine request (§4.3.1) and optional
+//! The Verifier request (WIP-201 §4.4.1) with its Engine request (§4.3.1) and optional
 //! Authenticator Assertion.
 //!
 //! Both the request and its nested `payload` are deterministic CBOR maps. Decoding accepts
@@ -26,7 +26,7 @@ pub enum RequestError {
     /// The bytes are not the canonical encoding of the expected map.
     #[error("malformed {0}")]
     Malformed(&'static str),
-    /// A field is outside the bounds of WIP-201 §4.4.4, or does not match the pipeline.
+    /// A field is outside the bounds of WIP-201 §4.4.1, or does not match the pipeline.
     #[error("{0} out of bounds")]
     OutOfBounds(&'static str),
     /// The TAKT or AAT failed to decode or a WIP-106 §3.8 check.
@@ -349,7 +349,7 @@ fn indices(value: Value) -> Result<Vec<u8>, CborError> {
         .collect()
 }
 
-/// The TAKT, the AAT and the RP's minimum build, as the Authenticator sends them (WIP-201 §4.4.4).
+/// The TAKT, the AAT and the RP's minimum build, as the Authenticator sends them (WIP-201 §4.4.1).
 #[derive(Clone, PartialEq, Eq)]
 pub struct AatInputs {
     /// Compressed `trust_anchor_key` that signed the TAKT.
