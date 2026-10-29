@@ -10,7 +10,7 @@ pub(crate) mod types;
 mod test_fixtures;
 mod tests;
 
-use constants::{CLAIM_INDEX, DS_WIP_202_AUTH};
+use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_WIP_202_AUTH};
 use flamingo_token::FlamingoTokenPublic;
 use poseidon2::bn254::permutation;
 use types::PrivateInputs;
@@ -21,7 +21,7 @@ use world_id_components::{
     types::PublicKey,
 };
 
-/// Numbers in comments refer to WIP-202 section 4.6.
+/// Numbers in comments refer to WIP-202 §4.6 Circuit Constraints.
 fn main(
     // WIP-201 Flamingo Token
     verifier_key: pub PublicKey,
@@ -65,6 +65,8 @@ fn main(
     };
     let compared = token.compared_entry_hash;
     assert(compared[3] == 0, "compared entry 3 must be unused");
+    // Only the live capture at position 1 is a pipeline input (`[0, 1, 0, 0]`).
+    assert(token.compare_sources == COMPARE_SOURCES, "compare_sources must be 256");
     let digest = flamingo_token::verify(public, token);
 
     // 2. Challenge binding.

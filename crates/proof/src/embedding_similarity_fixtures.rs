@@ -88,8 +88,10 @@ const AUTHENTICATOR_META: u8 = 10;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
 const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
-const DIGEST_WITH_AAT: &str = "0f493d3e4f266f81950ad5c9ebe359b2085f1ab82173e7b3d6cff4c30c17fa5e";
-const DIGEST_WITHOUT_AAT: &str = "046b836383d9d9fd350fbed1197e1c1c17f2b187fb6ef1571e5f9b42ec6fc8fc";
+/// Compared entry 1 is pipeline input 0 (WIP-202 §4.3).
+const COMPARE_SOURCES: u32 = 256;
+const DIGEST_WITH_AAT: &str = "1d805a74d97517774f267e44194495e11fa684392f690c16acc5572488d2f6b4";
+const DIGEST_WITHOUT_AAT: &str = "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
 const CREDENTIAL_IMAGE: &[u8] = b"credential image";
 const LIVE_IMAGE: &[u8] = b"live image";
 const CHALLENGE_IMAGE: &[u8] = b"challenge image";
@@ -97,7 +99,7 @@ const CHALLENGE_IMAGE: &[u8] = b"challenge image";
 const LEAF_INDEX: u64 = 1;
 const GENESIS_ISSUED_AT: u64 = 1_600_000_000;
 const GENESIS_ISSUED_AT_MIN: u64 = 1_500_000_000;
-const EXPIRES_AT: u64 = 1_900_000_000;
+const EXPIRES_AT: u32 = 1_900_000_000;
 const ISSUER_SCHEMA_ID: u64 = 4_242;
 const ISSUER_VERSION: u8 = 1;
 const CRED_ID: u64 = 7;
@@ -171,18 +173,19 @@ fn aat_flags() -> u64 {
         + (u64::from(AUTHENTICATOR_META) << 52)
 }
 
-/// The WIP-201 signed digest of a Flamingo Token over the fixture request.
-fn token_digest(has_aat: bool, compared: [FieldElement; 4]) -> FieldElement {
+/// The WIP-201 signed digest of a Flamingo Token over the fixture request, signed at `now`.
+fn token_digest(has_aat: bool, now: u32, compared: [FieldElement; 4]) -> FieldElement {
     let aat = |value: FieldElement| if has_aat { value } else { FieldElement::ZERO };
     let mut claims = [FieldElement::ZERO; 15];
-    claims[0] = aat(FieldElement::from(u64::from(NOW)));
+    claims[0] = FieldElement::from(u64::from(now));
     claims[1..5].copy_from_slice(&compared);
     claims[5] = FieldElement::from(AUD);
     claims[6] = FieldElement::from(NONCE);
     claims[7] = aat(from_hex(TRUST_ANCHOR_KEY_HASH));
     claims[8] = aat(FieldElement::from(aat_flags()));
     claims[9] = FieldElement::from(u64::from(has_aat));
-    claims[10] = from_hex(ENGINE_CONFIG_HASH);
+    claims[10] = FieldElement::from(u64::from(COMPARE_SOURCES));
+    claims[11] = from_hex(ENGINE_CONFIG_HASH);
     poseidon::hash(DS_WIP_201, claims)
 }
 
@@ -246,12 +249,17 @@ fn render() -> Rendered {
     let compared = compared();
     let (hashes_json, digest_offset) = hashes_json();
 
-    let digest = token_digest(true, compared);
-    let digest_no_aat = token_digest(false, compared);
+    let digest = token_digest(true, NOW, compared);
+    let digest_no_aat = token_digest(false, NOW, compared);
+    // Signed when the Credential expires, so only the validity check rejects it.
+    let digest_at_expiry = token_digest(true, EXPIRES_AT, compared);
     let token = verifier_sk.sign(*digest);
     let token_no_aat = verifier_sk.sign(*digest_no_aat);
+    let token_at_expiry = verifier_sk.sign(*digest_at_expiry);
     let auth = authenticator_sk.sign(*authorization_message(digest, &verifier_key));
     let auth_no_aat = authenticator_sk.sign(*authorization_message(digest_no_aat, &verifier_key));
+    let auth_at_expiry =
+        authenticator_sk.sign(*authorization_message(digest_at_expiry, &verifier_key));
 
     let sub_blinding_factor = FieldElement::from(777_u64);
     let credential = Credential::new()
@@ -260,7 +268,7 @@ fn render() -> Rendered {
         .issuer_schema_id(ISSUER_SCHEMA_ID)
         .subject(Credential::compute_sub(LEAF_INDEX, sub_blinding_factor))
         .genesis_issued_at(GENESIS_ISSUED_AT)
-        .expires_at(EXPIRES_AT)
+        .expires_at(u64::from(EXPIRES_AT))
         .claim(0, &hashes_json)
         .unwrap()
         .sign(&issuer_sk)
@@ -324,6 +332,8 @@ fn render() -> Rendered {
         // Signed variants for the tests
         ("TOKEN_SIG_NO_AAT", "Signature", noir_sig(&token_no_aat)),
         ("AUTH_SIG_NO_AAT", "Signature", noir_sig(&auth_no_aat)),
+        ("TOKEN_SIG_AT_EXPIRY", "Signature", noir_sig(&token_at_expiry)),
+        ("AUTH_SIG_AT_EXPIRY", "Signature", noir_sig(&auth_at_expiry)),
     ];
 
     let noir = format!(
@@ -331,7 +341,7 @@ fn render() -> Rendered {
          // need. Regenerate with:\n\
          //   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity\n\
          // Keys derive from constant test seeds (not real key material).\n\
-         use super::components::types::{{PublicKey, Signature}};\n\n{}",
+         use world_id_components::types::{{PublicKey, Signature}};\n\n{}",
         globals
             .iter()
             .map(|(name, ty, value)| format!("pub global {name}: {ty} = {value};\n"))
@@ -380,6 +390,7 @@ fn render() -> Rendered {
          \n\
          [inputs.token]\n\
          compared_entry_hash = {compared}\n\
+         compare_sources = \"{COMPARE_SOURCES}\"\n\
          \n\
          [inputs.token.sig]\n{token_sig}\n\
          \n\
@@ -458,9 +469,12 @@ fn prover_toml_matches_the_fixture() {
 /// The fixture's Flamingo Tokens are the WIP-201 Appendix A1 test vectors.
 #[test]
 fn token_digests_match_the_wip_201_vectors() {
-    assert_eq!(token_digest(true, compared()), from_hex(DIGEST_WITH_AAT));
     assert_eq!(
-        token_digest(false, compared()),
+        token_digest(true, NOW, compared()),
+        from_hex(DIGEST_WITH_AAT)
+    );
+    assert_eq!(
+        token_digest(false, NOW, compared()),
         from_hex(DIGEST_WITHOUT_AAT)
     );
     assert_eq!(aat_flags(), 0x00a3_0000_07d6_0102);

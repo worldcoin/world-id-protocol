@@ -1,4 +1,4 @@
-// WIP-201 Flamingo Token Verification (WIP-201 section 3.9).
+// WIP-201 Flamingo Token signature check (WIP-201 §4.7 Consuming Flamingo Tokens, check 2).
 use super::{constants::DS_WIP_201, types::FlamingoTokenInputs};
 use poseidon2::bn254::permutation;
 use world_id_components::types::PublicKey;
@@ -33,14 +33,14 @@ pub fn aat_flags(public: FlamingoTokenPublic) -> Field {
         + 0x10000000000000 * public.authenticator_meta as Field
 }
 
-/// The signed digest: output element 1 of the Poseidon2 t=16 permutation. Without an
-/// AAT, `now`, `trust_anchor_key_hash` and `aat_flags` enter as `0`.
+/// The signed digest (WIP-201 §4.5): output element 1 of the Poseidon2 t=16 permutation.
+/// Without an AAT, `trust_anchor_key_hash` and `aat_flags` enter as `0`.
 pub fn digest(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field {
     let has_aat = public.has_aat as Field;
     let h = token.compared_entry_hash;
     permutation::t16([
         DS_WIP_201,
-        has_aat * public.now as Field,
+        public.now as Field,
         h[0],
         h[1],
         h[2],
@@ -50,8 +50,8 @@ pub fn digest(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field 
         has_aat * public.trust_anchor_key_hash,
         has_aat * aat_flags(public),
         has_aat,
+        token.compare_sources as Field,
         public.engine_config_hash,
-        0,
         0,
         0,
         0,
@@ -60,7 +60,7 @@ pub fn digest(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field 
 
 /// Verifies the Verifier's signature and returns the signed digest.
 pub fn verify(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field {
-    // As in WIP-106, the AAT values are zero when no AAT was verified.
+    // Check 2 requires the AAT values to be zero when no AAT was verified.
     if !public.has_aat {
         assert(
             (public.trust_anchor_key_hash == 0)

@@ -5,6 +5,8 @@ use world_id_components::types::{AccountInputs, CredentialInputs, Signature};
 pub struct FlamingoTokenInputs {
     /// `R(SHA-256(entries[compare[k]].data))`: credential, live, challenge, unused.
     pub compared_entry_hash: [Field; MAX_COMPARED],
+    /// Byte `k`, least significant first, is `i + 1` if `compare[k]` is pipeline input `i`.
+    pub compare_sources: u32,
     pub sig: Signature,
 }
 

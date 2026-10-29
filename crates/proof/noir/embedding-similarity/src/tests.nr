@@ -1,14 +1,16 @@
 use crate::{
-    constants::CHUNK_SLOTS,
+    constants::{CHUNK_SLOTS, COMPARE_SOURCES},
+    flamingo_token::{self, FlamingoTokenPublic},
     hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
     test_fixtures::{
-        AUD, AUTH_SIG, AUTH_SIG_NO_AAT, AUTHENTICATOR_META, CHALLENGE_HASH, CLAIM_0,
-        COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
+        AUD, AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTHENTICATOR_META, CHALLENGE_HASH,
+        CLAIM_0, COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
         EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN,
         ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, MERKLE_ROOT, MIN_BUILD_VERSION, NONCE, NOW,
         PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SUB_BLINDING_FACTOR,
-        TOKEN_SIG, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK, VERIFIER_KEY,
+        TOKEN_SIG, TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK,
+        VERIFIER_KEY,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
@@ -59,7 +61,11 @@ fn inputs() -> PrivateInputs {
     let mut claims = [0; MAX_CLAIMS];
     claims[0] = CLAIM_0;
     PrivateInputs {
-        token: FlamingoTokenInputs { compared_entry_hash: COMPARED_ENTRY_HASH, sig: TOKEN_SIG },
+        token: FlamingoTokenInputs {
+            compared_entry_hash: COMPARED_ENTRY_HASH,
+            compare_sources: COMPARE_SOURCES,
+            sig: TOKEN_SIG,
+        },
         account: AccountInputs {
             user_pk,
             pk_index: 0,
@@ -159,6 +165,7 @@ fn test_accepts_the_fixture() {
 
 #[test]
 fn test_accepts_a_token_without_an_aat() {
+    // The Verifier signs its own time `NOW` with or without an AAT.
     prove(public_without_aat(), inputs_without_aat());
 }
 
@@ -214,6 +221,46 @@ fn test_rejects_another_now_with_an_aat() {
     let mut p = public();
     p.now -= 1;
     prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_now_without_an_aat() {
+    let mut p = public_without_aat();
+    p.now -= 1;
+    prove(p, inputs_without_aat());
+}
+
+#[test(should_fail_with = "compare_sources must be 256")]
+fn test_rejects_other_compare_sources() {
+    let mut i = inputs();
+    // `[1, 0, 0, 0]`: the Credential image position would be the pipeline input.
+    i.token.compare_sources = 1;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_a_tampered_compare_sources() {
+    // Calls the signature check directly, since `main` rejects any value but 256 first.
+    let p = public();
+    let mut token = inputs().token;
+    token.compare_sources = COMPARE_SOURCES + 1;
+    let _ = flamingo_token::verify(
+        FlamingoTokenPublic {
+            verifier_key: VERIFIER_KEY,
+            now: p.now,
+            aud: p.aud,
+            nonce: p.nonce,
+            has_aat: p.has_aat,
+            trust_anchor_key_hash: p.trust_anchor_key_hash,
+            platform: p.platform,
+            sec_level: p.sec_level,
+            sec_meta: p.sec_meta,
+            authenticator_meta: p.authenticator_meta,
+            min_build_version: p.min_build_version,
+            engine_config_hash: p.engine_config_hash,
+        },
+        token,
+    );
 }
 
 #[test(should_fail_with = "compared entry 3 must be unused")]
@@ -312,9 +359,12 @@ fn test_rejects_a_credential_of_another_account() {
 
 #[test(should_fail_with = "credential expired")]
 fn test_rejects_an_expired_credential() {
-    let mut p = public_without_aat();
-    p.now = 1900000000;
-    prove(p, inputs_without_aat());
+    let mut p = public();
+    p.now = EXPIRES_AT as u32;
+    let mut i = inputs();
+    i.token.sig = TOKEN_SIG_AT_EXPIRY;
+    i.account.auth = AUTH_SIG_AT_EXPIRY;
+    prove(p, i);
 }
 
 #[test(should_fail_with = "credential too recent")]
