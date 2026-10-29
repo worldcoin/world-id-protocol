@@ -17,7 +17,7 @@ use world_id_primitives::{
 
 use crate::{
     FlamingoAatClaims, Layout, MAX_COMPARED, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES,
-    REQUEST_VERSION, release_manifest::Pipeline,
+    MAX_REQUEST_LIFETIME, REQUEST_VERSION, release_manifest::Pipeline,
 };
 
 /// Why a request could not be encoded, decoded or accepted.
@@ -41,6 +41,8 @@ pub struct Request {
     pub aud: FieldElement,
     /// The RP's single-use nonce; nonzero.
     pub nonce: FieldElement,
+    /// Unix seconds after which the Verifier rejects the request.
+    pub expires_at: u64,
     /// The encoded [`Payload`], kept as bytes so `cdh` commits to its exact encoding.
     pub payload: Vec<u8>,
     /// Inputs for verifying an AAT, if the Authenticator has one.
@@ -55,12 +57,14 @@ impl Request {
     pub fn new(
         aud: FieldElement,
         nonce: FieldElement,
+        expires_at: u64,
         payload: &Payload,
         aat_inputs: Option<AatInputs>,
     ) -> Result<Self, RequestError> {
         let request = Self {
             aud,
             nonce,
+            expires_at,
             payload: payload.encode()?,
             aat_inputs,
         };
@@ -80,11 +84,12 @@ impl Request {
         if let Some(aat) = &self.aat_inputs {
             fields.push(("aat_inputs", aat.to_value()));
         }
+        fields.push(("expires_at", Value::Integer(self.expires_at.into())));
         cbor::encode(&map(fields))
     }
 
     /// Decodes a canonical request and checks its bounds, including the payload's. Rejects a
-    /// request larger than `max_bytes`, the Verifier's per-request memory bound, before parsing it.
+    /// request larger than `max_bytes`, a size limit the caller chooses, before parsing it.
     ///
     /// # Errors
     /// Fails for any other encoding, version or shape, or a bound violation.
@@ -100,14 +105,16 @@ impl Request {
         if fields.uint::<u64>("version")? != REQUEST_VERSION {
             return Err(malformed());
         }
+        let aat_inputs = fields
+            .optional("aat_inputs")
+            .map(AatInputs::from_value)
+            .transpose()?;
         let request = Self {
             aud,
             nonce,
+            expires_at: fields.uint("expires_at")?,
             payload,
-            aat_inputs: fields
-                .optional("aat_inputs")
-                .map(AatInputs::from_value)
-                .transpose()?,
+            aat_inputs,
         };
         fields.finish()?;
         if request.encode() != bytes {
@@ -141,6 +148,17 @@ impl Request {
             .as_ref()
             .map(|aat| aat.verify(self.aud, self.nonce, self.cdh()))
             .transpose()
+    }
+
+    /// Checks `expires_at` against the Verifier's time `now`, in Unix seconds.
+    ///
+    /// # Errors
+    /// Fails when the request has expired or expires more than `MAX_REQUEST_LIFETIME` after `now`.
+    pub const fn check_expiry(&self, now: u64) -> Result<(), RequestError> {
+        if now > self.expires_at || self.expires_at - now > MAX_REQUEST_LIFETIME {
+            return Err(RequestError::OutOfBounds("expires_at"));
+        }
+        Ok(())
     }
 
     fn validate(&self) -> Result<(), RequestError> {
@@ -514,8 +532,17 @@ mod tests {
         }
     }
 
+    const EXPIRES_AT: u64 = 1_783_446_300;
+
     fn request(aat: Option<AatInputs>) -> Request {
-        Request::new(1_928_118u64.into(), 42u64.into(), &payload(), aat).unwrap()
+        Request::new(
+            1_928_118u64.into(),
+            42u64.into(),
+            EXPIRES_AT,
+            &payload(),
+            aat,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -554,6 +581,7 @@ mod tests {
         let request = Request::new(
             FieldElement::from(u128::from(u64::MAX) + 1),
             42u64.into(),
+            EXPIRES_AT,
             &payload(),
             Some(aat_inputs()),
         )
@@ -568,6 +596,7 @@ mod tests {
         let request = Request::new(
             1_928_118u64.into(),
             42u64.into(),
+            EXPIRES_AT,
             &other,
             Some(aat_inputs()),
         )
@@ -644,9 +673,31 @@ mod tests {
     }
 
     #[test]
+    fn checks_expiry_against_the_verifier_time() {
+        let request = request(None);
+        assert_eq!(request.check_expiry(EXPIRES_AT), Ok(()));
+        assert_eq!(
+            request.check_expiry(EXPIRES_AT - MAX_REQUEST_LIFETIME),
+            Ok(())
+        );
+        for now in [EXPIRES_AT + 1, EXPIRES_AT - MAX_REQUEST_LIFETIME - 1] {
+            assert_eq!(
+                request.check_expiry(now),
+                Err(RequestError::OutOfBounds("expires_at"))
+            );
+        }
+    }
+
+    #[test]
     fn rejects_a_zero_nonce() {
         assert_eq!(
-            Request::new(1u64.into(), FieldElement::ZERO, &payload(), None),
+            Request::new(
+                1u64.into(),
+                FieldElement::ZERO,
+                EXPIRES_AT,
+                &payload(),
+                None
+            ),
             Err(RequestError::OutOfBounds("nonce"))
         );
     }

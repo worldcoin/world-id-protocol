@@ -27,6 +27,8 @@ pub const MAX_HINTS_BYTES: usize = 1024;
 pub const MAX_ENTRY_META_BYTES: usize = 256;
 /// Maximum age of an attestation document at verification, in seconds.
 pub const MAX_ATTESTATION_AGE: u64 = 10_800;
+/// Maximum time from the Verifier's time to a request's `expires_at`, in seconds.
+pub const MAX_REQUEST_LIFETIME: u64 = 600;
 /// Maximum `debug_report` size, in bytes.
 pub const MAX_DEBUG_REPORT: usize = 65_536;
 /// Domain of the request channel.
