@@ -9,6 +9,7 @@ use sha2::{Digest as _, Sha256};
 pub const MANIFEST_TYP: &str = "world-id-engine-manifest";
 /// Most inputs a pipeline may have, so `i + 1` fits a byte of `compare_sources`.
 pub const MAX_PIPELINE_INPUTS: usize = 255;
+const _: () = assert!(MAX_PIPELINE_INPUTS <= u8::MAX as usize);
 
 /// Why a release manifest or metadata file was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
