@@ -31,7 +31,7 @@ This folder includes supporting documentation for World ID, particularly point-i
 | [WIP-107: Experimental Fees Per-Period](WIPs/wip-107.md) | 🧪 Experimental | Experimental introduction of fees per-period per-World ID for proofs, pre-paid by RPs. |
 | [WIP-108: Authenticator State Sync](https://app.notion.com/p/worldcoin/WIP-108-Authenticator-State-Sync-3c28614bdf8c80a6a967cc9fce7ed4e8) | 🟡 Draft | Synchronize credential vaults across authenticators using continuous group key agreement. |
 | [WIP-109: Authenticator Registration Protocol](https://github.com/worldcoin/world-id-protocol/pull/983) | 🟡 Draft | Protocol for securely confirming and authorizing the registration of a new World ID authenticator. |
-| [WIP-110: Message Bridge](WIPs/wip-110.md) | 🚧 Planned | Generic encrypted messaging between protocol participants, with pairing and hybrid post-quantum key exchange. |
+| [WIP-110: Message Bridge](WIPs/wip-110.md) | 🟡 Draft | Generic encrypted messaging between protocol participants, with pairing and hybrid post-quantum key exchange. |
 | [WIP-111: Passkey Ownership Proof](https://github.com/worldcoin/world-id-protocol/pull/872) | 🟡 Draft | Prove control of a World ID using a WebAuthn ES256 passkey registered as a proving authenticator, without a PRF-derived BabyJubJub secret. |
 | [WIP-112: Authenticator Registration over iroh](https://github.com/worldcoin/world-id-protocol/pull/985) | 🗑️ Cancelled | Secure bidirectional transport for WIP-109 authenticator registration using iroh. |
 | [WIP-113: Uniqueness Identifiers](WIPs/wip-113.md) | 🟡 Draft | Let RPs whitelisted by the Authenticator Provider receive the same nullifier more than once and use it as a stable per-user identifier. |
