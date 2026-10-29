@@ -7,6 +7,8 @@ use sha2::{Digest as _, Sha256};
 
 /// The JWS `typ` of a release manifest.
 pub const MANIFEST_TYP: &str = "world-id-engine-manifest";
+/// Most inputs a pipeline may have, so `i + 1` fits a byte of `compare_sources`.
+pub const MAX_PIPELINE_INPUTS: usize = 255;
 
 /// Why a release manifest or metadata file was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -270,9 +272,9 @@ impl ManifestPayload {
 }
 
 impl Pipeline {
-    /// At least one input, each with a role and at least one media type.
+    /// One to [`MAX_PIPELINE_INPUTS`] inputs, each with a role and at least one media type.
     fn has_valid_inputs(&self) -> bool {
-        !self.inputs.is_empty()
+        (1..=MAX_PIPELINE_INPUTS).contains(&self.inputs.len())
             && self.inputs.iter().all(|c| {
                 !c.role.is_empty()
                     && !c.media_types.is_empty()
@@ -559,6 +561,13 @@ mod tests {
             (Box::new(|p| p.iss = "https://e.example/?a=1".into()), "iss"),
             (Box::new(|p| p.iss = "https://e.example/#x".into()), "iss"),
             (Box::new(|p| p.pipelines[0].inputs.clear()), "inputs"),
+            (
+                Box::new(|p| {
+                    let input = p.pipelines[0].inputs[0].clone();
+                    p.pipelines[0].inputs = vec![input; MAX_PIPELINE_INPUTS + 1];
+                }),
+                "inputs",
+            ),
             (
                 Box::new(|p| p.pipelines[0].inputs[0].role = String::new()),
                 "inputs",

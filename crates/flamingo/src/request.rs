@@ -16,7 +16,7 @@ use world_id_primitives::{
 };
 
 use crate::{
-    FlamingoAatClaims, Layout, MAX_COMPARED, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES,
+    FlamingoAatClaims, MAX_COMPARED, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES, MAX_PIPELINE_INPUTS,
     MAX_REQUEST_LIFETIME, REQUEST_VERSION, release_manifest::Pipeline,
 };
 
@@ -277,27 +277,26 @@ impl Payload {
         bound(all_used, "entries")
     }
 
-    /// The comparison layout under `pipeline`: for each compared entry, its role if it is a
-    /// pipeline input, `None` otherwise.
+    /// `compare_sources` under `pipeline`: byte `k` is `i + 1` if `compare[k]` is
+    /// `pipeline_inputs[i]`, else `0`, so RPs see which compared entries the pipeline checked.
     ///
     /// # Errors
     /// Returns [`RequestError::OutOfBounds`] if `pipeline_inputs` does not have the pipeline's
-    /// count.
-    pub fn layout(&self, pipeline: &Pipeline) -> Result<Layout, RequestError> {
-        if self.pipeline_inputs.len() != pipeline.inputs.len() {
-            return Err(RequestError::OutOfBounds("pipeline_inputs"));
+    /// count, or that count does not fit a byte.
+    pub fn compare_sources(&self, pipeline: &Pipeline) -> Result<u32, RequestError> {
+        let out_of_bounds = || RequestError::OutOfBounds("pipeline_inputs");
+        if self.pipeline_inputs.len() != pipeline.inputs.len()
+            || pipeline.inputs.len() > MAX_PIPELINE_INPUTS
+        {
+            return Err(out_of_bounds());
         }
-        Ok(Layout(
-            self.compare
-                .iter()
-                .map(|index| {
-                    self.pipeline_inputs
-                        .iter()
-                        .position(|i| i == index)
-                        .map(|k| pipeline.inputs[k].role.clone())
-                })
-                .collect(),
-        ))
+        let mut bytes = [0u8; MAX_COMPARED];
+        for (byte, index) in bytes.iter_mut().zip(&self.compare) {
+            if let Some(i) = self.pipeline_inputs.iter().position(|i| i == index) {
+                *byte = u8::try_from(i + 1).map_err(|_| out_of_bounds())?;
+            }
+        }
+        Ok(u32::from_le_bytes(bytes))
     }
 
     /// `compared_entry_hash_k = R(SHA-256(entries[compare[k]].data))`, `0` past the last one.
@@ -658,16 +657,21 @@ mod tests {
     }
 
     #[test]
-    fn derives_the_layout_from_the_pipeline() {
+    fn derives_compare_sources_under_the_pipeline() {
         let pipeline = crate::release_manifest::fixtures::payload().pipelines[0].clone();
-        assert_eq!(
-            payload().layout(&pipeline),
-            Ok(Layout(vec![None, Some("live_frame".into()), None]))
-        );
+        assert_eq!(payload().compare_sources(&pipeline), Ok(256));
+
+        let mut none_checked = payload();
+        none_checked.compare = vec![0, 2];
+        assert_eq!(none_checked.compare_sources(&pipeline), Ok(0));
+        let mut first = payload();
+        first.compare = vec![1, 0, 2];
+        assert_eq!(first.compare_sources(&pipeline), Ok(1));
+
         let mut two_inputs = payload();
         two_inputs.pipeline_inputs.push(2);
         assert_eq!(
-            two_inputs.layout(&pipeline),
+            two_inputs.compare_sources(&pipeline),
             Err(RequestError::OutOfBounds("pipeline_inputs"))
         );
     }
