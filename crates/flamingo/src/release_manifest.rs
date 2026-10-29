@@ -1,4 +1,4 @@
-//! Engine release manifests (WIP-201 §4.3.2).
+//! Engine release manifests (WIP-201 §4.3.4).
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier as _};
@@ -14,7 +14,7 @@ pub enum ManifestError {
     /// Not a compact JWS with the required header, or not the specified JSON.
     #[error("malformed {0}")]
     Malformed(&'static str),
-    /// A field breaks a rule of WIP-201 §4.3.2.
+    /// A field breaks a rule of WIP-201 §4.3.4.
     #[error("invalid {0}")]
     Invalid(&'static str),
     /// The signature does not verify under the given key.
@@ -126,7 +126,7 @@ impl ReleaseManifest {
     ///
     /// # Errors
     /// Fails for a header other than `ES256`/`world-id-engine-manifest` with a `kid`, a payload
-    /// that is not the specified JSON, or a rule of WIP-201 §4.3.2 it breaks.
+    /// that is not the specified JSON, or a rule of WIP-201 §4.3.4 it breaks.
     pub fn from_jws(jws: &str) -> Result<Self, ManifestError> {
         let malformed = || ManifestError::Malformed("release manifest");
         let mut parts = jws.split('.');
@@ -230,7 +230,7 @@ impl ReleaseManifest {
 }
 
 impl ManifestPayload {
-    /// Checks the rules of WIP-201 §4.3.2 that do not need the bundle.
+    /// Checks the rules of WIP-201 §4.3.4 that do not need the bundle.
     ///
     /// # Errors
     /// Returns [`ManifestError::Invalid`] naming the first violated field.
