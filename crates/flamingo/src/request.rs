@@ -138,15 +138,16 @@ impl Request {
         FieldElement::from_digest(&Sha256::digest(&self.payload).into())
     }
 
-    /// Verifies the AAT, if any, against this request and returns the claims it yields.
+    /// Verifies the AAT, if any, against this request at the Verifier's time `now`, in Unix
+    /// seconds, and returns the claims it yields.
     ///
     /// # Errors
     /// Returns [`RequestError::AatRejected`] if any WIP-106 §3.8 check fails, and
     /// [`RequestError::OutOfBounds`] for an `aud` not below `2^64`.
-    pub fn verify_aat(&self) -> Result<Option<FlamingoAatClaims>, RequestError> {
+    pub fn verify_aat(&self, now: u32) -> Result<Option<FlamingoAatClaims>, RequestError> {
         self.aat_inputs
             .as_ref()
-            .map(|aat| aat.verify(self.aud, self.nonce, self.cdh()))
+            .map(|aat| aat.verify(now, self.aud, self.nonce, self.cdh()))
             .transpose()
     }
 
@@ -375,8 +376,6 @@ pub struct AatInputs {
     pub takt: Vec<u8>,
     /// The AAT's CWT encoding.
     pub aat: Vec<u8>,
-    /// Current time, in seconds since the Unix epoch; the RP checks it against its own clock.
-    pub now: u32,
     /// The RP's minimum `build_version`; `0` sets no minimum.
     pub min_build_version: u32,
 }
@@ -388,7 +387,8 @@ impl std::fmt::Debug for AatInputs {
 }
 
 impl AatInputs {
-    /// Verifies the TAKT and AAT for a request with `cdh` and returns the claims a token carries.
+    /// Verifies the TAKT and AAT at the Verifier's time `now` for a request with `cdh` and returns
+    /// the claims a token carries.
     ///
     /// # Errors
     /// Returns [`RequestError::AatRejected`] if a token fails to decode or any WIP-106 §3.8 check
@@ -396,6 +396,7 @@ impl AatInputs {
     /// [`RequestError::Malformed`] for an undecodable key.
     pub fn verify(
         &self,
+        now: u32,
         aud: FieldElement,
         nonce: FieldElement,
         cdh: FieldElement,
@@ -413,7 +414,7 @@ impl AatInputs {
                 .map_err(RequestError::AatRejected)?,
             cdh,
         };
-        let public = private.public_inputs(self.now, aud, nonce, self.min_build_version);
+        let public = private.public_inputs(now, aud, nonce, self.min_build_version);
         verify(&public, &private).map_err(RequestError::AatRejected)?;
         Ok(FlamingoAatClaims {
             trust_anchor_key_hash: public.trust_anchor_key_hash,
@@ -422,7 +423,6 @@ impl AatInputs {
                 | (u64::from(public.min_build_version) << 16)
                 | (u64::from(public.sec_meta) << 48)
                 | (u64::from(public.authenticator_meta.pack()) << 52),
-            now: public.now,
         })
     }
 
@@ -434,7 +434,6 @@ impl AatInputs {
             ),
             ("takt", Value::Bytes(self.takt.clone())),
             ("aat", Value::Bytes(self.aat.clone())),
-            ("now", Value::Integer(self.now.into())),
             (
                 "min_build_version",
                 Value::Integer(self.min_build_version.into()),
@@ -445,7 +444,6 @@ impl AatInputs {
     fn from_value(value: Value) -> Result<Self, RequestError> {
         let mut fields = Fields::of(value, "aat_inputs")?;
         let aat = fields.byte_string("aat")?;
-        let now = fields.uint("now")?;
         let takt = fields.byte_string("takt")?;
         let trust_anchor_key = fields.bytes("trust_anchor_key")?;
         let min_build_version = fields.uint("min_build_version")?;
@@ -454,7 +452,6 @@ impl AatInputs {
             trust_anchor_key,
             takt,
             aat,
-            now,
             min_build_version,
         })
     }
@@ -526,12 +523,13 @@ mod tests {
                 .unwrap(),
             takt: hex::decode(TAKT).unwrap(),
             aat: hex::decode(AAT).unwrap(),
-            now: 1_783_446_000,
             min_build_version: 2006,
         }
     }
 
     const EXPIRES_AT: u64 = 1_783_446_300;
+    /// The Verifier's time in the vectors.
+    const NOW: u32 = 1_783_446_000;
 
     fn request(aat: Option<AatInputs>) -> Request {
         Request::new(
@@ -563,16 +561,33 @@ mod tests {
 
     #[test]
     fn verifies_the_vector_aat() {
-        let claims = request(Some(aat_inputs())).verify_aat().unwrap().unwrap();
+        let claims = request(Some(aat_inputs()))
+            .verify_aat(NOW)
+            .unwrap()
+            .unwrap();
         assert_eq!(
             claims,
             FlamingoAatClaims {
                 trust_anchor_key_hash: hex_field(TRUST_ANCHOR_KEY_HASH),
                 aat_flags: 0x00a3_0000_07d6_0102,
-                now: 1_783_446_000,
             }
         );
-        assert_eq!(request(None).verify_aat(), Ok(None));
+        assert_eq!(request(None).verify_aat(NOW), Ok(None));
+    }
+
+    #[test]
+    fn rejects_the_aat_outside_its_validity() {
+        let request = request(Some(aat_inputs()));
+        // The vector AAT's `exp`.
+        let exp = 1_783_446_925;
+        assert!(request.verify_aat(exp - 1).is_ok());
+        // Expired, then too early for the AAT's maximum lifetime.
+        for now in [exp, 0] {
+            assert!(matches!(
+                request.verify_aat(now),
+                Err(RequestError::AatRejected(_))
+            ));
+        }
     }
 
     #[test]
@@ -585,7 +600,10 @@ mod tests {
             Some(aat_inputs()),
         )
         .unwrap();
-        assert_eq!(request.verify_aat(), Err(RequestError::OutOfBounds("aud")));
+        assert_eq!(
+            request.verify_aat(NOW),
+            Err(RequestError::OutOfBounds("aud"))
+        );
     }
 
     #[test]
@@ -601,7 +619,7 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(
-            request.verify_aat(),
+            request.verify_aat(NOW),
             Err(RequestError::AatRejected(_))
         ));
     }
