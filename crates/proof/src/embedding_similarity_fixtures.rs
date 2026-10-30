@@ -77,7 +77,7 @@ const PCP_V3_KEYS: [&str; 44] = [
 
 // WIP-201 Appendix A1 values.
 const NOW: u32 = 1_783_446_000;
-const AUD: u64 = 1_928_118;
+const RP_ID: u64 = 1_928_118;
 const NONCE: u64 = 42;
 const PLATFORM: u8 = 2;
 const SEC_LEVEL: u8 = 1;
@@ -180,7 +180,7 @@ fn token_digest(has_aat: bool, now: u32, compared: [FieldElement; 4]) -> FieldEl
     let mut claims = [FieldElement::ZERO; 15];
     claims[0] = FieldElement::from(u64::from(now));
     claims[1..5].copy_from_slice(&compared);
-    claims[5] = FieldElement::from(AUD);
+    claims[5] = FieldElement::from(RP_ID);
     claims[6] = FieldElement::from(NONCE);
     claims[7] = aat(from_hex(TRUST_ANCHOR_KEY_HASH));
     claims[8] = aat(FieldElement::from(aat_flags()));
@@ -315,7 +315,7 @@ fn render() -> Rendered {
         // Public inputs
         ("VERIFIER_KEY", "PublicKey", noir_point(&verifier_key)),
         ("NOW", "u32", NOW.to_string()),
-        ("AUD", "Field", AUD.to_string()),
+        ("RP_ID", "Field", RP_ID.to_string()),
         ("NONCE", "Field", NONCE.to_string()),
         ("TRUST_ANCHOR_KEY_HASH", "Field", takh.clone()),
         ("PLATFORM", "u8", PLATFORM.to_string()),
@@ -386,7 +386,7 @@ fn render() -> Rendered {
          \n\
          # Public inputs\n\
          now = \"{NOW}\"\n\
-         aud = \"{AUD}\"\n\
+         rp_id = \"{RP_ID}\"\n\
          nonce = \"{NONCE}\"\n\
          has_aat = true\n\
          trust_anchor_key_hash = \"{takh}\"\n\

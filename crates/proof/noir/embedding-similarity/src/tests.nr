@@ -3,11 +3,11 @@ use crate::{
     hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
     test_fixtures::{
-        AUD, AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META,
+        AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META,
         CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
         EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN,
         ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NOW,
-        PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH,
+        PLATFORM, RP_ID, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH,
         SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT,
         TRUST_ANCHOR_KEY_HASH, USER_PK, VERIFIER_KEY,
     },
@@ -20,7 +20,7 @@ use world_id_components::{
 
 struct Public {
     now: u32,
-    aud: Field,
+    rp_id: Field,
     nonce: Field,
     has_aat: bool,
     trust_anchor_key_hash: Field,
@@ -38,7 +38,7 @@ struct Public {
 fn public() -> Public {
     Public {
         now: NOW,
-        aud: AUD,
+        rp_id: RP_ID,
         nonce: NONCE,
         has_aat: true,
         trust_anchor_key_hash: TRUST_ANCHOR_KEY_HASH,
@@ -90,7 +90,7 @@ fn prove(p: Public, inputs: PrivateInputs) {
     main(
         VERIFIER_KEY,
         p.now,
-        p.aud,
+        p.rp_id,
         p.nonce,
         p.has_aat,
         p.trust_anchor_key_hash,
@@ -206,9 +206,9 @@ fn test_rejects_another_engine_config() {
 }
 
 #[test(should_fail_with = "invalid flamingo token signature")]
-fn test_rejects_another_audience() {
+fn test_rejects_another_rp_id() {
     let mut p = public();
-    p.aud += 1;
+    p.rp_id += 1;
     prove(p, inputs());
 }
 

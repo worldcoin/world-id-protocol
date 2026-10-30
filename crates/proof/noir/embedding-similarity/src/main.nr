@@ -26,7 +26,7 @@ fn main(
     // WIP-201 Flamingo Token
     verifier_key: pub PublicKey,
     now: pub u32,
-    aud: pub Field,
+    rp_id: pub Field,
     nonce: pub Field,
     has_aat: pub bool,
     trust_anchor_key_hash: pub Field,
@@ -56,7 +56,7 @@ fn main(
     let public = FlamingoTokenPublic {
         verifier_key,
         now,
-        aud,
+        aud: rp_id,
         nonce,
         has_aat,
         trust_anchor_key_hash,
