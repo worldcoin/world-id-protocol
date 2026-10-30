@@ -313,7 +313,7 @@ fn render() -> Rendered {
     #[rustfmt::skip]
     let globals: Vec<(&str, &str, String)> = vec![
         // Public inputs
-        ("VERIFIER_KEY", "PublicKey", noir_point(&verifier_key)),
+        ("FLAMINGO_VERIFIER_KEY", "PublicKey", noir_point(&verifier_key)),
         ("NOW", "u32", NOW.to_string()),
         ("RP_ID", "Field", RP_ID.to_string()),
         ("NONCE", "Field", NONCE.to_string()),
@@ -403,7 +403,7 @@ fn render() -> Rendered {
          genesis_issued_at_min = \"{GENESIS_ISSUED_AT_MIN}\"\n\
          session_id = \"{session_id}\"\n\
          \n\
-         [verifier_key]\n{verifier_key}\n\
+         [flamingo_verifier_key]\n{verifier_key}\n\
          \n\
          [cred_pk]\n{cred_pk}\n\
          \n\

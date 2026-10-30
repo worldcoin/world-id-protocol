@@ -5,11 +5,11 @@ use crate::{
     test_fixtures::{
         AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META,
         CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
-        EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN,
-        ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NOW,
-        PLATFORM, RP_ID, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH,
-        SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT,
-        TRUST_ANCHOR_KEY_HASH, USER_PK, VERIFIER_KEY,
+        EXPIRES_AT, FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN,
+        HASHES_JSON_CHUNKS, HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX,
+        LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NOW, PLATFORM, RP_ID, SEC_LEVEL, SEC_META,
+        SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG,
+        TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
@@ -88,13 +88,13 @@ fn inputs() -> PrivateInputs {
 
 fn prove(p: Public, inputs: PrivateInputs) {
     main(
+        p.now,
         p.rp_id,
         p.nonce,
         p.challenge_hash,
         p.signal_hash,
         p.session_id,
-        VERIFIER_KEY,
-        p.now,
+        FLAMINGO_VERIFIER_KEY,
         p.engine_config_hash,
         p.has_aat,
         p.trust_anchor_key_hash,

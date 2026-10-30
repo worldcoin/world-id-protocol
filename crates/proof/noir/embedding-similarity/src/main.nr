@@ -23,6 +23,8 @@ use world_id_components::{
 
 /// Numbers refer to WIP-202 §4.6 Circuit Constraints; they hold jointly, so order follows data flow.
 fn main(
+    // Proof time
+    now: pub u32,
     // RP request
     rp_id: pub Field,
     nonce: pub Field,
@@ -30,8 +32,7 @@ fn main(
     signal_hash: pub Field,
     session_id: pub Field,
     // WIP-201 Flamingo Token
-    verifier_key: pub PublicKey,
-    now: pub u32,
+    flamingo_verifier_key: pub PublicKey,
     engine_config_hash: pub Field,
     // Its AAT values
     has_aat: pub bool,
@@ -56,7 +57,7 @@ fn main(
 
     // 1. Flamingo Token verification; fixing the entries binds the Credential image and challenge.
     let public = FlamingoTokenPublic {
-        verifier_key,
+        verifier_key: flamingo_verifier_key,
         now,
         aud: rp_id,
         nonce,
@@ -76,8 +77,8 @@ fn main(
     let message = permutation::t8([
         DS_WIP_202_AUTH,
         digest,
-        verifier_key.x,
-        verifier_key.y,
+        flamingo_verifier_key.x,
+        flamingo_verifier_key.y,
         signal_hash,
         0,
         0,
