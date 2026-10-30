@@ -46,7 +46,7 @@ fn main(
     session_id: pub Field,
     inputs: PrivateInputs,
 ) {
-    // 2. Challenge binding.
+    // 2. Challenge present: `0` marks an unused position.
     assert(challenge_hash != 0, "challenge_hash must not be zero");
 
     // 3.2 The thumbnail digest is the Credential image the token must have compared.

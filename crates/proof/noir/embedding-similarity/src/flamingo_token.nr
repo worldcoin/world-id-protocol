@@ -1,4 +1,4 @@
-// WIP-201 Flamingo Token signature check (WIP-201 §4.7 Consuming Flamingo Tokens, check 2).
+// WIP-201 Flamingo Token verification (WIP-201 §4.7 Consuming Flamingo Tokens, checks 2 and 3).
 use super::constants::{COMPARE_SOURCES, DS_WIP_201, MAX_COMPARED};
 use poseidon2::bn254::permutation;
 use world_id_components::types::{PublicKey, Signature};
@@ -59,7 +59,7 @@ pub fn verify(
     compared: [Field; MAX_COMPARED],
     sig: Signature,
 ) -> Field {
-    // Check 2 requires the AAT values to be zero when no AAT was verified.
+    // Check 3 requires the AAT values to be zero when no AAT was verified.
     if !public.has_aat {
         assert(
             (public.trust_anchor_key_hash == 0)
