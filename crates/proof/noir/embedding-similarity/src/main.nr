@@ -23,27 +23,29 @@ use world_id_components::{
 
 /// Numbers refer to WIP-202 §4.6 Circuit Constraints; they hold jointly, so order follows data flow.
 fn main(
+    // RP request
+    rp_id: pub Field,
+    nonce: pub Field,
+    challenge_hash: pub Field,
+    signal_hash: pub Field,
+    session_id: pub Field,
     // WIP-201 Flamingo Token
     verifier_key: pub PublicKey,
     now: pub u32,
-    rp_id: pub Field,
-    nonce: pub Field,
+    engine_config_hash: pub Field,
+    // Its AAT values
     has_aat: pub bool,
     trust_anchor_key_hash: pub Field,
     platform: pub u8,
     sec_level: pub u8,
     sec_meta: pub u8,
     authenticator_meta: pub u8,
-    engine_config_hash: pub Field,
-    // WIP-202
-    challenge_hash: pub Field,
-    signal_hash: pub Field,
+    // World ID and Credential
     merkle_root: pub Field,
     issuer_schema_id: pub Field,
     issuer_version: pub Field,
     cred_pk: pub PublicKey,
     genesis_issued_at_min: pub Field,
-    session_id: pub Field,
     inputs: PrivateInputs,
 ) {
     // 2. Challenge present: `0` marks an unused position.

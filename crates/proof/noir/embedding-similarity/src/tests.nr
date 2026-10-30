@@ -88,25 +88,25 @@ fn inputs() -> PrivateInputs {
 
 fn prove(p: Public, inputs: PrivateInputs) {
     main(
-        VERIFIER_KEY,
-        p.now,
         p.rp_id,
         p.nonce,
+        p.challenge_hash,
+        p.signal_hash,
+        p.session_id,
+        VERIFIER_KEY,
+        p.now,
+        p.engine_config_hash,
         p.has_aat,
         p.trust_anchor_key_hash,
         p.platform,
         p.sec_level,
         p.sec_meta,
         p.authenticator_meta,
-        p.engine_config_hash,
-        p.challenge_hash,
-        p.signal_hash,
         MERKLE_ROOT,
         ISSUER_SCHEMA_ID,
         ISSUER_VERSION,
         CRED_PK,
         p.genesis_issued_at_min,
-        p.session_id,
         inputs,
     );
 }
