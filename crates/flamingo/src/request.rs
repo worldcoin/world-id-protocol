@@ -1,4 +1,5 @@
-//! The Verifier request (WIP-201 §3.2) and its optional Authenticator Assertion (§3.3).
+//! The Verifier request (WIP-201 §4.4.1) with its Engine request (§4.3.1) and optional
+//! Authenticator Assertion.
 //!
 //! Both the request and its nested `payload` are deterministic CBOR maps. Decoding accepts
 //! only the canonical encoding, so `cdh` and every party see the same bytes.
@@ -15,8 +16,8 @@ use world_id_primitives::{
 };
 
 use crate::{
-    FlamingoAatClaims, MAX_COMPARED, MAX_ENTRIES, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES,
-    REQUEST_VERSION,
+    FlamingoAatClaims, MAX_COMPARED, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES, MAX_PIPELINE_INPUTS,
+    MAX_REQUEST_LIFETIME, REQUEST_VERSION, release_manifest::Pipeline,
 };
 
 /// Why a request could not be encoded, decoded or accepted.
@@ -25,7 +26,7 @@ pub enum RequestError {
     /// The bytes are not the canonical encoding of the expected map.
     #[error("malformed {0}")]
     Malformed(&'static str),
-    /// A field is outside the bounds of WIP-201 §3.2.
+    /// A field is outside the bounds of WIP-201 §4.4.1, or does not match the pipeline.
     #[error("{0} out of bounds")]
     OutOfBounds(&'static str),
     /// The TAKT or AAT failed to decode or a WIP-106 §3.8 check.
@@ -40,6 +41,8 @@ pub struct Request {
     pub aud: FieldElement,
     /// The RP's single-use nonce; nonzero.
     pub nonce: FieldElement,
+    /// Unix seconds after which the Verifier rejects the request.
+    pub expires_at: u64,
     /// The encoded [`Payload`], kept as bytes so `cdh` commits to its exact encoding.
     pub payload: Vec<u8>,
     /// Inputs for verifying an AAT, if the Authenticator has one.
@@ -54,12 +57,14 @@ impl Request {
     pub fn new(
         aud: FieldElement,
         nonce: FieldElement,
+        expires_at: u64,
         payload: &Payload,
         aat_inputs: Option<AatInputs>,
     ) -> Result<Self, RequestError> {
         let request = Self {
             aud,
             nonce,
+            expires_at,
             payload: payload.encode()?,
             aat_inputs,
         };
@@ -79,16 +84,17 @@ impl Request {
         if let Some(aat) = &self.aat_inputs {
             fields.push(("aat_inputs", aat.to_value()));
         }
+        fields.push(("expires_at", Value::Integer(self.expires_at.into())));
         cbor::encode(&map(fields))
     }
 
     /// Decodes a canonical request and checks its bounds, including the payload's. Rejects a
-    /// request larger than `max_request_bytes` (WIP-201 §3.2) before parsing it.
+    /// request larger than `max_bytes`, a size limit the caller chooses, before parsing it.
     ///
     /// # Errors
     /// Fails for any other encoding, version or shape, or a bound violation.
-    pub fn decode(bytes: &[u8], max_request_bytes: u64) -> Result<Self, RequestError> {
-        if u64::try_from(bytes.len()).map_or(true, |len| len > max_request_bytes) {
+    pub fn decode(bytes: &[u8], max_bytes: u64) -> Result<Self, RequestError> {
+        if u64::try_from(bytes.len()).map_or(true, |len| len > max_bytes) {
             return Err(RequestError::OutOfBounds("request"));
         }
         let malformed = || RequestError::Malformed("request");
@@ -99,14 +105,16 @@ impl Request {
         if fields.uint::<u64>("version")? != REQUEST_VERSION {
             return Err(malformed());
         }
+        let aat_inputs = fields
+            .optional("aat_inputs")
+            .map(AatInputs::from_value)
+            .transpose()?;
         let request = Self {
             aud,
             nonce,
+            expires_at: fields.uint("expires_at")?,
             payload,
-            aat_inputs: fields
-                .optional("aat_inputs")
-                .map(AatInputs::from_value)
-                .transpose()?,
+            aat_inputs,
         };
         fields.finish()?;
         if request.encode() != bytes {
@@ -130,16 +138,28 @@ impl Request {
         FieldElement::from_digest(&Sha256::digest(&self.payload).into())
     }
 
-    /// Verifies the AAT, if any, against this request and returns the claims it yields.
+    /// Verifies the AAT, if any, against this request at the Verifier's time `now`, in Unix
+    /// seconds, and returns the claims it yields.
     ///
     /// # Errors
     /// Returns [`RequestError::AatRejected`] if any WIP-106 §3.8 check fails, and
     /// [`RequestError::OutOfBounds`] for an `aud` not below `2^64`.
-    pub fn verify_aat(&self) -> Result<Option<FlamingoAatClaims>, RequestError> {
+    pub fn verify_aat(&self, now: u32) -> Result<Option<FlamingoAatClaims>, RequestError> {
         self.aat_inputs
             .as_ref()
-            .map(|aat| aat.verify(self.aud, self.nonce, self.cdh()))
+            .map(|aat| aat.verify(now, self.aud, self.nonce, self.cdh()))
             .transpose()
+    }
+
+    /// Checks `expires_at` against the Verifier's time `now`, in Unix seconds.
+    ///
+    /// # Errors
+    /// Fails when the request has expired or expires more than `MAX_REQUEST_LIFETIME` after `now`.
+    pub const fn check_expiry(&self, now: u64) -> Result<(), RequestError> {
+        if now > self.expires_at || self.expires_at - now > MAX_REQUEST_LIFETIME {
+            return Err(RequestError::OutOfBounds("expires_at"));
+        }
+        Ok(())
     }
 
     fn validate(&self) -> Result<(), RequestError> {
@@ -153,18 +173,18 @@ impl Request {
 /// What the Engine receives, unchanged.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Payload {
-    /// Engine-defined pipeline, nonzero.
-    pub pipeline: u16,
+    /// The chosen pipeline of the release, nonzero.
+    pub pipeline_id: u16,
     /// Matching strictness level defined by the release manifest.
     pub match_strictness: u8,
     /// Request-level Engine hints that never weaken `match_strictness`.
     pub hints: Vec<u8>,
-    /// Inputs to the Engine.
+    /// The images or embeddings; each one is a pipeline input, compared, or both.
     pub entries: Vec<Entry>,
+    /// Distinct indices into `entries` the pipeline checks, in the order of its `inputs`.
+    pub pipeline_inputs: Vec<u8>,
     /// Distinct indices into `entries`; `compare[k]` becomes `compared_entry_hash_k`.
     pub compare: Vec<u8>,
-    /// The `release_hash` of the chosen release manifest.
-    pub release_hash: [u8; 32],
 }
 
 /// One Engine input.
@@ -191,33 +211,22 @@ impl Payload {
     /// # Errors
     /// Fails for any other encoding or shape, or a bound violation.
     pub fn decode(bytes: &[u8]) -> Result<Self, RequestError> {
+        // Canonical key order: shorter keys first, then bytewise.
         let mut fields = Fields::of(cbor::decode(bytes, "payload")?, "payload")?;
         let hints = fields.byte_string("hints")?;
-        let compare = fields
-            .take("compare")?
-            .into_array()
-            .map_err(|_| CborError("payload"))?
-            .into_iter()
-            .map(|index| {
-                index
-                    .as_integer()
-                    .and_then(|i| u8::try_from(i).ok())
-                    .ok_or(CborError("payload"))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        let entries = fields
-            .take("entries")?
-            .into_array()
-            .map_err(|_| CborError("payload"))?
+        let compare = indices(fields.take("compare")?)?;
+        let entries = array(fields.take("entries")?)?
             .into_iter()
             .map(Entry::from_value)
             .collect::<Result<Vec<_>, _>>()?;
+        let pipeline_id = fields.uint("pipeline_id")?;
+        let pipeline_inputs = indices(fields.take("pipeline_inputs")?)?;
         let payload = Self {
-            pipeline: fields.uint("pipeline")?,
-            release_hash: fields.bytes("release_hash")?,
+            pipeline_id,
             match_strictness: fields.uint("match_strictness")?,
             hints,
             entries,
+            pipeline_inputs,
             compare,
         };
         fields.finish()?;
@@ -228,7 +237,7 @@ impl Payload {
         Ok(payload)
     }
 
-    /// Checks the bounds of WIP-201 §3.2.
+    /// Checks the bounds of WIP-201 §4.3.1.
     ///
     /// # Errors
     /// Returns [`RequestError::OutOfBounds`] naming the first violated field.
@@ -240,28 +249,55 @@ impl Payload {
                 Err(RequestError::OutOfBounds(field))
             }
         };
-        bound(self.pipeline != 0, "pipeline")?;
+        let distinct_in_range = |list: &[u8]| {
+            list.iter().enumerate().all(|(i, index)| {
+                !list[..i].contains(index) && usize::from(*index) < self.entries.len()
+            })
+        };
+        bound(self.pipeline_id != 0, "pipeline_id")?;
         bound(self.hints.len() <= MAX_HINTS_BYTES, "hints")?;
-        bound((1..=MAX_ENTRIES).contains(&self.entries.len()), "entries")?;
         bound(
             self.entries
                 .iter()
                 .all(|e| e.meta.len() <= MAX_ENTRY_META_BYTES),
             "entries[].meta",
         )?;
-        let distinct = self
-            .compare
-            .iter()
-            .enumerate()
-            .all(|(i, index)| !self.compare[..i].contains(index));
-        let in_range = self
-            .compare
-            .iter()
-            .all(|&index| usize::from(index) < self.entries.len());
         bound(
-            (2..=MAX_COMPARED).contains(&self.compare.len()) && distinct && in_range,
+            !self.pipeline_inputs.is_empty() && distinct_in_range(&self.pipeline_inputs),
+            "pipeline_inputs",
+        )?;
+        bound(
+            (2..=MAX_COMPARED).contains(&self.compare.len()) && distinct_in_range(&self.compare),
             "compare",
-        )
+        )?;
+        // An entry that is neither checked nor compared serves no purpose.
+        let all_used = (0..self.entries.len()).all(|i| {
+            u8::try_from(i)
+                .is_ok_and(|i| self.pipeline_inputs.contains(&i) || self.compare.contains(&i))
+        });
+        bound(all_used, "entries")
+    }
+
+    /// `compare_sources` under `pipeline`: byte `k` is `i + 1` if `compare[k]` is
+    /// `pipeline_inputs[i]`, else `0`, so RPs see which compared entries the pipeline checked.
+    ///
+    /// # Errors
+    /// Returns [`RequestError::OutOfBounds`] if `pipeline_inputs` does not have the pipeline's
+    /// count, or that count does not fit a byte.
+    pub fn compare_sources(&self, pipeline: &Pipeline) -> Result<u32, RequestError> {
+        let out_of_bounds = || RequestError::OutOfBounds("pipeline_inputs");
+        if self.pipeline_inputs.len() != pipeline.inputs.len()
+            || pipeline.inputs.len() > MAX_PIPELINE_INPUTS
+        {
+            return Err(out_of_bounds());
+        }
+        let mut bytes = [0u8; MAX_COMPARED];
+        for (byte, index) in bytes.iter_mut().zip(&self.compare) {
+            if let Some(i) = self.pipeline_inputs.iter().position(|i| i == index) {
+                *byte = u8::try_from(i + 1).map_err(|_| out_of_bounds())?;
+            }
+        }
+        Ok(u32::from_le_bytes(bytes))
     }
 
     /// `compared_entry_hash_k = R(SHA-256(entries[compare[k]].data))`, `0` past the last one.
@@ -269,16 +305,18 @@ impl Payload {
     pub fn compared_entry_hashes(&self) -> [FieldElement; MAX_COMPARED] {
         let mut hashes = [FieldElement::ZERO; MAX_COMPARED];
         for (hash, &index) in hashes.iter_mut().zip(&self.compare) {
-            *hash = FieldElement::from_digest(
-                &Sha256::digest(&self.entries[usize::from(index)].data).into(),
-            );
+            if let Some(entry) = self.entries.get(usize::from(index)) {
+                *hash = FieldElement::from_digest(&Sha256::digest(&entry.data).into());
+            }
         }
         hashes
     }
 
     fn to_value(&self) -> Value {
+        let indices =
+            |list: &[u8]| Value::Array(list.iter().map(|&i| Value::Integer(i.into())).collect());
         map(vec![
-            ("pipeline", Value::Integer(self.pipeline.into())),
+            ("pipeline_id", Value::Integer(self.pipeline_id.into())),
             (
                 "match_strictness",
                 Value::Integer(self.match_strictness.into()),
@@ -288,16 +326,8 @@ impl Payload {
                 "entries",
                 Value::Array(self.entries.iter().map(Entry::to_value).collect()),
             ),
-            (
-                "compare",
-                Value::Array(
-                    self.compare
-                        .iter()
-                        .map(|&i| Value::Integer(i.into()))
-                        .collect(),
-                ),
-            ),
-            ("release_hash", Value::Bytes(self.release_hash.to_vec())),
+            ("pipeline_inputs", indices(&self.pipeline_inputs)),
+            ("compare", indices(&self.compare)),
         ])
     }
 }
@@ -321,7 +351,23 @@ impl Entry {
     }
 }
 
-/// The TAKT, the AAT and the RP's minimum build, as the Authenticator sends them (WIP-201 §3.3).
+fn array(value: Value) -> Result<Vec<Value>, CborError> {
+    value.into_array().map_err(|_| CborError("payload"))
+}
+
+fn indices(value: Value) -> Result<Vec<u8>, CborError> {
+    array(value)?
+        .into_iter()
+        .map(|index| {
+            index
+                .as_integer()
+                .and_then(|i| u8::try_from(i).ok())
+                .ok_or(CborError("payload"))
+        })
+        .collect()
+}
+
+/// The TAKT, the AAT and the minimum build, as the Authenticator sends them (WIP-201 §4.4.1).
 #[derive(Clone, PartialEq, Eq)]
 pub struct AatInputs {
     /// Compressed `trust_anchor_key` that signed the TAKT.
@@ -330,9 +376,7 @@ pub struct AatInputs {
     pub takt: Vec<u8>,
     /// The AAT's CWT encoding.
     pub aat: Vec<u8>,
-    /// Current time, in seconds since the Unix epoch; the RP checks it against its own clock.
-    pub now: u32,
-    /// The RP's minimum `build_version`; `0` sets no minimum.
+    /// Minimum `build_version`, as the consuming protocol defines; `0` sets no minimum.
     pub min_build_version: u32,
 }
 
@@ -343,7 +387,8 @@ impl std::fmt::Debug for AatInputs {
 }
 
 impl AatInputs {
-    /// Verifies the TAKT and AAT for a request with `cdh` and returns the claims a token carries.
+    /// Verifies the TAKT and AAT at the Verifier's time `now` for a request with `cdh` and returns
+    /// the claims a token carries.
     ///
     /// # Errors
     /// Returns [`RequestError::AatRejected`] if a token fails to decode or any WIP-106 §3.8 check
@@ -351,6 +396,7 @@ impl AatInputs {
     /// [`RequestError::Malformed`] for an undecodable key.
     pub fn verify(
         &self,
+        now: u32,
         aud: FieldElement,
         nonce: FieldElement,
         cdh: FieldElement,
@@ -368,7 +414,7 @@ impl AatInputs {
                 .map_err(RequestError::AatRejected)?,
             cdh,
         };
-        let public = private.public_inputs(self.now, aud, nonce, self.min_build_version);
+        let public = private.public_inputs(now, aud, nonce, self.min_build_version);
         verify(&public, &private).map_err(RequestError::AatRejected)?;
         Ok(FlamingoAatClaims {
             trust_anchor_key_hash: public.trust_anchor_key_hash,
@@ -377,7 +423,6 @@ impl AatInputs {
                 | (u64::from(public.min_build_version) << 16)
                 | (u64::from(public.sec_meta) << 48)
                 | (u64::from(public.authenticator_meta.pack()) << 52),
-            now: public.now,
         })
     }
 
@@ -389,7 +434,6 @@ impl AatInputs {
             ),
             ("takt", Value::Bytes(self.takt.clone())),
             ("aat", Value::Bytes(self.aat.clone())),
-            ("now", Value::Integer(self.now.into())),
             (
                 "min_build_version",
                 Value::Integer(self.min_build_version.into()),
@@ -400,7 +444,6 @@ impl AatInputs {
     fn from_value(value: Value) -> Result<Self, RequestError> {
         let mut fields = Fields::of(value, "aat_inputs")?;
         let aat = fields.byte_string("aat")?;
-        let now = fields.uint("now")?;
         let takt = fields.byte_string("takt")?;
         let trust_anchor_key = fields.bytes("trust_anchor_key")?;
         let min_build_version = fields.uint("min_build_version")?;
@@ -409,7 +452,6 @@ impl AatInputs {
             trust_anchor_key,
             takt,
             aat,
-            now,
             min_build_version,
         })
     }
@@ -432,10 +474,10 @@ mod tests {
     use world_id_primitives::EdDSAPrivateKey;
 
     // WIP-201 Appendix A1, "With an AAT".
-    const PAYLOAD: &str = "a66568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d6574614068706970656c696e65016c72656c656173655f6861736858202a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a2a706d617463685f7374726963746e65737302";
-    const CDH: &str = "06559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a44346150";
+    const PAYLOAD: &str = "a66568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d657461406b706970656c696e655f6964016f706970656c696e655f696e707574738101706d617463685f7374726963746e65737302";
+    const CDH: &str = "03ca8744a87789b5684fd3569cc3ac735de925464f2cd29e87bdfc2a45591d27";
     const TAKT: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
-    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582006559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a443461503a000138805820000000000000000000000000000000000000000000000000000000000000000a5840c9deddf6657d8d624fc90f035ca1818de26d24aeb9becd946877d7a9f37520ad605b173c60660179227e019370ae9ea824b35f26fefb5b7592b2ab1865263d27";
+    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582003ca8744a87789b5684fd3569cc3ac735de925464f2cd29e87bdfc2a45591d273a000138805820000000000000000000000000000000000000000000000000000000000000000a58403c24fd0eb59bdcb7ca3177348f69f7ad45affbce19eb3aa85b1a51dcc3499683e84559b276e8bf5d1b6b7e28d2d45dd7ad86eb3e90c09292370f7e2c27feb09f";
     const TRUST_ANCHOR_KEY_HASH: &str =
         "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
     const COMPARED: [&str; 3] = [
@@ -444,20 +486,23 @@ mod tests {
         "2abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d",
     ];
 
-    /// A `max_request_bytes` no test request reaches.
+    /// A `max_bytes` no test request reaches.
     const LIMIT: u64 = 1 << 20;
 
     fn hex_field(hex: &str) -> FieldElement {
         FieldElement::from_be_bytes(&hex::decode(hex).unwrap().try_into().unwrap()).unwrap()
     }
 
-    fn payload() -> Payload {
-        let entry = |data: &[u8]| Entry {
+    fn entry(data: &[u8]) -> Entry {
+        Entry {
             data: data.to_vec(),
             meta: vec![],
-        };
+        }
+    }
+
+    fn payload() -> Payload {
         Payload {
-            pipeline: 1,
+            pipeline_id: 1,
             match_strictness: 2,
             hints: vec![],
             entries: vec![
@@ -465,8 +510,8 @@ mod tests {
                 entry(b"live image"),
                 entry(b"challenge image"),
             ],
+            pipeline_inputs: vec![1],
             compare: vec![0, 1, 2],
-            release_hash: [0x2a; 32],
         }
     }
 
@@ -478,13 +523,23 @@ mod tests {
                 .unwrap(),
             takt: hex::decode(TAKT).unwrap(),
             aat: hex::decode(AAT).unwrap(),
-            now: 1_783_446_000,
-            min_build_version: 2006,
+            min_build_version: 0,
         }
     }
 
+    const EXPIRES_AT: u64 = 1_783_446_300;
+    /// The Verifier's time in the vectors.
+    const NOW: u32 = 1_783_446_000;
+
     fn request(aat: Option<AatInputs>) -> Request {
-        Request::new(1_928_118u64.into(), 42u64.into(), &payload(), aat).unwrap()
+        Request::new(
+            1_928_118u64.into(),
+            42u64.into(),
+            EXPIRES_AT,
+            &payload(),
+            aat,
+        )
+        .unwrap()
     }
 
     #[test]
@@ -506,16 +561,33 @@ mod tests {
 
     #[test]
     fn verifies_the_vector_aat() {
-        let claims = request(Some(aat_inputs())).verify_aat().unwrap().unwrap();
+        let claims = request(Some(aat_inputs()))
+            .verify_aat(NOW)
+            .unwrap()
+            .unwrap();
         assert_eq!(
             claims,
             FlamingoAatClaims {
                 trust_anchor_key_hash: hex_field(TRUST_ANCHOR_KEY_HASH),
-                aat_flags: 0x00a3_0000_07d6_0102,
-                now: 1_783_446_000,
+                aat_flags: 0x00a3_0000_0000_0102,
             }
         );
-        assert_eq!(request(None).verify_aat(), Ok(None));
+        assert_eq!(request(None).verify_aat(NOW), Ok(None));
+    }
+
+    #[test]
+    fn rejects_the_aat_outside_its_validity() {
+        let request = request(Some(aat_inputs()));
+        // The vector AAT's `exp`.
+        let exp = 1_783_446_925;
+        assert!(request.verify_aat(exp - 1).is_ok());
+        // Expired, then too early for the AAT's maximum lifetime.
+        for now in [exp, 0] {
+            assert!(matches!(
+                request.verify_aat(now),
+                Err(RequestError::AatRejected(_))
+            ));
+        }
     }
 
     #[test]
@@ -523,11 +595,15 @@ mod tests {
         let request = Request::new(
             FieldElement::from(u128::from(u64::MAX) + 1),
             42u64.into(),
+            EXPIRES_AT,
             &payload(),
             Some(aat_inputs()),
         )
         .unwrap();
-        assert_eq!(request.verify_aat(), Err(RequestError::OutOfBounds("aud")));
+        assert_eq!(
+            request.verify_aat(NOW),
+            Err(RequestError::OutOfBounds("aud"))
+        );
     }
 
     #[test]
@@ -537,12 +613,13 @@ mod tests {
         let request = Request::new(
             1_928_118u64.into(),
             42u64.into(),
+            EXPIRES_AT,
             &other,
             Some(aat_inputs()),
         )
         .unwrap();
         assert!(matches!(
-            request.verify_aat(),
+            request.verify_aat(NOW),
             Err(RequestError::AatRejected(_))
         ));
     }
@@ -574,30 +651,21 @@ mod tests {
 
     #[test]
     fn rejects_payloads_out_of_bounds() {
-        let cases: [Case; 9] = [
-            (|p| p.pipeline = 0, "pipeline"),
+        let cases: [Case; 11] = [
+            (|p| p.pipeline_id = 0, "pipeline_id"),
             (|p| p.hints = vec![0; MAX_HINTS_BYTES + 1], "hints"),
-            (|p| p.entries.clear(), "entries"),
             (
                 |p| p.entries[0].meta = vec![0; MAX_ENTRY_META_BYTES + 1],
                 "entries[].meta",
             ),
-            (|p| p.compare = vec![0], "compare"),
+            (|p| p.pipeline_inputs.clear(), "pipeline_inputs"),
+            (|p| p.pipeline_inputs = vec![1, 1], "pipeline_inputs"),
+            (|p| p.pipeline_inputs = vec![3], "pipeline_inputs"),
+            (|p| p.compare.truncate(1), "compare"),
             (|p| p.compare = vec![0, 1, 2, 0, 1], "compare"),
-            (|p| p.compare = vec![0, 0], "compare"),
-            (|p| p.compare = vec![0, 3], "compare"),
-            (
-                |p| {
-                    p.entries.resize(
-                        MAX_ENTRIES + 1,
-                        Entry {
-                            data: vec![],
-                            meta: vec![],
-                        },
-                    );
-                },
-                "entries",
-            ),
+            (|p| p.compare[2] = 0, "compare"),
+            (|p| p.compare[0] = 3, "compare"),
+            (|p| p.entries.push(entry(b"unused")), "entries"),
         ];
         for (change, field) in cases {
             let mut payload = payload();
@@ -607,9 +675,51 @@ mod tests {
     }
 
     #[test]
+    fn derives_compare_sources_under_the_pipeline() {
+        let pipeline = crate::release_manifest::fixtures::payload().pipelines[0].clone();
+        assert_eq!(payload().compare_sources(&pipeline), Ok(256));
+
+        let mut none_checked = payload();
+        none_checked.compare = vec![0, 2];
+        assert_eq!(none_checked.compare_sources(&pipeline), Ok(0));
+        let mut first = payload();
+        first.compare = vec![1, 0, 2];
+        assert_eq!(first.compare_sources(&pipeline), Ok(1));
+
+        let mut two_inputs = payload();
+        two_inputs.pipeline_inputs.push(2);
+        assert_eq!(
+            two_inputs.compare_sources(&pipeline),
+            Err(RequestError::OutOfBounds("pipeline_inputs"))
+        );
+    }
+
+    #[test]
+    fn checks_expiry_against_the_verifier_time() {
+        let request = request(None);
+        assert_eq!(request.check_expiry(EXPIRES_AT), Ok(()));
+        assert_eq!(
+            request.check_expiry(EXPIRES_AT - MAX_REQUEST_LIFETIME),
+            Ok(())
+        );
+        for now in [EXPIRES_AT + 1, EXPIRES_AT - MAX_REQUEST_LIFETIME - 1] {
+            assert_eq!(
+                request.check_expiry(now),
+                Err(RequestError::OutOfBounds("expires_at"))
+            );
+        }
+    }
+
+    #[test]
     fn rejects_a_zero_nonce() {
         assert_eq!(
-            Request::new(1u64.into(), FieldElement::ZERO, &payload(), None),
+            Request::new(
+                1u64.into(),
+                FieldElement::ZERO,
+                EXPIRES_AT,
+                &payload(),
+                None
+            ),
             Err(RequestError::OutOfBounds("nonce"))
         );
     }
@@ -653,8 +763,13 @@ mod tests {
         }
         for bytes in [
             reversed(&payload),
-            with(&payload, "release_hash", Value::Bytes(vec![0x2a; 31])),
-            with(&payload, "pipeline", Value::Integer(65_536.into())),
+            with(&payload, "pipeline_id", Value::Integer(65_536.into())),
+            with(
+                &payload,
+                "compare",
+                Value::Array(vec![Value::Text("0".into())]),
+            ),
+            with(&payload, "pipeline_inputs", Value::Integer(1.into())),
         ] {
             assert!(matches!(
                 Payload::decode(&bytes),

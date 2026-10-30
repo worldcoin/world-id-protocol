@@ -27,6 +27,7 @@ const CLAIM_AAT_FLAGS: i64 = -90_007;
 const CLAIM_HAS_AAT: i64 = -90_008;
 const CLAIM_NOW: i64 = -90_009;
 const CLAIM_ENGINE_CONFIG_HASH: i64 = -90_010;
+const CLAIM_COMPARE_SOURCES: i64 = -90_011;
 
 /// Why a Flamingo Token could not be built or verified.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -56,8 +57,6 @@ pub struct FlamingoAatClaims {
     /// `sec_flags` layout with `min_build_version` in place of `build_version`, and
     /// `authenticator_meta` in bits 52-56.
     pub aat_flags: u64,
-    /// The AAT's `now`, in seconds since the Unix epoch.
-    pub now: u32,
 }
 
 impl FlamingoAatClaims {
@@ -65,13 +64,14 @@ impl FlamingoAatClaims {
     const ZERO: Self = Self {
         trust_anchor_key_hash: FieldElement::ZERO,
         aat_flags: 0,
-        now: 0,
     };
 }
 
 /// The claims a Flamingo Token signs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FlamingoClaims {
+    /// The Verifier's time, in Unix seconds; its trusted clock dates every token.
+    pub now: u32,
     /// `R(SHA-256(data))` per compared entry, `0` past the last one.
     pub compared_entry_hashes: [FieldElement; MAX_COMPARED],
     /// The request's `aud`.
@@ -80,23 +80,25 @@ pub struct FlamingoClaims {
     pub nonce: FieldElement,
     /// `None` encodes `has_aat = 0` with every AAT claim zero.
     pub aat: Option<FlamingoAatClaims>,
+    /// See [`Payload::compare_sources`](crate::Payload::compare_sources).
+    pub compare_sources: u32,
     /// See [`engine_config_hash`](crate::engine_config_hash).
     pub engine_config_hash: FieldElement,
 }
 
 impl FlamingoClaims {
     /// The signed digest, `H_16(DS_SIGN; now, compared_entry_hash_0..3, aud, nonce,
-    /// trust_anchor_key_hash, aat_flags, has_aat, engine_config_hash)`.
+    /// trust_anchor_key_hash, aat_flags, has_aat, compare_sources, engine_config_hash)`.
     #[must_use]
     pub fn digest(&self) -> FieldElement {
         let aat = self.aat.unwrap_or(FlamingoAatClaims::ZERO);
         let [c0, c1, c2, c3] = self.compared_entry_hashes;
-        // The last four rate slots of the `t=16` state stay zero.
+        // The last three rate slots of the `t=16` state stay zero.
         let zero = FieldElement::ZERO;
         poseidon::hash(
             DS_SIGN,
             [
-                u64::from(aat.now).into(),
+                u64::from(self.now).into(),
                 c0,
                 c1,
                 c2,
@@ -106,8 +108,8 @@ impl FlamingoClaims {
                 aat.trust_anchor_key_hash,
                 aat.aat_flags.into(),
                 u64::from(self.aat.is_some()).into(),
+                u64::from(self.compare_sources).into(),
                 self.engine_config_hash,
-                zero,
                 zero,
                 zero,
                 zero,
@@ -132,8 +134,9 @@ impl FlamingoClaims {
             field(CLAIM_TRUST_ANCHOR_KEY_HASH, aat.trust_anchor_key_hash),
             uint(CLAIM_AAT_FLAGS, aat.aat_flags),
             uint(CLAIM_HAS_AAT, u64::from(self.aat.is_some())),
-            uint(CLAIM_NOW, u64::from(aat.now)),
+            uint(CLAIM_NOW, u64::from(self.now)),
             field(CLAIM_ENGINE_CONFIG_HASH, self.engine_config_hash),
+            uint(CLAIM_COMPARE_SOURCES, u64::from(self.compare_sources)),
         ]);
         cbor::encode(&cbor::map(entries))
     }
@@ -153,12 +156,12 @@ impl FlamingoClaims {
         let has_aat: u8 = claims.uint(CLAIM_HAS_AAT)?;
         let now = claims.uint(CLAIM_NOW)?;
         let engine_config_hash = claims.field_element(CLAIM_ENGINE_CONFIG_HASH)?;
+        let compare_sources = claims.uint(CLAIM_COMPARE_SOURCES)?;
         claims.finish()?;
 
         let aat = FlamingoAatClaims {
             trust_anchor_key_hash,
             aat_flags,
-            now,
         };
         let aat = match has_aat {
             1 => Some(aat),
@@ -166,16 +169,18 @@ impl FlamingoClaims {
             _ => return Err(TokenError::Malformed),
         };
         Ok(Self {
+            now,
             compared_entry_hashes,
             aud,
             nonce,
             aat,
+            compare_sources,
             engine_config_hash,
         })
     }
 }
 
-/// A signed Flamingo Token (WIP-201 §3.6). Decoded and canonical; verify it before trusting the
+/// A signed Flamingo Token (WIP-201 §4.5). Decoded and canonical; verify it before trusting the
 /// claims.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlamingoToken {
@@ -307,12 +312,12 @@ mod tests {
     const TRUST_ANCHOR_KEY_HASH: &str =
         "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
     const DIGEST_WITH_AAT: &str =
-        "0f493d3e4f266f81950ad5c9ebe359b2085f1ab82173e7b3d6cff4c30c17fa5e";
+        "24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f";
     const DIGEST_WITHOUT_AAT: &str =
-        "046b836383d9d9fd350fbed1197e1c1c17f2b187fb6ef1571e5f9b42ec6fc8fc";
+        "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
     const KID: &str = "f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12";
-    const CWT_WITH_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a059017dac190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582014b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d83a00015f961b00a3000007d601023a00015f97013a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d584078ee99f6c862bfc10345cdeded780ae0d7cc7ed3d82904a245a6df5ba9f966030e06db33888dab460704558a8c5095d0b3d2c4fb3c6c67a7a428e75ae5e6d900";
-    const CWT_WITHOUT_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a0590171ac190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582000000000000000000000000000000000000000000000000000000000000000003a00015f96003a00015f97003a00015f98003a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d5840a2c1883fd414440ca4df81723869407caa35ef840b0438ec1fb9280757b572abe2ebb272225105813188bff8dd3d5d236636ad7c9aa002413121164697265705";
+    const CWT_WITH_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a0590185ad190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582014b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d83a00015f961b00a30000000001023a00015f97013a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a190100584060c450c9c5a170c975d8871958997c0cbbaf8295218cd97ea4745b18ed5587a24dc37ee1ef39bcf8783a56e1097b9b4cad7904a426b6e69ab05595d8fd835d04";
+    const CWT_WITHOUT_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a059017dad190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582000000000000000000000000000000000000000000000000000000000000000003a00015f96003a00015f97003a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a190100584034ba37c01cf069bc44799804624a3167b200adb62b90349526decc1ec1966296935b04a880fe4cc5e1f0a6b481075395837af053456ca3baba9575bec055b100";
 
     fn hex_field(hex: &str) -> FieldElement {
         FieldElement::from_be_bytes(&hex::decode(hex).unwrap().try_into().unwrap()).unwrap()
@@ -328,6 +333,7 @@ mod tests {
 
     fn claims(aat: Option<FlamingoAatClaims>) -> FlamingoClaims {
         FlamingoClaims {
+            now: 1_783_446_000,
             compared_entry_hashes: [
                 sha256_field(b"credential image"),
                 sha256_field(b"live image"),
@@ -337,6 +343,7 @@ mod tests {
             aud: 1_928_118u64.into(),
             nonce: 42u64.into(),
             aat,
+            compare_sources: 256,
             engine_config_hash: hex_field(ENGINE_CONFIG_HASH),
         }
     }
@@ -344,8 +351,7 @@ mod tests {
     fn with_aat() -> FlamingoClaims {
         claims(Some(FlamingoAatClaims {
             trust_anchor_key_hash: hex_field(TRUST_ANCHOR_KEY_HASH),
-            aat_flags: 0x00a3_0000_07d6_0102,
-            now: 1_783_446_000,
+            aat_flags: 0x00a3_0000_0000_0102,
         }))
     }
 
@@ -413,8 +419,13 @@ mod tests {
         let one = FieldElement::ONE;
         let aat = base.aat.unwrap();
         let mut changed = vec![
+            FlamingoClaims { now: 1, ..base },
             FlamingoClaims { aud: one, ..base },
             FlamingoClaims { nonce: one, ..base },
+            FlamingoClaims {
+                compare_sources: 1,
+                ..base
+            },
             FlamingoClaims {
                 engine_config_hash: one,
                 ..base
@@ -435,7 +446,6 @@ mod tests {
                 aat_flags: 1,
                 ..aat
             },
-            FlamingoAatClaims { now: 1, ..aat },
         ] {
             changed.push(FlamingoClaims {
                 aat: Some(aat),
@@ -481,9 +491,11 @@ mod tests {
         let mut has_aat = payload(&with_aat());
         has_aat[9].1 = Value::Integer(2.into());
         let mut stray_aat = payload(&claims(None));
-        stray_aat[10].1 = Value::Integer(1.into());
+        stray_aat[8].1 = Value::Integer(1.into());
         let mut non_canonical = payload(&with_aat());
         non_canonical[5].1 = Value::Bytes(vec![0xff; 32]);
+        let mut wide_sources = payload(&with_aat());
+        wide_sources[12].1 = Value::Integer((1u64 << 32).into());
 
         for payload in [
             extra,
@@ -493,6 +505,7 @@ mod tests {
             has_aat,
             stray_aat,
             non_canonical,
+            wide_sources,
         ] {
             assert_eq!(
                 FlamingoToken::from_cwt(&resign(payload)),
