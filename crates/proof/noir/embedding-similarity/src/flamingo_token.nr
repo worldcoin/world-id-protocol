@@ -15,20 +15,16 @@ pub struct FlamingoTokenPublic {
     pub sec_level: u8,
     pub sec_meta: u8,
     pub authenticator_meta: u8,
-    pub min_build_version: u32,
     pub engine_config_hash: Field,
 }
 
-/// `aat_flags`, the WIP-106 `sec_flags` layout with `min_build_version` in place of
-/// `build_version` and `authenticator_meta` above it. `sec_meta` is 4-bit and
-/// `authenticator_meta` 5-bit; the types bound the rest.
+/// `aat_flags` with `min_build_version` 0 in bits 16-47, since WIP-202 fixes it to 0.
 pub fn aat_flags(public: FlamingoTokenPublic) -> Field {
     assert(public.sec_meta < 16, "sec_meta exceeds 4 bits");
     assert(public.authenticator_meta < 32, "authenticator_meta exceeds 5 bits");
     assert((public.authenticator_meta & 7) < 5, "user_presence values 5 to 7 are reserved");
     public.platform as Field
         + 0x100 * public.sec_level as Field
-        + 0x10000 * public.min_build_version as Field
         + 0x1000000000000 * public.sec_meta as Field
         + 0x10000000000000 * public.authenticator_meta as Field
 }
@@ -67,8 +63,7 @@ pub fn verify(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field 
                 & (public.platform == 0)
                 & (public.sec_level == 0)
                 & (public.sec_meta == 0)
-                & (public.authenticator_meta == 0)
-                & (public.min_build_version == 0),
+                & (public.authenticator_meta == 0),
             "AAT values must be zero without an AAT",
         );
     }

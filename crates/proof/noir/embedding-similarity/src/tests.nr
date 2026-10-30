@@ -8,9 +8,9 @@ use crate::{
         CHALLENGE_HASH, CLAIM_0, COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET,
         ENGINE_CONFIG_HASH, EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN,
         HASHES_JSON_CHUNKS, HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX,
-        MERKLE_ROOT, MIN_BUILD_VERSION, NONCE, NOW, PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID,
-        SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY,
-        TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK, VERIFIER_KEY,
+        MERKLE_ROOT, NONCE, NOW, PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS,
+        SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT,
+        TRUST_ANCHOR_KEY_HASH, USER_PK, VERIFIER_KEY,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
@@ -29,7 +29,6 @@ struct Public {
     sec_level: u8,
     sec_meta: u8,
     authenticator_meta: u8,
-    min_build_version: u32,
     engine_config_hash: Field,
     challenge_hash: Field,
     signal_hash: Field,
@@ -48,7 +47,6 @@ fn public() -> Public {
         sec_level: SEC_LEVEL,
         sec_meta: SEC_META,
         authenticator_meta: AUTHENTICATOR_META,
-        min_build_version: MIN_BUILD_VERSION,
         engine_config_hash: ENGINE_CONFIG_HASH,
         challenge_hash: CHALLENGE_HASH,
         signal_hash: SIGNAL_HASH,
@@ -105,7 +103,6 @@ fn prove(p: Public, inputs: PrivateInputs) {
         p.sec_level,
         p.sec_meta,
         p.authenticator_meta,
-        p.min_build_version,
         p.engine_config_hash,
         p.challenge_hash,
         p.signal_hash,
@@ -128,7 +125,6 @@ fn public_without_aat() -> Public {
     p.sec_level = 0;
     p.sec_meta = 0;
     p.authenticator_meta = 0;
-    p.min_build_version = 0;
     p
 }
 
@@ -229,13 +225,6 @@ fn test_rejects_another_nonce() {
 }
 
 #[test(should_fail_with = "invalid flamingo token signature")]
-fn test_rejects_another_min_build_version() {
-    let mut p = public();
-    p.min_build_version += 1;
-    prove(p, inputs());
-}
-
-#[test(should_fail_with = "invalid flamingo token signature")]
 fn test_rejects_another_now_with_an_aat() {
     let mut p = public();
     p.now -= 1;
@@ -275,7 +264,6 @@ fn test_rejects_a_tampered_compare_sources() {
             sec_level: p.sec_level,
             sec_meta: p.sec_meta,
             authenticator_meta: p.authenticator_meta,
-            min_build_version: p.min_build_version,
             engine_config_hash: p.engine_config_hash,
         },
         token,

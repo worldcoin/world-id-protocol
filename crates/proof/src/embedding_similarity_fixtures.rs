@@ -81,7 +81,6 @@ const AUD: u64 = 1_928_118;
 const NONCE: u64 = 42;
 const PLATFORM: u8 = 2;
 const SEC_LEVEL: u8 = 1;
-const MIN_BUILD_VERSION: u32 = 2006;
 const SEC_META: u8 = 3;
 /// `user_presence` 2 with provider bits `0b01`.
 const AUTHENTICATOR_META: u8 = 10;
@@ -90,7 +89,7 @@ const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
 /// Compared entry 1 is pipeline input 0 (WIP-202 §4.3).
 const COMPARE_SOURCES: u32 = 256;
-const DIGEST_WITH_AAT: &str = "1d805a74d97517774f267e44194495e11fa684392f690c16acc5572488d2f6b4";
+const DIGEST_WITH_AAT: &str = "24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f";
 const DIGEST_WITHOUT_AAT: &str = "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
 const CREDENTIAL_IMAGE: &[u8] = b"credential image";
 const LIVE_IMAGE: &[u8] = b"live image";
@@ -167,10 +166,10 @@ fn chunks(bytes: &[u8]) -> Vec<FieldElement> {
     chunks
 }
 
+/// `min_build_version` (bits 16-47) is 0, since WIP-202 fixes it to 0.
 fn aat_flags() -> u64 {
     u64::from(PLATFORM)
         + (u64::from(SEC_LEVEL) << 8)
-        + (u64::from(MIN_BUILD_VERSION) << 16)
         + (u64::from(SEC_META) << 48)
         + (u64::from(AUTHENTICATOR_META) << 52)
 }
@@ -324,7 +323,6 @@ fn render() -> Rendered {
         ("SEC_LEVEL", "u8", SEC_LEVEL.to_string()),
         ("SEC_META", "u8", SEC_META.to_string()),
         ("AUTHENTICATOR_META", "u8", AUTHENTICATOR_META.to_string()),
-        ("MIN_BUILD_VERSION", "u32", MIN_BUILD_VERSION.to_string()),
         ("ENGINE_CONFIG_HASH", "Field", engine_config_hash.clone()),
         ("CHALLENGE_HASH", "Field", dec(*compared[2])),
         ("SIGNAL_HASH", "Field", dec(*signal_hash)),
@@ -397,7 +395,6 @@ fn render() -> Rendered {
          sec_level = \"{SEC_LEVEL}\"\n\
          sec_meta = \"{SEC_META}\"\n\
          authenticator_meta = \"{AUTHENTICATOR_META}\"\n\
-         min_build_version = \"{MIN_BUILD_VERSION}\"\n\
          engine_config_hash = \"{engine_config_hash}\"\n\
          challenge_hash = \"{challenge_hash}\"\n\
          signal_hash = \"{signal_hash}\"\n\
@@ -505,7 +502,7 @@ fn token_digests_match_the_wip_201_vectors() {
         token_digest(false, NOW, compared()),
         from_hex(DIGEST_WITHOUT_AAT)
     );
-    assert_eq!(aat_flags(), 0x00a3_0000_07d6_0102);
+    assert_eq!(aat_flags(), 0x00a3_0000_0000_0102);
 }
 
 /// Pins the domain separators to the integers hardcoded in the Noir package.

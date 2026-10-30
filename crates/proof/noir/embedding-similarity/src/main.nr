@@ -34,7 +34,6 @@ fn main(
     sec_level: pub u8,
     sec_meta: pub u8,
     authenticator_meta: pub u8,
-    min_build_version: pub u32,
     engine_config_hash: pub Field,
     // WIP-202
     challenge_hash: pub Field,
@@ -61,7 +60,6 @@ fn main(
         sec_level,
         sec_meta,
         authenticator_meta,
-        min_build_version,
         engine_config_hash,
     };
     let compared = token.compared_entry_hash;
