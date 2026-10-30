@@ -1,7 +1,7 @@
 // WIP-201 Flamingo Token signature check (WIP-201 §4.7 Consuming Flamingo Tokens, check 2).
-use super::{constants::DS_WIP_201, types::FlamingoTokenInputs};
+use super::constants::{COMPARE_SOURCES, DS_WIP_201, MAX_COMPARED};
 use poseidon2::bn254::permutation;
-use world_id_components::types::PublicKey;
+use world_id_components::types::{PublicKey, Signature};
 
 /// The public values a Flamingo Token is verified against.
 pub struct FlamingoTokenPublic {
@@ -31,9 +31,8 @@ pub fn aat_flags(public: FlamingoTokenPublic) -> Field {
 
 /// The signed digest (WIP-201 §4.5): output element 1 of the Poseidon2 t=16 permutation.
 /// Without an AAT, `trust_anchor_key_hash` and `aat_flags` enter as `0`.
-pub fn digest(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field {
+pub fn digest(public: FlamingoTokenPublic, h: [Field; MAX_COMPARED]) -> Field {
     let has_aat = public.has_aat as Field;
-    let h = token.compared_entry_hash;
     permutation::t16([
         DS_WIP_201,
         public.now as Field,
@@ -46,7 +45,7 @@ pub fn digest(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field 
         has_aat * public.trust_anchor_key_hash,
         has_aat * aat_flags(public),
         has_aat,
-        token.compare_sources as Field,
+        COMPARE_SOURCES as Field,
         public.engine_config_hash,
         0,
         0,
@@ -54,8 +53,12 @@ pub fn digest(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field 
     ])[1]
 }
 
-/// Verifies the Verifier's signature and returns the signed digest.
-pub fn verify(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field {
+/// Verifies the Verifier's signature over `compared` and returns the signed digest.
+pub fn verify(
+    public: FlamingoTokenPublic,
+    compared: [Field; MAX_COMPARED],
+    sig: Signature,
+) -> Field {
     // Check 2 requires the AAT values to be zero when no AAT was verified.
     if !public.has_aat {
         assert(
@@ -67,7 +70,7 @@ pub fn verify(public: FlamingoTokenPublic, token: FlamingoTokenInputs) -> Field 
             "AAT values must be zero without an AAT",
         );
     }
-    let digest = digest(public, token);
-    assert(token.sig.verify(public.verifier_key, digest), "invalid flamingo token signature");
+    let digest = digest(public, compared);
+    assert(sig.verify(public.verifier_key, digest), "invalid flamingo token signature");
     digest
 }

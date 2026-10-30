@@ -6,7 +6,7 @@
 /// Compared entries in a WIP-201 Flamingo Token.
 pub global MAX_COMPARED: u32 = 4;
 
-/// Required `compare_sources`: compared entry 1 is pipeline input 0, the others are references.
+/// `compare_sources` WIP-202 fixes: compared entry 1 is pipeline input 0, the others are references.
 pub global COMPARE_SOURCES: u32 = 256;
 
 /// Credential claim holding the PCP `hashes.json` commitment.

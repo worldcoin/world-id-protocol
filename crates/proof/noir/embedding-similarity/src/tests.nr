@@ -1,15 +1,14 @@
 use crate::{
-    constants::{CHUNK_SLOTS, COMPARE_SOURCES},
-    flamingo_token::{self, FlamingoTokenPublic},
+    constants::{CHUNK_BYTES, CHUNK_SLOTS},
     hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
     test_fixtures::{
         AUD, AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META,
-        CHALLENGE_HASH, CLAIM_0, COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET,
-        ENGINE_CONFIG_HASH, EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN,
-        HASHES_JSON_CHUNKS, HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX,
-        MERKLE_ROOT, NONCE, NOW, PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS,
-        SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT,
+        CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
+        EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN,
+        ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NOW,
+        PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH,
+        SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT,
         TRUST_ANCHOR_KEY_HASH, USER_PK, VERIFIER_KEY,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
@@ -61,11 +60,7 @@ fn inputs() -> PrivateInputs {
     let mut claims = [0; MAX_CLAIMS];
     claims[0] = CLAIM_0;
     PrivateInputs {
-        token: FlamingoTokenInputs {
-            compared_entry_hash: COMPARED_ENTRY_HASH,
-            compare_sources: COMPARE_SOURCES,
-            sig: TOKEN_SIG,
-        },
+        token: FlamingoTokenInputs { live_capture_hash: LIVE_CAPTURE_HASH, sig: TOKEN_SIG },
         account: AccountInputs {
             user_pk,
             pk_index: 0,
@@ -197,9 +192,9 @@ fn test_rejects_a_token_without_an_aat_as_one_with_an_aat() {
 }
 
 #[test(should_fail_with = "invalid flamingo token signature")]
-fn test_rejects_a_tampered_live_entry() {
+fn test_rejects_another_live_capture() {
     let mut i = inputs();
-    i.token.compared_entry_hash[1] += 1;
+    i.token.live_capture_hash += 1;
     prove(public(), i);
 }
 
@@ -238,45 +233,6 @@ fn test_rejects_another_now_without_an_aat() {
     prove(p, inputs_without_aat());
 }
 
-#[test(should_fail_with = "compare_sources must be 256")]
-fn test_rejects_other_compare_sources() {
-    let mut i = inputs();
-    // `[1, 0, 0, 0]`: the Credential image position would be the pipeline input.
-    i.token.compare_sources = 1;
-    prove(public(), i);
-}
-
-#[test(should_fail_with = "invalid flamingo token signature")]
-fn test_rejects_a_tampered_compare_sources() {
-    // Calls the signature check directly, since `main` rejects any value but 256 first.
-    let p = public();
-    let mut token = inputs().token;
-    token.compare_sources = COMPARE_SOURCES + 1;
-    let _ = flamingo_token::verify(
-        FlamingoTokenPublic {
-            verifier_key: VERIFIER_KEY,
-            now: p.now,
-            aud: p.aud,
-            nonce: p.nonce,
-            has_aat: p.has_aat,
-            trust_anchor_key_hash: p.trust_anchor_key_hash,
-            platform: p.platform,
-            sec_level: p.sec_level,
-            sec_meta: p.sec_meta,
-            authenticator_meta: p.authenticator_meta,
-            engine_config_hash: p.engine_config_hash,
-        },
-        token,
-    );
-}
-
-#[test(should_fail_with = "compared entry 3 must be unused")]
-fn test_rejects_a_fourth_compared_entry() {
-    let mut i = inputs();
-    i.token.compared_entry_hash[3] = 1;
-    prove(public(), i);
-}
-
 #[test(should_fail_with = "sec_meta exceeds 4 bits")]
 fn test_rejects_a_wide_sec_meta() {
     let mut p = public();
@@ -291,11 +247,28 @@ fn test_rejects_a_zero_challenge() {
     prove(p, inputs());
 }
 
-#[test(should_fail_with = "challenge mismatch")]
+#[test(should_fail_with = "invalid flamingo token signature")]
 fn test_rejects_another_challenge() {
     let mut p = public();
     p.challenge_hash += 1;
     prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_credential_image() {
+    let mut i = inputs();
+    // Swap the first thumbnail hex digit for another one, so only the token signature catches it.
+    let chunk = DIGEST_OFFSET / CHUNK_BYTES;
+    let pos = DIGEST_OFFSET % CHUNK_BYTES;
+    let bytes: [u8; 32] = i.hashes_json.chunks[chunk].to_be_bytes();
+    let digit = bytes[pos + 1] as Field;
+    let other = if digit == 0x30 { 0x31 } else { 0x30 };
+    let mut weight = 1;
+    for _ in 0..CHUNK_BYTES - 1 - pos {
+        weight *= 256;
+    }
+    i.hashes_json.chunks[chunk] += (other - digit) * weight;
+    prove(public(), i);
 }
 
 #[test(should_fail_with = "thumbnail key mismatch")]

@@ -87,7 +87,7 @@ const AUTHENTICATOR_META: u8 = 10;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
 const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
-/// Compared entry 1 is pipeline input 0 (WIP-202 §4.3).
+/// Compared entry 1 is pipeline input 0; the circuit hardcodes it (WIP-202 §4.3).
 const COMPARE_SOURCES: u32 = 256;
 const DIGEST_WITH_AAT: &str = "24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f";
 const DIGEST_WITHOUT_AAT: &str = "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
@@ -306,7 +306,6 @@ fn render() -> Rendered {
 
     let claim_0 = dec(*credential.claims[0]);
     let chunk_list = list(chunks(&hashes_json).iter().map(|c| dec(**c)));
-    let compared_list = list(compared.iter().map(|c| dec(**c)));
     let siblings_list = list(siblings.iter().map(|s| dec(**s)));
     let takh = dec(*from_hex(TRUST_ANCHOR_KEY_HASH));
     let engine_config_hash = dec(*from_hex(ENGINE_CONFIG_HASH));
@@ -333,7 +332,7 @@ fn render() -> Rendered {
         ("GENESIS_ISSUED_AT_MIN", "Field", GENESIS_ISSUED_AT_MIN.to_string()),
         ("SESSION_ID", "Field", dec(*session_id)),
         // Flamingo Token witness
-        ("COMPARED_ENTRY_HASH", "[Field; 4]", compared_list.clone()),
+        ("LIVE_CAPTURE_HASH", "Field", dec(*compared[1])),
         ("TOKEN_SIG", "Signature", noir_sig(&token)),
         // Account witness
         ("USER_PK", "PublicKey", noir_point(&authenticator_sk.public())),
@@ -413,8 +412,7 @@ fn render() -> Rendered {
          session_id_r = \"{session_id_r}\"\n\
          \n\
          [inputs.token]\n\
-         compared_entry_hash = {compared}\n\
-         compare_sources = \"{COMPARE_SOURCES}\"\n\
+         live_capture_hash = \"{live_capture_hash}\"\n\
          \n\
          [inputs.token.sig]\n{token_sig}\n\
          \n\
@@ -447,7 +445,7 @@ fn render() -> Rendered {
         verifier_key = toml_point(&verifier_key),
         cred_pk = toml_point(&credential.issuer),
         session_id_r = dec(*session_id_r),
-        compared = quoted(&compared_list),
+        live_capture_hash = dec(*compared[1]),
         token_sig = toml_sig(&token),
         siblings = quoted(&siblings_list),
         auth_sig = toml_sig(&auth),

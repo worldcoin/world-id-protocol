@@ -10,7 +10,7 @@ pub(crate) mod types;
 mod test_fixtures;
 mod tests;
 
-use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_WIP_202_AUTH};
+use constants::{CLAIM_INDEX, DS_WIP_202_AUTH};
 use flamingo_token::FlamingoTokenPublic;
 use poseidon2::bn254::permutation;
 use types::PrivateInputs;
@@ -21,7 +21,7 @@ use world_id_components::{
     types::PublicKey,
 };
 
-/// Numbers in comments refer to WIP-202 §4.6 Circuit Constraints.
+/// Numbers refer to WIP-202 §4.6 Circuit Constraints; they hold jointly, so order follows data flow.
 fn main(
     // WIP-201 Flamingo Token
     verifier_key: pub PublicKey,
@@ -46,9 +46,13 @@ fn main(
     session_id: pub Field,
     inputs: PrivateInputs,
 ) {
-    let token = inputs.token;
+    // 2. Challenge binding.
+    assert(challenge_hash != 0, "challenge_hash must not be zero");
 
-    // 1. Flamingo Token verification.
+    // 3.2 The thumbnail digest is the Credential image the token must have compared.
+    let credential_digest = hashes_json::thumbnail_digest(inputs.hashes_json);
+
+    // 1. Flamingo Token verification; fixing the entries binds the Credential image and challenge.
     let public = FlamingoTokenPublic {
         verifier_key,
         now,
@@ -62,15 +66,8 @@ fn main(
         authenticator_meta,
         engine_config_hash,
     };
-    let compared = token.compared_entry_hash;
-    assert(compared[3] == 0, "compared entry 3 must be unused");
-    // Only the live capture at position 1 is a pipeline input (`[0, 1, 0, 0]`).
-    assert(token.compare_sources == COMPARE_SOURCES, "compare_sources must be 256");
-    let digest = flamingo_token::verify(public, token);
-
-    // 2. Challenge binding.
-    assert(challenge_hash != 0, "challenge_hash must not be zero");
-    assert(compared[2] == challenge_hash, "challenge mismatch");
+    let compared = [credential_digest, inputs.token.live_capture_hash, challenge_hash, 0];
+    let digest = flamingo_token::verify(public, compared, inputs.token.sig);
 
     // 4. World ID Authentication over the authorization message, which also binds the
     // RP's signal. One `leaf_index` witness binds the World ID, the Credential and the session.
@@ -101,11 +98,5 @@ fn main(
     assert(
         hashes_json::claims_hash_v1(inputs.hashes_json) == claims[CLAIM_INDEX],
         "hashes.json does not match the credential claim",
-    );
-
-    // 3.2-3.3 Its thumbnail digest is the compared Credential image.
-    assert(
-        hashes_json::thumbnail_digest(inputs.hashes_json) == compared[0],
-        "thumbnail does not match the compared credential entry",
     );
 }

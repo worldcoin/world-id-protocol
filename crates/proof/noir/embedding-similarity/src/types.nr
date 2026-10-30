@@ -1,12 +1,10 @@
-use super::constants::{CHUNK_SLOTS, MAX_COMPARED};
+use super::constants::CHUNK_SLOTS;
 use world_id_components::types::{AccountInputs, CredentialInputs, Signature};
 
 /// The WIP-201 Flamingo Token values that stay private.
 pub struct FlamingoTokenInputs {
-    /// `R(SHA-256(entries[compare[k]].data))`: credential, live, challenge, unused.
-    pub compared_entry_hash: [Field; MAX_COMPARED],
-    /// Byte `k`, least significant first, is `i + 1` if `compare[k]` is pipeline input `i`.
-    pub compare_sources: u32,
+    /// `compared_entry_hash_1`, the live capture; the circuit derives the other entries.
+    pub live_capture_hash: Field,
     pub sig: Signature,
 }
 
