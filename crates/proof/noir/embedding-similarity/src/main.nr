@@ -38,6 +38,7 @@ fn main(
     engine_config_hash: pub Field,
     // WIP-202
     challenge_hash: pub Field,
+    signal_hash: pub Field,
     merkle_root: pub Field,
     issuer_schema_id: pub Field,
     issuer_version: pub Field,
@@ -73,9 +74,18 @@ fn main(
     assert(challenge_hash != 0, "challenge_hash must not be zero");
     assert(compared[2] == challenge_hash, "challenge mismatch");
 
-    // 4. World ID Authentication over the authorization message. One `leaf_index`
-    // witness binds the World ID, the Credential and the session.
-    let message = permutation::t4([DS_WIP_202_AUTH, digest, verifier_key.x, verifier_key.y])[1];
+    // 4. World ID Authentication over the authorization message, which also binds the
+    // RP's signal. One `leaf_index` witness binds the World ID, the Credential and the session.
+    let message = permutation::t8([
+        DS_WIP_202_AUTH,
+        digest,
+        verifier_key.x,
+        verifier_key.y,
+        signal_hash,
+        0,
+        0,
+        0,
+    ])[1];
     let leaf_index = authentication::verify(merkle_root, message, inputs.account);
 
     // 5. Session commitment.

@@ -4,13 +4,13 @@ use crate::{
     hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
     test_fixtures::{
-        AUD, AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTHENTICATOR_META, CHALLENGE_HASH,
-        CLAIM_0, COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
-        EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN,
-        ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, MERKLE_ROOT, MIN_BUILD_VERSION, NONCE, NOW,
-        PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SUB_BLINDING_FACTOR,
-        TOKEN_SIG, TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK,
-        VERIFIER_KEY,
+        AUD, AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META,
+        CHALLENGE_HASH, CLAIM_0, COMPARED_ENTRY_HASH, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET,
+        ENGINE_CONFIG_HASH, EXPIRES_AT, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN,
+        HASHES_JSON_CHUNKS, HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX,
+        MERKLE_ROOT, MIN_BUILD_VERSION, NONCE, NOW, PLATFORM, SEC_LEVEL, SEC_META, SESSION_ID,
+        SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY,
+        TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK, VERIFIER_KEY,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
@@ -32,6 +32,7 @@ struct Public {
     min_build_version: u32,
     engine_config_hash: Field,
     challenge_hash: Field,
+    signal_hash: Field,
     genesis_issued_at_min: Field,
     session_id: Field,
 }
@@ -50,6 +51,7 @@ fn public() -> Public {
         min_build_version: MIN_BUILD_VERSION,
         engine_config_hash: ENGINE_CONFIG_HASH,
         challenge_hash: CHALLENGE_HASH,
+        signal_hash: SIGNAL_HASH,
         genesis_issued_at_min: GENESIS_ISSUED_AT_MIN,
         session_id: SESSION_ID,
     }
@@ -106,6 +108,7 @@ fn prove(p: Public, inputs: PrivateInputs) {
         p.min_build_version,
         p.engine_config_hash,
         p.challenge_hash,
+        p.signal_hash,
         MERKLE_ROOT,
         ISSUER_SCHEMA_ID,
         ISSUER_VERSION,
@@ -173,6 +176,22 @@ fn test_accepts_a_token_without_an_aat() {
 fn test_accepts_a_nil_session() {
     let mut p = public();
     p.session_id = 0;
+    prove(p, inputs());
+}
+
+#[test]
+fn test_accepts_a_nil_signal() {
+    let mut p = public();
+    p.signal_hash = 0;
+    let mut i = inputs();
+    i.account.auth = AUTH_SIG_NO_SIGNAL;
+    prove(p, i);
+}
+
+#[test(should_fail_with = "invalid authorization signature")]
+fn test_rejects_another_signal() {
+    let mut p = public();
+    p.signal_hash += 1;
     prove(p, inputs());
 }
 
