@@ -1,0 +1,432 @@
+use crate::{
+    constants::{CHUNK_BYTES, CHUNK_SLOTS},
+    hashes_json::{claims_hash_v1, thumbnail_digest},
+    main,
+    test_fixtures::{
+        AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META,
+        CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
+        EXPIRES_AT, EXPIRES_AT_MIN, FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN,
+        HASHES_JSON_CHUNKS, HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX,
+        LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NOW, PLATFORM, RP_ID, SEC_LEVEL, SEC_META,
+        SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG,
+        TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK,
+    },
+    types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
+};
+use world_id_components::{
+    constants::{MAX_CLAIMS, MERKLE_DEPTH, NUM_KEYS},
+    types::{AccountInputs, CredentialInputs, PublicKey},
+};
+
+struct Public {
+    now: u32,
+    rp_id: Field,
+    nonce: Field,
+    has_aat: bool,
+    trust_anchor_key_hash: Field,
+    platform: u8,
+    sec_level: u8,
+    sec_meta: u8,
+    authenticator_meta: u8,
+    engine_config_hash: Field,
+    challenge_hash: Field,
+    signal_hash: Field,
+    genesis_issued_at_min: Field,
+    expires_at_min: Field,
+    session_id: Field,
+}
+
+fn public() -> Public {
+    Public {
+        now: NOW,
+        rp_id: RP_ID,
+        nonce: NONCE,
+        has_aat: true,
+        trust_anchor_key_hash: TRUST_ANCHOR_KEY_HASH,
+        platform: PLATFORM,
+        sec_level: SEC_LEVEL,
+        sec_meta: SEC_META,
+        authenticator_meta: AUTHENTICATOR_META,
+        engine_config_hash: ENGINE_CONFIG_HASH,
+        challenge_hash: CHALLENGE_HASH,
+        signal_hash: SIGNAL_HASH,
+        genesis_issued_at_min: GENESIS_ISSUED_AT_MIN,
+        expires_at_min: EXPIRES_AT_MIN,
+        session_id: SESSION_ID,
+    }
+}
+
+fn inputs() -> PrivateInputs {
+    let mut user_pk = [PublicKey { x: 0, y: 1 }; NUM_KEYS];
+    user_pk[0] = USER_PK;
+    let mut claims = [0; MAX_CLAIMS];
+    claims[0] = CLAIM_0;
+    PrivateInputs {
+        token: FlamingoTokenInputs { live_capture_hash: LIVE_CAPTURE_HASH, sig: TOKEN_SIG },
+        account: AccountInputs {
+            user_pk,
+            pk_index: 0,
+            auth: AUTH_SIG,
+            leaf_index: LEAF_INDEX,
+            siblings: SIBLINGS,
+        },
+        credential: CredentialInputs {
+            claims,
+            associated_data_hash: 0,
+            genesis_issued_at: GENESIS_ISSUED_AT,
+            expires_at: EXPIRES_AT,
+            sub_blinding_factor: SUB_BLINDING_FACTOR,
+            id: CRED_ID,
+            sig: CRED_SIG,
+        },
+        hashes_json: HashesJsonInputs {
+            chunks: HASHES_JSON_CHUNKS,
+            len: HASHES_JSON_LEN,
+            digest_offset: DIGEST_OFFSET,
+        },
+        session_id_r: SESSION_ID_R,
+    }
+}
+
+fn prove(p: Public, inputs: PrivateInputs) {
+    main(
+        p.now,
+        p.rp_id,
+        p.nonce,
+        p.challenge_hash,
+        p.signal_hash,
+        p.session_id,
+        FLAMINGO_VERIFIER_KEY,
+        p.engine_config_hash,
+        p.has_aat,
+        p.trust_anchor_key_hash,
+        p.platform,
+        p.sec_level,
+        p.sec_meta,
+        p.authenticator_meta,
+        MERKLE_ROOT,
+        ISSUER_SCHEMA_ID,
+        ISSUER_VERSION,
+        CRED_PK,
+        p.genesis_issued_at_min,
+        p.expires_at_min,
+        inputs,
+    );
+}
+
+/// Public values of a Flamingo Token without an AAT; the AAT values are zero.
+fn public_without_aat() -> Public {
+    let mut p = public();
+    p.has_aat = false;
+    p.trust_anchor_key_hash = 0;
+    p.platform = 0;
+    p.sec_level = 0;
+    p.sec_meta = 0;
+    p.authenticator_meta = 0;
+    p
+}
+
+#[test(should_fail_with = "AAT values must be zero without an AAT")]
+fn test_rejects_aat_values_without_an_aat() {
+    let mut p = public_without_aat();
+    p.sec_level = 1;
+    prove(p, inputs_without_aat());
+}
+
+#[test(should_fail_with = "user_presence values 5 to 7 are reserved")]
+fn test_rejects_a_reserved_user_presence() {
+    let mut p = public();
+    // Provider bits 0b01 with user_presence 5.
+    p.authenticator_meta = 13;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "authenticator_meta exceeds 5 bits")]
+fn test_rejects_a_wide_authenticator_meta() {
+    let mut p = public();
+    p.authenticator_meta = 32;
+    prove(p, inputs());
+}
+
+fn inputs_without_aat() -> PrivateInputs {
+    let mut i = inputs();
+    i.token.sig = TOKEN_SIG_NO_AAT;
+    i.account.auth = AUTH_SIG_NO_AAT;
+    i
+}
+
+#[test]
+fn test_accepts_the_fixture() {
+    prove(public(), inputs());
+}
+
+#[test]
+fn test_accepts_a_token_without_an_aat() {
+    // The Verifier signs its own time `NOW` with or without an AAT.
+    prove(public_without_aat(), inputs_without_aat());
+}
+
+#[test]
+fn test_accepts_a_nil_session() {
+    let mut p = public();
+    p.session_id = 0;
+    prove(p, inputs());
+}
+
+#[test]
+fn test_accepts_a_nil_signal() {
+    let mut p = public();
+    p.signal_hash = 0;
+    let mut i = inputs();
+    i.account.auth = AUTH_SIG_NO_SIGNAL;
+    prove(p, i);
+}
+
+#[test(should_fail_with = "invalid authorization signature")]
+fn test_rejects_another_signal() {
+    let mut p = public();
+    p.signal_hash += 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_a_token_without_an_aat_as_one_with_an_aat() {
+    prove(public(), inputs_without_aat());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_live_capture() {
+    let mut i = inputs();
+    i.token.live_capture_hash += 1;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_engine_config() {
+    let mut p = public();
+    p.engine_config_hash += 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_rp_id() {
+    let mut p = public();
+    p.rp_id += 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_nonce() {
+    let mut p = public();
+    p.nonce += 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_now_with_an_aat() {
+    let mut p = public();
+    p.now -= 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_now_without_an_aat() {
+    let mut p = public_without_aat();
+    p.now -= 1;
+    prove(p, inputs_without_aat());
+}
+
+#[test(should_fail_with = "sec_meta exceeds 4 bits")]
+fn test_rejects_a_wide_sec_meta() {
+    let mut p = public();
+    p.sec_meta = 16;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "challenge_hash must not be zero")]
+fn test_rejects_a_zero_challenge() {
+    let mut p = public();
+    p.challenge_hash = 0;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_challenge() {
+    let mut p = public();
+    p.challenge_hash += 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_credential_image() {
+    let mut i = inputs();
+    // Swap the first thumbnail hex digit for another one, so only the token signature catches it.
+    let chunk = DIGEST_OFFSET / CHUNK_BYTES;
+    let pos = DIGEST_OFFSET % CHUNK_BYTES;
+    let bytes: [u8; 32] = i.hashes_json.chunks[chunk].to_be_bytes();
+    let digit = bytes[pos + 1] as Field;
+    let other = if digit == 0x30 { 0x31 } else { 0x30 };
+    let mut weight = 1;
+    for _ in 0..CHUNK_BYTES - 1 - pos {
+        weight *= 256;
+    }
+    i.hashes_json.chunks[chunk] += (other - digit) * weight;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "thumbnail key mismatch")]
+fn test_rejects_an_entry_other_than_the_thumbnail() {
+    let mut i = inputs();
+    // Point at the digest of the first entry, which also starts a key.
+    i.hashes_json.digest_offset = 18;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "thumbnail entry must start a key")]
+fn test_rejects_a_shifted_digest_offset() {
+    let mut i = inputs();
+    i.hashes_json.digest_offset -= 1;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "pk_index out of range")]
+fn test_rejects_a_key_index_past_the_slots() {
+    let mut i = inputs();
+    i.account.pk_index = 7;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "Public key cannot be identity")]
+fn test_rejects_an_inactive_key_slot() {
+    let mut i = inputs();
+    i.account.pk_index = 1;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "merkle proof verification failed")]
+fn test_rejects_another_registry() {
+    let mut i = inputs();
+    i.account.siblings[MERKLE_DEPTH - 1] += 1;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "invalid authorization signature")]
+fn test_rejects_an_unauthorized_result() {
+    // A valid authorization of the token without an AAT does not cover the one with.
+    let mut i = inputs();
+    i.account.auth = AUTH_SIG_NO_AAT;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "hashes.json does not match the credential claim")]
+fn test_rejects_a_tampered_hashes_json() {
+    let mut i = inputs();
+    // Chunk 0 lies outside the thumbnail window, so only the claim check catches it.
+    i.hashes_json.chunks[0] += 1;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "chunk past the end must be zero")]
+fn test_rejects_a_chunk_past_the_end() {
+    let mut i = inputs();
+    i.hashes_json.chunks[CHUNK_SLOTS - 1] = 1;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "invalid credential signature")]
+fn test_rejects_a_credential_of_another_account() {
+    let mut i = inputs();
+    i.credential.sub_blinding_factor += 1;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "credential expired")]
+fn test_rejects_an_expired_credential() {
+    let mut p = public();
+    p.now = EXPIRES_AT as u32;
+    let mut i = inputs();
+    i.token.sig = TOKEN_SIG_AT_EXPIRY;
+    i.account.auth = AUTH_SIG_AT_EXPIRY;
+    prove(p, i);
+}
+
+#[test(should_fail_with = "credential expires too early")]
+fn test_rejects_a_credential_expiring_before_the_minimum() {
+    let mut p = public();
+    p.expires_at_min = EXPIRES_AT;
+    prove(p, inputs());
+}
+
+#[test]
+fn test_accepts_a_minimum_expiration_just_before_expiry() {
+    let mut p = public();
+    p.expires_at_min = EXPIRES_AT - 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "credential too recent")]
+fn test_rejects_a_credential_issued_after_the_minimum() {
+    let mut p = public();
+    p.genesis_issued_at_min = GENESIS_ISSUED_AT + 1;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "session_id must be nil or the session commitment")]
+fn test_rejects_another_session() {
+    let mut p = public();
+    p.session_id += 1;
+    prove(p, inputs());
+}
+
+/// Packs `bytes` into sponge chunks: 31-byte big-endian integers, the last shorter.
+fn chunks_of<let N: u32>(bytes: [u8; N]) -> [Field; CHUNK_SLOTS] {
+    let mut chunks = [0; CHUNK_SLOTS];
+    for i in 0..N {
+        chunks[i / 31] = chunks[i / 31] * 256 + bytes[i] as Field;
+    }
+    chunks
+}
+
+#[test]
+fn test_reads_a_thumbnail_in_the_final_short_chunk() {
+    // 12 filler bytes put the entry across the boundary into a short final chunk.
+    let json = "{\"a\":\"1234\",\"thumbnail.png\":\"00000000000000000000000000000000000000000000000000000000000000ff\"}"
+        .as_bytes();
+    let digest = thumbnail_digest(
+        HashesJsonInputs { chunks: chunks_of(json), len: json.len(), digest_offset: 29 },
+    );
+    assert_eq(digest, 255);
+}
+
+#[test(should_fail_with = "hashes.json is shorter than its bound")]
+fn test_rejects_a_hashes_json_below_the_length_window() {
+    let mut json = inputs().hashes_json;
+    json.len = 3071;
+    let _ = claims_hash_v1(json);
+}
+
+#[test(should_fail_with = "thumbnail digest must be lowercase hex")]
+fn test_rejects_an_uppercase_thumbnail_digest() {
+    let json = "{\"a\":\"1234\",\"thumbnail.png\":\"00000000000000000000000000000000000000000000000000000000000000FF\"}"
+        .as_bytes();
+    let _ = thumbnail_digest(
+        HashesJsonInputs { chunks: chunks_of(json), len: json.len(), digest_offset: 29 },
+    );
+}
+
+#[test(should_fail_with = "thumbnail digest must be 64 hex digits")]
+fn test_rejects_a_thumbnail_digest_without_its_closing_quote() {
+    // 65 hex digits: the 65th byte stands where the closing quote must be.
+    let json = "{\"a\":\"1234\",\"thumbnail.png\":\"00000000000000000000000000000000000000000000000000000000000000ff0\"}"
+        .as_bytes();
+    let _ = thumbnail_digest(
+        HashesJsonInputs { chunks: chunks_of(json), len: json.len(), digest_offset: 29 },
+    );
+}
+
+#[test(should_fail_with = "hashes.json exceeds its bound")]
+fn test_rejects_a_hashes_json_above_the_length_window() {
+    let mut json = inputs().hashes_json;
+    json.len = 5121;
+    let _ = claims_hash_v1(json);
+}

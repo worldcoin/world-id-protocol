@@ -22,6 +22,10 @@ pub mod circuit_inputs;
 #[cfg(test)]
 mod fixtures;
 
+/// Fixture generator for the WIP-202 Proof of Embedding Similarity circuit.
+#[cfg(test)]
+mod embedding_similarity_fixtures;
+
 pub mod compress;
 pub use compress::ProofCompression;
 pub(crate) mod oprf_query;
