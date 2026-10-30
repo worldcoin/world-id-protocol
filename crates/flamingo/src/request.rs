@@ -523,7 +523,7 @@ mod tests {
                 .unwrap(),
             takt: hex::decode(TAKT).unwrap(),
             aat: hex::decode(AAT).unwrap(),
-            min_build_version: 2006,
+            min_build_version: 0,
         }
     }
 
@@ -569,7 +569,7 @@ mod tests {
             claims,
             FlamingoAatClaims {
                 trust_anchor_key_hash: hex_field(TRUST_ANCHOR_KEY_HASH),
-                aat_flags: 0x00a3_0000_07d6_0102,
+                aat_flags: 0x00a3_0000_0000_0102,
             }
         );
         assert_eq!(request(None).verify_aat(NOW), Ok(None));
