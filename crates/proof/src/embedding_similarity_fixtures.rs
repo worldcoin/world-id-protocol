@@ -100,6 +100,8 @@ const SIGNAL: &[u8] = b"rp signal";
 const LEAF_INDEX: u64 = 1;
 const GENESIS_ISSUED_AT: u64 = 1_600_000_000;
 const GENESIS_ISSUED_AT_MIN: u64 = 1_500_000_000;
+/// The RP's minimum expiration; WIP-118 defaults it to the request's `created_at`.
+const EXPIRES_AT_MIN: u32 = NOW;
 const EXPIRES_AT: u32 = 1_900_000_000;
 const ISSUER_SCHEMA_ID: u64 = 4_242;
 const ISSUER_VERSION: u8 = 1;
@@ -330,6 +332,7 @@ fn render() -> Rendered {
         ("ISSUER_VERSION", "Field", ISSUER_VERSION.to_string()),
         ("CRED_PK", "PublicKey", noir_point(&credential.issuer)),
         ("GENESIS_ISSUED_AT_MIN", "Field", GENESIS_ISSUED_AT_MIN.to_string()),
+        ("EXPIRES_AT_MIN", "Field", EXPIRES_AT_MIN.to_string()),
         ("SESSION_ID", "Field", dec(*session_id)),
         // Flamingo Token witness
         ("LIVE_CAPTURE_HASH", "Field", dec(*compared[1])),
@@ -401,6 +404,7 @@ fn render() -> Rendered {
          issuer_schema_id = \"{ISSUER_SCHEMA_ID}\"\n\
          issuer_version = \"{ISSUER_VERSION}\"\n\
          genesis_issued_at_min = \"{GENESIS_ISSUED_AT_MIN}\"\n\
+         expires_at_min = \"{EXPIRES_AT_MIN}\"\n\
          session_id = \"{session_id}\"\n\
          \n\
          [flamingo_verifier_key]\n{verifier_key}\n\

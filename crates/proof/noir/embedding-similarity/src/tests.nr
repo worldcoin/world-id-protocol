@@ -5,7 +5,7 @@ use crate::{
     test_fixtures::{
         AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META,
         CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
-        EXPIRES_AT, FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN,
+        EXPIRES_AT, EXPIRES_AT_MIN, FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN,
         HASHES_JSON_CHUNKS, HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX,
         LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NOW, PLATFORM, RP_ID, SEC_LEVEL, SEC_META,
         SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG,
@@ -32,6 +32,7 @@ struct Public {
     challenge_hash: Field,
     signal_hash: Field,
     genesis_issued_at_min: Field,
+    expires_at_min: Field,
     session_id: Field,
 }
 
@@ -50,6 +51,7 @@ fn public() -> Public {
         challenge_hash: CHALLENGE_HASH,
         signal_hash: SIGNAL_HASH,
         genesis_issued_at_min: GENESIS_ISSUED_AT_MIN,
+        expires_at_min: EXPIRES_AT_MIN,
         session_id: SESSION_ID,
     }
 }
@@ -107,6 +109,7 @@ fn prove(p: Public, inputs: PrivateInputs) {
         ISSUER_VERSION,
         CRED_PK,
         p.genesis_issued_at_min,
+        p.expires_at_min,
         inputs,
     );
 }
@@ -345,6 +348,20 @@ fn test_rejects_an_expired_credential() {
     i.token.sig = TOKEN_SIG_AT_EXPIRY;
     i.account.auth = AUTH_SIG_AT_EXPIRY;
     prove(p, i);
+}
+
+#[test(should_fail_with = "credential expires too early")]
+fn test_rejects_a_credential_expiring_before_the_minimum() {
+    let mut p = public();
+    p.expires_at_min = EXPIRES_AT;
+    prove(p, inputs());
+}
+
+#[test]
+fn test_accepts_a_minimum_expiration_just_before_expiry() {
+    let mut p = public();
+    p.expires_at_min = EXPIRES_AT - 1;
+    prove(p, inputs());
 }
 
 #[test(should_fail_with = "credential too recent")]

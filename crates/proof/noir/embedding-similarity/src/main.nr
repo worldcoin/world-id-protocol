@@ -47,6 +47,7 @@ fn main(
     issuer_version: pub Field,
     cred_pk: pub PublicKey,
     genesis_issued_at_min: pub Field,
+    expires_at_min: pub Field,
     inputs: PrivateInputs,
 ) {
     // 2. Challenge present: `0` marks an unused position.
@@ -95,6 +96,13 @@ fn main(
         now,
         leaf_index,
         inputs.credential,
+    );
+    // The RP's minimum expiration, as in Uniqueness and Session Proofs; `verify` range-checks
+    // `expires_at`.
+    expires_at_min.assert_max_bit_size::<64>();
+    assert(
+        (expires_at_min as u64) < (inputs.credential.expires_at as u64),
+        "credential expires too early",
     );
 
     // 3.1 `hashes.json` is what the Issuer committed to.
