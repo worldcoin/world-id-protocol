@@ -81,3 +81,29 @@ fingerprints in `src/oprf_query.rs` and `src/nullifier_proof.rs`.
 The Noir ownership proof APIs are available on native targets. They can either use explicit
 prover/verifier material loaded from readers or paths, or embedded artifacts when the
 corresponding `embed-ownership-prover` / `embed-ownership-verifier` feature is enabled.
+
+### ProveKit 1.0.3 migration
+
+[ProveKit 1.0.3](https://github.com/worldfnd/provekit/releases/tag/v1.0.3) records the declared
+public-input count in R1CS and enforces it during verification. The ownership circuit has five
+public inputs, so both `ownership_proof.pkp` and `ownership_proof.pkv` must be regenerated
+together with the pinned ProveKit 1.0.3 compiler. The Noir source and pinned `nargo` version
+remain unchanged.
+
+Clear previous package build outputs first to avoid selecting stale keys left by older builds
+with a different feature set. Then build with both ownership embed features to regenerate the
+pair from the checked-in source:
+
+```sh
+cargo clean -p world-id-proof
+cargo build --locked -p world-id-proof --features embed-noir-artifacts
+cargo test --locked -p world-id-proof --features embed-noir-artifacts ownership_proof
+```
+
+The generated files are in `target/debug/build/world-id-proof-*/out/` (or the corresponding
+release directory when using `--release`); they are build outputs, not checked-in artifacts.
+Embedded consumers receive the regenerated keys when rebuilt. Consumers loading artifacts
+from files or a custom `ZkArtifactSource` must replace both keys and generate new proofs with
+the new prover. Deploy the matching verifier key with those proofs: v1.0.2 ownership keys are
+rejected by v1.0.3, and old proofs cannot be reused with the new keys. Keep the previous
+version's keys and proofs available for the coordinated rollout.

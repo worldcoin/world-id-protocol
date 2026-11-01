@@ -30,6 +30,9 @@ remappings = [
     "@openzeppelin/contracts/=lib/openzeppelin-contracts/contracts/",
     "@openzeppelin/contracts-upgradeable/=lib/openzeppelin-contracts-upgradeable/contracts/",
 
+    # Solady (pinned by Optimism; checked out via recursive submodules)
+    "solady/=lib/optimism/packages/contracts-bedrock/lib/solady-v0.0.245/src/",
+
     # Optimism contracts-bedrock
     "@optimism-bedrock/=lib/optimism/packages/contracts-bedrock/",
     # Optimism interfaces (used by bridge adapters)

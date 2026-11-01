@@ -476,6 +476,24 @@ mod tests {
     use crate::fixtures::ownership_proof_fixture;
     use world_id_primitives::Credential;
 
+    #[test]
+    fn test_ownership_artifacts_bind_public_input_count() {
+        let artifacts = EmbeddedZkArtifacts;
+        let prover = artifacts.ownership_prover().expect("embedded prover loads");
+        let verifier = artifacts
+            .ownership_verifier()
+            .expect("embedded verifier loads");
+
+        // ProveKit 1.0.2 artifacts recorded zero here despite the circuit's five public inputs.
+        // Both keys must be regenerated with 1.0.3 for its stricter verifier checks to pass.
+        assert_eq!(prover.r1cs.num_public_inputs, 5);
+        assert_eq!(verifier.r1cs.num_public_inputs, 5);
+        let r1cs_hash = prover.r1cs.hash();
+        assert_eq!(verifier.r1cs.hash(), r1cs_hash);
+        assert_eq!(prover.whir_for_witness.r1cs_hash, r1cs_hash);
+        assert_eq!(verifier.whir_for_witness.unwrap().r1cs_hash, r1cs_hash);
+    }
+
     /// A valid proof together with its `(nonce, expected_commitment, context)` public inputs.
     fn generate_valid_ownership_proof_fixture()
     -> (OwnershipProof, FieldElement, FieldElement, FieldElement) {
