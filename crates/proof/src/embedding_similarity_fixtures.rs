@@ -100,7 +100,7 @@ const SIGNAL: &[u8] = b"rp signal";
 const LEAF_INDEX: u64 = 1;
 const GENESIS_ISSUED_AT: u64 = 1_600_000_000;
 const GENESIS_ISSUED_AT_MIN: u64 = 1_500_000_000;
-/// The RP's minimum expiration; WIP-118 defaults it to the request's `created_at`.
+/// The RP's minimum expiration; WIP-114 defaults it to the request's `created_at`.
 const EXPIRES_AT_MIN: u32 = NOW;
 const EXPIRES_AT: u32 = 1_900_000_000;
 const ISSUER_SCHEMA_ID: u64 = 4_242;
