@@ -147,3 +147,6 @@ fn verification_error(error: alloy::contract::Error) -> IndexerErrorResponse {
         IndexerErrorResponse::internal_server_error()
     }
 }
+
+#[cfg(test)]
+mod tests;
