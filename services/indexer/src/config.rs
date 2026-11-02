@@ -3,7 +3,10 @@ use std::{net::SocketAddr, str::FromStr, sync::Arc};
 use alloy::{primitives::Address, providers::DynProvider};
 use clap::Parser;
 use thiserror::Error;
-use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_registries::{
+    world_id::WorldIdRegistry::WorldIdRegistryInstance,
+    world_id_verifier::WorldIdVerifier::WorldIdVerifierInstance,
+};
 use world_id_services_common::ProviderArgs;
 
 use crate::{db::DB, tree::state::TreeState};
@@ -20,6 +23,7 @@ pub struct AppState {
     pub db: DB,
     pub registry: Arc<WorldIdRegistryInstance<DynProvider>>,
     pub tree_state: TreeState,
+    pub verifier: Arc<WorldIdVerifierInstance<DynProvider>>,
 }
 
 impl AppState {
@@ -27,11 +31,13 @@ impl AppState {
         db: DB,
         registry: Arc<WorldIdRegistryInstance<DynProvider>>,
         tree_state: TreeState,
+        verifier: Arc<WorldIdVerifierInstance<DynProvider>>,
     ) -> Self {
         Self {
             db,
             registry,
             tree_state,
+            verifier,
         }
     }
 }
@@ -103,6 +109,8 @@ pub struct GlobalConfig {
 
 #[derive(Debug)]
 pub struct HttpConfig {
+    /// Address of the World ID verifier proxy used by `/verify`.
+    pub verifier_address: Address,
     pub http_addr: SocketAddr,
     pub db_poll_interval_secs: u64,
     /// HTTP request timeout in seconds.
@@ -132,7 +140,19 @@ impl HttpConfig {
             .and_then(|s| s.parse().ok())
             .unwrap_or(10);
 
+        let verifier_address_str =
+            std::env::var("VERIFIER_ADDRESS").map_err(|_| ConfigError::MissingVerifierAddress)?;
+        let verifier_address = verifier_address_str.parse::<Address>().map_err(|e| {
+            ConfigError::InvalidVerifierAddress(format!("{verifier_address_str}: {e}"))
+        })?;
+        if verifier_address.is_zero() {
+            return Err(ConfigError::InvalidVerifierAddress(
+                "address cannot be zero".to_string(),
+            ));
+        }
+
         let config = Self {
+            verifier_address,
             http_addr,
             db_poll_interval_secs,
             request_timeout_secs,
@@ -283,6 +303,10 @@ pub enum ConfigError {
         "invalid RUN_MODE: '{0}'. Valid options are: 'indexer', 'indexer-only', 'http', 'http-only', 'both', or 'all'"
     )]
     InvalidRunMode(String),
+    #[error("VERIFIER_ADDRESS is required when serving HTTP")]
+    MissingVerifierAddress,
+    #[error("invalid VERIFIER_ADDRESS: {0}")]
+    InvalidVerifierAddress(String),
     #[error("invalid HTTP_ADDR: {0}")]
     InvalidHttpAddr(String),
     #[error("invalid DB_POLL_INTERVAL_SECS: {0}")]
@@ -335,6 +359,8 @@ mod tests {
     use serial_test::serial;
     use std::env;
 
+    const TEST_VERIFIER_ADDRESS: &str = "0x0000000000000000000000000000000000000001";
+
     /// Helper to set environment variable for test
     fn set_env(key: &str, value: &str) {
         unsafe {
@@ -364,6 +390,7 @@ mod tests {
 
             // HTTP config
             env::remove_var("HTTP_ADDR");
+            env::remove_var("VERIFIER_ADDRESS");
             env::remove_var("DB_POLL_INTERVAL_SECS");
             env::remove_var("REQUEST_TIMEOUT_SECS");
             env::remove_var("SANITY_CHECK_INTERVAL_SECS");
@@ -425,6 +452,7 @@ mod tests {
     #[serial]
     fn test_run_mode_from_env_http_only() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
 
         set_env("RUN_MODE", "http");
         set_env("HTTP_ADDR", "127.0.0.1:8080");
@@ -438,6 +466,7 @@ mod tests {
     #[serial]
     fn test_run_mode_from_env_both() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
 
         set_env("RUN_MODE", "both");
         set_env("START_BLOCK", "100");
@@ -452,6 +481,7 @@ mod tests {
     #[serial]
     fn test_run_mode_default() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
         set_env("START_BLOCK", "100");
         set_env("HTTP_ADDR", "127.0.0.1:8080");
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
@@ -465,6 +495,7 @@ mod tests {
     #[serial]
     fn test_run_mode_invalid() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
         set_env("RUN_MODE", "invalid_mode");
 
         let result = RunMode::from_env();
@@ -477,11 +508,16 @@ mod tests {
     #[serial]
     fn test_http_config_defaults() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
 
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
         let config = HttpConfig::from_env().expect("Should load HttpConfig from env.");
 
+        assert_eq!(
+            config.verifier_address,
+            TEST_VERIFIER_ADDRESS.parse::<Address>().unwrap()
+        );
         assert_eq!(config.http_addr.to_string(), "0.0.0.0:8080");
         assert_eq!(config.db_poll_interval_secs, 1);
         assert_eq!(config.request_timeout_secs, 10);
@@ -490,8 +526,28 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_http_config_requires_valid_verifier_address() {
+        clear_all_config_env();
+        assert!(matches!(
+            HttpConfig::from_env(),
+            Err(ConfigError::MissingVerifierAddress)
+        ));
+        for address in ["invalid", "0x0000000000000000000000000000000000000000"] {
+            set_env("VERIFIER_ADDRESS", address);
+            assert!(matches!(
+                HttpConfig::from_env(),
+                Err(ConfigError::InvalidVerifierAddress(_))
+            ));
+        }
+        set_env("RUN_MODE", "indexer");
+        assert!(RunMode::from_env().is_ok());
+    }
+
+    #[test]
+    #[serial]
     fn test_http_config_custom_values() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
 
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
         set_env("HTTP_ADDR", "127.0.0.1:9000");
@@ -511,6 +567,7 @@ mod tests {
     #[serial]
     fn test_http_config_sanity_check_disabled_on_zero() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
 
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
         set_env("SANITY_CHECK_INTERVAL_SECS", "0");
@@ -574,6 +631,7 @@ mod tests {
     #[serial]
     fn test_global_config_environment_default() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
         set_env("DATABASE_URL", "postgresql://localhost/test");
         set_env("RPC_URL", "http://localhost:8545");
         set_env(
@@ -601,6 +659,7 @@ mod tests {
     #[serial]
     fn test_global_config_missing_database_url() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
         set_env("RPC_URL", "http://localhost:8545");
         set_env(
             "REGISTRY_ADDRESS",
@@ -617,6 +676,7 @@ mod tests {
     #[serial]
     fn test_global_config_missing_rpc_url() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
         set_env("DATABASE_URL", "postgresql://localhost/test");
         set_env(
             "REGISTRY_ADDRESS",
@@ -633,6 +693,7 @@ mod tests {
     #[serial]
     fn test_global_config_missing_registry_address() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
         set_env("DATABASE_URL", "postgresql://localhost/test");
         set_env("RPC_URL", "http://localhost:8545");
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
@@ -646,6 +707,7 @@ mod tests {
     #[serial]
     fn test_global_config_invalid_registry_address() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
         set_env("DATABASE_URL", "postgresql://localhost/test");
         set_env("RPC_URL", "http://localhost:8545");
         set_env("REGISTRY_ADDRESS", "invalid_address");
@@ -703,6 +765,7 @@ mod tests {
     #[serial]
     fn test_http_addr_parsing() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
 
         // Valid formats
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
@@ -719,6 +782,7 @@ mod tests {
     #[serial]
     fn test_http_addr_invalid_format() {
         clear_all_config_env();
+        set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
         set_env("HTTP_ADDR", "invalid:address:format");
 

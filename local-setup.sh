@@ -99,6 +99,7 @@ deploy_contracts() {
     (cd contracts && forge script script/core/Deploy.s.sol --tc Deploy --sig "run(string)" "local" --broadcast --rpc-url http://localhost:8545 --private-key $PK)
     world_id_registry=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/core/local.json)
     echo "WorldIDRegistry: $world_id_registry"
+    world_id_verifier=$(jq -r ".worldIDVerifier.proxy" ./contracts/deployments/core/local.json)
     rp_registry=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/core/local.json)
     echo "RpRegistry: $rp_registry"
     credential_schema_issuer_registry=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)
@@ -163,7 +164,7 @@ start_node() {
 run_indexer_and_gateway() {
     # remove the tree_cache_file as we have a new DB everytime we run local_setup
     rm -f /tmp/tree.mmap
-    REGISTRY_ADDRESS=$world_id_registry RPC_URL=http://localhost:8545 WS_URL=ws://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres TREE_CACHE_FILE=/tmp/tree.mmap ./target/${BUILD_TARGET_DIR}/world-id-indexer --http --indexer > logs/world-id-indexer.log 2>&1 &
+    REGISTRY_ADDRESS=$world_id_registry VERIFIER_ADDRESS=$world_id_verifier RPC_URL=http://localhost:8545 WS_URL=ws://localhost:8545 DATABASE_URL=postgres://postgres:postgres@localhost:5432/postgres TREE_CACHE_FILE=/tmp/tree.mmap ./target/${BUILD_TARGET_DIR}/world-id-indexer --http --indexer > logs/world-id-indexer.log 2>&1 &
     indexer_pid=$!
     echo "started indexer with PID $indexer_pid"
     wait_for_health 8080 "world-id-indexer" 300

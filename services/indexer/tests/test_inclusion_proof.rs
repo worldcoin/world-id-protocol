@@ -54,6 +54,7 @@ async fn test_backfill_and_live_sync() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8080".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -185,6 +186,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8082".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -264,6 +266,7 @@ async fn test_inclusion_proof_rejects_invalid_stored_pubkey() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8088".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
