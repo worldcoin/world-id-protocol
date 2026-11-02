@@ -54,7 +54,7 @@ alloy-node-bindings = "2.0.1"
 anyhow = "1"
 ark-ec = "0.6"
 ark-babyjubjub = { package = "taceo-ark-babyjubjub", version = "0.6.0" }
-ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.6.1", default-features = false, features = [
+ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.6.2", default-features = false, features = [
   "babyjubjub",
 ] }
 ark-bn254 = "0.6"
