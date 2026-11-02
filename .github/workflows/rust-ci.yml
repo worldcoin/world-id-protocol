@@ -219,7 +219,7 @@ jobs:
           toolchain: v1.0.0-beta.26
 
       - name: Install cargo-hack
-        uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31 https://github.com/taiki-e/install-action/releases/tag/v2.87.31
         with:
           tool: cargo-hack
 
@@ -290,7 +290,7 @@ jobs:
           path: contracts/out
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31 https://github.com/taiki-e/install-action/releases/tag/v2.87.31
         with:
           tool: cargo-nextest
 
