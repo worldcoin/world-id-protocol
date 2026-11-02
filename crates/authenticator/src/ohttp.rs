@@ -1,6 +1,6 @@
 use base64::Engine as _;
 use bhttp::{Message, Mode};
-use ohttp::ClientRequest;
+use ohttp::{ClientRequest, ClientResponse, KeyConfig};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 
@@ -39,6 +39,48 @@ fn is_ohttp_res_content_type(content_type: &str) -> bool {
         .is_some_and(|media_type| media_type.eq_ignore_ascii_case("message/ohttp-res"))
 }
 
+const KEM_XWING: u16 = 0x647a;
+const KEM_X25519: u16 = 0x0020;
+
+/// Picks the key configs to use from an `application/ohttp-keys` payload.
+///
+/// The payload's order depends on the gateway implementation, so the choice
+/// is made by KEM: X-Wing if present, with X25519 as the fallback, each using
+/// the last (newest) listed config of that KEM. A payload with neither uses
+/// its last supported config and has no fallback.
+fn preferred_configs(
+    encoded_config_list: &[u8],
+) -> Result<(Vec<u8>, Option<Vec<u8>>), ohttp::Error> {
+    let configs = KeyConfig::decode_list(encoded_config_list)?
+        .iter()
+        .map(KeyConfig::encode)
+        .collect::<Result<Vec<_>, _>>()?;
+    // An encoded key config starts with the key ID, then the 2-byte KEM ID.
+    let last_with_kem = |kem: u16| {
+        configs
+            .iter()
+            .rev()
+            .find(|config| config[1..3] == kem.to_be_bytes())
+            .cloned()
+    };
+    match (last_with_kem(KEM_XWING), last_with_kem(KEM_X25519)) {
+        (Some(xwing), x25519) => Ok((xwing, x25519)),
+        (None, Some(x25519)) => Ok((x25519, None)),
+        (None, None) => configs
+            .last()
+            .cloned()
+            .map(|config| (config, None))
+            .ok_or(ohttp::Error::Unsupported),
+    }
+}
+
+/// Whether the gateway rejected an Encapsulated Request before forwarding
+/// it: 400 for an unknown key or failed decryption, 401 for an unknown key on
+/// the Go gateway. Retrying such a request with another key is safe.
+fn is_key_rejection(status: StatusCode) -> bool {
+    matches!(status, StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED)
+}
+
 /// Parsed response from an OHTTP-decapsulated Binary HTTP message.
 #[derive(Debug)]
 pub struct OhttpResponse {
@@ -57,7 +99,8 @@ pub struct OhttpClient {
     relay_url: String,
     target_scheme: String,
     target_authority: String,
-    encoded_config_list: Vec<u8>,
+    key_config: Vec<u8>,
+    fallback_key_config: Option<Vec<u8>>,
 }
 
 impl OhttpClient {
@@ -100,12 +143,13 @@ impl OhttpClient {
                 reason: format!("invalid base64: {err}"),
             })?;
 
-        ClientRequest::from_encoded_config_list(&encoded_config_list).map_err(|err| {
-            AuthenticatorError::InvalidConfig {
-                attribute,
-                reason: format!("invalid application/ohttp-keys payload: {err}"),
-            }
-        })?;
+        let (key_config, fallback_key_config) =
+            preferred_configs(&encoded_config_list).map_err(|err| {
+                AuthenticatorError::InvalidConfig {
+                    attribute,
+                    reason: format!("invalid application/ohttp-keys payload: {err}"),
+                }
+            })?;
 
         Ok(Self {
             client,
@@ -113,7 +157,8 @@ impl OhttpClient {
             relay_url: config.relay_url,
             target_scheme,
             target_authority,
-            encoded_config_list,
+            key_config,
+            fallback_key_config,
         })
     }
 
@@ -160,17 +205,12 @@ impl OhttpClient {
         let mut bhttp_buf = Vec::new();
         msg.write_bhttp(Mode::KnownLength, &mut bhttp_buf)?;
 
-        let ohttp_req = ClientRequest::from_encoded_config_list(&self.encoded_config_list)?;
-        let (enc_request, ohttp_resp_ctx) = ohttp_req.encapsulate(&bhttp_buf)?;
-
-        let resp = self
-            .client
-            .post(&self.relay_url)
-            .timeout(REQUEST_TIMEOUT)
-            .header("content-type", "message/ohttp-req")
-            .body(enc_request)
-            .send()
-            .await?;
+        let (mut resp, mut ohttp_resp_ctx) = self.send(&self.key_config, &bhttp_buf).await?;
+        if let Some(fallback) = &self.fallback_key_config
+            && is_key_rejection(resp.status())
+        {
+            (resp, ohttp_resp_ctx) = self.send(fallback, &bhttp_buf).await?;
+        }
 
         if !resp.status().is_success() {
             return Err(AuthenticatorError::OhttpRelayError {
@@ -221,12 +261,32 @@ impl OhttpClient {
             body: response_msg.content().to_vec(),
         })
     }
+
+    /// Encapsulates `bhttp` for `key_config` and POSTs it to the relay.
+    async fn send(
+        &self,
+        key_config: &[u8],
+        bhttp: &[u8],
+    ) -> Result<(reqwest::Response, ClientResponse), AuthenticatorError> {
+        let (enc_request, ohttp_resp_ctx) =
+            ClientRequest::from_encoded_config(key_config)?.encapsulate(bhttp)?;
+        let resp = self
+            .client
+            .post(&self.relay_url)
+            .timeout(REQUEST_TIMEOUT)
+            .header("content-type", "message/ohttp-req")
+            .body(enc_request)
+            .send()
+            .await?;
+        Ok((resp, ohttp_resp_ctx))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::AuthenticatorError;
+    use test_case::test_case;
 
     #[test]
     fn invalid_base64_key_config_returns_invalid_config() {
@@ -357,6 +417,128 @@ mod tests {
         assert!(!is_ohttp_res_content_type("text/html"));
         assert!(!is_ohttp_res_content_type("application/json"));
         assert!(!is_ohttp_res_content_type(""));
+    }
+
+    fn key_config(key_id: u8, kem: ohttp::hpke::Kem) -> ohttp::KeyConfig {
+        ohttp::init();
+        ohttp::KeyConfig::new(
+            key_id,
+            kem,
+            vec![ohttp::SymmetricSuite::new(
+                ohttp::hpke::Kdf::HkdfSha256,
+                ohttp::hpke::Aead::Aes128Gcm,
+            )],
+        )
+        .expect("failed to build test key config")
+    }
+
+    fn selected_key_ids(configs: &[&ohttp::KeyConfig]) -> (u8, Option<u8>) {
+        let list = ohttp::KeyConfig::encode_list(configs).unwrap();
+        let (primary, fallback) = preferred_configs(&list).unwrap();
+        (primary[0], fallback.map(|config| config[0]))
+    }
+
+    #[test]
+    fn prefers_xwing_and_falls_back_to_x25519_regardless_of_order() {
+        let x25519 = key_config(128, ohttp::hpke::Kem::X25519Sha256);
+        let xwing = key_config(64, ohttp::hpke::Kem::XWing);
+        // Rust gateway order, then Go v0.0.4 order.
+        assert_eq!(selected_key_ids(&[&x25519, &xwing]), (64, Some(128)));
+        assert_eq!(selected_key_ids(&[&xwing, &x25519]), (64, Some(128)));
+        // With several generations, the last listed config of each KEM wins.
+        let newer_xwing = key_config(65, ohttp::hpke::Kem::XWing);
+        assert_eq!(
+            selected_key_ids(&[&x25519, &xwing, &newer_xwing]),
+            (65, Some(128))
+        );
+        // Without X-Wing, X25519 is used and there is nothing to fall back to.
+        assert_eq!(selected_key_ids(&[&x25519]), (128, None));
+    }
+
+    /// A client whose embedded payload lists X25519 (key 128) then X-Wing (key 64).
+    fn dual_kem_client(relay_url: String) -> OhttpClient {
+        let list = ohttp::KeyConfig::encode_list(&[
+            key_config(128, ohttp::hpke::Kem::X25519Sha256),
+            key_config(64, ohttp::hpke::Kem::XWing),
+        ])
+        .unwrap();
+        OhttpClient::new(
+            reqwest::Client::new(),
+            "ohttp_gateway",
+            "https://target.example",
+            OhttpClientConfig::new(
+                relay_url,
+                base64::engine::general_purpose::STANDARD.encode(list),
+            ),
+        )
+        .expect("failed to construct test OhttpClient")
+    }
+
+    /// Matches Encapsulated Requests whose header names `key_id`.
+    fn for_key(key_id: u8) -> impl Fn(&mockito::Request) -> bool + Send + Sync + 'static {
+        move |request| {
+            request
+                .body()
+                .is_ok_and(|body| body.first() == Some(&key_id))
+        }
+    }
+
+    #[test_case(400 ; "gateway rejects the key")]
+    #[test_case(401 ; "go gateway does not know the key")]
+    #[tokio::test]
+    async fn key_rejection_retries_once_with_x25519(rejection: usize) {
+        let mut server = mockito::Server::new_async().await;
+        let xwing = server
+            .mock("POST", "/")
+            .match_request(for_key(64))
+            .with_status(rejection)
+            .expect(1)
+            .create_async()
+            .await;
+        // A distinct status shows the reported result comes from the X25519 attempt.
+        let x25519 = server
+            .mock("POST", "/")
+            .match_request(for_key(128))
+            .with_status(503)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let result = dual_kem_client(server.url()).get("/account").await;
+
+        assert!(
+            matches!(result, Err(AuthenticatorError::OhttpRelayError { status, .. }) if status == StatusCode::SERVICE_UNAVAILABLE),
+            "unexpected result: {result:?}"
+        );
+        xwing.assert_async().await;
+        x25519.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn other_relay_errors_are_not_retried() {
+        let mut server = mockito::Server::new_async().await;
+        let xwing = server
+            .mock("POST", "/")
+            .match_request(for_key(64))
+            .with_status(502)
+            .expect(1)
+            .create_async()
+            .await;
+        let x25519 = server
+            .mock("POST", "/")
+            .match_request(for_key(128))
+            .expect(0)
+            .create_async()
+            .await;
+
+        let result = dual_kem_client(server.url()).get("/account").await;
+
+        assert!(
+            matches!(result, Err(AuthenticatorError::OhttpRelayError { status, .. }) if status == StatusCode::BAD_GATEWAY),
+            "unexpected result: {result:?}"
+        );
+        xwing.assert_async().await;
+        x25519.assert_async().await;
     }
 
     /// Builds a valid base64 `application/ohttp-keys` config list so that
