@@ -12516,7 +12516,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-oprf-node"
-version = "1.2.4"
+version = "1.2.5"
 dependencies = [
  "alloy",
  "ark-bn254 0.6.0",
