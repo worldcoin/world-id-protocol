@@ -16,11 +16,11 @@ use super::{BatchSubmitStrategy, BatcherEnvelope, GenericBatcherRunner, PendingB
 /// batch lands at a later leaf index than the one it was estimated at.
 ///
 /// Another signer can insert leaves between our `eth_estimateGas` and our
-/// inclusion. Shifting the batch start adds at most one parent node per level
-/// (one Poseidon2 hash, ~7.1k) and can turn that level's one overwritten node
-/// into fresh writes (2 x 22.1k zero-to-nonzero SSTORE minus the 5k overwrite),
-/// plus up to two cold sibling reads (2 x 2.1k). That is ~46k; round up to 50k.
-const TREE_INSERT_HEADROOM_PER_LEVEL: u64 = 50_000;
+/// inclusion. Per level, shifting the batch start can add one parent node
+/// (a Poseidon2 hash, ~7.1k, plus a zero-to-nonzero SSTORE, 22.1k), turn the
+/// level's one overwritten node into a fresh write (22.1k instead of 5k), and
+/// add two cold sibling reads (2 x 2.1k). That is ~50.5k; round up to 55k.
+const TREE_INSERT_HEADROOM_PER_LEVEL: u64 = 55_000;
 
 /// Gas added on top of the `createManyAccounts` estimate. The extra work is
 /// bounded by the tree depth, not by the batch size, so a fixed headroom is
@@ -192,7 +192,7 @@ mod tests {
         assert!(theirs.transaction_index < ours.transaction_index);
         assert!(
             ours.status(),
-            "batch ran out of gas: used {} of its limit",
+            "batch reverted after using {} gas",
             ours.gas_used
         );
     }
