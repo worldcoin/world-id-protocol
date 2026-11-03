@@ -23,7 +23,6 @@ pub fn compute_sub(leaf_index: Field, sub_blinding_factor: Field) -> Field {
 ///
 /// This construction carries no domain separator and matches neither H_t nor
 /// H_var of WIP-100; it is the Credential V1 claims hash.
-// FIXME: UPDATE TO CREDENTIAL V2, the way `claims_hash` is computed will change.
 pub fn claims_hash(claims: [Field; MAX_CLAIMS]) -> Field {
     let mut state: [Field; 16] = [0; 16];
     for i in 0..MAX_CLAIMS {
