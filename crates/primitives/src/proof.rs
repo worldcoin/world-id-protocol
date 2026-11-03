@@ -108,6 +108,18 @@ pub struct OwnershipProof {
     pub merkle_root: FieldElement,
 }
 
+/// A WIP-202 Proof of Embedding Similarity.
+///
+/// Contains the ZKP and the Merkle root public input that the verifier
+/// doesn't initially provide.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmbeddingSimilarityProof {
+    /// The WHIR R1CS proof from ProveKit.
+    pub proof: provekit_common::WhirR1CSProof,
+    /// Merkle tree root used for inclusion within the circuit.
+    pub merkle_root: FieldElement,
+}
+
 #[cfg(test)]
 mod tests {
     use ruint::uint;
@@ -194,6 +206,22 @@ mod tests {
         assert!(json.contains("proof"));
         assert!(json.contains("merkle_root"));
         let decoded: OwnershipProof = serde_json::from_str(&json).unwrap();
+        assert_eq!(proof, decoded);
+    }
+
+    #[test]
+    fn test_embedding_similarity_proof_json_roundtrip() {
+        let proof = EmbeddingSimilarityProof {
+            proof: provekit_common::WhirR1CSProof {
+                narg_string: vec![1, 2, 3],
+                hints: vec![4, 5],
+                #[cfg(debug_assertions)]
+                pattern: vec![],
+            },
+            merkle_root: crate::FieldElement::from(999u64),
+        };
+        let json = serde_json::to_string(&proof).unwrap();
+        let decoded: EmbeddingSimilarityProof = serde_json::from_str(&json).unwrap();
         assert_eq!(proof, decoded);
     }
 

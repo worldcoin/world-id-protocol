@@ -54,6 +54,9 @@ pub mod ds {
     pub const OPRF_PROOF: DomainSeparator<3> = DomainSeparator::new(b"World ID Proof");
     /// Separates the message an authenticator signs for an ownership proof (WIP-103).
     pub const OWNERSHIP_PROOF: DomainSeparator<3> = DomainSeparator::new(b"WIP103");
+    /// Separates the message an authenticator signs for a Proof of Embedding Similarity (WIP-202).
+    pub const EMBEDDING_SIMILARITY_AUTH: DomainSeparator<4> =
+        DomainSeparator::new(b"WORLD-ID/WIP-202/AUTH");
     /// Separates the message signed for a trust anchor key token (WIP-106).
     pub const TRUST_ANCHOR_KEY_TOKEN: DomainSeparator<6> =
         DomainSeparator::new(b"WORLD-ID/WIP-106/TAKT");
