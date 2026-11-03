@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0 https://github.com/actions/setup-node/releases/tag/v6.5.0
         with:
-          node-version: 22
+          node-version: 22.23.4
       - run: wget https://github.com/iden3/circom/releases/download/v2.2.2/circom-linux-amd64 -O circom && chmod +x circom && sudo mv circom /usr/local/bin/
       - run: npm ci
       - run: npm test
