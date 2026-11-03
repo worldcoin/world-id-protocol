@@ -87,6 +87,25 @@ mod tests {
         );
     }
 
+    /// WIP-100 Appendix A1.5: leaf `42` at indices whose bits make it the right child at most
+    /// levels (all 30 bits set, and alternating bits), under the same sibling path.
+    #[test]
+    fn test_compute_merkle_root_matches_wip_100_vectors_at_other_indices() {
+        let mut siblings: [Field; MERKLE_DEPTH] = [0; MERKLE_DEPTH];
+        for i in 1..MERKLE_DEPTH {
+            let z = siblings[i - 1];
+            siblings[i] = permutation::t2([z, z])[0] + z;
+        }
+        assert_eq(
+            compute_merkle_root(42, 0x3fffffff, siblings),
+            8681078643248731987102801048859489699394444732609855604762246462566736518650,
+        );
+        assert_eq(
+            compute_merkle_root(42, 0x2aaaaaaa, siblings),
+            17710399952573085898652084252468476846503314602102689430715331650630327591991,
+        );
+    }
+
     #[test(should_fail_with = "leaf_index must not be zero")]
     fn test_compute_merkle_root_rejects_zero_index() {
         let _ = compute_merkle_root(123, 0, [0; MERKLE_DEPTH]);

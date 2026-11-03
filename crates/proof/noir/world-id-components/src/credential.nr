@@ -38,10 +38,11 @@ fn checked_u64(value: Field) -> u64 {
 }
 
 /// Proves that the Issuer issued the Credential to the World ID at `leaf_index` and that it
-/// is valid at `now`, and returns its claims.
+/// is valid at `now`, and returns its claims. Range-checks `now` itself, so callers may pass any
+/// field element.
 pub fn verify(
     public: CredentialPublic,
-    now: u32,
+    now: Field,
     leaf_index: Field,
     credential: CredentialInputs,
 ) -> [Field; MAX_CLAIMS] {
@@ -62,6 +63,7 @@ pub fn verify(
     ])[1];
     assert(credential.sig.verify(public.cred_pk, message), "invalid credential signature");
 
+    now.assert_max_bit_size::<32>();
     assert((now as u64) < checked_u64(credential.expires_at), "credential expired");
     assert(
         checked_u64(public.genesis_issued_at_min) <= checked_u64(credential.genesis_issued_at),
