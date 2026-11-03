@@ -148,9 +148,17 @@ pub fn check_ownership_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::ValueMustNotBeZero { name: "context" });
     }
 
-    // 2. Leaf index `0` is reserved in the `WorldIDRegistry` and rejected by the circuit.
-    if inputs.inclusion_proof.leaf_index == 0 {
+    // 2. The circuit requires `0 < leaf_index < 2^30`; leaf `0` is reserved in the `WorldIDRegistry`.
+    let leaf_index = inputs.inclusion_proof.leaf_index;
+    if leaf_index == 0 {
         return Err(ProofInputError::ValueMustNotBeZero { name: "leaf_index" });
+    }
+    if leaf_index >= 1 << TREE_DEPTH {
+        return Err(ProofInputError::ValueOutOfBounds {
+            name: "leaf_index",
+            is: leaf_index.into(),
+            limit: (1u64 << TREE_DEPTH).into(),
+        });
     }
 
     // 3. The commitment being proven must match the leaf index and blinder it is derived from.
@@ -437,6 +445,21 @@ mod input_validation_tests {
         assert!(matches!(
             err,
             ProofInputError::ValueMustNotBeZero { name: "context" }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_leaf_index_beyond_the_tree() {
+        let mut input = ownership_proof_fixture();
+        input.inclusion_proof.leaf_index = 1 << TREE_DEPTH;
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::ValueOutOfBounds {
+                name: "leaf_index",
+                ..
+            }
         ));
     }
 

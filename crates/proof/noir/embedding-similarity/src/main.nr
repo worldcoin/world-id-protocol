@@ -104,7 +104,7 @@ fn main(
     // 6. Credential verification.
     let claims = credential::verify(
         CredentialPublic { cred_pk, issuer_schema_id, issuer_version, genesis_issued_at_min },
-        now,
+        now as Field,
         leaf_index,
         inputs.credential,
     );

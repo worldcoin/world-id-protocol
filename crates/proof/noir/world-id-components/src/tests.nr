@@ -61,7 +61,7 @@ fn test_authentication_vector_rejects_other_message() {
 
 // SECTION: Credential Verification (WIP-202 fixture)
 
-global NOW: u32 = 1783446000;
+global NOW: Field = 1783446000;
 global CLAIM_0: Field =
     18221512155588497305747704225993744070660555059966222885154001906335959616602;
 
@@ -130,4 +130,14 @@ fn test_session_vector() {
 #[test(should_fail_with = "session_id must be nil or the session commitment")]
 fn test_session_vector_rejects_other_leaf_index() {
     session::verify(SESSION_ID, 2, 555);
+}
+
+#[test(should_fail_with = "call to assert_max_bit_size")]
+fn test_credential_rejects_a_now_beyond_32_bits() {
+    let _ = credential::verify(
+        credential_public(),
+        NOW + 0x100000000,
+        1,
+        credential_inputs(),
+    );
 }
