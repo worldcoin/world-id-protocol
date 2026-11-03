@@ -34,7 +34,7 @@ pub struct AccountInputs {
     pub user_pk: [PublicKey; NUM_KEYS],
     /// Index in `user_pk` of the key that signed `message`.
     pub pk_index: Field,
-    pub auth: Signature,
+    pub sig: Signature,
     /// Index of the World ID in the `WorldIDRegistry`.
     pub leaf_index: Field,
     /// Sibling nodes from `leaf_index` upwards.

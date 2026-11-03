@@ -55,7 +55,7 @@ mod ownership_proof_prover {
         "nonce",
     ];
     const PRIVATE_KEYS: [&str; 2] = ["account", "commitment_blinder"];
-    const ACCOUNT_KEYS: [&str; 5] = ["auth", "leaf_index", "pk_index", "siblings", "user_pk"];
+    const ACCOUNT_KEYS: [&str; 5] = ["leaf_index", "pk_index", "siblings", "sig", "user_pk"];
 
     const HEADER: &str = "\
 # Prover.toml for the Ownership Proof circuit (WIP-103).
@@ -86,7 +86,7 @@ mod ownership_proof_prover {
         pk_index: String,
         leaf_index: String,
         siblings: Vec<String>,
-        auth: Signature,
+        sig: Signature,
         user_pk: Vec<PublicKey>,
     }
 
@@ -174,11 +174,11 @@ mod ownership_proof_prover {
                 }
             })
             .collect();
-        let auth = table(account, "auth");
-        let auth_r = array(auth, "r")
+        let sig = table(account, "sig");
+        let sig_r = array(sig, "r")
             .iter()
             .enumerate()
-            .map(|(index, coordinate)| decimal(coordinate, &format!("auth.r[{index}]")))
+            .map(|(index, coordinate)| decimal(coordinate, &format!("sig.r[{index}]")))
             .collect();
 
         let siblings = array(account, "siblings")
@@ -198,9 +198,9 @@ mod ownership_proof_prover {
                     pk_index: field(account, "pk_index"),
                     leaf_index: field(account, "leaf_index"),
                     siblings,
-                    auth: Signature {
-                        s: field(auth, "s"),
-                        r: auth_r,
+                    sig: Signature {
+                        s: field(sig, "s"),
+                        r: sig_r,
                     },
                     user_pk,
                 },

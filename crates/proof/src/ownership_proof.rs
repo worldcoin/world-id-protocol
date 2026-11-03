@@ -330,20 +330,20 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
             InputValue::Field(NoirElement::from(self.key_index)),
         );
 
-        // auth: Signature { s, r }. `s` is a babyjubjub scalar → bn254 scalar via big-endian bytes,
+        // sig: Signature { s, r }. `s` is a babyjubjub scalar → bn254 scalar via big-endian bytes,
         // `r` is the point (x, y).
         let s_native =
             ark_bn254::Fr::from_be_bytes_mod_order(&self.signature.s.into_bigint().to_bytes_be());
-        let mut auth = BTreeMap::new();
-        auth.insert("s".into(), InputValue::Field(to_noir_element(s_native)));
-        auth.insert(
+        let mut sig = BTreeMap::new();
+        sig.insert("s".into(), InputValue::Field(to_noir_element(s_native)));
+        sig.insert(
             "r".into(),
             InputValue::Vec(vec![
                 InputValue::Field(to_noir_element(self.signature.r.x)),
                 InputValue::Field(to_noir_element(self.signature.r.y)),
             ]),
         );
-        account.insert("auth".into(), InputValue::Struct(auth));
+        account.insert("sig".into(), InputValue::Struct(sig));
 
         let siblings: Vec<InputValue> = self
             .inclusion_proof

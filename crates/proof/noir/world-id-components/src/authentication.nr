@@ -19,6 +19,6 @@ pub fn verify(merkle_root: Field, message: Field, account: AccountInputs) -> Fie
     );
 
     // Inactive slots are the identity, which signature verification rejects.
-    assert(account.auth.verify(pk, message), "invalid authorization signature");
+    assert(account.sig.verify(pk, message), "invalid authorization signature");
     account.leaf_index
 }

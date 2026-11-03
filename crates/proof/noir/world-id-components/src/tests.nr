@@ -43,7 +43,7 @@ fn account() -> AccountInputs {
     AccountInputs {
         user_pk,
         pk_index: 0,
-        auth: AUTH_SIG,
+        sig: AUTH_SIG,
         leaf_index: 1,
         siblings: empty_subtree_siblings(),
     }

@@ -119,7 +119,7 @@ mod tests {
             account: AccountInputs {
                 user_pk,
                 pk_index: 0,
-                auth: Signature { s: QUERY_S, r: QUERY_R },
+                sig: Signature { s: QUERY_S, r: QUERY_R },
                 leaf_index: LEAF_INDEX,
                 siblings: SIBLINGS,
             },
@@ -263,7 +263,7 @@ mod tests {
     #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_tampered_signature_s() {
         let mut inputs = fixture_inputs();
-        inputs.account.auth.s = QUERY_S + 1;
+        inputs.account.sig.s = QUERY_S + 1;
         main(
             merkle_root_of(inputs),
             NONCE,
@@ -277,7 +277,7 @@ mod tests {
     #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_wrong_signature_r() {
         let mut inputs = fixture_inputs();
-        inputs.account.auth.r = [PK.x, PK.y];
+        inputs.account.sig.r = [PK.x, PK.y];
         main(
             merkle_root_of(inputs),
             NONCE,
@@ -291,7 +291,7 @@ mod tests {
     #[test(should_fail_with = "Point is not on the BabyJubJub curve")]
     fn test_main_rejects_off_curve_signature_r() {
         let mut inputs = fixture_inputs();
-        inputs.account.auth.r = [QUERY_R[1], QUERY_R[0]];
+        inputs.account.sig.r = [QUERY_R[1], QUERY_R[0]];
         main(
             merkle_root_of(inputs),
             NONCE,
@@ -307,7 +307,7 @@ mod tests {
     #[test(should_fail_with = "call to assert_max_bit_size")]
     fn test_main_rejects_non_canonical_signature_s() {
         let mut inputs = fixture_inputs();
-        inputs.account.auth.s = QUERY_S + BABYJUBJUB_FR;
+        inputs.account.sig.s = QUERY_S + BABYJUBJUB_FR;
         main(
             merkle_root_of(inputs),
             NONCE,
@@ -321,8 +321,8 @@ mod tests {
     #[test(should_fail_with = "invalid authorization signature")]
     fn test_main_rejects_empty_signature() {
         let mut inputs = fixture_inputs();
-        inputs.account.auth.s = 0;
-        inputs.account.auth.r = [UNUSED_KEY.x, UNUSED_KEY.y];
+        inputs.account.sig.s = 0;
+        inputs.account.sig.r = [UNUSED_KEY.x, UNUSED_KEY.y];
         main(
             merkle_root_of(inputs),
             NONCE,
