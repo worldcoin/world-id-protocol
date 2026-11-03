@@ -403,6 +403,7 @@ jobs:
 
   docker:
     name: Test Docker build
+    needs: build-contracts
     runs-on:
       group: arc-public-8xlarge-amd64-runner
     strategy:
@@ -450,9 +451,31 @@ jobs:
           docker compose up -d
           sleep 5
 
+      - name: Install Foundry
+        if: matrix.service == 'indexer'
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
+        with:
+          version: 1.7.1
+
+      - name: Download compiled contracts
+        if: matrix.service == 'indexer'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
+        with:
+          name: contract-build-output
+          path: contracts/out/
+
+      - name: Set up indexer smoke contracts
+        if: matrix.service == 'indexer'
+        run: bash .github/scripts/setup-indexer-smoke.sh
+
       - name: Run Docker container
         run: |
-          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env LISTEN_ADDR=0.0.0.0:8080 ${{ matrix.service == 'gateway' && '--env REGISTRY_VERSION=v1' || '--env RUN_MODE=http-only' }} --env RPC_MAX_RETRIES=0 --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
+          if [[ '${{ matrix.service }}' == 'indexer' ]]; then
+            service_env=(--env RUN_MODE=http-only --env RPC_URL --env REGISTRY_ADDRESS --env VERIFIER_ADDRESS --env TREE_DEPTH)
+          else
+            service_env=(--env REGISTRY_VERSION=v1)
+          fi
+          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env LISTEN_ADDR=0.0.0.0:8080 "${service_env[@]}" --env RPC_MAX_RETRIES=0 --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
 
           # Wait for the application to start
           sleep 10

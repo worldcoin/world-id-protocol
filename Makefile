@@ -59,6 +59,7 @@ sol-build:
 	mkdir -p ../crates/registries/abi ../crates/issuer/abi ../services/oprf-node/abi && \
 	forge inspect WorldIDRegistry abi --json > ../crates/registries/abi/WorldIDRegistryAbi.json && \
 	forge inspect WorldIDRegistryV2 abi --json > ../crates/registries/abi/WorldIDRegistryV2Abi.json && \
+	forge inspect WorldIDVerifierV2 abi --json > ../crates/registries/abi/WorldIDVerifierV2Abi.json && \
 	forge inspect CredentialSchemaIssuerRegistry abi --json > ../crates/issuer/abi/CredentialSchemaIssuerRegistryAbi.json && \
 	forge inspect CredentialSchemaIssuerRegistry abi --json > ../services/oprf-node/abi/CredentialSchemaIssuerRegistryAbi.json && \
 	forge inspect RpRegistry abi --json > ../services/oprf-node/abi/RpRegistryAbi.json

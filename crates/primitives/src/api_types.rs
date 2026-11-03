@@ -392,6 +392,83 @@ impl GatewayRequestState {
     }
 }
 
+/// Public inputs and proof to verify against the configured World ID verifier.
+///
+/// RPs must supply their expected request parameters and enforce nonce consumption and
+/// nullifier uniqueness themselves. Verification does not consume the proof.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[cfg(feature = "protocol")]
+pub struct IndexerVerifyRequest {
+    /// Registered RP identifier, as a decimal or hex numeric string.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub rp_id: u64,
+    /// Expected request nonce.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub nonce: U256,
+    /// Expected signal hash, reduced to the circuit field.
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub signal_hash: U256,
+    /// Credential expiration lower bound used in the proof.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub expires_at_min: u64,
+    /// Expected credential issuer and schema identifier.
+    #[serde(with = "hex_u64")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub issuer_schema_id: u64,
+    /// Expected minimum credential genesis issuance time (zero if unconstrained).
+    #[serde(with = "hex_u256")]
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub credential_genesis_issued_at_min: U256,
+    /// Compressed proof including the registry root, in the protocol's hex encoding.
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub proof: crate::proof::ZeroKnowledgeProof,
+    /// Inputs specific to the requested proof type.
+    #[serde(flatten)]
+    pub verification: IndexerVerifyInputs,
+}
+
+/// Inputs for the verifier's uniqueness and session entry points.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(tag = "proof_type", rename_all = "snake_case")]
+#[cfg(feature = "protocol")]
+pub enum IndexerVerifyInputs {
+    /// Verify an unbound uniqueness proof.
+    Uniqueness {
+        /// Nullifier returned by the authenticator.
+        #[serde(with = "hex_u256")]
+        #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+        nullifier: U256,
+        /// Expected action hash, reduced to the circuit field.
+        #[serde(with = "hex_u256")]
+        #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+        action: U256,
+    },
+    /// Verify a session proof.
+    Session {
+        /// Expected session commitment passed to the contract (not the opaque session token).
+        #[serde(with = "hex_u256")]
+        #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+        session_id: U256,
+        /// Opaque `snil_` session nullifier returned by the authenticator.
+        #[cfg_attr(feature = "openapi", schema(value_type = String))]
+        session_nullifier: crate::SessionNullifier,
+    },
+}
+
+/// Successful protocol verification; does not imply the proof has not been used before.
+#[derive(Debug, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerVerifyResponse {
+    /// Whether the configured verifier accepted the supplied proof and public inputs.
+    pub valid: bool,
+}
+
 /// Request to fetch a packed account index from the indexer.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -561,6 +638,8 @@ pub struct IsValidRootResponse {
 pub enum IndexerErrorCode {
     /// Internal server error occurred in the indexer.
     InternalServerError,
+    /// The proof or its public inputs were rejected by the verifier.
+    InvalidProof,
     /// Requested resource was not found.
     NotFound,
     /// The provided leaf index is invalid.

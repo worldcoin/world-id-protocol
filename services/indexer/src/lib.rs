@@ -11,7 +11,7 @@ use alloy::{primitives::Address, providers::DynProvider};
 use futures_util::StreamExt;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
 use tracing::instrument;
-use world_id_registries::world_id::WorldIdRegistry;
+use world_id_registries::{world_id::WorldIdRegistry, world_id_verifier::WorldIdVerifier};
 
 // re-exports
 pub use config::GlobalConfig;
@@ -84,14 +84,16 @@ async fn tree_sync_loop(
 async fn start_http_server(
     http_provider: DynProvider,
     registry_address: Address,
+    verifier_address: Address,
     addr: SocketAddr,
     db: DB,
     tree_state: tree::TreeState,
     request_timeout_secs: u64,
 ) -> eyre::Result<()> {
-    let registry = WorldIdRegistry::new(registry_address, http_provider);
+    let registry = WorldIdRegistry::new(registry_address, http_provider.clone());
+    let verifier = WorldIdVerifier::new(verifier_address, http_provider);
     let router = routes::handler(
-        AppState::new(db, Arc::new(registry), tree_state),
+        AppState::new(db, Arc::new(registry), tree_state, Arc::new(verifier)),
         request_timeout_secs,
     );
     tracing::info!(%addr, "HTTP server listening");
@@ -107,6 +109,31 @@ async fn start_http_server(
             source,
             backtrace: Backtrace::capture().to_string(),
         })?;
+    Ok(())
+}
+
+/// Validate the verifier before starting HTTP, indexing or sanity-check tasks.
+async fn validate_verifier(
+    provider: DynProvider,
+    verifier_address: Address,
+    registry_address: Address,
+    timeout_secs: u64,
+) -> eyre::Result<()> {
+    let verifier = WorldIdVerifier::new(verifier_address, provider);
+    // This getter requires an initialized proxy: a registry, EOA or bare implementation
+    // cannot satisfy it. Also reject a verifier configured for a different registry.
+    let registry = tokio::time::timeout(
+        Duration::from_secs(timeout_secs),
+        verifier.getWorldIDRegistry().call(),
+    )
+    .await
+    .map_err(|_| eyre::eyre!("Timed out validating VERIFIER_ADDRESS {verifier_address}"))?
+    .map_err(|error| eyre::eyre!("Invalid VERIFIER_ADDRESS {verifier_address}: {error}"))?;
+    if registry != registry_address {
+        eyre::bail!(
+            "VERIFIER_ADDRESS {verifier_address} uses registry {registry}, expected {registry_address}"
+        );
+    }
     Ok(())
 }
 
@@ -207,6 +234,14 @@ async fn run_http_only(
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
 ) -> eyre::Result<()> {
+    validate_verifier(
+        http_provider.clone(),
+        http_cfg.verifier_address,
+        registry_address,
+        http_cfg.request_timeout_secs,
+    )
+    .await?;
+
     // Start tree sync loop
     let sync_pool = db.clone();
     let sync_interval = http_cfg.db_poll_interval_secs;
@@ -234,12 +269,14 @@ async fn run_http_only(
     };
 
     // Start HTTP server
+    let verifier_address = http_cfg.verifier_address;
     let http_addr = http_cfg.http_addr;
     let request_timeout_secs = http_cfg.request_timeout_secs;
     let http_handle = tokio::spawn(async move {
         start_http_server(
             http_provider,
             registry_address,
+            verifier_address,
             http_addr,
             db,
             tree_state,
@@ -275,11 +312,20 @@ async fn run_both(
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
 ) -> eyre::Result<()> {
+    validate_verifier(
+        http_provider.clone(),
+        http_cfg.verifier_address,
+        registry_address,
+        http_cfg.request_timeout_secs,
+    )
+    .await?;
+
     // --- Start HTTP server + sanity check ---
     let http_tree_state = tree_state.clone();
     let sanity_tree_state = tree_state.clone();
 
     let http_pool = db.clone();
+    let verifier_address = http_cfg.verifier_address;
     let http_addr = http_cfg.http_addr;
     let request_timeout_secs = http_cfg.request_timeout_secs;
     let http_provider_clone = http_provider.clone();
@@ -289,6 +335,7 @@ async fn run_both(
         start_http_server(
             http_provider_clone,
             registry_address,
+            verifier_address,
             http_addr,
             http_pool,
             http_tree_state,
