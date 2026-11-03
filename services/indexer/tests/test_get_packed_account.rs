@@ -1,4 +1,5 @@
 #![cfg(feature = "integration-tests")]
+#![recursion_limit = "256"]
 
 mod helpers;
 use helpers::common::{TestSetup, query_count};
@@ -33,6 +34,7 @@ fn indexer_config(setup: &TestSetup, http_addr: &str) -> GlobalConfig {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: http_addr.parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,

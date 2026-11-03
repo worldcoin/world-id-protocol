@@ -187,7 +187,8 @@ impl DevClient for WorldIdRpDevClient {
 
         let request_id = Uuid::new_v4();
         let action = proof_request
-            .action
+            .proof_type
+            .action()
             .unwrap_or_else(|| FieldElement::random_with_prefix(rng, OprfPrefix::SessionAction));
         let query_hash = world_id_primitives::authenticator::oprf_query_digest(
             leaf_index,
@@ -292,7 +293,11 @@ fn create_proof_request<R: Rng + CryptoRng>(
             rng.fill(&mut bytes[1..]);
             bytes[0] = 0x00;
             let a = FieldElement::from_be_bytes(&bytes).expect("Works");
-            (ProofType::Uniqueness, Some(*a), SessionRef::None)
+            (
+                ProofType::Uniqueness { action: a },
+                Some(*a),
+                SessionRef::None,
+            )
         }
         OprfModule::Session => {
             // Session RP signature does NOT include action
@@ -331,7 +336,6 @@ fn create_proof_request<R: Rng + CryptoRng>(
         rp_id: setup.rp_id,
         oprf_key_id: OprfKeyId::from(setup.rp_id.into_inner()),
         session_id,
-        action: action.map(FieldElement::from),
         signature,
         nonce: FieldElement::from(nonce),
         requests: vec![RequestItem {

@@ -1,4 +1,5 @@
 #![cfg(feature = "integration-tests")]
+#![recursion_limit = "256"]
 
 mod helpers;
 use helpers::common::{TestSetup, query_count};
@@ -38,6 +39,7 @@ async fn test_get_authenticators_returns_slots_from_one_account_state() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8110".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,

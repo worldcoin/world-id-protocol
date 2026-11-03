@@ -1,4 +1,5 @@
 #![cfg(feature = "authenticator")]
+#![recursion_limit = "256"]
 
 use alloy::primitives::U256;
 use backon::{ExponentialBuilder, Retryable};

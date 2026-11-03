@@ -57,10 +57,8 @@ fn test_generate_message_is_not_symmetric() {
     assert(generate_message(1, 100, 7) != generate_message(1, 7, 100));
 }
 
-use world_id_components::constants::DS_CREDENTIAL_SUB;
-
 #[test]
 fn test_commitment_and_message_are_domain_separated() {
     assert(generate_commitment(1, 100) != generate_message(1, 100, 0));
-    assert(DS_CREDENTIAL_SUB != DS_WIP_103);
+    assert(world_id_components::constants::DS_CREDENTIAL_SUB != DS_WIP_103);
 }

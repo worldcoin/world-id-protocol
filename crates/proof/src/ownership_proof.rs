@@ -330,20 +330,20 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
             InputValue::Field(NoirElement::from(self.key_index)),
         );
 
-        // auth: Signature { s, r }. `s` is a babyjubjub scalar → bn254 scalar via big-endian bytes,
+        // sig: Signature { s, r }. `s` is a babyjubjub scalar → bn254 scalar via big-endian bytes,
         // `r` is the point (x, y).
         let s_native =
             ark_bn254::Fr::from_be_bytes_mod_order(&self.signature.s.into_bigint().to_bytes_be());
-        let mut auth = BTreeMap::new();
-        auth.insert("s".into(), InputValue::Field(to_noir_element(s_native)));
-        auth.insert(
+        let mut sig = BTreeMap::new();
+        sig.insert("s".into(), InputValue::Field(to_noir_element(s_native)));
+        sig.insert(
             "r".into(),
             InputValue::Vec(vec![
                 InputValue::Field(to_noir_element(self.signature.r.x)),
                 InputValue::Field(to_noir_element(self.signature.r.y)),
             ]),
         );
-        account.insert("auth".into(), InputValue::Struct(auth));
+        account.insert("sig".into(), InputValue::Struct(sig));
 
         let siblings: Vec<InputValue> = self
             .inclusion_proof
@@ -487,6 +487,24 @@ mod tests {
 
     use crate::fixtures::ownership_proof_fixture;
     use world_id_primitives::Credential;
+
+    #[test]
+    fn test_ownership_artifacts_bind_public_input_count() {
+        let artifacts = EmbeddedZkArtifacts;
+        let prover = artifacts.ownership_prover().expect("embedded prover loads");
+        let verifier = artifacts
+            .ownership_verifier()
+            .expect("embedded verifier loads");
+
+        // ProveKit 1.0.2 artifacts recorded zero here despite the circuit's public inputs.
+        // Both keys must be regenerated with 1.0.3 for its stricter verifier checks to pass.
+        assert_eq!(prover.r1cs.num_public_inputs, 4);
+        assert_eq!(verifier.r1cs.num_public_inputs, 4);
+        let r1cs_hash = prover.r1cs.hash();
+        assert_eq!(verifier.r1cs.hash(), r1cs_hash);
+        assert_eq!(prover.whir_for_witness.r1cs_hash, r1cs_hash);
+        assert_eq!(verifier.whir_for_witness.unwrap().r1cs_hash, r1cs_hash);
+    }
 
     /// A valid proof together with its `(nonce, expected_commitment, context)` public inputs.
     fn generate_valid_ownership_proof_fixture()

@@ -46,7 +46,7 @@ jobs:
 
       - name: Install Foundry
         if: steps.cache-contracts.outputs.cache-hit != 'true'
-        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.2
         with:
           version: 1.7.1
 
@@ -108,7 +108,7 @@ jobs:
           components: clippy
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.3
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
@@ -161,7 +161,7 @@ jobs:
           toolchain: v1.0.0-beta.26
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.3
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
@@ -202,7 +202,7 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.3
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
@@ -219,7 +219,7 @@ jobs:
           toolchain: v1.0.0-beta.26
 
       - name: Install cargo-hack
-        uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31 https://github.com/taiki-e/install-action/releases/tag/v2.87.31
         with:
           tool: cargo-hack
 
@@ -261,14 +261,14 @@ jobs:
           toolchain: ${{ matrix.toolchain }}
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.3
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.2
         with:
           version: 1.7.1
         # Anvil is used for integration tests
@@ -290,7 +290,7 @@ jobs:
           path: contracts/out
 
       - name: Install cargo-nextest
-        uses: taiki-e/install-action@e24b8b7a939c6a537188f34a4163cb153dd85cf6 # v2.69.1 https://github.com/taiki-e/install-action/releases/tag/v2.69.1
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31 https://github.com/taiki-e/install-action/releases/tag/v2.87.31
         with:
           tool: cargo-nextest
 
@@ -331,14 +331,14 @@ jobs:
           toolchain: stable
 
       - name: Cache Cargo dependencies
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3 https://github.com/Swatinem/rust-cache/releases/tag/v2.9.3
         with:
           # PR runs restore from main but must not save: each PR otherwise writes ~9 GB
           # of merge-ref-scoped caches, and repo-wide LRU eviction flushes everything else.
           save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Foundry
-        uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1.9.1 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.1
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2 https://github.com/foundry-rs/foundry-toolchain/releases/tag/v1.9.2
         with:
           version: 1.7.1
 
@@ -403,6 +403,7 @@ jobs:
 
   docker:
     name: Test Docker build
+    needs: build-contracts
     runs-on:
       group: arc-public-8xlarge-amd64-runner
     strategy:
@@ -450,9 +451,31 @@ jobs:
           docker compose up -d
           sleep 5
 
+      - name: Install Foundry
+        if: matrix.service == 'indexer'
+        uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1.9.2
+        with:
+          version: 1.7.1
+
+      - name: Download compiled contracts
+        if: matrix.service == 'indexer'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0 https://github.com/actions/download-artifact/releases/tag/v4.3.0
+        with:
+          name: contract-build-output
+          path: contracts/out/
+
+      - name: Set up indexer smoke contracts
+        if: matrix.service == 'indexer'
+        run: bash .github/scripts/setup-indexer-smoke.sh
+
       - name: Run Docker container
         run: |
-          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env LISTEN_ADDR=0.0.0.0:8080 ${{ matrix.service == 'gateway' && '--env REGISTRY_VERSION=v1' || '--env RUN_MODE=http-only' }} --env RPC_MAX_RETRIES=0 --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
+          if [[ '${{ matrix.service }}' == 'indexer' ]]; then
+            service_env=(--env RUN_MODE=http-only --env RPC_URL --env REGISTRY_ADDRESS --env VERIFIER_ADDRESS --env TREE_DEPTH)
+          else
+            service_env=(--env REGISTRY_VERSION=v1)
+          fi
+          docker run -d --network host --env-file services/${{ matrix.service }}/.env.example --env LISTEN_ADDR=0.0.0.0:8080 "${service_env[@]}" --env RPC_MAX_RETRIES=0 --name ${{ matrix.service }}-container ${{ matrix.service }}:latest
 
           # Wait for the application to start
           sleep 10

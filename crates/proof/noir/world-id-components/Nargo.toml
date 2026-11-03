@@ -1,7 +1,7 @@
 [package]
 name = "world_id_components"
 type = "lib"
-description = "World ID protocol components (WIP-100 Protocol Components): World ID Authentication, Credential Verification and Session Commitment."
+description = "World ID circuit components (WIP-100 Circuit Components): World ID Authentication, Credential Verification and Session Commitment."
 authors = ["@kilianglas", "@dkales", "@paolodamico"]
 license = "MIT"
 

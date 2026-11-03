@@ -5,7 +5,8 @@ use world_id_primitives::api_types::{
     AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse,
     IndexerAuthenticatorsResponse, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
     IndexerPendingRecoveryAgentResponse, IndexerQueryRequest, IndexerRecoveryAgentResponse,
-    IndexerSignatureNonceResponse,
+    IndexerSignatureNonceResponse, IndexerVerifyInputs, IndexerVerifyRequest,
+    IndexerVerifyResponse,
 };
 use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
@@ -18,6 +19,7 @@ mod get_recovery_agent;
 mod get_signature_nonce;
 mod health;
 mod inclusion_proof;
+mod verify;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -29,6 +31,7 @@ mod inclusion_proof;
         get_recovery_agent::handler,
         get_pending_recovery_agent::handler,
         inclusion_proof::handler,
+        verify::handler,
     ),
     components(schemas(
         IndexerAuthenticatorPubkeysResponse,
@@ -41,6 +44,9 @@ mod inclusion_proof;
         IndexerPendingRecoveryAgentResponse,
         AccountInclusionProofSchema,
         IndexerErrorBody,
+        IndexerVerifyInputs,
+        IndexerVerifyRequest,
+        IndexerVerifyResponse,
     )),
     tags(
         (name = "indexer", description = "World ID Indexer. Provides Merkle inclusion proofs and account information from the on-chain registry.")
@@ -54,6 +60,7 @@ async fn openapi() -> impl IntoResponse {
 
 pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
     Router::new()
+        .route("/verify", axum::routing::post(verify::handler))
         .route(
             "/inclusion-proof",
             axum::routing::post(inclusion_proof::handler),
