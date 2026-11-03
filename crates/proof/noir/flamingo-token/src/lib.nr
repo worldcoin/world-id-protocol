@@ -12,19 +12,27 @@ pub global MAX_COMPARED: u32 = 4;
 /// Flamingo Token digest (`DS_WIP_201`): b"WORLD-ID/WIP-201/SIGN".
 pub global DS_WIP_201: Field = 127603488023523044162070750169730750022280897185614;
 
-/// The token values a consuming circuit takes as public inputs.
+/// The token values a consuming circuit takes as public inputs. The library range-checks every
+/// value to its claim width itself, so callers may pass any field element.
 pub struct FlamingoTokenPublic {
     pub verifier_key: PublicKey,
-    pub now: u32,
+    /// 32-bit.
+    pub now: Field,
     pub aud: Field,
     pub nonce: Field,
-    pub has_aat: bool,
+    /// `0` or `1`.
+    pub has_aat: Field,
     pub trust_anchor_key_hash: Field,
-    pub platform: u8,
-    pub sec_level: u8,
-    pub sec_meta: u8,
-    pub authenticator_meta: u8,
-    pub min_build_version: u32,
+    /// 8-bit.
+    pub platform: Field,
+    /// 8-bit.
+    pub sec_level: Field,
+    /// 4-bit.
+    pub sec_meta: Field,
+    /// 5-bit; its `user_presence` bits 0-2 are below 5.
+    pub authenticator_meta: Field,
+    /// 32-bit.
+    pub min_build_version: Field,
     pub engine_config_hash: Field,
 }
 
@@ -32,30 +40,45 @@ pub struct FlamingoTokenPublic {
 pub struct FlamingoTokenClaims {
     /// `compared_entry_hash_k`, `0` past the last compared entry.
     pub compared_entry_hashes: [Field; MAX_COMPARED],
-    pub compare_sources: u32,
+    /// 32-bit.
+    pub compare_sources: Field,
     /// The WIP-107 billing nullifier, or `0` for an RP that is not billed.
     pub billing_nullifier: Field,
 }
 
+/// Check 3's widths: every integer claim is range-checked here, not by the caller's types.
+fn check_widths(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
+    public.now.assert_max_bit_size::<32>();
+    assert(public.has_aat * (public.has_aat - 1) == 0, "has_aat must be 0 or 1");
+    public.platform.assert_max_bit_size::<8>();
+    public.sec_level.assert_max_bit_size::<8>();
+    public.sec_meta.assert_max_bit_size::<8>();
+    assert((public.sec_meta as u8) < 16, "sec_meta exceeds 4 bits");
+    public.authenticator_meta.assert_max_bit_size::<8>();
+    let authenticator_meta = public.authenticator_meta as u8;
+    assert(authenticator_meta < 32, "authenticator_meta exceeds 5 bits");
+    assert((authenticator_meta & 7) < 5, "user_presence values 5 to 7 are reserved");
+    public.min_build_version.assert_max_bit_size::<32>();
+    claims.compare_sources.assert_max_bit_size::<32>();
+}
+
 /// `aat_flags`: the TAKT's `sec_flags` layout with `min_build_version` in bits 16-47 and
-/// `authenticator_meta` in bits 52-56. Range-checks the sub-fields (check 3).
-pub fn aat_flags(public: FlamingoTokenPublic) -> Field {
-    assert(public.sec_meta < 16, "sec_meta exceeds 4 bits");
-    assert(public.authenticator_meta < 32, "authenticator_meta exceeds 5 bits");
-    assert((public.authenticator_meta & 7) < 5, "user_presence values 5 to 7 are reserved");
-    public.platform as Field
-        + 0x100 * public.sec_level as Field
-        + 0x10000 * public.min_build_version as Field
-        + 0x1000000000000 * public.sec_meta as Field
-        + 0x10000000000000 * public.authenticator_meta as Field
+/// `authenticator_meta` in bits 52-56. Assumes the widths [`check_widths`] enforces.
+fn aat_flags(public: FlamingoTokenPublic) -> Field {
+    public.platform
+        + 0x100 * public.sec_level
+        + 0x10000 * public.min_build_version
+        + 0x1000000000000 * public.sec_meta
+        + 0x10000000000000 * public.authenticator_meta
 }
 
 /// The signed digest (WIP-201 §4.5): `H_16(DS_WIP_201; ...)` over the 13 claims.
 pub fn digest(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) -> Field {
+    check_widths(public, claims);
     let h = claims.compared_entry_hashes;
     permutation::t16([
         DS_WIP_201,
-        public.now as Field,
+        public.now,
         h[0],
         h[1],
         h[2],
@@ -64,8 +87,8 @@ pub fn digest(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) -> Field
         public.nonce,
         public.trust_anchor_key_hash,
         aat_flags(public),
-        public.has_aat as Field,
-        claims.compare_sources as Field,
+        public.has_aat,
+        claims.compare_sources,
         public.engine_config_hash,
         claims.billing_nullifier,
         0,
@@ -75,7 +98,7 @@ pub fn digest(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) -> Field
 
 /// Checks 2 (signature) and 3 (well-formed values), and returns the signed digest.
 pub fn verify(public: FlamingoTokenPublic, claims: FlamingoTokenClaims, sig: Signature) -> Field {
-    if !public.has_aat {
+    if public.has_aat == 0 {
         assert(
             (public.trust_anchor_key_hash == 0)
                 & (public.platform == 0)

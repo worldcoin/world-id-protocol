@@ -58,15 +58,15 @@ fn main(
     // 1. Flamingo Token verification; fixing the entries binds the Credential image and challenge.
     let public = FlamingoTokenPublic {
         verifier_key: flamingo_verifier_key,
-        now,
+        now: now as Field,
         aud: rp_id,
         nonce,
-        has_aat,
+        has_aat: has_aat as Field,
         trust_anchor_key_hash,
-        platform,
-        sec_level,
-        sec_meta,
-        authenticator_meta,
+        platform: platform as Field,
+        sec_level: sec_level as Field,
+        sec_meta: sec_meta as Field,
+        authenticator_meta: authenticator_meta as Field,
         // WIP-202 checks no Authenticator build version for now.
         min_build_version: 0,
         engine_config_hash,
@@ -79,7 +79,7 @@ fn main(
             challenge_hash,
             0,
         ],
-        compare_sources: COMPARE_SOURCES,
+        compare_sources: COMPARE_SOURCES as Field,
         billing_nullifier,
     };
     let digest = flamingo_token::verify(public, token_claims, inputs.token.sig);
@@ -118,6 +118,8 @@ fn main(
 
     // 7. Billing nullifier ownership: `0` means the RP is not billed, anything else must be this
     // World ID's WIP-107 nullifier for `rp_id`, recomputed as in the Uniqueness Proof.
+    // The OPRF output is not checked to be on the curve: registration verified it, and a wrong
+    // output only yields a nullifier the Verifier never signs (WIP-202 Rationale 8).
     let billing_query = permutation::t4([DS_QUERY, leaf_index, rp_id, inputs.billing_action])[1];
     let own_nullifier = permutation::t4([
         DS_OPRF_PROOF,

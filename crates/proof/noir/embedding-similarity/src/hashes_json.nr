@@ -94,6 +94,8 @@ pub fn thumbnail_digest(json: HashesJsonInputs) -> Field {
         assert(window[start + 1 + i] == THUMBNAIL_KEY[i], "thumbnail key mismatch");
     }
     // The 256-bit digest accumulated in the field is `R(d)`.
+    // Accumulating 256 bits in a field element reduces the digest mod p, which is exactly
+    // `R(SHA-256(image))`, the value WIP-201 stores in `compared_entry_hash_0`.
     let mut digest: Field = 0;
     for i in 0..DIGEST_HEX_LEN {
         digest = digest * 16 + hex_nibble(window[start + 18 + i]);

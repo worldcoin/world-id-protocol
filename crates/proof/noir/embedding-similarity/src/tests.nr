@@ -1,5 +1,5 @@
 use crate::{
-    constants::{CHUNK_BYTES, CHUNK_SLOTS},
+    constants::{CHUNK_BYTES, CHUNK_SLOTS, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES},
     hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
     test_fixtures::{
@@ -497,4 +497,69 @@ fn test_rejects_the_billing_nullifier_of_another_world_id() {
     i.token.sig = TOKEN_SIG_BILLED_OTHER_LEAF;
     i.account.sig = AUTH_SIG_BILLED_OTHER_LEAF;
     prove(public(), i);
+}
+
+// SECTION: thumbnail window and sponge bounds
+
+/// Packs the first `len` bytes of `bytes` into sponge chunks, the last one shorter.
+fn chunks_of_len<let N: u32>(bytes: [u8; N], len: u32) -> [Field; CHUNK_SLOTS] {
+    let mut chunks = [0; CHUNK_SLOTS];
+    for i in 0..N {
+        if i < len {
+            chunks[i / 31] = chunks[i / 31] * 256 + bytes[i] as Field;
+        }
+    }
+    chunks
+}
+
+/// `{"p":"<k filler bytes>","thumbnail.png":"<64 x f>"}`, with the entry's delimiter at `k + 7`.
+fn json_with_prefix(k: u32) -> ([u8; 160], u32) {
+    let head = "{\"p\":\"".as_bytes();
+    let entry = "\",\"thumbnail.png\":\"".as_bytes();
+    let mut json = [0; 160];
+    let mut n = 0;
+    for i in 0..6 {
+        json[n] = head[i];
+        n += 1;
+    }
+    for _ in 0..k {
+        json[n] = 120; // 'x'
+        n += 1;
+    }
+    for i in 0..19 {
+        json[n] = entry[i];
+        n += 1;
+    }
+    for _ in 0..64 {
+        json[n] = 102; // 'f'
+        n += 1;
+    }
+    json[n] = 34;
+    json[n + 1] = 125;
+    (json, n + 2)
+}
+
+/// Every position of the entry relative to the 31-byte chunks, including across a boundary.
+/// The all-`f` digest also shows the reduction mod p: `(2^256 - 1) mod p`.
+#[test]
+fn test_reads_the_thumbnail_at_every_chunk_offset() {
+    for k in 0..31 {
+        let (json, len) = json_with_prefix(k);
+        let digest = thumbnail_digest(
+            HashesJsonInputs { chunks: chunks_of_len(json, len), len, digest_offset: k + 25 },
+        );
+        assert_eq(
+            digest,
+            6350874878119819312338956282401532410528162663560392320966563075034087161850,
+        );
+    }
+}
+
+#[test]
+fn test_accepts_the_length_bounds() {
+    for len in [MIN_HASHES_JSON_BYTES, MAX_HASHES_JSON_BYTES] {
+        let _ = claims_hash_v1(
+            HashesJsonInputs { chunks: [0; CHUNK_SLOTS], len, digest_offset: 0 },
+        );
+    }
 }

@@ -20,7 +20,7 @@ fn public() -> FlamingoTokenPublic {
         now: 1783446000,
         aud: 1928118,
         nonce: 42,
-        has_aat: true,
+        has_aat: 1,
         trust_anchor_key_hash: 0x14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8,
         platform: 2,
         sec_level: 1,
@@ -33,7 +33,7 @@ fn public() -> FlamingoTokenPublic {
 
 fn public_without_aat() -> FlamingoTokenPublic {
     let mut p = public();
-    p.has_aat = false;
+    p.has_aat = 0;
     p.trust_anchor_key_hash = 0;
     p.platform = 0;
     p.sec_level = 0;
@@ -121,4 +121,34 @@ fn test_rejects_a_wide_sec_meta() {
     let mut p = public();
     p.sec_meta = 16;
     let _ = verify(p, claims(), SIG_WITH_AAT);
+}
+
+// SECTION: widths are checked here, so a caller's truncating cast cannot bypass them.
+
+#[test(should_fail_with = "call to assert_max_bit_size")]
+fn test_rejects_a_now_beyond_32_bits() {
+    let mut p = public();
+    p.now += 0x100000000;
+    let _ = verify(p, claims(), SIG_WITH_AAT);
+}
+
+#[test(should_fail_with = "has_aat must be 0 or 1")]
+fn test_rejects_a_non_boolean_has_aat() {
+    let mut p = public();
+    p.has_aat = 2;
+    let _ = verify(p, claims(), SIG_WITH_AAT);
+}
+
+#[test(should_fail_with = "call to assert_max_bit_size")]
+fn test_rejects_a_platform_beyond_8_bits() {
+    let mut p = public();
+    p.platform = 0x102;
+    let _ = verify(p, claims(), SIG_WITH_AAT);
+}
+
+#[test(should_fail_with = "call to assert_max_bit_size")]
+fn test_rejects_a_compare_sources_beyond_32_bits() {
+    let mut c = claims();
+    c.compare_sources += 0x100000000;
+    let _ = verify(public(), c, SIG_WITH_AAT);
 }
