@@ -44,14 +44,14 @@ pub enum ConstraintExpr<'a> {
 #[serde(deny_unknown_fields)]
 #[serde(untagged)]
 pub enum ConstraintNode<'a> {
-    /// Issuer schema id string
+    /// The `identifier` of a request item
     Type(Cow<'a, str>),
     /// Expressions
     Expr(ConstraintExpr<'a>),
 }
 
 impl ConstraintExpr<'_> {
-    /// Evaluate the constraint against a predicate that reports whether a issuer schema id was provided successfully
+    /// Evaluate the constraint against a predicate that reports whether the request item with an `identifier` was proven
     pub fn evaluate<F>(&self, has_type: &F) -> bool
     where
         F: Fn(&str) -> bool,
@@ -112,7 +112,6 @@ impl ConstraintExpr<'_> {
                             return false;
                         }
                     }
-                    true
                 }
                 ConstraintExpr::Any { any } => {
                     for n in any {
@@ -120,7 +119,6 @@ impl ConstraintExpr<'_> {
                             return false;
                         }
                     }
-                    true
                 }
                 ConstraintExpr::Enumerate { enumerate } => {
                     for n in enumerate {
@@ -128,9 +126,9 @@ impl ConstraintExpr<'_> {
                             return false;
                         }
                     }
-                    true
                 }
             }
+            true
         }
 
         fn count_node(node: &ConstraintNode<'_>, count: &mut usize, max_nodes: usize) -> bool {
