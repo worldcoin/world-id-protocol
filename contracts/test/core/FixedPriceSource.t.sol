@@ -3,15 +3,15 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {OwnerPriceSource} from "../../src/core/OwnerPriceSource.sol";
+import {FixedPriceSource} from "../../src/core/FixedPriceSource.sol";
 
-contract OwnerPriceSourceTest is Test {
-    OwnerPriceSource source;
+contract FixedPriceSourceTest is Test {
+    FixedPriceSource source;
     address owner = makeAddr("owner");
 
     function setUp() public {
         vm.warp(1_790_000_000);
-        source = new OwnerPriceSource(owner);
+        source = new FixedPriceSource(owner);
     }
 
     function test_Decimals() public view {
@@ -19,42 +19,46 @@ contract OwnerPriceSourceTest is Test {
     }
 
     function test_LatestRoundData_RevertsUntilSet() public {
-        vm.expectRevert(OwnerPriceSource.PriceNotSet.selector);
+        vm.expectRevert(FixedPriceSource.PriceNotSet.selector);
         source.latestRoundData();
     }
 
-    function test_SetPrice_RecordsRateAndTime() public {
-        uint256 setAt = vm.getBlockTimestamp();
+    function test_SetPrice_EmitsOldAndNewRate() public {
         vm.expectEmit(address(source));
-        emit OwnerPriceSource.PriceUpdated(1, 2e18, setAt);
+        emit FixedPriceSource.PriceUpdated(0, 2e18);
         vm.prank(owner);
         source.setPrice(2e18);
 
+        vm.expectEmit(address(source));
+        emit FixedPriceSource.PriceUpdated(2e18, 3e18);
+        vm.prank(owner);
+        source.setPrice(3e18);
+
+        (, int256 answer,,,) = source.latestRoundData();
+        assertEq(answer, 3e18);
+    }
+
+    /// @dev The rate is reported as observed now at every read, however long ago it was set.
+    function testFuzz_LatestRoundData_NeverStale(uint32 elapsed) public {
+        vm.prank(owner);
+        source.setPrice(2e18);
+
+        uint256 readAt = vm.getBlockTimestamp() + elapsed;
+        vm.warp(readAt);
         (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound) =
             source.latestRoundData();
         assertEq(roundId, 1);
         assertEq(answer, 2e18);
-        assertEq(startedAt, setAt);
-        assertEq(updatedAt, setAt);
+        assertEq(startedAt, readAt);
+        assertEq(updatedAt, readAt);
         assertEq(answeredInRound, 1);
-
-        vm.warp(setAt + 1 hours);
-        (,,, updatedAt,) = source.latestRoundData();
-        assertEq(updatedAt, setAt);
-
-        vm.prank(owner);
-        source.setPrice(3e18);
-        (roundId, answer,, updatedAt,) = source.latestRoundData();
-        assertEq(roundId, 2);
-        assertEq(answer, 3e18);
-        assertEq(updatedAt, setAt + 1 hours);
     }
 
     function test_SetPrice_RejectsInvalidPrice() public {
         vm.startPrank(owner);
-        vm.expectRevert(OwnerPriceSource.InvalidPrice.selector);
+        vm.expectRevert(FixedPriceSource.InvalidPrice.selector);
         source.setPrice(0);
-        vm.expectRevert(OwnerPriceSource.InvalidPrice.selector);
+        vm.expectRevert(FixedPriceSource.InvalidPrice.selector);
         source.setPrice(uint256(type(int256).max) + 1);
         source.setPrice(uint256(type(int256).max));
         vm.stopPrank();

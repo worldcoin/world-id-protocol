@@ -5,15 +5,15 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Ownable2Step} from "@openzeppelin/contracts/access/Ownable2Step.sol";
 import {IChainlinkAggregator} from "./interfaces/IChainlinkAggregator.sol";
 
-/// @title OwnerPriceSource
+/// @title FixedPriceSource
 /// @author World Contributors
-/// @notice WLD/USD rate set by the owner, scaled by 1e18, for the Billing Contract until the Data Streams adapter
-///  of WIP-107 §4.9 is deployed.
-/// @dev Not upgradeable: it holds only the latest rate, so it is replaced through `WorldIDBilling.setPriceSource`.
-///  `updatedAt` is the time the owner set the rate, so the Billing Contract's `maxPriceAge` is the maximum time
-///  between updates; purchases fail closed with `StalePrice` once it passes.
+/// @notice FOR TESTING ONLY. Fixed WLD/USD rate set by the owner, scaled by 1e18, for the Billing Contract until the
+///  Data Streams adapter of WIP-107 §4.9 is deployed.
+/// @dev Every read reports the current block time as `updatedAt`, so the rate never trips the Billing Contract's
+///  `maxPriceAge` and stays in force until the owner changes it. It therefore says nothing about the rate's age.
+///  Not upgradeable: it holds only the rate, so it is replaced through `WorldIDBilling.setPriceSource`.
 /// @custom:security-contact security@toolsforhumanity.com
-contract OwnerPriceSource is Ownable2Step, IChainlinkAggregator {
+contract FixedPriceSource is Ownable2Step, IChainlinkAggregator {
     ////////////////////////////////////////////////////////////
     //                        ERRORS                          //
     ////////////////////////////////////////////////////////////
@@ -28,7 +28,7 @@ contract OwnerPriceSource is Ownable2Step, IChainlinkAggregator {
     //                        EVENTS                          //
     ////////////////////////////////////////////////////////////
 
-    event PriceUpdated(uint80 indexed roundId, uint256 usdPerWld, uint256 updatedAt);
+    event PriceUpdated(uint256 oldUsdPerWld, uint256 newUsdPerWld);
 
     ////////////////////////////////////////////////////////////
     //                       CONSTANTS                        //
@@ -41,14 +41,8 @@ contract OwnerPriceSource is Ownable2Step, IChainlinkAggregator {
     //                        MEMBERS                         //
     ////////////////////////////////////////////////////////////
 
-    /// @dev Latest rate, USD per WLD scaled by 1e18; zero until the first `setPrice`.
+    /// @dev USD per WLD scaled by 1e18; zero until the first `setPrice`.
     int256 internal _answer;
-
-    /// @dev Time of the latest `setPrice`.
-    uint64 internal _updatedAt;
-
-    /// @dev Number of `setPrice` calls.
-    uint80 internal _roundId;
 
     constructor(address initialOwner) Ownable(initialOwner) {}
 
@@ -59,17 +53,14 @@ contract OwnerPriceSource is Ownable2Step, IChainlinkAggregator {
         view
         returns (uint80 roundId, int256 answer, uint256 startedAt, uint256 updatedAt, uint80 answeredInRound)
     {
-        if (_roundId == 0) revert PriceNotSet();
-        return (_roundId, _answer, _updatedAt, _updatedAt, _roundId);
+        if (_answer == 0) revert PriceNotSet();
+        return (1, _answer, block.timestamp, block.timestamp, 1);
     }
 
-    /// @notice Sets the USD per WLD rate, scaled by 1e18, observed now.
+    /// @notice Sets the fixed USD per WLD rate, scaled by 1e18.
     function setPrice(uint256 usdPerWld) external onlyOwner {
         if (usdPerWld == 0 || usdPerWld > uint256(type(int256).max)) revert InvalidPrice();
-        uint80 roundId = _roundId + 1;
+        emit PriceUpdated(uint256(_answer), usdPerWld);
         _answer = int256(usdPerWld);
-        _updatedAt = uint64(block.timestamp);
-        _roundId = roundId;
-        emit PriceUpdated(roundId, usdPerWld, block.timestamp);
     }
 }
