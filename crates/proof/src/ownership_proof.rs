@@ -445,7 +445,7 @@ mod input_validation_tests {
                 ]
             ),
             FieldElement::from_str(
-                "0x0574b3d43408903579cd25e90b560aa74fb096d4c65ce65c3b178fc9292032f4"
+                "0x2125296e4b6fd60e191076334d52688d10c2ada7b2ccd4610af289be1c973b41"
             )
             .unwrap()
         );
