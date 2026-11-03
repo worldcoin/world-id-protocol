@@ -12636,6 +12636,7 @@ dependencies = [
  "thiserror 2.0.18",
  "toml 1.0.6+spec-1.1.0",
  "tracing",
+ "world-id-flamingo",
  "world-id-primitives",
  "world-id-test-utils",
  "zeroize",

@@ -3,29 +3,36 @@
 //! the account, the PCP `hashes.json` and the PoH Credential, plus the signed variants the
 //! Noir tests need.
 //!
-//! The Flamingo Token reuses the WIP-201 test vectors, so its digests are pinned to the spec.
+//! The Flamingo Token digest comes from `world-id-flamingo` over the WIP-201 test vectors, and the
+//! billing nullifier from a real OPRF evaluation with `taceo-oprf`, so neither is re-implemented here.
 //! The Credential claim is computed by `Credential::claim` over the raw `hashes.json` bytes,
 //! so the circuit's sponge is checked against the Issuer's implementation.
 //! Regenerate with `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity`.
 
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
+use ark_ec::CurveGroup as _;
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use sha2::{Digest, Sha256};
+use taceo_oprf::core::oprf::{BlindedOprfResponse, BlindingFactor, client};
+use world_id_flamingo::{DS_SIGN, FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, Credential, DomainSeparator, FieldElement,
+    AuthenticatorPublicKeySet, Credential, DomainSeparator, FieldElement, TREE_DEPTH,
+    authenticator::oprf_query_digest,
+    merkle::MerkleInclusionProof,
     poseidon::{self, ds},
 };
 use world_id_test_utils::merkle::first_leaf_merkle_path;
 
-/// The WIP-201 digest runs at `t=16`, so the separator pins 15 inputs.
-const DS_WIP_201: DomainSeparator<15> = DomainSeparator::new(b"WORLD-ID/WIP-201/SIGN");
 const DS_WIP_202_AUTH: DomainSeparator<4> = DomainSeparator::new(b"WORLD-ID/WIP-202/AUTH");
 
-/// Chunk slots of the Noir `HashesJsonInputs` (`CHUNK_SLOTS`).
-const CHUNK_SLOTS: usize = 169;
+/// The Noir `hashes.json` bounds (`constants.nr`), pinned by `chunk_slots_match_the_noir_constants`.
+const MAX_HASHES_JSON_BYTES: usize = 5120;
 const CHUNK_BYTES: usize = 31;
+const WINDOW_CHUNKS: usize = 4;
+/// Chunk slots of the Noir `HashesJsonInputs`.
+const CHUNK_SLOTS: usize = MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES) + WINDOW_CHUNKS - 1;
 
 /// The `hashes.json` keys of a v3 PCP as written by orb-core, besides `version`.
 const PCP_V3_KEYS: [&str; 44] = [
@@ -108,9 +115,10 @@ const EXPIRES_AT: u32 = 1_900_000_000;
 const ISSUER_SCHEMA_ID: u64 = 4_242;
 const ISSUER_VERSION: u8 = 1;
 const CRED_ID: u64 = 7;
-/// A WIP-107 `billingAction` and unblinded OPRF output; constraint 7 does not check the OPRF.
+/// A WIP-107 `billingAction`, and the test OPRF key and blinding factor of the billing query.
 const BILLING_ACTION: u64 = 0x0b11;
-const BILLING_OPRF_OUTPUT: [u64; 2] = [0x0a, 0x0b];
+const OPRF_KEY: u64 = 0x0b11_1ab5;
+const BLINDING_FACTOR: u64 = 7;
 
 fn dec(element: impl Into<ark_babyjubjub::Fq>) -> String {
     element.into().into_bigint().to_string()
@@ -188,34 +196,46 @@ fn token_digest(
     compared: [FieldElement; 4],
     billing_nullifier: FieldElement,
 ) -> FieldElement {
-    let aat = |value: FieldElement| if has_aat { value } else { FieldElement::ZERO };
-    let mut claims = [FieldElement::ZERO; 15];
-    claims[0] = FieldElement::from(u64::from(now));
-    claims[1..5].copy_from_slice(&compared);
-    claims[5] = FieldElement::from(RP_ID);
-    claims[6] = FieldElement::from(NONCE);
-    claims[7] = aat(from_hex(TRUST_ANCHOR_KEY_HASH));
-    claims[8] = aat(FieldElement::from(aat_flags()));
-    claims[9] = FieldElement::from(u64::from(has_aat));
-    claims[10] = FieldElement::from(u64::from(COMPARE_SOURCES));
-    claims[11] = from_hex(ENGINE_CONFIG_HASH);
-    claims[12] = billing_nullifier;
-    poseidon::hash(DS_WIP_201, claims)
+    FlamingoClaims {
+        now,
+        compared_entry_hashes: compared,
+        aud: FieldElement::from(RP_ID),
+        nonce: FieldElement::from(NONCE),
+        aat: has_aat.then(|| FlamingoAatClaims {
+            trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
+            aat_flags: aat_flags(),
+        }),
+        compare_sources: COMPARE_SOURCES,
+        engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
+        billing_nullifier,
+    }
+    .digest()
 }
 
-/// The WIP-107 billing nullifier of the World ID at `leaf_index`, as the Uniqueness Proof computes
-/// it: `H_4(DS_OPRF_PROOF; H_4(DS_QUERY; leaf_index, rp_id, action), x, y)`.
-fn billing_nullifier(leaf_index: u64) -> FieldElement {
-    let query = poseidon::hash(
-        ds::OPRF_QUERY,
-        [
-            FieldElement::from(leaf_index),
-            FieldElement::from(RP_ID),
-            FieldElement::from(BILLING_ACTION),
-        ],
+/// The WIP-107 billing nullifier and unblinded OPRF output of the World ID at `leaf_index` for
+/// `rp_id`, from a real OPRF evaluation: blind the query, multiply by the key, unblind.
+fn billing(leaf_index: u64, rp_id: u64) -> (FieldElement, [FieldElement; 2]) {
+    let query = oprf_query_digest(leaf_index, BILLING_ACTION.into(), rp_id.into());
+    let beta = || BlindingFactor::from_scalar(BLINDING_FACTOR.into()).unwrap();
+    let blinded = client::blind_query(*query, beta()).blinded_query();
+    let response =
+        BlindedOprfResponse::new((blinded * ark_babyjubjub::Fr::from(OPRF_KEY)).into_affine());
+    let prepared = beta().prepare();
+    let output = response.unblind_response(&prepared);
+    assert!(output.is_on_curve() && output.is_in_correct_subgroup_assuming_on_curve());
+    let nullifier = FieldElement::from(client::finalize_query(
+        *query,
+        &response,
+        &prepared,
+        *ds::OPRF_PROOF.as_field_element(),
+    ));
+    let output = [FieldElement::from(output.x), FieldElement::from(output.y)];
+    // Constraint 7 recomputes the nullifier this way; it must agree with the OPRF library.
+    assert_eq!(
+        poseidon::hash(ds::OPRF_PROOF, [query, output[0], output[1]]),
+        nullifier
     );
-    let [x, y] = BILLING_OPRF_OUTPUT.map(FieldElement::from);
-    poseidon::hash(ds::OPRF_PROOF, [query, x, y])
+    (nullifier, output)
 }
 
 /// The account's authorization message for a Flamingo Token digest and the RP's signal.
@@ -283,6 +303,11 @@ fn render() -> Rendered {
 
     let key_set = AuthenticatorPublicKeySet::new(vec![authenticator_sk.public()]).unwrap();
     let (siblings, merkle_root) = first_leaf_merkle_path(key_set.leaf_hash());
+    // The helper builds the path of leaf 1, so `LEAF_INDEX` must be that leaf.
+    assert!(
+        MerkleInclusionProof::<TREE_DEPTH>::new(merkle_root, LEAF_INDEX, siblings)
+            .is_valid(key_set.leaf_hash().into())
+    );
 
     let compared = compared();
     let (hashes_json, digest_offset) = hashes_json();
@@ -292,13 +317,17 @@ fn render() -> Rendered {
     let digest_no_aat = token_digest(false, NOW, compared, zero);
     // Signed when the Credential expires, so only the validity check rejects it.
     let digest_at_expiry = token_digest(true, EXPIRES_AT, compared, zero);
-    // Billed: this World ID's nullifier, and one of another World ID the Verifier also signed.
-    let billing_nullifier_own = billing_nullifier(LEAF_INDEX);
-    let billing_nullifier_other = billing_nullifier(LEAF_INDEX + 1);
+    // Billed: this World ID's nullifier, and ones of another World ID and of another RP that
+    // the Verifier also signed.
+    let (billing_nullifier_own, billing_oprf_output) = billing(LEAF_INDEX, RP_ID);
+    let (billing_nullifier_other, _) = billing(LEAF_INDEX + 1, RP_ID);
+    let (billing_nullifier_other_rp, _) = billing(LEAF_INDEX, RP_ID + 1);
     let digest_billed = token_digest(true, NOW, compared, billing_nullifier_own);
     let digest_billed_other = token_digest(true, NOW, compared, billing_nullifier_other);
+    let digest_billed_other_rp = token_digest(true, NOW, compared, billing_nullifier_other_rp);
     let token_billed = verifier_sk.sign(*digest_billed);
     let token_billed_other = verifier_sk.sign(*digest_billed_other);
+    let token_billed_other_rp = verifier_sk.sign(*digest_billed_other_rp);
     let token = verifier_sk.sign(*digest);
     let token_no_aat = verifier_sk.sign(*digest_no_aat);
     let token_at_expiry = verifier_sk.sign(*digest_at_expiry);
@@ -329,6 +358,11 @@ fn render() -> Rendered {
         &verifier_key,
         signal_hash,
     ));
+    let auth_billed_other_rp = authenticator_sk.sign(*authorization_message(
+        digest_billed_other_rp,
+        &verifier_key,
+        signal_hash,
+    ));
 
     let sub_blinding_factor = FieldElement::from(777_u64);
     let credential = Credential::new()
@@ -356,6 +390,7 @@ fn render() -> Rendered {
     let takh = dec(*from_hex(TRUST_ANCHOR_KEY_HASH));
     let engine_config_hash = dec(*from_hex(ENGINE_CONFIG_HASH));
 
+    let chunks_type = format!("[Field; {CHUNK_SLOTS}]");
     #[rustfmt::skip]
     let globals: Vec<(&str, &str, String)> = vec![
         // Public inputs
@@ -394,7 +429,7 @@ fn render() -> Rendered {
         ("CRED_ID", "Field", CRED_ID.to_string()),
         ("CRED_SIG", "Signature", noir_sig(cred_sig)),
         // hashes.json witness
-        ("HASHES_JSON_CHUNKS", "[Field; 169]", chunk_list.clone()),
+        ("HASHES_JSON_CHUNKS", &chunks_type, chunk_list.clone()),
         ("HASHES_JSON_LEN", "u32", hashes_json.len().to_string()),
         ("DIGEST_OFFSET", "u32", digest_offset.to_string()),
         ("SESSION_ID_R", "Field", dec(*session_id_r)),
@@ -406,12 +441,15 @@ fn render() -> Rendered {
         ("AUTH_SIG_AT_EXPIRY", "Signature", noir_sig(&auth_at_expiry)),
         ("BILLING_NULLIFIER", "Field", dec(*billing_nullifier_own)),
         ("BILLING_ACTION", "Field", BILLING_ACTION.to_string()),
-        ("BILLING_OPRF_OUTPUT", "[Field; 2]", list(BILLING_OPRF_OUTPUT.map(|v| v.to_string()))),
+        ("BILLING_OPRF_OUTPUT", "[Field; 2]", list(billing_oprf_output.map(|v| dec(*v)))),
         ("TOKEN_SIG_BILLED", "Signature", noir_sig(&token_billed)),
         ("AUTH_SIG_BILLED", "Signature", noir_sig(&auth_billed)),
         ("BILLING_NULLIFIER_OTHER_LEAF", "Field", dec(*billing_nullifier_other)),
         ("TOKEN_SIG_BILLED_OTHER_LEAF", "Signature", noir_sig(&token_billed_other)),
         ("AUTH_SIG_BILLED_OTHER_LEAF", "Signature", noir_sig(&auth_billed_other)),
+        ("BILLING_NULLIFIER_OTHER_RP", "Field", dec(*billing_nullifier_other_rp)),
+        ("TOKEN_SIG_BILLED_OTHER_RP", "Signature", noir_sig(&token_billed_other_rp)),
+        ("AUTH_SIG_BILLED_OTHER_RP", "Signature", noir_sig(&auth_billed_other_rp)),
     ];
 
     let noir = format!(
@@ -518,34 +556,60 @@ fn render() -> Rendered {
     Rendered { toml, noir }
 }
 
+/// Ignores whitespace and trailing commas, which `nargo fmt` changes in the generated Noir file.
+fn normalized(source: &str) -> String {
+    source
+        .split_whitespace()
+        .collect::<String>()
+        .replace(",]", "]")
+        .replace(",}", "}")
+}
+
 #[test]
-fn prover_toml_matches_the_fixture() {
+fn fixtures_match_the_generator() {
     let rendered = render();
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("noir/embedding-similarity");
-    let artifacts = [
-        ("Prover.toml", &rendered.toml, true),
-        ("src/test_fixtures.nr", &rendered.noir, false),
-    ];
-    for (file, content, check) in artifacts {
+    for (file, content) in [
+        ("Prover.toml", &rendered.toml),
+        ("src/test_fixtures.nr", &rendered.noir),
+    ] {
         let path = dir.join(file);
         if env::var_os("UPDATE_PROVER_TOML").is_some() {
             fs::write(&path, content)
                 .unwrap_or_else(|e| panic!("failed to write {}: {e}", path.display()));
             continue;
         }
-        // `nargo fmt` reformats the generated Noir file, so only the TOML is compared.
-        if check {
-            let committed = fs::read_to_string(&path)
-                .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
-            assert_eq!(
-                &committed,
-                content,
-                "{} is out of date; regenerate with `UPDATE_PROVER_TOML=1 cargo test -p \
-                 world-id-proof embedding_similarity` (and re-run `nargo fmt`)",
-                path.display()
-            );
-        }
+        let committed = fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("failed to read {}: {e}", path.display()));
+        assert_eq!(
+            normalized(&committed),
+            normalized(content),
+            "{} is out of date; regenerate with `UPDATE_PROVER_TOML=1 cargo test -p \
+             world-id-proof embedding_similarity` (and re-run `nargo fmt`)",
+            path.display()
+        );
     }
+}
+
+/// Pins `CHUNK_SLOTS` to the Noir constants it is derived from.
+#[test]
+fn chunk_slots_match_the_noir_constants() {
+    let constants = include_str!("../noir/embedding-similarity/src/constants.nr");
+    let global = |name: &str| -> usize {
+        let line = constants
+            .lines()
+            .find(|line| line.starts_with(&format!("pub global {name}: u32 = ")))
+            .unwrap_or_else(|| panic!("{name} missing from constants.nr"));
+        line.rsplit("= ")
+            .next()
+            .unwrap()
+            .trim_end_matches(';')
+            .parse()
+            .unwrap()
+    };
+    assert_eq!(global("MAX_HASHES_JSON_BYTES"), MAX_HASHES_JSON_BYTES);
+    assert_eq!(global("CHUNK_BYTES"), CHUNK_BYTES);
+    assert_eq!(global("WINDOW_CHUNKS"), WINDOW_CHUNKS);
 }
 
 /// The fixture's Flamingo Tokens are the WIP-201 Appendix A1 test vectors.
@@ -572,7 +636,7 @@ fn token_digests_match_the_wip_201_vectors() {
 fn domain_separators_match_the_noir_constants() {
     let as_int = |tag: &[u8]| dec(ark_babyjubjub::Fq::from_be_bytes_mod_order(tag));
     assert_eq!(
-        as_int(b"WORLD-ID/WIP-201/SIGN"),
+        dec(*DS_SIGN.as_field_element()),
         "127603488023523044162070750169730750022280897185614"
     );
     assert_eq!(
