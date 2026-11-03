@@ -3,6 +3,7 @@ use bhttp::{Message, Mode};
 use ohttp::{ClientRequest, ClientResponse, KeyConfig};
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
+pub use world_id_primitives::OhttpKem;
 
 use crate::{AuthenticatorError, service_client::REQUEST_TIMEOUT};
 
@@ -17,6 +18,9 @@ pub struct OhttpClientConfig {
     pub relay_url: String,
     /// Base64-encoded `application/ohttp-keys` payload which contains a list of length prefixed HPKE configs
     pub key_config_base64: String,
+    /// Which key in the payload to use. Defaults to [`OhttpKem::Auto`].
+    #[serde(default)]
+    pub kem: OhttpKem,
 }
 
 impl OhttpClientConfig {
@@ -24,7 +28,15 @@ impl OhttpClientConfig {
         Self {
             relay_url,
             key_config_base64,
+            kem: OhttpKem::Auto,
         }
+    }
+
+    /// Selects which key in the payload to use.
+    #[must_use]
+    pub const fn with_kem(mut self, kem: OhttpKem) -> Self {
+        self.kem = kem;
+        self
     }
 }
 
@@ -45,16 +57,17 @@ const KEM_X25519: u16 = 0x0020;
 /// Picks the key configs to use from an `application/ohttp-keys` payload.
 ///
 /// The payload's order depends on the gateway implementation, so the choice
-/// is made by KEM: X-Wing if present, with X25519 as the fallback, each using
-/// the last (newest) listed config of that KEM. A payload with neither uses
-/// its last supported config and has no fallback.
+/// is made by KEM, each using the last (newest) listed config of that KEM.
+/// [`OhttpKem::Auto`] uses X-Wing if present, with X25519 as the fallback; a
+/// payload with neither uses its last supported config. An explicit KEM must
+/// be present and has no fallback.
 fn preferred_configs(
     encoded_config_list: &[u8],
-) -> Result<(Vec<u8>, Option<Vec<u8>>), ohttp::Error> {
-    let configs = KeyConfig::decode_list(encoded_config_list)?
-        .iter()
-        .map(KeyConfig::encode)
-        .collect::<Result<Vec<_>, _>>()?;
+    kem: OhttpKem,
+) -> Result<(Vec<u8>, Option<Vec<u8>>), String> {
+    let configs: Vec<Vec<u8>> = KeyConfig::decode_list(encoded_config_list)
+        .and_then(|configs| configs.iter().map(KeyConfig::encode).collect())
+        .map_err(|err| format!("invalid application/ohttp-keys payload: {err}"))?;
     // An encoded key config starts with the key ID, then the 2-byte KEM ID.
     let last_with_kem = |kem: u16| {
         configs
@@ -63,14 +76,25 @@ fn preferred_configs(
             .find(|config| config[1..3] == kem.to_be_bytes())
             .cloned()
     };
-    match (last_with_kem(KEM_XWING), last_with_kem(KEM_X25519)) {
-        (Some(xwing), x25519) => Ok((xwing, x25519)),
-        (None, Some(x25519)) => Ok((x25519, None)),
-        (None, None) => configs
-            .last()
-            .cloned()
+    let only = |kem_id: u16, name: &str| {
+        last_with_kem(kem_id)
             .map(|config| (config, None))
-            .ok_or(ohttp::Error::Unsupported),
+            .ok_or_else(|| format!("application/ohttp-keys payload has no {name} key config"))
+    };
+    match kem {
+        OhttpKem::X25519 => only(KEM_X25519, "X25519"),
+        OhttpKem::XWing => only(KEM_XWING, "X-Wing"),
+        OhttpKem::Auto => match (last_with_kem(KEM_XWING), last_with_kem(KEM_X25519)) {
+            (Some(xwing), x25519) => Ok((xwing, x25519)),
+            (None, Some(x25519)) => Ok((x25519, None)),
+            (None, None) => configs
+                .last()
+                .cloned()
+                .map(|config| (config, None))
+                .ok_or_else(|| {
+                    "invalid application/ohttp-keys payload: no supported key config".to_owned()
+                }),
+        },
     }
 }
 
@@ -143,13 +167,8 @@ impl OhttpClient {
                 reason: format!("invalid base64: {err}"),
             })?;
 
-        let (key_config, fallback_key_config) =
-            preferred_configs(&encoded_config_list).map_err(|err| {
-                AuthenticatorError::InvalidConfig {
-                    attribute,
-                    reason: format!("invalid application/ohttp-keys payload: {err}"),
-                }
-            })?;
+        let (key_config, fallback_key_config) = preferred_configs(&encoded_config_list, config.kem)
+            .map_err(|reason| AuthenticatorError::InvalidConfig { attribute, reason })?;
 
         Ok(Self {
             client,
@@ -432,27 +451,52 @@ mod tests {
         .expect("failed to build test key config")
     }
 
-    fn selected_key_ids(configs: &[&ohttp::KeyConfig]) -> (u8, Option<u8>) {
+    fn selected_key_ids(
+        configs: &[&ohttp::KeyConfig],
+        kem: OhttpKem,
+    ) -> Result<(u8, Option<u8>), String> {
         let list = ohttp::KeyConfig::encode_list(configs).unwrap();
-        let (primary, fallback) = preferred_configs(&list).unwrap();
-        (primary[0], fallback.map(|config| config[0]))
+        let (primary, fallback) = preferred_configs(&list, kem)?;
+        Ok((primary[0], fallback.map(|config| config[0])))
     }
 
     #[test]
     fn prefers_xwing_and_falls_back_to_x25519_regardless_of_order() {
         let x25519 = key_config(128, ohttp::hpke::Kem::X25519Sha256);
         let xwing = key_config(64, ohttp::hpke::Kem::XWing);
+        let auto = OhttpKem::Auto;
         // Rust gateway order, then Go v0.0.4 order.
-        assert_eq!(selected_key_ids(&[&x25519, &xwing]), (64, Some(128)));
-        assert_eq!(selected_key_ids(&[&xwing, &x25519]), (64, Some(128)));
+        assert_eq!(
+            selected_key_ids(&[&x25519, &xwing], auto),
+            Ok((64, Some(128)))
+        );
+        assert_eq!(
+            selected_key_ids(&[&xwing, &x25519], auto),
+            Ok((64, Some(128)))
+        );
         // With several generations, the last listed config of each KEM wins.
         let newer_xwing = key_config(65, ohttp::hpke::Kem::XWing);
         assert_eq!(
-            selected_key_ids(&[&x25519, &xwing, &newer_xwing]),
-            (65, Some(128))
+            selected_key_ids(&[&x25519, &xwing, &newer_xwing], auto),
+            Ok((65, Some(128)))
         );
         // Without X-Wing, X25519 is used and there is nothing to fall back to.
-        assert_eq!(selected_key_ids(&[&x25519]), (128, None));
+        assert_eq!(selected_key_ids(&[&x25519], auto), Ok((128, None)));
+    }
+
+    #[test]
+    fn explicit_kem_uses_only_that_key() {
+        let x25519 = key_config(128, ohttp::hpke::Kem::X25519Sha256);
+        let xwing = key_config(64, ohttp::hpke::Kem::XWing);
+        assert_eq!(
+            selected_key_ids(&[&x25519, &xwing], OhttpKem::X25519),
+            Ok((128, None))
+        );
+        assert_eq!(
+            selected_key_ids(&[&xwing, &x25519], OhttpKem::XWing),
+            Ok((64, None))
+        );
+        assert!(selected_key_ids(&[&x25519], OhttpKem::XWing).is_err());
     }
 
     /// A client whose embedded payload lists X25519 (key 128) then X-Wing (key 64).

@@ -9,6 +9,21 @@ const fn default_nullifier_oracle_threshold() -> usize {
     2
 }
 
+/// Which key of an OHTTP gateway's key list a client encrypts to.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OhttpKem {
+    /// X-Wing if the key list has it, otherwise X25519. X-Wing requests the
+    /// gateway rejects before forwarding are retried once with X25519.
+    #[default]
+    Auto,
+    /// Only X25519.
+    X25519,
+    /// Only X-Wing.
+    #[serde(rename = "xwing")]
+    XWing,
+}
+
 /// Configuration for a protocol service endpoint (indexer or gateway).
 ///
 /// The target URL is required in both variants. The OHTTP variant additionally
@@ -30,6 +45,9 @@ pub enum ServiceEndpoint {
         relay_url: String,
         /// Base64-encoded `application/ohttp-keys` payload listing the gateway HPKE configs.
         key_config_base64: String,
+        /// Which key in `key_config_base64` to use. Defaults to [`OhttpKem::Auto`].
+        #[serde(default)]
+        kem: OhttpKem,
     },
 }
 
@@ -40,13 +58,27 @@ impl ServiceEndpoint {
         Self::Direct { url }
     }
 
-    /// Convenience constructor for an OHTTP-routed endpoint.
+    /// Convenience constructor for an OHTTP-routed endpoint using
+    /// [`OhttpKem::Auto`].
     #[must_use]
     pub const fn ohttp(url: String, relay_url: String, key_config_base64: String) -> Self {
+        Self::ohttp_with_kem(url, relay_url, key_config_base64, OhttpKem::Auto)
+    }
+
+    /// Convenience constructor for an OHTTP-routed endpoint that encrypts to
+    /// the key selected by `kem`.
+    #[must_use]
+    pub const fn ohttp_with_kem(
+        url: String,
+        relay_url: String,
+        key_config_base64: String,
+        kem: OhttpKem,
+    ) -> Self {
         Self::Ohttp {
             url,
             relay_url,
             key_config_base64,
+            kem,
         }
     }
 
@@ -221,7 +253,8 @@ mod tests {
                 "type": "ohttp",
                 "url": "http://gateway.example.com",
                 "relay_url": "https://relay.example.com/gateway",
-                "key_config_base64": "dGVzdC1rZXk="
+                "key_config_base64": "dGVzdC1rZXk=",
+                "kem": "xwing"
             },
             "nullifier_oracle_urls": [],
             "nullifier_oracle_threshold": 2
@@ -233,10 +266,13 @@ mod tests {
                 url,
                 relay_url,
                 key_config_base64,
+                kem,
             } => {
                 assert_eq!(url, "http://indexer.example.com");
                 assert_eq!(relay_url, "https://relay.example.com/gateway");
                 assert_eq!(key_config_base64, "dGVzdC1rZXk=");
+                // Configs without `kem` keep the default selection.
+                assert_eq!(*kem, OhttpKem::Auto);
             }
             other => panic!("expected Ohttp variant, got: {other:?}"),
         }
@@ -245,10 +281,12 @@ mod tests {
                 url,
                 relay_url,
                 key_config_base64,
+                kem,
             } => {
                 assert_eq!(url, "http://gateway.example.com");
                 assert_eq!(relay_url, "https://relay.example.com/gateway");
                 assert_eq!(key_config_base64, "dGVzdC1rZXk=");
+                assert_eq!(*kem, OhttpKem::XWing);
             }
             other => panic!("expected Ohttp variant, got: {other:?}"),
         }
