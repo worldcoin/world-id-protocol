@@ -89,6 +89,7 @@ impl ServiceClient {
                 url,
                 relay_url,
                 key_config_base64,
+                kem,
             } => HttpTransport::Ohttp(OhttpClient::new(
                 client,
                 service_kind.ohttp_config_scope(),
@@ -96,6 +97,7 @@ impl ServiceClient {
                 OhttpClientConfig {
                     relay_url: relay_url.clone(),
                     key_config_base64: key_config_base64.clone(),
+                    kem: *kem,
                 },
             )?),
         };
