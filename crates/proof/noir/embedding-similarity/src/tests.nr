@@ -3,13 +3,16 @@ use crate::{
     hashes_json::{claims_hash_v1, thumbnail_digest},
     main,
     test_fixtures::{
-        AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META,
-        CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH,
-        EXPIRES_AT, EXPIRES_AT_MIN, FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN,
-        HASHES_JSON_CHUNKS, HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX,
-        LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NOW, PLATFORM, RP_ID, SEC_LEVEL, SEC_META,
-        SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG,
-        TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK,
+        AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_BILLED, AUTH_SIG_BILLED_OTHER_LEAF, AUTH_SIG_NO_AAT,
+        AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META, BILLING_ACTION, BILLING_NULLIFIER,
+        BILLING_NULLIFIER_OTHER_LEAF, BILLING_OPRF_OUTPUT, CHALLENGE_HASH, CLAIM_0, CRED_ID,
+        CRED_PK, CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH, EXPIRES_AT, EXPIRES_AT_MIN,
+        FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS,
+        HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH,
+        MERKLE_ROOT, NONCE, NOW, PLATFORM, RP_ID, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R,
+        SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY,
+        TOKEN_SIG_BILLED, TOKEN_SIG_BILLED_OTHER_LEAF, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH,
+        USER_PK,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
@@ -62,11 +65,15 @@ fn inputs() -> PrivateInputs {
     let mut claims = [0; MAX_CLAIMS];
     claims[0] = CLAIM_0;
     PrivateInputs {
-        token: FlamingoTokenInputs { live_capture_hash: LIVE_CAPTURE_HASH, sig: TOKEN_SIG },
+        token: FlamingoTokenInputs {
+            live_capture_hash: LIVE_CAPTURE_HASH,
+            billing_nullifier: 0,
+            sig: TOKEN_SIG,
+        },
         account: AccountInputs {
             user_pk,
             pk_index: 0,
-            auth: AUTH_SIG,
+            sig: AUTH_SIG,
             leaf_index: LEAF_INDEX,
             siblings: SIBLINGS,
         },
@@ -85,6 +92,8 @@ fn inputs() -> PrivateInputs {
             digest_offset: DIGEST_OFFSET,
         },
         session_id_r: SESSION_ID_R,
+        billing_action: 0,
+        billing_oprf_output: [0, 0],
     }
 }
 
@@ -151,7 +160,7 @@ fn test_rejects_a_wide_authenticator_meta() {
 fn inputs_without_aat() -> PrivateInputs {
     let mut i = inputs();
     i.token.sig = TOKEN_SIG_NO_AAT;
-    i.account.auth = AUTH_SIG_NO_AAT;
+    i.account.sig = AUTH_SIG_NO_AAT;
     i
 }
 
@@ -178,7 +187,7 @@ fn test_accepts_a_nil_signal() {
     let mut p = public();
     p.signal_hash = 0;
     let mut i = inputs();
-    i.account.auth = AUTH_SIG_NO_SIGNAL;
+    i.account.sig = AUTH_SIG_NO_SIGNAL;
     prove(p, i);
 }
 
@@ -314,7 +323,7 @@ fn test_rejects_another_registry() {
 fn test_rejects_an_unauthorized_result() {
     // A valid authorization of the token without an AAT does not cover the one with.
     let mut i = inputs();
-    i.account.auth = AUTH_SIG_NO_AAT;
+    i.account.sig = AUTH_SIG_NO_AAT;
     prove(public(), i);
 }
 
@@ -346,7 +355,7 @@ fn test_rejects_an_expired_credential() {
     p.now = EXPIRES_AT as u32;
     let mut i = inputs();
     i.token.sig = TOKEN_SIG_AT_EXPIRY;
-    i.account.auth = AUTH_SIG_AT_EXPIRY;
+    i.account.sig = AUTH_SIG_AT_EXPIRY;
     prove(p, i);
 }
 
@@ -429,4 +438,63 @@ fn test_rejects_a_hashes_json_above_the_length_window() {
     let mut json = inputs().hashes_json;
     json.len = 5121;
     let _ = claims_hash_v1(json);
+}
+
+// SECTION: billing (constraint 7)
+
+/// A Flamingo Token for a billed RP, carrying this World ID's billing nullifier.
+fn inputs_billed() -> PrivateInputs {
+    let mut i = inputs();
+    i.token.billing_nullifier = BILLING_NULLIFIER;
+    i.token.sig = TOKEN_SIG_BILLED;
+    i.account.sig = AUTH_SIG_BILLED;
+    i.billing_action = BILLING_ACTION;
+    i.billing_oprf_output = BILLING_OPRF_OUTPUT;
+    i
+}
+
+#[test]
+fn test_accepts_a_billed_token() {
+    prove(public(), inputs_billed());
+}
+
+/// Without billing, the billing witness is unconstrained.
+#[test]
+fn test_ignores_the_billing_witness_when_not_billed() {
+    let mut i = inputs();
+    i.billing_action = 1;
+    i.billing_oprf_output = [2, 3];
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_a_billing_nullifier_the_verifier_did_not_sign() {
+    let mut i = inputs();
+    i.token.billing_nullifier = BILLING_NULLIFIER;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "billing nullifier is not this World ID's")]
+fn test_rejects_another_billing_action() {
+    let mut i = inputs_billed();
+    i.billing_action += 1;
+    prove(public(), i);
+}
+
+#[test(should_fail_with = "billing nullifier is not this World ID's")]
+fn test_rejects_another_billing_oprf_output() {
+    let mut i = inputs_billed();
+    i.billing_oprf_output[1] += 1;
+    prove(public(), i);
+}
+
+/// A signed token whose nullifier belongs to another World ID fails even with every
+/// signature valid.
+#[test(should_fail_with = "billing nullifier is not this World ID's")]
+fn test_rejects_the_billing_nullifier_of_another_world_id() {
+    let mut i = inputs_billed();
+    i.token.billing_nullifier = BILLING_NULLIFIER_OTHER_LEAF;
+    i.token.sig = TOKEN_SIG_BILLED_OTHER_LEAF;
+    i.account.sig = AUTH_SIG_BILLED_OTHER_LEAF;
+    prove(public(), i);
 }

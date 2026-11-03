@@ -1,4 +1,5 @@
-// WIP-201 Flamingo Token verification (WIP-201 §4.7 Consuming Flamingo Tokens, checks 2 and 3).
+// WIP-201 Flamingo Token verification (WIP-201 §4.7 Consuming Flamingo Tokens, checks 2 and 3;
+// constraint 7 of the circuit covers check 8).
 use super::constants::{COMPARE_SOURCES, DS_WIP_201, MAX_COMPARED};
 use poseidon2::bn254::permutation;
 use world_id_components::types::{PublicKey, Signature};
@@ -31,7 +32,11 @@ pub fn aat_flags(public: FlamingoTokenPublic) -> Field {
 
 /// The signed digest (WIP-201 §4.5): output element 1 of the Poseidon2 t=16 permutation.
 /// Without an AAT, `trust_anchor_key_hash` and `aat_flags` enter as `0`.
-pub fn digest(public: FlamingoTokenPublic, h: [Field; MAX_COMPARED]) -> Field {
+pub fn digest(
+    public: FlamingoTokenPublic,
+    h: [Field; MAX_COMPARED],
+    billing_nullifier: Field,
+) -> Field {
     let has_aat = public.has_aat as Field;
     permutation::t16([
         DS_WIP_201,
@@ -47,7 +52,7 @@ pub fn digest(public: FlamingoTokenPublic, h: [Field; MAX_COMPARED]) -> Field {
         has_aat,
         COMPARE_SOURCES as Field,
         public.engine_config_hash,
-        0,
+        billing_nullifier,
         0,
         0,
     ])[1]
@@ -57,6 +62,7 @@ pub fn digest(public: FlamingoTokenPublic, h: [Field; MAX_COMPARED]) -> Field {
 pub fn verify(
     public: FlamingoTokenPublic,
     compared: [Field; MAX_COMPARED],
+    billing_nullifier: Field,
     sig: Signature,
 ) -> Field {
     // Check 3 requires the AAT values to be zero when no AAT was verified.
@@ -70,7 +76,7 @@ pub fn verify(
             "AAT values must be zero without an AAT",
         );
     }
-    let digest = digest(public, compared);
+    let digest = digest(public, compared, billing_nullifier);
     assert(sig.verify(public.verifier_key, digest), "invalid flamingo token signature");
     digest
 }

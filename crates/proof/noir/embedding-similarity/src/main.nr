@@ -10,7 +10,7 @@ pub(crate) mod types;
 mod test_fixtures;
 mod tests;
 
-use constants::{CLAIM_INDEX, DS_WIP_202_AUTH};
+use constants::{CLAIM_INDEX, DS_OPRF_PROOF, DS_QUERY, DS_WIP_202_AUTH};
 use flamingo_token::FlamingoTokenPublic;
 use poseidon2::bn254::permutation;
 use types::PrivateInputs;
@@ -71,7 +71,8 @@ fn main(
         engine_config_hash,
     };
     let compared = [credential_digest, inputs.token.live_capture_hash, challenge_hash, 0];
-    let digest = flamingo_token::verify(public, compared, inputs.token.sig);
+    let billing_nullifier = inputs.token.billing_nullifier;
+    let digest = flamingo_token::verify(public, compared, billing_nullifier, inputs.token.sig);
 
     // 4. World ID Authentication over the authorization message, which also binds the
     // RP's signal. One `leaf_index` witness binds the World ID, the Credential and the session.
@@ -103,6 +104,20 @@ fn main(
     assert(
         (expires_at_min as u64) < (inputs.credential.expires_at as u64),
         "credential expires too early",
+    );
+
+    // 7. Billing nullifier ownership: `0` means the RP is not billed, anything else must be this
+    // World ID's WIP-107 nullifier for `rp_id`, recomputed as in the Uniqueness Proof.
+    let billing_query = permutation::t4([DS_QUERY, leaf_index, rp_id, inputs.billing_action])[1];
+    let own_nullifier = permutation::t4([
+        DS_OPRF_PROOF,
+        billing_query,
+        inputs.billing_oprf_output[0],
+        inputs.billing_oprf_output[1],
+    ])[1];
+    assert(
+        billing_nullifier * (billing_nullifier - own_nullifier) == 0,
+        "billing nullifier is not this World ID's",
     );
 
     // 3.1 `hashes.json` is what the Issuer committed to.

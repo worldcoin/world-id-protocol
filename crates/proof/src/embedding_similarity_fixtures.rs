@@ -91,6 +91,8 @@ const TRUST_ANCHOR_KEY_HASH: &str =
 const COMPARE_SOURCES: u32 = 256;
 const DIGEST_WITH_AAT: &str = "24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f";
 const DIGEST_WITHOUT_AAT: &str = "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
+/// WIP-201 Appendix A1 "Billed RP": the AAT vector with `billing_nullifier = 7`.
+const DIGEST_BILLED_7: &str = "247f7f653466f20e24fbac90c9c36055c7036d2c8d26c100907164723c7bb118";
 const CREDENTIAL_IMAGE: &[u8] = b"credential image";
 const LIVE_IMAGE: &[u8] = b"live image";
 const CHALLENGE_IMAGE: &[u8] = b"challenge image";
@@ -106,6 +108,9 @@ const EXPIRES_AT: u32 = 1_900_000_000;
 const ISSUER_SCHEMA_ID: u64 = 4_242;
 const ISSUER_VERSION: u8 = 1;
 const CRED_ID: u64 = 7;
+/// A WIP-107 `billingAction` and unblinded OPRF output; constraint 7 does not check the OPRF.
+const BILLING_ACTION: u64 = 0x0b11;
+const BILLING_OPRF_OUTPUT: [u64; 2] = [0x0a, 0x0b];
 
 fn dec(element: impl Into<ark_babyjubjub::Fq>) -> String {
     element.into().into_bigint().to_string()
@@ -177,7 +182,12 @@ fn aat_flags() -> u64 {
 }
 
 /// The WIP-201 signed digest of a Flamingo Token over the fixture request, signed at `now`.
-fn token_digest(has_aat: bool, now: u32, compared: [FieldElement; 4]) -> FieldElement {
+fn token_digest(
+    has_aat: bool,
+    now: u32,
+    compared: [FieldElement; 4],
+    billing_nullifier: FieldElement,
+) -> FieldElement {
     let aat = |value: FieldElement| if has_aat { value } else { FieldElement::ZERO };
     let mut claims = [FieldElement::ZERO; 15];
     claims[0] = FieldElement::from(u64::from(now));
@@ -189,7 +199,23 @@ fn token_digest(has_aat: bool, now: u32, compared: [FieldElement; 4]) -> FieldEl
     claims[9] = FieldElement::from(u64::from(has_aat));
     claims[10] = FieldElement::from(u64::from(COMPARE_SOURCES));
     claims[11] = from_hex(ENGINE_CONFIG_HASH);
+    claims[12] = billing_nullifier;
     poseidon::hash(DS_WIP_201, claims)
+}
+
+/// The WIP-107 billing nullifier of the World ID at `leaf_index`, as the Uniqueness Proof computes
+/// it: `H_4(DS_OPRF_PROOF; H_4(DS_QUERY; leaf_index, rp_id, action), x, y)`.
+fn billing_nullifier(leaf_index: u64) -> FieldElement {
+    let query = poseidon::hash(
+        ds::OPRF_QUERY,
+        [
+            FieldElement::from(leaf_index),
+            FieldElement::from(RP_ID),
+            FieldElement::from(BILLING_ACTION),
+        ],
+    );
+    let [x, y] = BILLING_OPRF_OUTPUT.map(FieldElement::from);
+    poseidon::hash(ds::OPRF_PROOF, [query, x, y])
 }
 
 /// The account's authorization message for a Flamingo Token digest and the RP's signal.
@@ -261,10 +287,18 @@ fn render() -> Rendered {
     let compared = compared();
     let (hashes_json, digest_offset) = hashes_json();
 
-    let digest = token_digest(true, NOW, compared);
-    let digest_no_aat = token_digest(false, NOW, compared);
+    let zero = FieldElement::ZERO;
+    let digest = token_digest(true, NOW, compared, zero);
+    let digest_no_aat = token_digest(false, NOW, compared, zero);
     // Signed when the Credential expires, so only the validity check rejects it.
-    let digest_at_expiry = token_digest(true, EXPIRES_AT, compared);
+    let digest_at_expiry = token_digest(true, EXPIRES_AT, compared, zero);
+    // Billed: this World ID's nullifier, and one of another World ID the Verifier also signed.
+    let billing_nullifier_own = billing_nullifier(LEAF_INDEX);
+    let billing_nullifier_other = billing_nullifier(LEAF_INDEX + 1);
+    let digest_billed = token_digest(true, NOW, compared, billing_nullifier_own);
+    let digest_billed_other = token_digest(true, NOW, compared, billing_nullifier_other);
+    let token_billed = verifier_sk.sign(*digest_billed);
+    let token_billed_other = verifier_sk.sign(*digest_billed_other);
     let token = verifier_sk.sign(*digest);
     let token_no_aat = verifier_sk.sign(*digest_no_aat);
     let token_at_expiry = verifier_sk.sign(*digest_at_expiry);
@@ -282,6 +316,16 @@ fn render() -> Rendered {
     ));
     let auth_at_expiry = authenticator_sk.sign(*authorization_message(
         digest_at_expiry,
+        &verifier_key,
+        signal_hash,
+    ));
+    let auth_billed = authenticator_sk.sign(*authorization_message(
+        digest_billed,
+        &verifier_key,
+        signal_hash,
+    ));
+    let auth_billed_other = authenticator_sk.sign(*authorization_message(
+        digest_billed_other,
         &verifier_key,
         signal_hash,
     ));
@@ -360,6 +404,14 @@ fn render() -> Rendered {
         ("AUTH_SIG_NO_SIGNAL", "Signature", noir_sig(&auth_no_signal)),
         ("TOKEN_SIG_AT_EXPIRY", "Signature", noir_sig(&token_at_expiry)),
         ("AUTH_SIG_AT_EXPIRY", "Signature", noir_sig(&auth_at_expiry)),
+        ("BILLING_NULLIFIER", "Field", dec(*billing_nullifier_own)),
+        ("BILLING_ACTION", "Field", BILLING_ACTION.to_string()),
+        ("BILLING_OPRF_OUTPUT", "[Field; 2]", list(BILLING_OPRF_OUTPUT.map(|v| v.to_string()))),
+        ("TOKEN_SIG_BILLED", "Signature", noir_sig(&token_billed)),
+        ("AUTH_SIG_BILLED", "Signature", noir_sig(&auth_billed)),
+        ("BILLING_NULLIFIER_OTHER_LEAF", "Field", dec(*billing_nullifier_other)),
+        ("TOKEN_SIG_BILLED_OTHER_LEAF", "Signature", noir_sig(&token_billed_other)),
+        ("AUTH_SIG_BILLED_OTHER_LEAF", "Signature", noir_sig(&auth_billed_other)),
     ];
 
     let noir = format!(
@@ -414,9 +466,12 @@ fn render() -> Rendered {
          # Private inputs\n\
          [inputs]\n\
          session_id_r = \"{session_id_r}\"\n\
+         billing_action = \"0\"\n\
+         billing_oprf_output = [\"0\", \"0\"]\n\
          \n\
          [inputs.token]\n\
          live_capture_hash = \"{live_capture_hash}\"\n\
+         billing_nullifier = \"0\"\n\
          \n\
          [inputs.token.sig]\n{token_sig}\n\
          \n\
@@ -425,7 +480,7 @@ fn render() -> Rendered {
          leaf_index = \"{LEAF_INDEX}\"\n\
          siblings = {siblings}\n\
          \n\
-         [inputs.account.auth]\n{auth_sig}\n\
+         [inputs.account.sig]\n{auth_sig}\n\
          {user_pk}\
          \n\
          [inputs.credential]\n\
@@ -496,13 +551,18 @@ fn prover_toml_matches_the_fixture() {
 /// The fixture's Flamingo Tokens are the WIP-201 Appendix A1 test vectors.
 #[test]
 fn token_digests_match_the_wip_201_vectors() {
+    let zero = FieldElement::ZERO;
     assert_eq!(
-        token_digest(true, NOW, compared()),
+        token_digest(true, NOW, compared(), zero),
         from_hex(DIGEST_WITH_AAT)
     );
     assert_eq!(
-        token_digest(false, NOW, compared()),
+        token_digest(false, NOW, compared(), zero),
         from_hex(DIGEST_WITHOUT_AAT)
+    );
+    assert_eq!(
+        token_digest(true, NOW, compared(), FieldElement::from(7_u64)),
+        from_hex(DIGEST_BILLED_7)
     );
     assert_eq!(aat_flags(), 0x00a3_0000_0000_0102);
 }
@@ -518,5 +578,13 @@ fn domain_separators_match_the_noir_constants() {
     assert_eq!(
         as_int(b"WORLD-ID/WIP-202/AUTH"),
         "127603488023523044162070750169730750023380107613256"
+    );
+    assert_eq!(
+        as_int(b"World ID Query"),
+        "1773399373884719043551600379785849"
+    );
+    assert_eq!(
+        as_int(b"World ID Proof"),
+        "1773399373884719043551596035141478"
     );
 }
