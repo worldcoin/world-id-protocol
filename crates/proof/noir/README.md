@@ -2,7 +2,7 @@
 
 ## Packages
 
-- `world-id-components/` — Library of the WIP-100 Circuit Components (World ID Authentication, Credential Verification, Session Commitment), shared by the circuits.
+- `world-id-components/` — Library of the WIP-100 Circuit Components (World ID Authentication, Credential Verification, Session Commitment) and the variable-length hash `H_var`, shared by the circuits.
 - `flamingo-token/` — Library verifying a WIP-201 Flamingo Token inside a circuit that keeps it private (WIP-201 §4.7, checks 2 and 3). **🚧 Unaudited, in active development.**
 - `ownership-proof/` — Proof of Ownership (WIP-103).
 - `embedding-similarity/` — WIP-202 Proof of Embedding Similarity over a WIP-201 Flamingo Token. **🚧 Unaudited, in active development.**

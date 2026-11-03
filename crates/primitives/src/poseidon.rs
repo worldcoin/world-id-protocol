@@ -53,7 +53,7 @@ pub mod ds {
     /// handed to the OPRF nodes for the nullifier module.
     pub const OPRF_PROOF: DomainSeparator<3> = DomainSeparator::new(b"World ID Proof");
     /// Separates the message an authenticator signs for an ownership proof (WIP-103).
-    pub const OWNERSHIP_PROOF: DomainSeparator<3> = DomainSeparator::new(b"WIP103");
+    pub const OWNERSHIP_PROOF: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/WIP-103/SIGN");
     /// Separates the message an authenticator signs for a Proof of Embedding Similarity (WIP-202).
     pub const EMBEDDING_SIMILARITY_AUTH: DomainSeparator<4> =
         DomainSeparator::new(b"WORLD-ID/WIP-202/AUTH");
