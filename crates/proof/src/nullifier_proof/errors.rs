@@ -114,6 +114,15 @@ pub enum ProofInputError {
     /// The provided commitment does not match the one derived from the leaf index and blinder.
     #[error("The provided expected commitment does not match the derived commitment")]
     InvalidExpectedCommitment,
+    /// The selected authenticator key slot holds no registered key.
+    #[error("The authenticator key at index {index} is not registered.")]
+    InactiveAuthenticatorKey {
+        /// The selected key slot.
+        index: u64,
+    },
+    /// The authenticator signature over the ownership message is invalid.
+    #[error("The signature over the ownership message is invalid.")]
+    InvalidOwnershipSignature,
 }
 
 /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.

@@ -22,7 +22,11 @@ use provekit_common::{NoirProof, PublicInputs};
 use provekit_prover::Prove;
 #[cfg(not(target_arch = "wasm32"))]
 use provekit_verifier::Verify;
-use world_id_primitives::{Credential, FieldElement, TREE_DEPTH, proof::OwnershipProof};
+use world_id_primitives::{
+    Credential, FieldElement, MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
+    poseidon::{self, ds},
+    proof::OwnershipProof,
+};
 
 use crate::{
     NoirCircuitInput, NoirRepresentable, ProofError, artifacts::ZkArtifactSource,
@@ -166,6 +170,34 @@ pub fn check_ownership_input_validity<const MAX_DEPTH: usize>(
         Credential::compute_sub(inputs.inclusion_proof.leaf_index, inputs.commitment_blinder);
     if derived != inputs.expected_commitment {
         return Err(ProofInputError::InvalidExpectedCommitment);
+    }
+
+    // 4. A registered key of the World ID at `leaf_index` must have signed the ownership message.
+    if inputs.key_index >= MAX_AUTHENTICATOR_KEYS as u64 {
+        return Err(ProofInputError::ValueOutOfBounds {
+            name: "key_index",
+            is: inputs.key_index.into(),
+            limit: (MAX_AUTHENTICATOR_KEYS as u64).into(),
+        });
+    }
+    let key = usize::try_from(inputs.key_index)
+        .ok()
+        .and_then(|index| inputs.key_set.get(index))
+        .ok_or(ProofInputError::InactiveAuthenticatorKey {
+            index: inputs.key_index,
+        })?;
+    if !inputs
+        .inclusion_proof
+        .is_valid(inputs.key_set.leaf_hash().into())
+    {
+        return Err(ProofInputError::InvalidMerkleTreeInclusionProof);
+    }
+    let message = poseidon::hash(
+        ds::OWNERSHIP_PROOF,
+        [inputs.expected_commitment, inputs.nonce, inputs.context],
+    );
+    if !key.verify(*message, &inputs.signature) {
+        return Err(ProofInputError::InvalidOwnershipSignature);
     }
 
     Ok(())
@@ -446,6 +478,54 @@ mod input_validation_tests {
             err,
             ProofInputError::ValueMustNotBeZero { name: "context" }
         ));
+    }
+
+    #[test]
+    fn test_rejects_key_index_beyond_the_key_slots() {
+        let mut input = ownership_proof_fixture();
+        input.key_index = MAX_AUTHENTICATOR_KEYS as u64;
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::ValueOutOfBounds {
+                name: "key_index",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_an_inactive_key_slot() {
+        let mut input = ownership_proof_fixture();
+        input.key_index = 1;
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::InactiveAuthenticatorKey { index: 1 }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_a_key_set_outside_the_registry() {
+        let mut input = ownership_proof_fixture();
+        input.inclusion_proof.root = FieldElement::from(12345_u64);
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::InvalidMerkleTreeInclusionProof
+        ));
+    }
+
+    #[test]
+    fn test_rejects_a_signature_over_another_context() {
+        let mut input = ownership_proof_fixture();
+        input.context = FieldElement::from(43_u64);
+
+        let err = check_ownership_input_validity(&input).unwrap_err();
+        assert!(matches!(err, ProofInputError::InvalidOwnershipSignature));
     }
 
     #[test]

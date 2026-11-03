@@ -141,3 +141,98 @@ fn test_credential_rejects_a_now_beyond_32_bits() {
         credential_inputs(),
     );
 }
+
+// SECTION: World ID Authentication with the signing key in slot 3 of four registered keys
+
+global SLOT_3_KEYS: [PublicKey; 4] = [
+    PublicKey {
+        x: 16403486683365168807410678668809953762244404106701258314670180797996653734428,
+        y: 19889159345992055602614121295645113409337174535619030639158974512253806339,
+    },
+    PublicKey {
+        x: 11001311774205851531114529321070231114614866085049674923628939064211988942423,
+        y: 14470868678190347154585818421406763940185986390732919656502624314866579666526,
+    },
+    PublicKey {
+        x: 1351475003155051577328796124157742341640180717260181083384001762704920710914,
+        y: 546546516207329725641553443374532649612903126778446857061082668887569244892,
+    },
+    PublicKey {
+        x: 3957518881285075985312824119417898257658695886958661273608975350001063452342,
+        y: 57234495657912877717408109326583671350222980264881239973357079469712962662,
+    },
+];
+global SLOT_3_SIG: Signature = Signature {
+    s: 977398903115752930138364578060293689830390286354464231442371233051912463028,
+    r: [
+        12786572570126389649482623509750299896489528172617623680652398156672524010035,
+        10923304075774932191957652773022250363837013335963080461012459151227619883945,
+    ],
+};
+global SLOT_3_MESSAGE: Field = 0x05107303;
+global SLOT_3_ROOT: Field =
+    4711733747136252782523402458390808128582138054005898430522429112448313640253;
+
+fn slot_3_account(pk_index: Field) -> AccountInputs {
+    let mut user_pk = [PublicKey { x: 0, y: 1 }; NUM_KEYS];
+    for i in 0..4 {
+        user_pk[i] = SLOT_3_KEYS[i];
+    }
+    AccountInputs {
+        user_pk,
+        pk_index,
+        sig: SLOT_3_SIG,
+        leaf_index: 1,
+        siblings: empty_subtree_siblings(),
+    }
+}
+
+#[test]
+fn test_authentication_vector_with_the_key_in_slot_3() {
+    assert_eq(authentication::verify(SLOT_3_ROOT, SLOT_3_MESSAGE, slot_3_account(3)), 1);
+}
+
+#[test(should_fail_with = "invalid authorization signature")]
+fn test_authentication_rejects_another_registered_slot() {
+    let _ = authentication::verify(SLOT_3_ROOT, SLOT_3_MESSAGE, slot_3_account(2));
+}
+
+// SECTION: Credential validity bounds
+
+#[test]
+fn test_credential_is_valid_until_just_before_expiry() {
+    let _ = credential::verify(credential_public(), 1899999999, 1, credential_inputs());
+}
+
+#[test(should_fail_with = "credential expired")]
+fn test_credential_rejects_now_at_expiry() {
+    let _ = credential::verify(credential_public(), 1900000000, 1, credential_inputs());
+}
+
+#[test]
+fn test_credential_accepts_a_minimum_equal_to_genesis() {
+    let mut public = credential_public();
+    public.genesis_issued_at_min = 1600000000;
+    let _ = credential::verify(public, NOW, 1, credential_inputs());
+}
+
+#[test(should_fail_with = "credential too recent")]
+fn test_credential_rejects_a_minimum_after_genesis() {
+    let mut public = credential_public();
+    public.genesis_issued_at_min = 1600000001;
+    let _ = credential::verify(public, NOW, 1, credential_inputs());
+}
+
+#[test(should_fail_with = "call to assert_max_bit_size")]
+fn test_credential_rejects_an_issuer_version_beyond_8_bits() {
+    let mut public = credential_public();
+    public.issuer_version += 0x100;
+    let _ = credential::verify(public, NOW, 1, credential_inputs());
+}
+
+#[test(should_fail_with = "call to assert_max_bit_size")]
+fn test_credential_rejects_an_id_beyond_64_bits() {
+    let mut inputs = credential_inputs();
+    inputs.id += 0x10000000000000000;
+    let _ = credential::verify(credential_public(), NOW, 1, inputs);
+}
