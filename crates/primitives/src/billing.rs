@@ -4,12 +4,16 @@
 //! is the OPRF action of the period's billing query, and [`billing_nullifier`] finalizes that
 //! query into the `billingNullifier` the Billing Contract registers. Period boundaries follow
 //! the Anywhere on Earth (AoE) calendar months of WIP-107 §4.3.
+//!
+//! Everything but [`BILLED_ACTION_PREFIX`] builds without the `protocol` feature, so a TEE
+//! Verifier can check billing state without the proof and OPRF dependencies.
 
-use alloy::sol_types::SolValue;
 use alloy_primitives::{Address, U256, keccak256};
 
+#[cfg(feature = "protocol")]
+use crate::OprfPrefix;
 use crate::{
-    FieldElement, Nullifier, OprfPrefix, PrimitiveError,
+    FieldElement, Nullifier, PrimitiveError,
     authenticator::oprf_query_digest,
     poseidon::{self, ds},
     rp::RpId,
@@ -17,6 +21,7 @@ use crate::{
 
 /// The most significant byte an RP-signed action MUST carry to authorize a billing registration
 /// (WIP-107 §4.1). Reserved for Proofs of Embedding Similarity.
+#[cfg(feature = "protocol")]
 pub const BILLED_ACTION_PREFIX: OprfPrefix = OprfPrefix::EmbeddingSimilarity;
 
 /// Domain of the billing action, `BILLING_ACTION_DOMAIN` in the Billing Contract (WIP-107 §4.3).
@@ -35,6 +40,13 @@ pub const MAX_RP_STATUS_AGE: u64 = 60;
 const AOE_OFFSET: u64 = 12 * 60 * 60;
 
 const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
+
+/// One ABI word, in bytes.
+const WORD: usize = 32;
+
+/// Length of the billing action's ABI encoding: five head words, the string length and one word
+/// of string bytes.
+const ENCODED_LEN: usize = 7 * WORD;
 
 /// One RP's billing period on one Billing Contract, `BillingContext` in WIP-107 §4.2.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -56,17 +68,28 @@ impl BillingContext {
     /// The shift leaves the most significant byte `0x00`, so the action is always in the field.
     #[must_use]
     pub fn billing_action(&self) -> FieldElement {
-        let encoded = (
-            BILLING_ACTION_DOMAIN.to_string(),
-            self.chain_id,
-            self.billing_contract,
-            self.rp_id.into_inner(),
-            self.period_start,
-        )
-            .abi_encode_params();
-        let action: U256 = U256::from_be_bytes(keccak256(encoded).0) >> 8_usize;
+        let action: U256 = U256::from_be_bytes(keccak256(self.abi_encode()).0) >> 8_usize;
         FieldElement::from_be_bytes(&action.to_be_bytes::<32>())
             .expect("a 248-bit value is always below the field modulus")
+    }
+
+    /// `abi.encode(BILLING_ACTION_DOMAIN, chainId, billingContract, rpId, periodStart)`.
+    ///
+    /// Five head words, the string's offset followed by the four static values, then the string's
+    /// length and its bytes, right-padded to one word.
+    fn abi_encode(&self) -> [u8; ENCODED_LEN] {
+        const _: () = assert!(BILLING_ACTION_DOMAIN.len() <= WORD);
+
+        let mut encoded = [0u8; ENCODED_LEN];
+        let (words, _) = encoded.as_chunks_mut::<WORD>();
+        words[0] = U256::from(5 * WORD).to_be_bytes();
+        words[1] = self.chain_id.to_be_bytes();
+        words[2][WORD - Address::len_bytes()..].copy_from_slice(self.billing_contract.as_slice());
+        words[3] = U256::from(self.rp_id.into_inner()).to_be_bytes();
+        words[4] = U256::from(self.period_start).to_be_bytes();
+        words[5] = U256::from(BILLING_ACTION_DOMAIN.len()).to_be_bytes();
+        words[6][..BILLING_ACTION_DOMAIN.len()].copy_from_slice(BILLING_ACTION_DOMAIN.as_bytes());
+        encoded
     }
 
     /// Returns whether `period_start` is canonical, i.e. 00:00:00 AoE on a month's first day.
@@ -226,7 +249,6 @@ const fn civil_from_days(days: u64) -> (u64, u64, u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::OprfPrefixedFieldElement;
     use alloy_primitives::address;
     use ark_ec::AffineRepr;
 
@@ -288,7 +310,41 @@ mod tests {
     #[test]
     fn billing_action_is_a_uniqueness_domain_input() {
         let action = context(480, Address::ZERO, 1, NOV_2026).billing_action();
-        assert!(action.has_prefix(OprfPrefix::Uniqueness));
+        assert_eq!(action.to_be_bytes()[0], 0x00);
+    }
+
+    /// The fixed-layout encoding equals the general ABI encoder's, for edge values of each field.
+    #[cfg(feature = "protocol")]
+    #[test]
+    fn abi_encoding_matches_alloy() {
+        use alloy::sol_types::SolValue;
+
+        let contexts = [
+            context(
+                480,
+                address!("1111111111111111111111111111111111111111"),
+                42,
+                NOV_2026,
+            ),
+            context(0, Address::ZERO, 0, 0),
+            BillingContext {
+                chain_id: U256::MAX,
+                billing_contract: Address::repeat_byte(0xff),
+                rp_id: RpId::new(u64::MAX),
+                period_start: u64::MAX,
+            },
+        ];
+        for ctx in contexts {
+            let expected = (
+                BILLING_ACTION_DOMAIN.to_string(),
+                ctx.chain_id,
+                ctx.billing_contract,
+                ctx.rp_id.into_inner(),
+                ctx.period_start,
+            )
+                .abi_encode_params();
+            assert_eq!(ctx.abi_encode().as_slice(), expected.as_slice());
+        }
     }
 
     #[test]

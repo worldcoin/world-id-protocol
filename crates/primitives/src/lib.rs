@@ -63,7 +63,6 @@ pub mod oprf;
 pub use oprf::{OprfPrefix, OprfPrefixedFieldElement};
 
 /// WIP-107 per-period fees: billing contexts, actions, periods and nullifiers.
-#[cfg(feature = "protocol")]
 pub mod billing;
 
 /// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
