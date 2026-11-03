@@ -38,7 +38,7 @@ pub use key_set::{
 
 /// Contains the global configuration for interacting with the World ID Protocol.
 mod config;
-pub use config::{Config, ServiceEndpoint};
+pub use config::{Config, OhttpKem, ServiceEndpoint};
 
 pub mod poseidon;
 pub use poseidon::{DomainSeparator, VariableLengthDomainSeparator};
