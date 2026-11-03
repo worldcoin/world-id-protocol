@@ -47,8 +47,13 @@ use world_id_primitives::FieldElement;
 
 pub mod ownership_proof;
 
+pub mod embedding_similarity_proof;
+
+mod noir_inputs;
+
 pub use provekit_common::{
-    NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
+    NoirProof, Prover as OwnershipProver, Prover as EmbeddingSimilarityProver,
+    Verifier as OwnershipVerifier, Verifier as EmbeddingSimilarityVerifier, WhirR1CSProof,
 };
 
 /// Error type for OPRF operations and proof generation.
