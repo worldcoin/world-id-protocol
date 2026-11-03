@@ -1,4 +1,5 @@
 #![cfg(feature = "integration-tests")]
+#![recursion_limit = "256"]
 mod helpers;
 use helpers::{
     common::{TestSetup, query_count},
@@ -69,6 +70,7 @@ async fn test_cache_creation_and_restoration() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8090".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -144,6 +146,7 @@ async fn test_incremental_replay() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8091".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -203,6 +206,7 @@ async fn test_incremental_replay() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8092".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -277,6 +281,7 @@ async fn test_missing_cache_creates_new() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8093".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -343,6 +348,7 @@ async fn test_http_only_cache_refresh() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8094".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -379,6 +385,7 @@ async fn test_http_only_cache_refresh() {
         environment: Environment::Development,
         run_mode: RunMode::HttpOnly {
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8095".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -465,6 +472,7 @@ async fn test_authenticator_removed_replay() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8098".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -561,6 +569,7 @@ async fn test_authenticator_removed_replay() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8096".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -593,6 +602,7 @@ async fn test_authenticator_removed_replay() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8097".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -664,6 +674,7 @@ async fn test_init_root_matches_contract() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8100".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -749,6 +760,7 @@ async fn test_replay_root_matches_contract() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8101".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -813,6 +825,7 @@ async fn test_replay_root_matches_contract() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8102".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -906,6 +919,7 @@ async fn test_corrupted_cache_returns_error() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8103".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -948,6 +962,7 @@ async fn test_corrupted_cache_returns_error() {
         environment: Environment::Development,
         run_mode: RunMode::HttpOnly {
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8104".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,
@@ -1005,6 +1020,7 @@ async fn test_sanity_check_exits_on_root_mismatch() {
         environment: Environment::Development,
         run_mode: RunMode::HttpOnly {
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8099".parse().unwrap(),
                 db_poll_interval_secs: 60,
                 request_timeout_secs: 10,

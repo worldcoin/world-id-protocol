@@ -1,4 +1,5 @@
 #![cfg(feature = "integration-tests")]
+#![recursion_limit = "256"]
 
 mod helpers;
 use helpers::common::{TestSetup, query_count};
@@ -94,6 +95,7 @@ async fn test_get_pending_recovery_agent_endpoint() {
                 max_concurrent_log_requests: 1,
             },
             http_config: HttpConfig {
+                verifier_address: setup.verifier_address,
                 http_addr: "0.0.0.0:8086".parse().unwrap(),
                 db_poll_interval_secs: 1,
                 request_timeout_secs: 10,

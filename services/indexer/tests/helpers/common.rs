@@ -19,6 +19,7 @@ pub const RECOVERY_ADDRESS: Address = address!("0x000000000000000000000000000000
 pub struct TestSetup {
     pub _anvil: TestAnvil,
     pub registry_address: Address,
+    pub verifier_address: Address,
     pub db_url: String,
     pub pool: PgPool,
     _test_db: TestDatabase, // Holds reference for automatic cleanup via RAII
@@ -41,13 +42,26 @@ impl TestSetup {
         let anvil = TestAnvil::spawn().expect("failed to spawn anvil");
         let deployer = anvil.signer(0).expect("failed to obtain deployer signer");
         let registry_address = anvil
-            .deploy_world_id_registry_with_depth(deployer, tree_depth)
+            .deploy_world_id_registry_with_depth(deployer.clone(), tree_depth)
             .await
             .expect("failed to deploy WorldIDRegistry");
+
+        // Other endpoint tests need an initialized verifier pointing to this registry.
+        // Issuer/OPRF dependencies are unused there; real-proof tests supply their own fixtures.
+        let verifier_address = anvil
+            .deploy_world_id_verifier(
+                deployer,
+                registry_address,
+                registry_address,
+                registry_address,
+            )
+            .await
+            .expect("failed to deploy WorldIDVerifier");
 
         Self {
             _anvil: anvil,
             registry_address,
+            verifier_address,
             db_url,
             pool,
             _test_db: test_db,

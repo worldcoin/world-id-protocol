@@ -66,6 +66,7 @@ This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initi
 | `DATABASE_URL` | required | PostgreSQL connection string |
 | `RPC_URL` | required | HTTP RPC endpoint |
 | `REGISTRY_ADDRESS` | required | `AccountRegistry` contract address |
+| `VERIFIER_ADDRESS` | required in HTTP modes | Initialized `WorldIDVerifier` proxy address; must reference `REGISTRY_ADDRESS` |
 | `TREE_CACHE_FILE` | required | Path to mmap-backed tree cache file |
 | `RUN_MODE` | `both` | `both`, `indexer`, or `http` |
 | `START_BLOCK` | `0` | Block to start indexing from if DB is empty |
