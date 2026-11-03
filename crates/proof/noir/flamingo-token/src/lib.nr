@@ -49,15 +49,20 @@ pub struct FlamingoTokenClaims {
 /// Check 3 (Well-formed values) of WIP-201 §4.7. Range-checks every integer claim here,
 /// not through the caller's types.
 fn check_well_formed(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
+    // The Verifier's time is a 32-bit Unix timestamp.
     public.now.assert_max_bit_size::<32>();
     assert(public.has_aat * (public.has_aat - 1) == 0, "has_aat must be 0 or 1");
+    // Each `aat_flags` sub-field fits its slot, so no two claim sets pack to the same flags.
     public.platform.assert_max_bit_size::<8>();
     public.sec_level.assert_max_bit_size::<8>();
     public.sec_meta.assert_max_bit_size::<4>();
     public.authenticator_meta.assert_max_bit_size::<5>();
+    // WIP-106 reserves `user_presence` (bits 0-2 of `authenticator_meta`) values 5 to 7.
     assert(((public.authenticator_meta as u8) & 7) < 5, "user_presence values 5 to 7 are reserved");
     public.min_build_version.assert_max_bit_size::<32>();
+    // One byte per compared entry.
     claims.compare_sources.assert_max_bit_size::<32>();
+    // Without a verified AAT, every AAT value is zero, so the token claims nothing about one.
     if public.has_aat == 0 {
         assert(
             (public.trust_anchor_key_hash == 0)
