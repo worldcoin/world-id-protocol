@@ -33,7 +33,7 @@ pub const CHANNEL_KEY_DOMAIN: &[u8] = b"WORLD-ID/WIP-201/CHANNEL-KEY\0";
 
 /// Separates the signed digest of a Flamingo Token. The digest runs at `t=16`, so the
 /// separator pins 15 inputs.
-pub const DS_SIGN: DomainSeparator<15> = DomainSeparator::new(b"WORLD-ID/WIP-201/SIGN");
+pub const DS_SIGN: DomainSeparator<15> = DomainSeparator::new(b"WORLD-ID/WIP-201/SIGN2");
 /// Separates [`engine_config_hash`].
 pub const DS_ENGINE: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/WIP-201/ENGINE");
 

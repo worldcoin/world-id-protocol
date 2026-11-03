@@ -43,6 +43,8 @@ pub struct Request {
     pub nonce: FieldElement,
     /// Unix seconds after which the Verifier rejects the request.
     pub expires_at: u64,
+    /// The WIP-107 `billingNullifier` of the Authenticator's registration for `aud`, or `0`.
+    pub billing_nullifier: FieldElement,
     /// The encoded [`Payload`], kept as bytes so `cdh` commits to its exact encoding.
     pub payload: Vec<u8>,
     /// Inputs for verifying an AAT, if the Authenticator has one.
@@ -58,6 +60,7 @@ impl Request {
         aud: FieldElement,
         nonce: FieldElement,
         expires_at: u64,
+        billing_nullifier: FieldElement,
         payload: &Payload,
         aat_inputs: Option<AatInputs>,
     ) -> Result<Self, RequestError> {
@@ -65,6 +68,7 @@ impl Request {
             aud,
             nonce,
             expires_at,
+            billing_nullifier,
             payload: payload.encode()?,
             aat_inputs,
         };
@@ -80,6 +84,10 @@ impl Request {
             ("payload", Value::Bytes(self.payload.clone())),
             ("aud", cbor::field_element(self.aud)),
             ("nonce", cbor::field_element(self.nonce)),
+            (
+                "billing_nullifier",
+                cbor::field_element(self.billing_nullifier),
+            ),
         ];
         if let Some(aat) = &self.aat_inputs {
             fields.push(("aat_inputs", aat.to_value()));
@@ -113,6 +121,7 @@ impl Request {
             aud,
             nonce,
             expires_at: fields.uint("expires_at")?,
+            billing_nullifier: fields.field_element("billing_nullifier")?,
             payload,
             aat_inputs,
         };
@@ -536,6 +545,7 @@ mod tests {
             1_928_118u64.into(),
             42u64.into(),
             EXPIRES_AT,
+            FieldElement::ZERO,
             &payload(),
             aat,
         )
@@ -596,6 +606,7 @@ mod tests {
             FieldElement::from(u128::from(u64::MAX) + 1),
             42u64.into(),
             EXPIRES_AT,
+            FieldElement::ZERO,
             &payload(),
             Some(aat_inputs()),
         )
@@ -614,6 +625,7 @@ mod tests {
             1_928_118u64.into(),
             42u64.into(),
             EXPIRES_AT,
+            FieldElement::ZERO,
             &other,
             Some(aat_inputs()),
         )
@@ -717,6 +729,7 @@ mod tests {
                 1u64.into(),
                 FieldElement::ZERO,
                 EXPIRES_AT,
+                FieldElement::ZERO,
                 &payload(),
                 None
             ),
