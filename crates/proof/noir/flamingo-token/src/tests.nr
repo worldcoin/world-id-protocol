@@ -116,7 +116,7 @@ fn test_rejects_a_reserved_user_presence() {
     let _ = verify(p, claims(), SIG_WITH_AAT);
 }
 
-#[test(should_fail_with = "sec_meta exceeds 4 bits")]
+#[test(should_fail_with = "call to assert_max_bit_size")]
 fn test_rejects_a_wide_sec_meta() {
     let mut p = public();
     p.sec_meta = 16;

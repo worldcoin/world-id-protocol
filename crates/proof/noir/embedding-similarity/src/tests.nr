@@ -150,7 +150,7 @@ fn test_rejects_a_reserved_user_presence() {
     prove(p, inputs());
 }
 
-#[test(should_fail_with = "authenticator_meta exceeds 5 bits")]
+#[test(should_fail_with = "call to assert_max_bit_size")]
 fn test_rejects_a_wide_authenticator_meta() {
     let mut p = public();
     p.authenticator_meta = 32;
@@ -245,7 +245,7 @@ fn test_rejects_another_now_without_an_aat() {
     prove(p, inputs_without_aat());
 }
 
-#[test(should_fail_with = "sec_meta exceeds 4 bits")]
+#[test(should_fail_with = "call to assert_max_bit_size")]
 fn test_rejects_a_wide_sec_meta() {
     let mut p = public();
     p.sec_meta = 16;

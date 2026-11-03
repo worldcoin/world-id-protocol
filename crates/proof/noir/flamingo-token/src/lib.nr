@@ -46,24 +46,33 @@ pub struct FlamingoTokenClaims {
     pub billing_nullifier: Field,
 }
 
-/// Check 3's widths: every integer claim is range-checked here, not by the caller's types.
-fn check_widths(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
+/// Check 3 (Well-formed values) of WIP-201 §4.7. Range-checks every integer claim here,
+/// not through the caller's types.
+fn check_well_formed(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
     public.now.assert_max_bit_size::<32>();
     assert(public.has_aat * (public.has_aat - 1) == 0, "has_aat must be 0 or 1");
     public.platform.assert_max_bit_size::<8>();
     public.sec_level.assert_max_bit_size::<8>();
-    public.sec_meta.assert_max_bit_size::<8>();
-    assert((public.sec_meta as u8) < 16, "sec_meta exceeds 4 bits");
-    public.authenticator_meta.assert_max_bit_size::<8>();
-    let authenticator_meta = public.authenticator_meta as u8;
-    assert(authenticator_meta < 32, "authenticator_meta exceeds 5 bits");
-    assert((authenticator_meta & 7) < 5, "user_presence values 5 to 7 are reserved");
+    public.sec_meta.assert_max_bit_size::<4>();
+    public.authenticator_meta.assert_max_bit_size::<5>();
+    assert(((public.authenticator_meta as u8) & 7) < 5, "user_presence values 5 to 7 are reserved");
     public.min_build_version.assert_max_bit_size::<32>();
     claims.compare_sources.assert_max_bit_size::<32>();
+    if public.has_aat == 0 {
+        assert(
+            (public.trust_anchor_key_hash == 0)
+                & (public.platform == 0)
+                & (public.sec_level == 0)
+                & (public.sec_meta == 0)
+                & (public.authenticator_meta == 0)
+                & (public.min_build_version == 0),
+            "AAT values must be zero without an AAT",
+        );
+    }
 }
 
 /// `aat_flags`: the TAKT's `sec_flags` layout with `min_build_version` in bits 16-47 and
-/// `authenticator_meta` in bits 52-56. Assumes the widths [`check_widths`] enforces.
+/// `authenticator_meta` in bits 52-56. Assumes the widths [`check_well_formed`] enforces.
 fn aat_flags(public: FlamingoTokenPublic) -> Field {
     public.platform
         + 0x100 * public.sec_level
@@ -74,7 +83,7 @@ fn aat_flags(public: FlamingoTokenPublic) -> Field {
 
 /// The signed digest (WIP-201 §4.5): `H_16(DS_WIP_201; ...)` over the 13 claims.
 pub fn digest(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) -> Field {
-    check_widths(public, claims);
+    check_well_formed(public, claims);
     let h = claims.compared_entry_hashes;
     permutation::t16([
         DS_WIP_201,
@@ -98,17 +107,6 @@ pub fn digest(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) -> Field
 
 /// Checks 2 (signature) and 3 (well-formed values), and returns the signed digest.
 pub fn verify(public: FlamingoTokenPublic, claims: FlamingoTokenClaims, sig: Signature) -> Field {
-    if public.has_aat == 0 {
-        assert(
-            (public.trust_anchor_key_hash == 0)
-                & (public.platform == 0)
-                & (public.sec_level == 0)
-                & (public.sec_meta == 0)
-                & (public.authenticator_meta == 0)
-                & (public.min_build_version == 0),
-            "AAT values must be zero without an AAT",
-        );
-    }
     let digest = digest(public, claims);
     assert(sig.verify(public.verifier_key, digest), "invalid flamingo token signature");
     digest
