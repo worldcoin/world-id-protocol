@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.18.0...world-id-primitives-v0.19.0) - 2026-11-03
+
+### Added
+
+- *(indexer)* expose proof verification endpoint ([#1166](https://github.com/worldcoin/world-id-protocol/pull/1166))
+
+### Other
+
+- describe constraint leaves as request item identifiers ([#1159](https://github.com/worldcoin/world-id-protocol/pull/1159))
+
 ## [0.18.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.17.1...world-id-primitives-v0.18.0) - 2026-10-28
 
 ### Added
