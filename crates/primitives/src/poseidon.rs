@@ -53,7 +53,7 @@ pub mod ds {
     /// handed to the OPRF nodes for the nullifier module.
     pub const OPRF_PROOF: DomainSeparator<3> = DomainSeparator::new(b"World ID Proof");
     /// Separates the message an authenticator signs for an ownership proof (WIP-103).
-    pub const OWNERSHIP_PROOF: DomainSeparator<3> = DomainSeparator::new(b"WIP103");
+    pub const OWNERSHIP_PROOF: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/WIP-103/SIGN");
     /// Separates the message signed for a trust anchor key token (WIP-106).
     pub const TRUST_ANCHOR_KEY_TOKEN: DomainSeparator<6> =
         DomainSeparator::new(b"WORLD-ID/WIP-106/TAKT");
