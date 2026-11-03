@@ -4,14 +4,13 @@
 //! to the image committed in the prover's PoH Credential, and that the World ID account
 //! holding the Credential authorized the result.
 pub(crate) mod constants;
-pub(crate) mod flamingo_token;
 pub(crate) mod hashes_json;
 pub(crate) mod types;
 mod test_fixtures;
 mod tests;
 
-use constants::{CLAIM_INDEX, DS_OPRF_PROOF, DS_QUERY, DS_WIP_202_AUTH};
-use flamingo_token::FlamingoTokenPublic;
+use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_OPRF_PROOF, DS_QUERY, DS_WIP_202_AUTH};
+use flamingo_token::{FlamingoTokenClaims, FlamingoTokenPublic};
 use poseidon2::bn254::permutation;
 use types::PrivateInputs;
 use world_id_components::{
@@ -68,11 +67,22 @@ fn main(
         sec_level,
         sec_meta,
         authenticator_meta,
+        // WIP-202 checks no Authenticator build version for now.
+        min_build_version: 0,
         engine_config_hash,
     };
-    let compared = [credential_digest, inputs.token.live_capture_hash, challenge_hash, 0];
     let billing_nullifier = inputs.token.billing_nullifier;
-    let digest = flamingo_token::verify(public, compared, billing_nullifier, inputs.token.sig);
+    let token_claims = FlamingoTokenClaims {
+        compared_entry_hashes: [
+            credential_digest,
+            inputs.token.live_capture_hash,
+            challenge_hash,
+            0,
+        ],
+        compare_sources: COMPARE_SOURCES,
+        billing_nullifier,
+    };
+    let digest = flamingo_token::verify(public, token_claims, inputs.token.sig);
 
     // 4. World ID Authentication over the authorization message, which also binds the
     // RP's signal. One `leaf_index` witness binds the World ID, the Credential and the session.

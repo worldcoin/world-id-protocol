@@ -3,6 +3,7 @@
 ## Packages
 
 - `world-id-components/` — Library of the WIP-100 Circuit Components (World ID Authentication, Credential Verification, Session Commitment), shared by the circuits.
+- `flamingo-token/` — Library verifying a WIP-201 Flamingo Token inside a circuit that keeps it private (WIP-201 §4.7, checks 2 and 3). **🚧 Unaudited, in active development.**
 - `ownership-proof/` — Proof of Ownership (WIP-103).
 - `embedding-similarity/` — WIP-202 Proof of Embedding Similarity over a WIP-201 Flamingo Token. **🚧 Unaudited, in active development.**
 - `authenticator-assertion/` — WIP-106 Trust Anchor Key Token (`BabyJubJub-EdDSA-Poseidon2`) and Authenticator Assertion Token (`ES256`) verification. **🚧 Warning. This is WIP and in active development, things may change significantly.**

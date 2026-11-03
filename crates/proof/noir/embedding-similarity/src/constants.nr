@@ -3,9 +3,6 @@
 // Domain separators are the ASCII bytes of the quoted tag read as a big-endian
 // integer (all tags are shorter than 31 bytes, so no reduction occurs).
 
-/// Compared entries in a WIP-201 Flamingo Token.
-pub global MAX_COMPARED: u32 = 4;
-
 /// `compare_sources` WIP-202 fixes: compared entry 1 is pipeline input 0, the others are references.
 pub global COMPARE_SOURCES: u32 = 256;
 
@@ -28,9 +25,6 @@ pub global WINDOW_CHUNKS: u32 = 4;
 
 /// Chunk slots: `NUM_CHUNKS` plus zero slack so the window never indexes past the end.
 pub global CHUNK_SLOTS: u32 = NUM_CHUNKS + WINDOW_CHUNKS - 1;
-
-/// Flamingo Token digest (`DS_WIP_201`): b"WORLD-ID/WIP-201/SIGN".
-pub global DS_WIP_201: Field = 127603488023523044162070750169730750022280897185614;
 
 /// Billing query (`DS_QUERY`, WIP-100 §3.8): b"World ID Query".
 pub global DS_QUERY: Field = 1773399373884719043551600379785849;
