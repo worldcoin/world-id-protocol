@@ -135,9 +135,10 @@ async fn verifies_real_proofs_and_validates_startup_configuration() {
         )
         .await
         .unwrap();
-    let verifier = crate::initialize_verifier(provider.clone(), address, *registry.address(), 10)
+    crate::validate_verifier(provider.clone(), address, *registry.address(), 10)
         .await
         .unwrap();
+    let verifier = WorldIdVerifier::new(address, provider.clone());
 
     let slot = U256::from_be_bytes(keccak256("eip1967.proxy.implementation").0) - U256::from(1);
     let implementation =
@@ -149,7 +150,7 @@ async fn verifies_real_proofs_and_validates_startup_configuration() {
         (address, *issuer.address()),
     ] {
         assert!(
-            crate::initialize_verifier(provider.clone(), target, expected_registry, 10)
+            crate::validate_verifier(provider.clone(), target, expected_registry, 10)
                 .await
                 .is_err()
         );

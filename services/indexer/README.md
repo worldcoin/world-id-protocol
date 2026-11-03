@@ -39,8 +39,6 @@ In `HttpOnly` mode the tree is not versioned; instead a background loop polls th
 
 The HTTP server serves inclusion proofs for public keys. It is backed by the shared DB and in-memory tree. An optional periodic sanity check (`SANITY_CHECK_INTERVAL_SECS`) calls `isValidRoot` on the registry contract to verify the in-memory root is still valid on-chain.
 
-`POST /verify` verifies one uniqueness or session proof through the configured `WorldIDVerifier` proxy using the indexer's RPC. It returns `{"valid": true}` on success, `400` for known proof/input rejections, and a server error when verification is unavailable. Supply expected public inputs; RPs remain responsible for request matching, nonce consumption and nullifier uniqueness. See `/openapi.json` for the request schema. Session verification takes the numeric session commitment and the opaque `snil_` session nullifier. Session-bound uniqueness proofs are not supported by this endpoint.
-
 ### Reorg Handling
 
 Reorgs are detected during batch commit in two ways:

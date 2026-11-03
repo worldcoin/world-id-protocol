@@ -100,6 +100,7 @@ deploy_contracts() {
     world_id_registry=$(jq -r ".worldIDRegistry.proxy" ./contracts/deployments/core/local.json)
     echo "WorldIDRegistry: $world_id_registry"
     world_id_verifier=$(jq -r ".worldIDVerifier.proxy" ./contracts/deployments/core/local.json)
+    echo "WorldIDVerifier: $world_id_verifier"
     rp_registry=$(jq -r ".rpRegistry.proxy" ./contracts/deployments/core/local.json)
     echo "RpRegistry: $rp_registry"
     credential_schema_issuer_registry=$(jq -r ".credentialSchemaIssuerRegistry.proxy" ./contracts/deployments/core/local.json)

@@ -339,6 +339,11 @@ impl GlobalConfig {
         let registry_address = registry_address_str.parse::<Address>().map_err(|e| {
             ConfigError::InvalidRegistryAddress(format!("{}: {}", registry_address_str, e))
         })?;
+        if registry_address.is_zero() {
+            return Err(ConfigError::InvalidRegistryAddress(
+                "address cannot be zero".to_string(),
+            ));
+        }
 
         let tree_cache = TreeCacheConfig::from_env()?;
 
@@ -710,13 +715,18 @@ mod tests {
         set_env("VERIFIER_ADDRESS", TEST_VERIFIER_ADDRESS);
         set_env("DATABASE_URL", "postgresql://localhost/test");
         set_env("RPC_URL", "http://localhost:8545");
-        set_env("REGISTRY_ADDRESS", "invalid_address");
         set_env("TREE_CACHE_FILE", "/tmp/test_cache");
 
-        let result = GlobalConfig::from_env();
-        assert!(result.is_err());
-        let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("REGISTRY_ADDRESS") || err_msg.contains("Invalid"));
+        for address in [
+            "invalid_address",
+            "0x0000000000000000000000000000000000000000",
+        ] {
+            set_env("REGISTRY_ADDRESS", address);
+            assert!(matches!(
+                GlobalConfig::from_env(),
+                Err(ConfigError::InvalidRegistryAddress(_))
+            ));
+        }
     }
 
     #[test]
