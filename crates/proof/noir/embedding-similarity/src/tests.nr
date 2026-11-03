@@ -407,7 +407,7 @@ fn test_reads_a_thumbnail_in_the_final_short_chunk() {
     assert_eq(digest, 255);
 }
 
-#[test(should_fail_with = "hashes.json is shorter than its bound")]
+#[test(should_fail_with = "H_var input is shorter than its bound")]
 fn test_rejects_a_hashes_json_below_the_length_window() {
     let mut json = inputs().hashes_json;
     json.len = 3071;
@@ -433,7 +433,7 @@ fn test_rejects_a_thumbnail_digest_without_its_closing_quote() {
     );
 }
 
-#[test(should_fail_with = "hashes.json exceeds its bound")]
+#[test(should_fail_with = "H_var input exceeds its bound")]
 fn test_rejects_a_hashes_json_above_the_length_window() {
     let mut json = inputs().hashes_json;
     json.len = 5121;
