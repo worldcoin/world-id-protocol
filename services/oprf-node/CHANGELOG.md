@@ -5,6 +5,76 @@ All notable changes to `world-id-oprf-node` will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.2.5](https://github.com/worldcoin/world-id-protocol/compare/world-id-oprf-node-v1.2.4...world-id-oprf-node-v1.2.5) (2026-11-02)
+
+### Build
+
+- Bump ark-serde-compat from 0.6.1 to 0.6.2 ([#1163](https://github.com/worldcoin/world-id-protocol/issues/1163))
+- Bump uuid from 1.26.1 to 1.28.0 ([#1158](https://github.com/worldcoin/world-id-protocol/issues/1158))
+- Bump tokio-util from 0.7.18 to 0.7.20 ([#1156](https://github.com/worldcoin/world-id-protocol/issues/1156))
+- Bump moka from 0.12.13 to 0.12.16 ([#1155](https://github.com/worldcoin/world-id-protocol/issues/1155))
+- Bump rustls-webpki and webpki-roots ([#1121](https://github.com/worldcoin/world-id-protocol/issues/1121))
+- Fix cargo deny advisories (crypto-bigint, ctutils, tokio) ([#1137](https://github.com/worldcoin/world-id-protocol/issues/1137))
+
+## [1.2.4](https://github.com/worldcoin/world-id-protocol/compare/world-id-oprf-node-v1.2.3...world-id-oprf-node-v1.2.4) (2026-10-19)
+
+### Build
+
+- **breaking** Update taceo crates to newer versions, update arkworks to 0.6 everywhere ([#1038](https://github.com/worldcoin/world-id-protocol/issues/1038))
+- Consolidate dependabot bumps (alloy 2.0.4 among others) ([#1055](https://github.com/worldcoin/world-id-protocol/issues/1055))
+- Bump uuid from 1.24.1 to 1.26.1 ([#1048](https://github.com/worldcoin/world-id-protocol/issues/1048))
+- Bump anyhow from 1.0.103 to 1.0.104 ([#1049](https://github.com/worldcoin/world-id-protocol/issues/1049))
+- Bump http from 1.4.0 to 1.5.0 ([#1047](https://github.com/worldcoin/world-id-protocol/issues/1047))
+- Consolidate compatible dependency updates ([#962](https://github.com/worldcoin/world-id-protocol/issues/962))
+- Bump h2 to fix RUSTSEC-2026-0258 ([#945](https://github.com/worldcoin/world-id-protocol/issues/945))
+- Bump rustls to 0.23.46 for RUSTSEC-2026-0346 to 0349 ([#1101](https://github.com/worldcoin/world-id-protocol/issues/1101))
+- Bump rustls past RUSTSEC-2026-0285 ([#1008](https://github.com/worldcoin/world-id-protocol/issues/1008))
+
+## [1.2.3](https://github.com/worldcoin/world-id-protocol/compare/world-id-oprf-node-v1.2.2...world-id-oprf-node-v1.2.3) (2026-08-17)
+
+### Build
+
+- Bump cmov, quinn, serde_with, spin ([#893](https://github.com/worldcoin/world-id-protocol/issues/893))
+- Bump ruint and event-listener to clear cargo-deny advisories ([#879](https://github.com/worldcoin/world-id-protocol/issues/879))
+- Bump rand to 0.8.6/0.9.3 to patch RUSTSEC-2026-0097 ([#854](https://github.com/worldcoin/world-id-protocol/issues/854))
+- Update crossbeam-epoch to 0.9.20 (RUSTSEC-2026-0204) ([#838](https://github.com/worldcoin/world-id-protocol/issues/838))
+
+### Features
+
+- Create an abstraction layer for poseidon hashing ([#915](https://github.com/worldcoin/world-id-protocol/issues/915))
+- Add metrics and query with id to batcher ([#857](https://github.com/worldcoin/world-id-protocol/issues/857))
+- Check expires_at max difference ([#853](https://github.com/worldcoin/world-id-protocol/issues/853))
+- Add is_blocked at node ([#848](https://github.com/worldcoin/world-id-protocol/issues/848))
+- Add worker that sends requests to accountant ([#843](https://github.com/worldcoin/world-id-protocol/issues/843))
+
+### Bug Fixes
+
+- **breaking** Don't expose fe with modulo reduction ([#932](https://github.com/worldcoin/world-id-protocol/issues/932))
+
+### Refactoring
+
+- Remove is_blocked and billing contract ([#939](https://github.com/worldcoin/world-id-protocol/issues/939))
+- Bump to oprf version 0.18.1. Also remove test-utils and use alloy mock asserter over compiled solidity mocks ([#913](https://github.com/worldcoin/world-id-protocol/issues/913))
+- **breaking** Unify field element domain prefixes into FePrefix ([#912](https://github.com/worldcoin/world-id-protocol/issues/912))
+- **breaking** Collapse create_session proof type into session x create ([#866](https://github.com/worldcoin/world-id-protocol/issues/866))
+- **breaking** Remove oprf-accountant ([#894](https://github.com/worldcoin/world-id-protocol/issues/894))
+- Cleanup auth modules ([#850](https://github.com/worldcoin/world-id-protocol/issues/850))
+- Introduce ZkArtifactSource abstraction ([#831](https://github.com/worldcoin/world-id-protocol/issues/831))
+
+## [1.2.2](https://github.com/worldcoin/world-id-protocol/compare/world-id-oprf-node-v1.2.1...world-id-oprf-node-v1.2.2) (2026-07-03)
+
+### Build
+
+- Bump oprf to version 0.17.2 ([#826](https://github.com/worldcoin/world-id-protocol/issues/826))
+- Update telemetry batteries ([#794](https://github.com/worldcoin/world-id-protocol/issues/794))
+
+### Refactoring
+
+- Remove run_pending_tasks + eviction listener ([#825](https://github.com/worldcoin/world-id-protocol/issues/825))
+- Remove tokio::task for axum ([#802](https://github.com/worldcoin/world-id-protocol/issues/802))
+
 ## [1.2.1](https://github.com/worldcoin/world-id-protocol/compare/world-id-oprf-node-v1.2.0...world-id-oprf-node-v1.2.1) (2026-06-17)
 
 
@@ -12,8 +82,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 * **node:** fixes a test-cases ([#787](https://github.com/worldcoin/world-id-protocol/issues/787)) ([ab243a3](https://github.com/worldcoin/world-id-protocol/commit/ab243a3e0eadb3d786c12106758239c50ed9ff49))
 * oprf release process ([#782](https://github.com/worldcoin/world-id-protocol/issues/782)) ([a0c1cba](https://github.com/worldcoin/world-id-protocol/commit/a0c1cba06b0005f3e6f52cb6535984ca0e9b927d))
-
-## [Unreleased]
 
 ## [1.2.0](https://github.com/worldcoin/world-id-protocol/releases/tag/v1.2.0) - 2026-06-09
 
