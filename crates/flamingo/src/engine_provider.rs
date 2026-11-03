@@ -1,19 +1,17 @@
-//! Engine Provider metadata (WIP-201 §3.5.2).
+//! Engine Provider metadata (WIP-201 §4.3.6).
 
 use serde::{Deserialize, Serialize};
 
 use crate::release_manifest::{ManifestError, ReleaseKeyJwk, ReleaseManifest};
 
-/// Path of the Engine Provider metadata file.
+/// Path of the Engine Provider metadata file, relative to `iss`.
 pub const METADATA_PATH: &str = "/.well-known/world-id-engine.json";
 
-/// An Engine Provider's metadata file at [`METADATA_PATH`].
+/// An Engine Provider's metadata file at `<iss>` + [`METADATA_PATH`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EngineProviderMetadata {
     /// Schema version; MUST be `1`.
     pub version: u32,
-    /// Stable identifier, which RPs MAY allowlist.
-    pub provider_id: String,
     /// The provider's release keys.
     pub release_keys: Vec<ReleaseKey>,
     /// The release manifests the provider offers, each a compact JWS.
@@ -64,12 +62,14 @@ impl EngineProviderMetadata {
             .map(|k| &k.jwk)
     }
 
-    /// The listed manifests that parse and verify under an active release key.
+    /// The listed manifests of `iss`, the issuer the file was fetched for, that parse and
+    /// verify under an active release key.
     #[must_use]
-    pub fn verified_manifests(&self) -> Vec<ReleaseManifest> {
+    pub fn verified_manifests(&self, iss: &str) -> Vec<ReleaseManifest> {
         self.manifests
             .iter()
             .filter_map(|m| ReleaseManifest::from_jws(m).ok())
+            .filter(|m| m.payload().iss == iss)
             .filter(|m| {
                 self.active_key(m.kid())
                     .is_some_and(|key| m.verify(key).is_ok())
@@ -94,25 +94,30 @@ mod tests {
             &serde_json::to_vec(&payload()).unwrap(),
             &other_key,
         );
+        let mut foreign = payload();
+        foreign.iss = "https://other.example".into();
+        let foreign = sign(&foreign);
         let metadata = EngineProviderMetadata {
             version: 1,
-            provider_id: "example".into(),
             release_keys: vec![ReleaseKey {
                 jwk: jwk(&signing_key(), KID),
                 status: ReleaseStatus::Active,
             }],
-            manifests: vec![active.clone(), unsigned, "not.a.jws".into()],
+            manifests: vec![active.clone(), unsigned, foreign, "not.a.jws".into()],
         };
-        let parsed =
-            EngineProviderMetadata::parse(&serde_json::to_vec(&metadata).unwrap()).unwrap();
-        let manifests = parsed.verified_manifests();
+        let json = serde_json::to_vec(&metadata).unwrap();
+        let parsed = EngineProviderMetadata::parse(&json).unwrap();
+        let manifests = parsed.verified_manifests(ISS);
         assert_eq!(manifests.len(), 1);
         assert_eq!(manifests[0].as_jws(), active);
+
+        // Fetched for another issuer, only that issuer's manifests count.
+        assert_eq!(parsed.verified_manifests("https://other.example").len(), 1);
 
         // A revoked key no longer vouches for its manifests.
         let mut revoked = parsed;
         revoked.release_keys[0].status = ReleaseStatus::Revoked;
-        assert!(revoked.verified_manifests().is_empty());
+        assert!(revoked.verified_manifests(ISS).is_empty());
 
         let mut wrong_version = metadata;
         wrong_version.version = 2;
