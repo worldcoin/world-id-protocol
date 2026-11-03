@@ -17,6 +17,7 @@ import {IWorldIDBilling} from "../../src/core/interfaces/IWorldIDBilling.sol";
 import {ICredentialSchemaIssuerRegistry} from "../../src/core/interfaces/ICredentialSchemaIssuerRegistry.sol";
 import {IWIP101} from "../../src/core/interfaces/IWIP101.sol";
 import {RpRequestAuth} from "../../src/core/libraries/RpRequestAuth.sol";
+import {OwnerPriceSource} from "../../src/core/OwnerPriceSource.sol";
 
 ////////////////////////////////////////////////////////////
 //                         MOCKS                          //
@@ -721,6 +722,32 @@ contract WorldIDBillingTest is Test {
 
         priceSource.setBroken(true);
         vm.expectRevert(IWorldIDBilling.PriceUnavailable.selector);
+        billing.quotePurchase(scope, 1);
+    }
+
+    /// @dev The owner-set source fails closed before its first rate and once `maxPriceAge` passes without an update.
+    function test_OwnerPriceSource_FailsClosedWhenUnsetOrStale() public {
+        IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
+        OwnerPriceSource ownerSource = new OwnerPriceSource(address(this));
+        billing.setPriceSource(address(ownerSource));
+
+        vm.expectRevert(IWorldIDBilling.PriceUnavailable.selector);
+        billing.quotePurchase(scope, 1);
+
+        ownerSource.setPrice(USD_PER_WLD);
+        uint256 expected = billing.quotePurchase(scope, 1);
+        billing.setPriceSource(address(priceSource));
+        assertEq(expected, billing.quotePurchase(scope, 1));
+        billing.setPriceSource(address(ownerSource));
+
+        vm.warp(NOW + MAX_PRICE_AGE);
+        billing.quotePurchase(scope, 1);
+
+        vm.warp(NOW + MAX_PRICE_AGE + 1);
+        vm.expectRevert(abi.encodeWithSelector(IWorldIDBilling.StalePrice.selector, NOW));
+        billing.quotePurchase(scope, 1);
+
+        ownerSource.setPrice(USD_PER_WLD);
         billing.quotePurchase(scope, 1);
     }
 
