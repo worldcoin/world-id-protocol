@@ -499,7 +499,10 @@ where
     Ok(claims)
 }
 
-fn serialize_public_key<S>(public_key: &EdDSAPublicKey, serializer: S) -> Result<S::Ok, S::Error>
+pub(crate) fn serialize_public_key<S>(
+    public_key: &EdDSAPublicKey,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
@@ -513,7 +516,7 @@ where
     }
 }
 
-fn deserialize_public_key<'de, D>(deserializer: D) -> Result<EdDSAPublicKey, D::Error>
+pub(crate) fn deserialize_public_key<'de, D>(deserializer: D) -> Result<EdDSAPublicKey, D::Error>
 where
     D: Deserializer<'de>,
 {

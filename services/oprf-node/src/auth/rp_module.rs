@@ -4,8 +4,9 @@
 //! logic, and query-proof verification. They differ only in:
 //! - which [`OprfPrefix`] the action field must carry ([`OprfPrefix::Uniqueness`] for uniqueness vs
 //!   [`OprfPrefix::SessionOprfSeed`]/[`OprfPrefix::SessionAction`] for sessions)
-//! - whether the action is included in the RP signature. Some for uniqueness, none for session. For session-seed queries initiated by an RP request for a uniqueness proof,
-//!   the action of the uniqueness proof is part of the data the RP signs over and is included in the `rp_signature_verification` field.
+//! - whether the action is included in the RP signature. Some for uniqueness, none for session. For session-seed queries initiated by an RP request for a uniqueness proof
+//!   (MSB `0x00`) or a Proof of Embedding Similarity (MSB `0x03`), the request's action is part of the data the RP signs over and is included in the
+//!   `rp_signature_verification` field.
 //! - which [`WorldIdRequestAuthError`] variant is returned for an invalid action
 //!
 //! [`RpModuleKind`] captures these differences; [`RpModuleAuth`] holds the shared
@@ -33,7 +34,7 @@ use taceo_oprf::types::{
 use tracing::instrument;
 use world_id_primitives::{
     FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
-    oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, WorldIdRequestAuthError},
+    oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
 };
 
 pub(crate) mod wip101;
@@ -306,12 +307,12 @@ impl RpModuleAuth {
                 let action = match self.kind {
                     RpModuleKind::Uniqueness => Some(action),
                     // Session RP signatures do not include the action, unless the request
-                    // carries a uniqueness action as verification data (create-and-bind).
-                    RpModuleKind::Session => request.auth.rp_signature_verification.map(
-                        |verification| match verification {
-                            RpSignatureVerification::UniquenessAction { action } => *action,
-                        },
-                    ),
+                    // carries the signed action as verification data (create-and-bind, or an
+                    // embedding similarity request).
+                    RpModuleKind::Session => request
+                        .auth
+                        .rp_signature_verification
+                        .map(|verification| *verification.action()),
                 };
                 rp.verify_eoa(action, request)
             }
@@ -370,13 +371,11 @@ impl RpModuleAuth {
             RpModuleKind::Session => {
                 metrics::auth_module::inc_session();
                 if action.has_prefix(OprfPrefix::SessionOprfSeed) {
-                    if let Some(RpSignatureVerification::UniquenessAction {
-                        action: signed_action,
-                    }) = request.auth.rp_signature_verification
-                        && !signed_action.has_prefix(OprfPrefix::Uniqueness)
+                    if let Some(verification) = request.auth.rp_signature_verification
+                        && !verification.action().has_prefix(verification.prefix())
                     {
                         return Err(RpModuleError::InvalidRpSignatureVerification {
-                            context: "uniqueness action MSB must be 0x00",
+                            context: "signed action MSB does not match its kind (0x00 uniqueness, 0x03 embedding similarity)",
                         });
                     }
                     NonceScope::SessionOprfSeed

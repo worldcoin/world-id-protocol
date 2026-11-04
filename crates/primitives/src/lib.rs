@@ -97,8 +97,10 @@ pub use signer::Signer;
 pub mod request;
 #[cfg(feature = "protocol")]
 pub use request::{
-    ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
-    ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
+    ConstraintExpr, ConstraintKind, ConstraintNode, EmbeddingSimilarityParams,
+    EmbeddingSimilarityResponseItem, FlamingoConfiguration, MAX_CONSTRAINT_NODES,
+    MAX_FLAMINGO_CONFIGURATIONS, ProofRequest, ProofResponse, ProofType, RequestItem,
+    RequestVersion, ResponseItem, ValidationError,
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};

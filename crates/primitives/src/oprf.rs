@@ -91,6 +91,35 @@ pub enum RpSignatureVerification {
         /// The RP-signed uniqueness action (MSB `0x00`).
         action: FieldElement,
     },
+    /// The action of a Proof of Embedding Similarity request (WIP-202) covered by the RP signature.
+    ///
+    /// This is used on session-seed queries of such requests, whose OPRF action is the session
+    /// seed rather than the signed action.
+    EmbeddingSimilarityAction {
+        /// The RP-signed action (MSB `0x03`).
+        action: FieldElement,
+    },
+}
+
+impl RpSignatureVerification {
+    /// The action the RP signed.
+    #[must_use]
+    pub const fn action(&self) -> FieldElement {
+        match self {
+            Self::UniquenessAction { action } | Self::EmbeddingSimilarityAction { action } => {
+                *action
+            }
+        }
+    }
+
+    /// The prefix the signed [`Self::action`] must carry.
+    #[must_use]
+    pub const fn prefix(&self) -> OprfPrefix {
+        match self {
+            Self::UniquenessAction { .. } => OprfPrefix::Uniqueness,
+            Self::EmbeddingSimilarityAction { .. } => OprfPrefix::EmbeddingSimilarity,
+        }
+    }
 }
 
 impl std::fmt::Display for OprfModule {
@@ -143,8 +172,9 @@ pub struct NullifierOprfRequestAuthV1 {
     pub wip101_data: Option<Vec<u8>>,
     /// Additional data needed to reconstruct the RP-signed message.
     ///
-    /// Currently only valid on create-and-bind session-seed queries (see
-    /// [`OprfPrefix::SessionOprfSeed`]) from EOA-backed RPs.
+    /// Only valid from EOA-backed RPs, on session-seed queries (see
+    /// [`OprfPrefix::SessionOprfSeed`]) whose RP signed a uniqueness or embedding similarity
+    /// action.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rp_signature_verification: Option<RpSignatureVerification>,
 }
@@ -248,8 +278,8 @@ pub enum WorldIdRequestAuthError {
     InvalidActionSession,
     /// The provided RP signature verification data is invalid or not allowed on this query.
     ///
-    /// Verification data is only valid on create-and-bind session-seed queries from
-    /// EOA-backed RPs and must carry a uniqueness action (MSB `0x00`).
+    /// Verification data is only valid on session-seed queries from EOA-backed RPs, and must carry
+    /// a uniqueness (MSB `0x00`) or embedding similarity (MSB `0x03`) action.
     #[error("invalid_rp_signature_verification")]
     InvalidRpSignatureVerification,
     /// The RP signer is a contract but does not implement the WIP101 interface.

@@ -501,6 +501,74 @@ async fn test_session_seed_rp_signature_verification_missing_field() -> eyre::Re
         .await
 }
 
+/// A session-seed query of an embedding similarity request: the RP signed an action with
+/// MSB 0x03, which the query carries as verification data.
+async fn embedding_similarity_session_seed() -> eyre::Result<(RpModuleTestSetup, ark_babyjubjub::Fq)>
+{
+    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
+    let action = action_with_msb(OprfPrefix::EmbeddingSimilarity as u8);
+    let rp_signer = LocalSigner::from_signing_key(setup.setup.rp_fixture.signing_key.clone());
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(
+        setup.request.auth.nonce,
+        setup.request.auth.created_at,
+        setup.request.auth.expires_at,
+        Some(action),
+    );
+    setup.request.auth.signature = Some(rp_signer.sign_message_sync(&msg).expect("can sign"));
+    setup.request.auth.rp_signature_verification =
+        Some(RpSignatureVerification::EmbeddingSimilarityAction {
+            action: action.into(),
+        });
+    Ok((setup, action))
+}
+
+#[tokio::test]
+async fn test_session_seed_embedding_similarity_action_success() -> eyre::Result<()> {
+    check_success(embedding_similarity_session_seed().await?.0).await
+}
+
+#[tokio::test]
+async fn test_session_seed_embedding_similarity_action_must_carry_its_prefix() -> eyre::Result<()> {
+    // A uniqueness action cannot be passed off as an embedding similarity one, nor the reverse.
+    let (mut setup, _) = embedding_similarity_session_seed().await?;
+    setup.request.auth.rp_signature_verification =
+        Some(RpSignatureVerification::EmbeddingSimilarityAction {
+            action: action_with_msb(0x00).into(),
+        });
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
+        )
+        .await?;
+
+    let (mut setup, action) = embedding_similarity_session_seed().await?;
+    setup.request.auth.rp_signature_verification =
+        Some(RpSignatureVerification::UniquenessAction {
+            action: action.into(),
+        });
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_uniqueness_rejects_embedding_similarity_action() -> eyre::Result<()> {
+    // The nullifier module takes only uniqueness actions, so an action with MSB 0x03 cannot
+    // authorize a Uniqueness Proof.
+    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
+    setup.request.auth.action = action_with_msb(OprfPrefix::EmbeddingSimilarity as u8);
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_ACTION_NULLIFIER,
+            "invalid action for nullifier",
+        )
+        .await
+}
+
 #[tokio::test]
 async fn test_session_seed_rp_signature_verification_invalid_prefix() -> eyre::Result<()> {
     // A signed action must be a nullifier action (MSB 0x00); session prefixes are invalid.
