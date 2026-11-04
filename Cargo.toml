@@ -49,6 +49,7 @@ unused_crate_dependencies = "deny"
 # alloy
 alloy = { version = "2.0.1", default-features = false }
 alloy-primitives = { version = "1.5.7", default-features = false }
+alloy-sol-types = { version = "1.5.7", default-features = false }
 alloy-node-bindings = "2.0.1"
 
 anyhow = "1"

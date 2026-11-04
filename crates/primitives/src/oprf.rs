@@ -10,9 +10,9 @@ use crate::{FieldElement, rp::RpId};
 /// The most significant byte (MSB) of an OPRF input field element, which separates
 /// the domains in which the input may be used.
 ///
-/// All three prefixes share one OPRF key and query structure, so the MSB is what keeps
+/// All prefixes share one OPRF key and query structure, so the MSB is what keeps
 /// their outputs from colliding. The variants are exhaustive for the nullifier and
-/// session OPRF inputs.
+/// session OPRF inputs, and for the RP-signed actions that authorize them.
 ///
 /// These variants are the authoritative OPRF input domains.
 #[repr(u8)]
@@ -29,6 +29,13 @@ pub enum OprfPrefix {
     SessionOprfSeed = 0x01,
     /// The action used to compute the inner nullifier in a [`crate::SessionNullifier`].
     SessionAction = 0x02,
+    /// The RP-signed action of a Proof of Embedding Similarity request (WIP-202), the
+    /// `BILLED_ACTION_PREFIX` of WIP-107 §4.1.
+    ///
+    /// Only an action with this prefix may authorize a WIP-107 billing registration, and the
+    /// uniqueness module rejects it, so a request of one proof type cannot authorize the other.
+    /// See [`crate::billing::BILLED_ACTION_PREFIX`].
+    EmbeddingSimilarity = 0x03,
 }
 
 /// Generation and validation of domain-prefixed OPRF inputs. See [`OprfPrefix`].
@@ -52,7 +59,7 @@ impl OprfPrefixedFieldElement for FieldElement {
         rng.fill_bytes(&mut bytes);
         bytes[0] = prefix as u8;
         Self::from_be_bytes(&bytes).expect(
-            "should always fit in the field because with 0x02 or lower as the MSB, the field element < babyjubjub modulus",
+            "should always fit in the field because with 0x03 or lower as the MSB, the field element < babyjubjub modulus",
         )
     }
 
