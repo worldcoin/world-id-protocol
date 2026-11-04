@@ -120,8 +120,11 @@ fn main(
 
     // 7. Billing nullifier ownership: `0` means the RP is not billed, anything else must be this
     // World ID's WIP-107 nullifier for `rp_id`, recomputed as in the Uniqueness Proof.
-    // The OPRF output is not checked to be on the curve: registration verified it, and a wrong
-    // output only yields a nullifier the Verifier never signs (WIP-202 Rationale 8).
+    // Unlike the Uniqueness Proof, the circuit doesn't re-verify the OPRF evaluation, neither the
+    // DLogEq proof against the RP's OPRF key nor the output's curve membership: registration
+    // proved both for every registered nullifier, and the Verifier signs only registered ones.
+    // A registered nullifier of another World ID or RP would satisfy this check only through a
+    // Poseidon2 collision (WIP-202 Rationale 8).
     let billing_query = permutation::t4([DS_QUERY, leaf_index, rp_id, inputs.billing_action])[1];
     let own_nullifier = permutation::t4([
         DS_OPRF_PROOF,
