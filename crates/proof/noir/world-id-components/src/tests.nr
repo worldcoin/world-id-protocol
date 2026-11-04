@@ -236,3 +236,19 @@ fn test_credential_rejects_an_id_beyond_64_bits() {
     inputs.id += 0x10000000000000000;
     let _ = credential::verify(credential_public(), NOW, 1, inputs);
 }
+
+// SECTION: domain separators are their ASCII labels read as big-endian integers
+
+fn label<let N: u32>(bytes: [u8; N]) -> Field {
+    let mut value: Field = 0;
+    for i in 0..N {
+        value = value * 256 + bytes[i] as Field;
+    }
+    value
+}
+
+#[test]
+fn test_nullifier_domain_separators_match_their_labels() {
+    assert_eq(super::constants::DS_QUERY, label("World ID Query".as_bytes()));
+    assert_eq(super::constants::DS_OPRF_PROOF, label("World ID Proof".as_bytes()));
+}

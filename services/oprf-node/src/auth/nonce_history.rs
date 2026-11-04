@@ -38,6 +38,9 @@ pub(crate) enum NonceScope {
     SessionOprfSeed,
     /// Session internal nullifier action scope.
     SessionAction,
+    /// WIP-107 billing query scope, so one RP request authorizes at most one billing query
+    /// besides its own query.
+    Billing,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

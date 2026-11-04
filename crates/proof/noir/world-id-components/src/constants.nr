@@ -23,3 +23,9 @@ pub global DS_CREDENTIAL_SUB: Field = 87492525752134038588518953;
 
 /// Session commitment (`ds::SESSION_COMMITMENT`): b"H(id, r)".
 pub global DS_SESSION_COMMITMENT: Field = 5199521648757207593;
+
+/// OPRF query digest (`ds::OPRF_QUERY`): b"World ID Query".
+pub global DS_QUERY: Field = 1773399373884719043551600379785849;
+
+/// OPRF finalization hash, i.e. the nullifier (`ds::OPRF_PROOF`): b"World ID Proof".
+pub global DS_OPRF_PROOF: Field = 1773399373884719043551596035141478;
