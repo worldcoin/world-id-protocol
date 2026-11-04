@@ -56,7 +56,7 @@ fn main(
     let credential_digest = hashes_json::thumbnail_digest(inputs.hashes_json);
 
     // 1. Flamingo Token verification; fixing the entries binds the Credential image and challenge.
-    let public = FlamingoTokenPublic {
+    let flamingo_public = FlamingoTokenPublic {
         verifier_key: flamingo_verifier_key,
         now: now as Field,
         aud: rp_id,
@@ -82,7 +82,7 @@ fn main(
         compare_sources: COMPARE_SOURCES as Field,
         billing_nullifier,
     };
-    let digest = flamingo_token::verify(public, token_claims, inputs.token.sig);
+    let digest = flamingo_token::verify(flamingo_public, token_claims, inputs.token.sig);
 
     // 4. World ID Authentication over the authorization message, which also binds the
     // RP's signal. One `leaf_index` witness binds the World ID, the Credential and the session.
