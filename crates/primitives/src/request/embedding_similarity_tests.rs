@@ -78,7 +78,7 @@ fn es_item() -> EmbeddingSimilarityResponseItem {
     EmbeddingSimilarityResponseItem {
         identifier: "poh".into(),
         issuer_schema_id: 1,
-        proof: vec![1, 2, 3],
+        proof: vec![1, 2, 3].into(),
         flamingo_verifier_key: public_key(1),
         now: 1_735_689_650,
         aat: Some(AatPublicValues {
@@ -92,7 +92,7 @@ fn es_item() -> EmbeddingSimilarityResponseItem {
         merkle_root: field(11),
         issuer_version: 1,
         cred_pk: public_key(2),
-        signing_key_attestation: vec![0xde, 0xad],
+        signing_key_attestation: vec![0xde, 0xad].into(),
     }
 }
 

@@ -7,6 +7,7 @@ use crate::{
     EdDSAPublicKey, FieldElement, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError,
     credential::{deserialize_public_key, serialize_public_key},
 };
+use alloy_primitives::Bytes;
 use serde::{Deserialize, Serialize};
 
 /// The most Flamingo configurations a request may offer, which bounds the work of validating it.
@@ -168,8 +169,7 @@ pub struct EmbeddingSimilarityResponseItem {
     /// The `issuer_schema_id` of the Credential.
     pub issuer_schema_id: u64,
     /// The encoded proof (WIP-202 §4.7).
-    #[serde(with = "crate::serde_utils::hex_bytes")]
-    pub proof: Vec<u8>,
+    pub proof: Bytes,
     /// The Flamingo Verifier's signing key, which the RP checks against `signing_key_attestation`.
     #[serde(serialize_with = "serialize_public_key")]
     #[serde(deserialize_with = "deserialize_public_key")]
@@ -190,6 +190,5 @@ pub struct EmbeddingSimilarityResponseItem {
     #[serde(deserialize_with = "deserialize_public_key")]
     pub cred_pk: EdDSAPublicKey,
     /// The Flamingo Verifier's attestation of `flamingo_verifier_key` (WIP-201 §4.7).
-    #[serde(with = "crate::serde_utils::hex_bytes")]
-    pub signing_key_attestation: Vec<u8>,
+    pub signing_key_attestation: Bytes,
 }
