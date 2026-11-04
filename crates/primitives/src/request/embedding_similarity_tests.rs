@@ -24,12 +24,6 @@ fn params() -> EmbeddingSimilarityParams {
     EmbeddingSimilarityParams {
         action: action_with_prefix(OprfPrefix::EmbeddingSimilarity, 7),
         challenge_hash: field(0xc0ffee),
-        flamingo_configurations: vec![FlamingoConfiguration {
-            iss: "provider.example".into(),
-            pipeline_id: 3,
-            match_strictness: 2,
-            min_version: 5,
-        }],
         aat: Some(AatRequirements {
             required: true,
             platform: Some(2),
@@ -127,9 +121,6 @@ fn proof_type_wire_encoding_is_flat() {
         "proof_type": "embedding_similarity",
         "action": params().action,
         "challenge_hash": params().challenge_hash,
-        "flamingo_configurations": [{
-            "iss": "provider.example", "pipeline_id": 3, "match_strictness": 2, "min_version": 5
-        }],
         "aat": { "required": true, "platform": 2, "sec_meta": 15, "authenticator_meta": 31 },
     });
     assert_eq!(serde_json::to_value(&proof_type).unwrap(), expected);
@@ -156,7 +147,7 @@ fn other_proof_types_do_not_serialize_embedding_similarity_params() {
 #[test]
 fn proof_type_rejects_missing_or_foreign_params() {
     let valid = serde_json::to_value(ProofType::EmbeddingSimilarity(params())).unwrap();
-    for missing in ["action", "challenge_hash", "flamingo_configurations"] {
+    for missing in ["action", "challenge_hash"] {
         let mut value = valid.clone();
         value.as_object_mut().unwrap().remove(missing);
         let err = serde_json::from_value::<ProofType>(value).unwrap_err();
@@ -167,10 +158,6 @@ fn proof_type_rejects_missing_or_foreign_params() {
         (
             json!({ "proof_type": "uniqueness", "action": field(1) }),
             "challenge_hash",
-        ),
-        (
-            json!({ "proof_type": "session" }),
-            "flamingo_configurations",
         ),
         (json!({ "proof_type": "session" }), "aat"),
     ] {
@@ -239,17 +226,6 @@ fn validate_proof_type_is_strict_for_embedding_similarity() {
         "challenge_hash",
     );
     invalid(
-        with(&|p| p.flamingo_configurations.clear()),
-        "flamingo_configurations",
-    );
-    invalid(
-        with(&|p| {
-            let one = p.flamingo_configurations[0].clone();
-            p.flamingo_configurations = vec![one; MAX_FLAMINGO_CONFIGURATIONS + 1];
-        }),
-        "flamingo_configurations",
-    );
-    invalid(
         with(&|p| p.aat.as_mut().unwrap().sec_meta = Some(16)),
         "aat.sec_meta",
     );
@@ -280,8 +256,6 @@ fn validate_proof_type_is_strict_for_embedding_similarity() {
 #[test]
 fn validate_proof_type_accepts_the_largest_values() {
     let mut p = params();
-    p.flamingo_configurations =
-        vec![p.flamingo_configurations[0].clone(); MAX_FLAMINGO_CONFIGURATIONS];
     p.aat = Some(AatRequirements {
         sec_meta: Some(15),
         authenticator_meta: Some(31),
