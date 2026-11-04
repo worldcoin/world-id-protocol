@@ -13,10 +13,12 @@ use eddsa_babyjubjub::EdDSAPublicKey;
 
 mod aat;
 mod error;
+mod proof_values;
 mod takt;
 
 pub use aat::*;
 pub use error::*;
+pub use proof_values::*;
 pub use takt::*;
 
 /// Smallest `exp` whose deterministic CBOR encoding is a 4-byte uint.

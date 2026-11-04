@@ -4,7 +4,7 @@
 use std::{sync::Arc, time::Duration};
 
 use alloy::{
-    primitives::Address,
+    primitives::{Address, U256},
     providers::mock::Asserter,
     signers::{SignerSync as _, local::LocalSigner},
 };
@@ -15,6 +15,7 @@ use taceo_oprf::types::api::{OprfRequest, OprfRequestAuthenticator as _};
 use uuid::Uuid;
 use world_id_primitives::{
     FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
+    billing::{self, BillingContext},
     oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, error_codes},
     rp::RpId,
 };
@@ -29,9 +30,12 @@ use crate::{
             wip101::Wip101Error,
         },
         rp_registry_watcher::RpRegistryWatcher,
-        tests::{AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind},
+        tests::{
+            AuthModulesTestSetup, OprfRequestAuthTestSetup, SetupKind, TEST_BILLING_CHAIN_ID,
+            TEST_BILLING_CONTRACT,
+        },
     },
-    config::WatcherCacheConfig,
+    config::{BillingContractConfig, WatcherCacheConfig},
 };
 
 pub(crate) struct RpModuleTestSetup {
@@ -138,36 +142,36 @@ impl RpModuleTestSetup {
     async fn new_uniqueness() -> eyre::Result<Self> {
         let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
         let request_authenticator = RpModuleAuth::new_uniqueness(infra.rp_module_args());
-
-        // Uniqueness uses the fixture's pre-generated action (guaranteed 0x00 MSB)
-        // and a signature that includes the action
-        let bundle = infra.generate_query_proof(
-            infra.setup.rp_fixture.action.into(),
-            infra.setup.rp_fixture.world_rp_id.into(),
-        )?;
-
-        let auth = NullifierOprfRequestAuthV1 {
-            proof: bundle.proof,
-            action: infra.setup.rp_fixture.action,
-            nonce: bundle.nonce,
-            merkle_root: *infra.setup.merkle_inclusion_proof.root,
-            created_at: infra.setup.rp_fixture.current_timestamp,
-            expires_at: infra.setup.rp_fixture.expiration_timestamp,
-            signature: Some(infra.setup.rp_fixture.signature),
-            rp_id: infra.setup.rp_fixture.world_rp_id,
-            wip101_data: None,
-            rp_signature_verification: None,
-        };
-
+        let request = uniqueness_request(&infra)?;
         Ok(Self {
             setup: infra.setup,
             request_authenticator,
-            request: OprfRequest {
-                request_id: Uuid::new_v4(),
-                blinded_query: bundle.blinded_query,
-                auth,
-            },
+            request,
         })
+    }
+
+    /// Constructs a valid billing query (WIP-107 §4.5): a uniqueness-module query for the
+    /// `billingAction` of the current period, whose RP signature covers an action with MSB `0x03`
+    /// carried as verification data.
+    async fn new_billing() -> eyre::Result<Self> {
+        let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
+        let request_authenticator = RpModuleAuth::new_uniqueness(infra.rp_module_args());
+        let request = billing_request(&infra)?;
+        Ok(Self {
+            setup: infra.setup,
+            request_authenticator,
+            request,
+        })
+    }
+
+    /// Replaces the billing verification data with `f` applied to its signed action and scope.
+    fn edit_billing(&mut self, f: impl FnOnce(&mut FieldElement, &mut BillingContext)) {
+        let Some(RpSignatureVerification::Billing { action, scope }) =
+            &mut self.request.auth.rp_signature_verification
+        else {
+            panic!("not a billing query");
+        };
+        f(action, scope);
     }
 
     /// Authenticates the request and asserts it succeeds with the fixture's OPRF key id.
@@ -202,6 +206,82 @@ fn action_with_msb(msb: u8) -> ark_babyjubjub::Fq {
     let mut bytes = rand::random::<[u8; 32]>();
     bytes[0] = msb;
     ark_babyjubjub::Fq::from_be_bytes_mod_order(&bytes)
+}
+
+/// A valid uniqueness query for the fixture's action (MSB `0x00`), signed over that action.
+fn uniqueness_request(
+    infra: &AuthModulesTestSetup,
+) -> eyre::Result<OprfRequest<NullifierOprfRequestAuthV1>> {
+    let bundle = infra.generate_query_proof(
+        infra.setup.rp_fixture.action.into(),
+        infra.setup.rp_fixture.world_rp_id.into(),
+    )?;
+    Ok(OprfRequest {
+        request_id: Uuid::new_v4(),
+        blinded_query: bundle.blinded_query,
+        auth: NullifierOprfRequestAuthV1 {
+            proof: bundle.proof,
+            action: infra.setup.rp_fixture.action,
+            nonce: bundle.nonce,
+            merkle_root: *infra.setup.merkle_inclusion_proof.root,
+            created_at: infra.setup.rp_fixture.current_timestamp,
+            expires_at: infra.setup.rp_fixture.expiration_timestamp,
+            signature: Some(infra.setup.rp_fixture.signature),
+            rp_id: infra.setup.rp_fixture.world_rp_id,
+            wip101_data: None,
+            rp_signature_verification: None,
+        },
+    })
+}
+
+/// A valid billing query for the current period, signed by the fixture RP over an action with
+/// MSB `0x03` and the fixture nonce.
+fn billing_request(
+    infra: &AuthModulesTestSetup,
+) -> eyre::Result<OprfRequest<NullifierOprfRequestAuthV1>> {
+    let rp_id = infra.setup.rp_fixture.world_rp_id;
+    let scope = BillingContext {
+        chain_id: U256::from(TEST_BILLING_CHAIN_ID),
+        billing_contract: TEST_BILLING_CONTRACT,
+        rp_id,
+        period_start: billing::period_start(chrono::Utc::now().timestamp().try_into()?)?,
+    };
+    let billing_action = scope.billing_action();
+    let bundle = infra.generate_query_proof(billing_action, rp_id.into())?;
+
+    let signed_action = action_with_msb(OprfPrefix::EmbeddingSimilarity as u8);
+    let created_at = infra.setup.rp_fixture.current_timestamp;
+    let expires_at = infra.setup.rp_fixture.expiration_timestamp;
+    let rp_signer = LocalSigner::from_signing_key(infra.setup.rp_fixture.signing_key.clone());
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(
+        bundle.nonce,
+        created_at,
+        expires_at,
+        Some(signed_action),
+    );
+    let signature = rp_signer.sign_message_sync(&msg).expect("can sign");
+
+    let auth = NullifierOprfRequestAuthV1 {
+        proof: bundle.proof,
+        action: *billing_action,
+        nonce: bundle.nonce,
+        merkle_root: *infra.setup.merkle_inclusion_proof.root,
+        created_at,
+        expires_at,
+        signature: Some(signature),
+        rp_id,
+        wip101_data: None,
+        rp_signature_verification: Some(RpSignatureVerification::Billing {
+            action: signed_action.into(),
+            scope,
+        }),
+    };
+
+    Ok(OprfRequest {
+        request_id: Uuid::new_v4(),
+        blinded_query: bundle.blinded_query,
+        auth,
+    })
 }
 
 // ── Shared test helpers ──────────────────────────────────────────────────
@@ -501,6 +581,74 @@ async fn test_session_seed_rp_signature_verification_missing_field() -> eyre::Re
         .await
 }
 
+/// A session-seed query of an embedding similarity request: the RP signed an action with
+/// MSB 0x03, which the query carries as verification data.
+async fn embedding_similarity_session_seed() -> eyre::Result<(RpModuleTestSetup, ark_babyjubjub::Fq)>
+{
+    let mut setup = RpModuleTestSetup::new_bound_session_seed().await?;
+    let action = action_with_msb(OprfPrefix::EmbeddingSimilarity as u8);
+    let rp_signer = LocalSigner::from_signing_key(setup.setup.rp_fixture.signing_key.clone());
+    let msg = world_id_primitives::rp::compute_rp_signature_msg(
+        setup.request.auth.nonce,
+        setup.request.auth.created_at,
+        setup.request.auth.expires_at,
+        Some(action),
+    );
+    setup.request.auth.signature = Some(rp_signer.sign_message_sync(&msg).expect("can sign"));
+    setup.request.auth.rp_signature_verification =
+        Some(RpSignatureVerification::EmbeddingSimilarityAction {
+            action: action.into(),
+        });
+    Ok((setup, action))
+}
+
+#[tokio::test]
+async fn test_session_seed_embedding_similarity_action_success() -> eyre::Result<()> {
+    check_success(embedding_similarity_session_seed().await?.0).await
+}
+
+#[tokio::test]
+async fn test_session_seed_embedding_similarity_action_must_carry_its_prefix() -> eyre::Result<()> {
+    // A uniqueness action cannot be passed off as an embedding similarity one, nor the reverse.
+    let (mut setup, _) = embedding_similarity_session_seed().await?;
+    setup.request.auth.rp_signature_verification =
+        Some(RpSignatureVerification::EmbeddingSimilarityAction {
+            action: action_with_msb(0x00).into(),
+        });
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
+        )
+        .await?;
+
+    let (mut setup, action) = embedding_similarity_session_seed().await?;
+    setup.request.auth.rp_signature_verification =
+        Some(RpSignatureVerification::UniquenessAction {
+            action: action.into(),
+        });
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_uniqueness_rejects_embedding_similarity_action() -> eyre::Result<()> {
+    // The nullifier module takes only uniqueness actions, so an action with MSB 0x03 cannot
+    // authorize a Uniqueness Proof.
+    let mut setup = RpModuleTestSetup::new_uniqueness().await?;
+    setup.request.auth.action = action_with_msb(OprfPrefix::EmbeddingSimilarity as u8);
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_ACTION_NULLIFIER,
+            "invalid action for nullifier",
+        )
+        .await
+}
+
 #[tokio::test]
 async fn test_session_seed_rp_signature_verification_invalid_prefix() -> eyre::Result<()> {
     // A signed action must be a nullifier action (MSB 0x00); session prefixes are invalid.
@@ -566,6 +714,303 @@ async fn test_uniqueness_invalid_action_session_prefix() -> eyre::Result<()> {
         .await
 }
 
+// ── Billing query tests (WIP-107 §4.5) ───────────────────────────────────
+
+const INVALID_BILLING_QUERY: &str = "invalid billing query";
+
+#[tokio::test]
+async fn test_billing_success() -> eyre::Result<()> {
+    check_success(RpModuleTestSetup::new_billing().await?).await
+}
+
+#[tokio::test]
+async fn test_billing_replay() -> eyre::Result<()> {
+    let setup = RpModuleTestSetup::new_billing().await?;
+    setup.assert_auth_ok().await?;
+    setup
+        .assert_auth_err(error_codes::DUPLICATE_NONCE, "signature nonce already used")
+        .await
+}
+
+#[tokio::test]
+async fn test_billing_nonce_scope_is_separate_from_uniqueness() -> eyre::Result<()> {
+    // One RP request authorizes one application query and one billing query, each once.
+    let infra = AuthModulesTestSetup::new(SetupKind::RpModule).await?;
+    let authenticator = RpModuleAuth::new_uniqueness(infra.rp_module_args());
+    let uniqueness = uniqueness_request(&infra)?;
+    let billing = billing_request(&infra)?;
+    assert_eq!(uniqueness.auth.nonce, billing.auth.nonce);
+
+    authenticator
+        .authenticate(&uniqueness)
+        .await
+        .expect("uniqueness query");
+    authenticator
+        .authenticate(&billing)
+        .await
+        .expect("billing query");
+    for request in [&uniqueness, &billing] {
+        let error = authenticator
+            .authenticate(request)
+            .await
+            .expect_err("replay");
+        assert_eq!(error.code(), error_codes::DUPLICATE_NONCE);
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_billing_disabled_without_billing_contract() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_billing().await?;
+    setup.request_authenticator.billing = None;
+    setup
+        .assert_auth_err(
+            error_codes::BILLING_QUERIES_DISABLED,
+            "billing queries are disabled on this node",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_billing_signed_action_must_be_embedding_similarity() -> eyre::Result<()> {
+    // A Uniqueness Proof request's signature cannot authorize a billing query.
+    let mut setup = RpModuleTestSetup::new_billing().await?;
+    setup.edit_billing(|action, _| *action = action_with_msb(0x00).into());
+    setup
+        .assert_auth_err(error_codes::INVALID_BILLING_QUERY, INVALID_BILLING_QUERY)
+        .await
+}
+
+#[tokio::test]
+async fn test_billing_action_must_be_the_billing_action_of_scope() -> eyre::Result<()> {
+    // A billing signature must not authorize any other uniqueness action.
+    let mut setup = RpModuleTestSetup::new_billing().await?;
+    setup.request.auth.action = action_with_msb(0x00);
+    setup
+        .assert_auth_err(error_codes::INVALID_BILLING_QUERY, INVALID_BILLING_QUERY)
+        .await
+}
+
+#[tokio::test]
+async fn test_billing_signature_covers_the_signed_action() -> eyre::Result<()> {
+    let mut setup = RpModuleTestSetup::new_billing().await?;
+    setup.edit_billing(|action, _| {
+        *action = action_with_msb(OprfPrefix::EmbeddingSimilarity as u8).into();
+    });
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE,
+            "signature from RP cannot be verified",
+        )
+        .await
+}
+
+#[tokio::test]
+async fn test_session_seed_rejects_billing_verification() -> eyre::Result<()> {
+    let (mut setup, action) = embedding_similarity_session_seed().await?;
+    setup.request.auth.rp_signature_verification = Some(RpSignatureVerification::Billing {
+        action: action.into(),
+        scope: BillingContext {
+            chain_id: U256::from(TEST_BILLING_CHAIN_ID),
+            billing_contract: TEST_BILLING_CONTRACT,
+            rp_id: setup.request.auth.rp_id,
+            period_start: billing::period_start(chrono::Utc::now().timestamp().try_into()?)?,
+        },
+    });
+    setup
+        .assert_auth_err(
+            error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            "Invalid RP signature verification data",
+        )
+        .await
+}
+
+// ── Billing query checks at a fixed time ─────────────────────────────────
+
+/// Midnight Anywhere on Earth on 1 November 2026, a canonical period start.
+const NOVEMBER_2026: u64 = 1_793_534_400;
+/// Midnight Anywhere on Earth on 1 December 2026, the next period start.
+const DECEMBER_2026: u64 = NOVEMBER_2026 + 30 * 24 * 60 * 60;
+const BILLED_RP: u64 = 7;
+
+fn billing_auth() -> RpModuleAuth {
+    let mut auth = mock_session_auth(Asserter::new().into());
+    auth.billing = Some(BillingContractConfig::new(
+        TEST_BILLING_CHAIN_ID,
+        TEST_BILLING_CONTRACT,
+    ));
+    auth
+}
+
+fn billing_scope(period_start: u64) -> BillingContext {
+    BillingContext {
+        chain_id: U256::from(TEST_BILLING_CHAIN_ID),
+        billing_contract: TEST_BILLING_CONTRACT,
+        rp_id: RpId::new(BILLED_RP),
+        period_start,
+    }
+}
+
+/// Checks a billing query for `scope` at `now`, for its own `billingAction`, so that only the
+/// check under test can fail.
+fn check_billing(
+    auth: &RpModuleAuth,
+    scope: &BillingContext,
+    now: u64,
+) -> Result<(), RpModuleError> {
+    auth.check_billing_query(
+        scope.billing_action(),
+        action_with_msb(OprfPrefix::EmbeddingSimilarity as u8).into(),
+        scope,
+        RpId::new(BILLED_RP),
+        now,
+    )
+}
+
+#[track_caller]
+fn assert_invalid_billing(result: Result<(), RpModuleError>, expected: &str) {
+    match result {
+        Err(RpModuleError::InvalidBillingQuery { context }) => assert_eq!(context, expected),
+        other => panic!("expected InvalidBillingQuery({expected}), got {other:?}"),
+    }
+}
+
+const INACTIVE_PERIOD: &str = "period_start is not a canonical period active now";
+
+#[tokio::test]
+async fn test_billing_check_accepts_the_current_period() {
+    let scope = billing_scope(NOVEMBER_2026);
+    for now in [
+        NOVEMBER_2026,
+        NOVEMBER_2026 + 10 * 24 * 60 * 60,
+        DECEMBER_2026 - 1,
+    ] {
+        check_billing(&billing_auth(), &scope, now).expect("current period is active");
+    }
+}
+
+#[tokio::test]
+async fn test_billing_check_accepts_the_next_period_during_the_overlap() {
+    let scope = billing_scope(DECEMBER_2026);
+    for now in [DECEMBER_2026 - billing::PERIOD_OVERLAP, DECEMBER_2026 - 1] {
+        check_billing(&billing_auth(), &scope, now).expect("next period is active");
+    }
+    let before_overlap = DECEMBER_2026 - billing::PERIOD_OVERLAP - 1;
+    assert_invalid_billing(
+        check_billing(&billing_auth(), &scope, before_overlap),
+        INACTIVE_PERIOD,
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_an_ended_period() {
+    assert_invalid_billing(
+        check_billing(
+            &billing_auth(),
+            &billing_scope(NOVEMBER_2026),
+            DECEMBER_2026,
+        ),
+        INACTIVE_PERIOD,
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_a_noncanonical_period() {
+    assert_invalid_billing(
+        check_billing(
+            &billing_auth(),
+            &billing_scope(NOVEMBER_2026 + 1),
+            NOVEMBER_2026 + 60,
+        ),
+        INACTIVE_PERIOD,
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_another_billing_contract() {
+    let now = NOVEMBER_2026 + 60;
+    let mut scope = billing_scope(NOVEMBER_2026);
+    scope.billing_contract = Address::repeat_byte(0xb2);
+    assert_invalid_billing(
+        check_billing(&billing_auth(), &scope, now),
+        "scope names another Billing Contract",
+    );
+
+    let mut scope = billing_scope(NOVEMBER_2026);
+    scope.chain_id = U256::from(TEST_BILLING_CHAIN_ID + 1);
+    assert_invalid_billing(
+        check_billing(&billing_auth(), &scope, now),
+        "scope names another Billing Contract",
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_another_rp() {
+    let mut scope = billing_scope(NOVEMBER_2026);
+    scope.rp_id = RpId::new(BILLED_RP + 1);
+    assert_invalid_billing(
+        check_billing(&billing_auth(), &scope, NOVEMBER_2026 + 60),
+        "scope names another RP",
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_a_signed_uniqueness_action() {
+    let scope = billing_scope(NOVEMBER_2026);
+    assert_invalid_billing(
+        billing_auth().check_billing_query(
+            scope.billing_action(),
+            action_with_msb(0x00).into(),
+            &scope,
+            RpId::new(BILLED_RP),
+            NOVEMBER_2026 + 60,
+        ),
+        "signed action MSB must be 0x03",
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_another_action() {
+    let scope = billing_scope(NOVEMBER_2026);
+    assert_invalid_billing(
+        billing_auth().check_billing_query(
+            action_with_msb(0x00).into(),
+            action_with_msb(OprfPrefix::EmbeddingSimilarity as u8).into(),
+            &scope,
+            RpId::new(BILLED_RP),
+            NOVEMBER_2026 + 60,
+        ),
+        "action is not the billing action of scope",
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_requires_a_billing_contract() {
+    let mut auth = billing_auth();
+    auth.billing = None;
+    assert!(matches!(
+        check_billing(&auth, &billing_scope(NOVEMBER_2026), NOVEMBER_2026 + 60),
+        Err(RpModuleError::BillingQueriesDisabled)
+    ));
+}
+
+#[test]
+fn test_billing_config_rejects_zero_values() {
+    BillingContractConfig::new(TEST_BILLING_CHAIN_ID, TEST_BILLING_CONTRACT)
+        .validate()
+        .expect("nonzero config is valid");
+    assert!(
+        BillingContractConfig::new(0, TEST_BILLING_CONTRACT)
+            .validate()
+            .is_err()
+    );
+    assert!(
+        BillingContractConfig::new(TEST_BILLING_CHAIN_ID, Address::ZERO)
+            .validate()
+            .is_err()
+    );
+}
+
 const DISPATCH_TIMEOUT: Duration = Duration::from_secs(1);
 
 fn mock_session_auth(rpc_provider: taceo_nodes_common::web3::HttpRpcProvider) -> RpModuleAuth {
@@ -589,6 +1034,7 @@ fn mock_session_auth(rpc_provider: taceo_nodes_common::web3::HttpRpcProvider) ->
         timeout_external_eth_call: DISPATCH_TIMEOUT,
         rpc_provider,
         query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
+        billing: None,
     })
 }
 

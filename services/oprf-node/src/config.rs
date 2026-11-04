@@ -62,6 +62,43 @@ pub struct WorldOprfNodeConfig {
         with = "humantime_serde"
     )]
     pub timeout_external_eth_call: Duration,
+
+    /// The WIP-107 Billing Contract whose billing queries the node accepts.
+    ///
+    /// While unset, the node rejects every billing query, so leaving it unset disables billing.
+    #[serde(default)]
+    pub billing: Option<BillingContractConfig>,
+}
+
+/// The WIP-107 Billing Contract a node accepts billing queries for.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Deserialize)]
+#[non_exhaustive]
+pub struct BillingContractConfig {
+    /// The chain hosting the Billing Contract.
+    pub chain_id: u64,
+    /// The Billing Contract's address.
+    pub contract: Address,
+}
+
+impl BillingContractConfig {
+    /// Creates the configuration of the Billing Contract `contract` on chain `chain_id`.
+    #[must_use]
+    pub const fn new(chain_id: u64, contract: Address) -> Self {
+        Self { chain_id, contract }
+    }
+
+    /// Rejects a zero chain ID or contract address, which no billing query could match.
+    ///
+    /// # Errors
+    /// Returns an error naming the zero field.
+    pub fn validate(&self) -> eyre::Result<()> {
+        eyre::ensure!(self.chain_id != 0, "billing.chain_id must not be zero");
+        eyre::ensure!(
+            self.contract != Address::ZERO,
+            "billing.contract must not be the zero address"
+        );
+        Ok(())
+    }
 }
 
 /// Cache configuration for a registry watcher.
@@ -177,6 +214,7 @@ impl WorldOprfNodeConfig {
             rp_cache_config: WatcherCacheConfig::default(),
             issuer_cache_config: WatcherCacheConfig::default(),
             merkle_cache_config: WatcherCacheConfig::default(),
+            billing: None,
         }
     }
 }

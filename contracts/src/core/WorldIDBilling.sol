@@ -72,6 +72,9 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     /// @dev Maximum accepted `expiresAt - createdAt` of an authorization, in seconds.
     uint64 internal _maxRequestLifetime;
 
+    /// @dev RPs whose Proofs of Embedding Similarity are billed (WIP-107 §4.2).
+    mapping(uint64 rpId => bool) internal _billedRps;
+
     ////////////////////////////////////////////////////////////
     //                        Constants                       //
     ////////////////////////////////////////////////////////////
@@ -84,6 +87,11 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     uint8 public constant AUTHORIZATION_VERSION = RpRequestAuth.VERSION;
 
     uint256 public constant MAX_WIP101_DATA_LENGTH = RpRequestAuth.MAX_WIP101_DATA_LENGTH;
+
+    /// @notice Most significant byte a `signedAction` must carry to authorize registration (WIP-107 §4.1). The RP
+    ///  signature does not cover the proof type, so the prefix keeps other requests, e.g. a Uniqueness Proof's
+    ///  (`0x00`), from consuming capacity.
+    uint8 public constant BILLED_ACTION_PREFIX = 0x03;
 
     /// @notice Decimals of the WLD/USD price source; WIP-107 §4.9 requires USD scaled by 1e18.
     uint8 public constant PRICE_DECIMALS = 18;
@@ -367,6 +375,11 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     }
 
     /// @inheritdoc IWorldIDBilling
+    function isBilledRp(uint64 rpId) external view virtual onlyProxy onlyInitialized returns (bool) {
+        return _billedRps[rpId];
+    }
+
+    /// @inheritdoc IWorldIDBilling
     function getBillingAction(BillingContext calldata scope) public pure virtual returns (uint256) {
         // The shift reduces the hash into the field with a 0x00 uniqueness prefix.
         return uint256(
@@ -438,6 +451,12 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     }
 
     /// @inheritdoc IWorldIDBilling
+    function setBilledRp(uint64 rpId, bool billed) external virtual onlyOwner onlyProxy onlyInitialized {
+        _billedRps[rpId] = billed;
+        emit BilledRpUpdated(rpId, billed);
+    }
+
+    /// @inheritdoc IWorldIDBilling
     function setPaused(bool isPaused) external virtual onlyOwner onlyProxy onlyInitialized {
         if (isPaused) _pause();
         else _unpause();
@@ -505,6 +524,9 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         uint256 billingNullifier,
         uint256[5] calldata proof
     ) internal virtual returns (bool) {
+        // Only an Embedding Similarity request's action authorizes registration (WIP-107 §4.5).
+        if (authorization.signedAction >> 248 != BILLED_ACTION_PREFIX) revert InvalidActionPrefix();
+
         mapping(uint256 => bool) storage nonces = _usedNonces[scope.rpId];
         if (nonces[authorization.nonce]) revert NonceAlreadyUsed();
 
@@ -636,10 +658,12 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
 
         uint64 createdAt = authorization.createdAt;
         uint64 expiresAt = authorization.expiresAt;
-        if (block.timestamp < createdAt) revert RequestNotYetValid();
+        // `createdAt` may be up to `maxRequestAge` ahead, for RP clock skew, as OPRF nodes accept (WIP-107 §4.5). The
+        // comparisons add instead of subtracting, in `uint256`, so no operand order can underflow or overflow.
         if (block.timestamp >= expiresAt) revert RequestExpired();
-        if (block.timestamp - createdAt > _maxRequestAge) revert RequestTooOld();
-        if (expiresAt - createdAt > _maxRequestLifetime) revert RequestLifetimeTooLong();
+        if (createdAt > block.timestamp + _maxRequestAge) revert RequestNotYetValid();
+        if (block.timestamp > uint256(createdAt) + _maxRequestAge) revert RequestTooOld();
+        if (expiresAt > uint256(createdAt) + _maxRequestLifetime) revert RequestLifetimeTooLong();
 
         RpRequestAuth.verify(
             signer,
