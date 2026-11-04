@@ -12978,7 +12978,6 @@ dependencies = [
  "mobench-sdk",
  "provekit-common",
  "provekit-prover",
- "provekit-r1cs-compiler",
  "provekit-verifier",
  "rand 0.8.6",
  "rand_chacha 0.3.1",

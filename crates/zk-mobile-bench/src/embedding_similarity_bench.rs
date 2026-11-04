@@ -6,30 +6,23 @@
 
 use provekit_common::{Format, InputMap};
 
-const PKP_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/embedding_similarity.pkp"));
-
-#[cfg(test)]
-const PKV_BYTES: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/embedding_similarity.pkv"));
-
 const PROVER_TOML: &str = include_str!("../../proof/noir/embedding-similarity/Prover.toml");
 
-/// Loads the embedded ProveKit prover for the WIP-202 circuit.
+/// Loads the WIP-202 prover `world-id-proof` embeds.
 ///
 /// # Errors
 /// Fails if the embedded bytes cannot be deserialized.
 pub fn load_embedded_prover() -> eyre::Result<provekit_common::Prover> {
-    provekit_common::register_ntt();
-    provekit_common::file::deserialize(PKP_BYTES).map_err(|e| eyre::eyre!(e.to_string()))
+    world_id_proof::embedding_similarity::embedded_prover()
 }
 
-/// Loads the embedded ProveKit verifier for the WIP-202 circuit.
+/// Loads the WIP-202 verifier `world-id-proof` embeds.
 ///
 /// # Errors
 /// Fails if the embedded bytes cannot be deserialized.
 #[cfg(test)]
 pub fn load_embedded_verifier() -> eyre::Result<provekit_common::Verifier> {
-    provekit_common::register_ntt();
-    provekit_common::file::deserialize(PKV_BYTES).map_err(|e| eyre::eyre!(e.to_string()))
+    world_id_proof::embedding_similarity::embedded_verifier()
 }
 
 /// Parses the committed witness against the prover's ABI.
