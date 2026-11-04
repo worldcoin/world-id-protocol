@@ -89,6 +89,7 @@ provekit-r1cs-compiler = { workspace = true, optional = true }
 
 [dev-dependencies]
 acvm = { workspace = true }
+alloy-primitives = { workspace = true }
 bn254-blackbox-solver = { workspace = true }
 hex = { workspace = true }
 lzma-rs = { workspace = true }

@@ -12603,6 +12603,7 @@ dependencies = [
 name = "world-id-proof"
 version = "0.18.0"
 dependencies = [
+ "alloy-primitives",
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
  "ark-ff 0.6.0",
