@@ -9,6 +9,10 @@
 //!   `rp_signature_verification` field.
 //! - which [`WorldIdRequestAuthError`] variant is returned for an invalid action
 //!
+//! The uniqueness module also serves WIP-107 billing queries: their action is the `billingAction`
+//! of a billing context, which the RP does not sign. Such a query carries the signed `0x03` action
+//! and the context as [`RpSignatureVerification::Billing`], and consumes its own nonce scope.
+//!
 //! [`RpModuleKind`] captures these differences; [`RpModuleAuth`] holds the shared
 //! state and branches on the kind at runtime.
 
@@ -18,9 +22,10 @@ use crate::{
         nonce_history::{DuplicateNonce, NonceHistory, NonceScope},
         rp_registry_watcher::{RpRegistryWatcher, RpRegistryWatcherError},
     },
+    config::BillingContractConfig,
     metrics,
 };
-use alloy::primitives::Address;
+use alloy::primitives::{Address, U256};
 use ark_bn254::Bn254;
 use ark_groth16::PreparedVerifyingKey;
 use async_trait::async_trait;
@@ -34,7 +39,9 @@ use taceo_oprf::types::{
 use tracing::instrument;
 use world_id_primitives::{
     FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
-    oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
+    billing::{BILLED_ACTION_PREFIX, BillingContext},
+    oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, WorldIdRequestAuthError},
+    rp::RpId,
 };
 
 pub(crate) mod wip101;
@@ -47,7 +54,9 @@ pub(crate) enum RpModuleKind {
     /// in which case the signature is verified over the action-inclusive message
     /// (create-and-bind).
     Session,
-    /// Uniqueness module: action MSB must be `0x00`; action IS signed.
+    /// Uniqueness module: action MSB must be `0x00`; action IS signed. A billing query instead
+    /// carries the signed `0x03` action as verification data, and its action is the recomputed
+    /// `billingAction`.
     Uniqueness,
 }
 
@@ -69,6 +78,10 @@ pub(crate) enum RpModuleError {
     InvalidActionUniqueness { action: FieldElement },
     #[error("Invalid RP signature verification data: {context}")]
     InvalidRpSignatureVerification { context: &'static str },
+    #[error("Invalid billing query: {context}")]
+    InvalidBillingQuery { context: &'static str },
+    #[error("Billing queries are disabled: no Billing Contract is configured")]
+    BillingQueriesDisabled,
     #[error("Could not verify query proof")]
     InvalidQueryProof,
     #[error(transparent)]
@@ -123,6 +136,8 @@ impl From<&RpModuleError> for WorldIdRequestAuthError {
             RpModuleError::InvalidRpSignatureVerification { .. } => {
                 Self::InvalidRpSignatureVerification
             }
+            RpModuleError::InvalidBillingQuery { .. } => Self::InvalidBillingQuery,
+            RpModuleError::BillingQueriesDisabled => Self::BillingQueriesDisabled,
             RpModuleError::InvalidQueryProof => Self::InvalidQueryProof,
             RpModuleError::MerkleWatcher(e) => Self::from(e.as_ref()),
             RpModuleError::RpRegistry(e) => Self::from(e.as_ref()),
@@ -176,6 +191,7 @@ pub(crate) struct RpModuleAuth {
     merkle_watcher: MerkleWatcher,
     rpc_provider: web3::HttpRpcProvider,
     query_vk: Arc<PreparedVerifyingKey<Bn254>>,
+    billing: Option<BillingContractConfig>,
 }
 
 impl RelyingParty {
@@ -218,6 +234,8 @@ pub(crate) struct RpModuleAuthArgs {
     pub(crate) timeout_external_eth_call: Duration,
     pub(crate) rpc_provider: web3::HttpRpcProvider,
     pub(crate) query_vk: Arc<PreparedVerifyingKey<Bn254>>,
+    /// The Billing Contract billing queries must be for; `None` rejects every billing query.
+    pub(crate) billing: Option<BillingContractConfig>,
 }
 
 impl RpModuleAuth {
@@ -241,6 +259,7 @@ impl RpModuleAuth {
             timeout_external_eth_call,
             rpc_provider,
             query_vk,
+            billing,
         } = args;
         Self {
             kind,
@@ -252,6 +271,7 @@ impl RpModuleAuth {
             merkle_watcher,
             rpc_provider,
             query_vk,
+            billing,
         }
     }
 
@@ -305,7 +325,20 @@ impl RpModuleAuth {
             RpAccountType::Eoa => {
                 tracing::trace!("RP signer is EOA");
                 let action = match self.kind {
-                    RpModuleKind::Uniqueness => Some(action),
+                    // A billing query's action is the unsigned `billingAction`; the RP signed the
+                    // action it carries as verification data.
+                    RpModuleKind::Uniqueness => match request.auth.rp_signature_verification {
+                        None => Some(action),
+                        Some(RpSignatureVerification::Billing {
+                            action: signed_action,
+                            ..
+                        }) => Some(*signed_action),
+                        Some(_) => {
+                            return Err(RpModuleError::InvalidRpSignatureVerification {
+                                context: "only billing verification data is allowed on the uniqueness module",
+                            });
+                        }
+                    },
                     // Session RP signatures do not include the action, unless the request
                     // carries the signed action as verification data (create-and-bind, or an
                     // embedding similarity request).
@@ -358,6 +391,41 @@ impl RpModuleAuth {
         Ok(rp.oprf_key_id)
     }
 
+    /// Checks a billing query (WIP-107 §4.5) at `now` before its RP signature and query proof: the
+    /// signed action is a Proof of Embedding Similarity's, `scope` names this node's Billing
+    /// Contract, the request's RP and a canonical period active at `now`, and `action` is the
+    /// `billingAction` of `scope`.
+    fn check_billing_query(
+        &self,
+        action: FieldElement,
+        signed_action: FieldElement,
+        scope: &BillingContext,
+        rp_id: RpId,
+        now: u64,
+    ) -> Result<(), RpModuleError> {
+        let billing = self.billing.ok_or(RpModuleError::BillingQueriesDisabled)?;
+        let invalid = |context| Err(RpModuleError::InvalidBillingQuery { context });
+        if !signed_action.has_prefix(BILLED_ACTION_PREFIX) {
+            return invalid("signed action MSB must be 0x03");
+        }
+        if scope.chain_id != U256::from(billing.chain_id)
+            || scope.billing_contract != billing.contract
+        {
+            return invalid("scope names another Billing Contract");
+        }
+        if scope.rp_id != rp_id {
+            return invalid("scope names another RP");
+        }
+        // Also rejects a noncanonical `period_start`.
+        if !scope.is_active_at(now) {
+            return invalid("period_start is not a canonical period active now");
+        }
+        if action != scope.billing_action() {
+            return invalid("action is not the billing action of scope");
+        }
+        Ok(())
+    }
+
     async fn authenticate_inner(
         &self,
         request: &OprfRequest<NullifierOprfRequestAuthV1>,
@@ -371,12 +439,20 @@ impl RpModuleAuth {
             RpModuleKind::Session => {
                 metrics::auth_module::inc_session();
                 if action.has_prefix(OprfPrefix::SessionOprfSeed) {
-                    if let Some(verification) = request.auth.rp_signature_verification
-                        && !verification.action().has_prefix(verification.prefix())
-                    {
-                        return Err(RpModuleError::InvalidRpSignatureVerification {
-                            context: "signed action MSB does not match its kind (0x00 uniqueness, 0x03 embedding similarity)",
-                        });
+                    match request.auth.rp_signature_verification {
+                        Some(RpSignatureVerification::Billing { .. }) => {
+                            return Err(RpModuleError::InvalidRpSignatureVerification {
+                                context: "billing verification data is only allowed on billing queries",
+                            });
+                        }
+                        Some(verification)
+                            if !verification.action().has_prefix(verification.prefix()) =>
+                        {
+                            return Err(RpModuleError::InvalidRpSignatureVerification {
+                                context: "signed action MSB does not match its kind (0x00 uniqueness, 0x03 embedding similarity)",
+                            });
+                        }
+                        _ => {}
                     }
                     NonceScope::SessionOprfSeed
                 } else if action.has_prefix(OprfPrefix::SessionAction) {
@@ -392,15 +468,35 @@ impl RpModuleAuth {
             }
             RpModuleKind::Uniqueness => {
                 metrics::auth_module::inc_nullifier();
-                if request.auth.rp_signature_verification.is_some() {
-                    return Err(RpModuleError::InvalidRpSignatureVerification {
-                        context: "only allowed on the session module",
-                    });
+                match request.auth.rp_signature_verification {
+                    None => {
+                        if !action.has_prefix(OprfPrefix::Uniqueness) {
+                            return Err(RpModuleError::InvalidActionUniqueness { action });
+                        }
+                        NonceScope::Uniqueness
+                    }
+                    Some(RpSignatureVerification::Billing {
+                        action: signed_action,
+                        scope,
+                    }) => {
+                        metrics::auth_module::inc_billing();
+                        let now = u64::try_from(Utc::now().timestamp())
+                            .map_err(|_| eyre::eyre!("system clock is before the Unix epoch"))?;
+                        self.check_billing_query(
+                            action,
+                            signed_action,
+                            &scope,
+                            request.auth.rp_id,
+                            now,
+                        )?;
+                        NonceScope::Billing
+                    }
+                    Some(_) => {
+                        return Err(RpModuleError::InvalidRpSignatureVerification {
+                            context: "only billing verification data is allowed on the uniqueness module",
+                        });
+                    }
                 }
-                if !action.has_prefix(OprfPrefix::Uniqueness) {
-                    return Err(RpModuleError::InvalidActionUniqueness { action });
-                }
-                NonceScope::Uniqueness
             }
         };
 
