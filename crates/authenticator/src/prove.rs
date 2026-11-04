@@ -1,7 +1,7 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
-    Credential, FieldElement, ProofRequest, ProofResponse, ProofType, RequestItem, ResponseItem,
-    SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
+    Credential, FieldElement, PrimitiveError, ProofRequest, ProofResponse, ProofType, RequestItem,
+    ResponseItem, SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
@@ -21,6 +21,18 @@ use world_id_proof::{
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::Nullifier;
+
+/// The Groth16 flows below do not prove embedding similarity requests; those have their own proof.
+fn reject_embedding_similarity(proof_request: &ProofRequest) -> Result<(), AuthenticatorError> {
+    if proof_request.proof_type.is_embedding_similarity() {
+        return Err(PrimitiveError::InvalidInput {
+            attribute: "proof_type".to_string(),
+            reason: "embedding_similarity is not supported by this flow".to_string(),
+        }
+        .into());
+    }
+    Ok(())
+}
 
 impl Authenticator {
     /// Gets an object to request OPRF computations to OPRF Nodes.
@@ -131,6 +143,7 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
         proof_request.validate_proof_type()?;
+        reject_embedding_similarity(proof_request)?;
         let mut rng = rand::rngs::OsRng;
 
         let query_material = self
@@ -296,6 +309,7 @@ impl Authenticator {
         session_id_r_seed: Option<FieldElement>,
     ) -> Result<ProofResult, AuthenticatorError> {
         proof_request.validate_proof_type()?;
+        reject_embedding_similarity(proof_request)?;
 
         // 1. Determine request items to prove
         let available: std::collections::HashSet<u64> = credentials

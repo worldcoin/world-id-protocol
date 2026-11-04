@@ -216,6 +216,11 @@ impl<'a> OprfEntrypoint<'a> {
                 OprfModule::Session,
             ),
             ProofType::Uniqueness { action } => (action, OprfModule::Nullifier),
+            ProofType::EmbeddingSimilarity(_) => {
+                return Err(ProofError::GenerationError(
+                    "embedding similarity proofs have no nullifier query".to_string(),
+                ));
+            }
         };
 
         // Quick validation before performing the compute-heavy `generate_query_proof` fn.

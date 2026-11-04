@@ -97,7 +97,9 @@ pub use signer::Signer;
 pub mod request;
 #[cfg(feature = "protocol")]
 pub use request::{
-    ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
+    AatPublicValues, AatRequirements, ConstraintExpr, ConstraintKind, ConstraintNode,
+    EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem, FlamingoConfiguration,
+    Groth16ResponseItem, MAX_CONSTRAINT_NODES, MAX_FLAMINGO_CONFIGURATIONS, ProofRequest,
     ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
