@@ -4,8 +4,9 @@
 //! logic, and query-proof verification. They differ only in:
 //! - which [`OprfPrefix`] the action field must carry ([`OprfPrefix::Uniqueness`] for uniqueness vs
 //!   [`OprfPrefix::SessionOprfSeed`]/[`OprfPrefix::SessionAction`] for sessions)
-//! - whether the action is included in the RP signature. Some for uniqueness, none for session. For session-seed queries initiated by an RP request for a uniqueness proof,
-//!   the action of the uniqueness proof is part of the data the RP signs over and is included in the `rp_signature_verification` field.
+//! - whether the action is included in the RP signature. Some for uniqueness, none for session. For session-seed queries initiated by an RP request for a uniqueness proof
+//!   (MSB `0x00`) or a Proof of Embedding Similarity (MSB `0x03`), the request's action is part of the data the RP signs over and is included in the
+//!   `rp_signature_verification` field.
 //! - which [`WorldIdRequestAuthError`] variant is returned for an invalid action
 //!
 //! The uniqueness module also serves WIP-107 billing queries: their action is the `billingAction`

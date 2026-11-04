@@ -275,7 +275,8 @@ pub struct ProofRequest {
     /// Three states: absent/`null` (no session), `"create"` (mint a fresh session),
     /// or an existing `"session_"`-prefixed id. [`ProofType::Uniqueness`] accepts
     /// absent or `"create"` (see [`Self::binds_session`]); [`ProofType::Session`]
-    /// requires `"create"` or an existing id.
+    /// requires `"create"` or an existing id; [`ProofType::EmbeddingSimilarity`]
+    /// accepts absent or an existing id.
     /// The proof will only be valid if the session ID is meant for this context and
     /// this particular World ID holder.
     #[serde(default)]
