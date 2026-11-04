@@ -9,12 +9,13 @@ pub(crate) mod types;
 mod test_fixtures;
 mod tests;
 
-use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_OPRF_PROOF, DS_QUERY, DS_WIP_202_AUTH};
+use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_WIP_202_AUTH};
 use flamingo_token::{FlamingoTokenClaims, FlamingoTokenPublic};
 use poseidon2::bn254::permutation;
 use types::PrivateInputs;
 use world_id_components::{
     authentication,
+    constants::{DS_OPRF_PROOF, DS_QUERY},
     credential::{self, CredentialPublic},
     session,
     types::PublicKey,

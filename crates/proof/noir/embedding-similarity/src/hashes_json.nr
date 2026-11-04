@@ -4,7 +4,9 @@
 // chunks covering the thumbnail entry are unpacked into bytes. Any other chunk set with
 // the same claim would be a Poseidon2 collision.
 use super::{
-    constants::{CHUNK_BYTES, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, WINDOW_CHUNKS},
+    constants::{
+        CHUNK_BYTES, CHUNK_SLOTS, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, WINDOW_CHUNKS,
+    },
     types::HashesJsonInputs,
 };
 use world_id_components::var_hash::{h_var, safe_tags};
@@ -30,10 +32,9 @@ fn num_chunks(len: u32) -> u32 {
 /// The Credential claim over raw bytes: WIP-100 `H_var` with label `CLAIMS_HASH_V1`, for
 /// lengths `MIN_HASHES_JSON_BYTES..=MAX_HASHES_JSON_BYTES`.
 pub fn claims_hash_v1(json: HashesJsonInputs) -> Field {
-    h_var(
+    h_var::<CHUNK_SLOTS, NUM_LENGTHS, MIN_HASHES_JSON_BYTES>(
         json.chunks,
         json.len as Field,
-        MIN_HASHES_JSON_BYTES,
         SAFE_TAGS,
     )
 }
