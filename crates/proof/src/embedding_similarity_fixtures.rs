@@ -675,7 +675,8 @@ fn chunk_slots_match_the_noir_constants() {
             .unwrap()
     };
     assert_eq!(global("MAX_HASHES_JSON_BYTES"), MAX_HASHES_JSON_BYTES);
-    assert_eq!(global("CHUNK_BYTES"), CHUNK_BYTES);
+    let var_hash = include_str!("../noir/world-id-components/src/var_hash.nr");
+    assert!(var_hash.contains(&format!("pub global CHUNK_BYTES: u32 = {CHUNK_BYTES};")));
 }
 
 /// The fixture's Flamingo Tokens are the WIP-201 Appendix A1 test vectors.

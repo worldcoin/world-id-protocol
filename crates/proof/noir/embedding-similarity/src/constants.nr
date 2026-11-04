@@ -14,8 +14,8 @@ pub global CLAIM_INDEX: u32 = 0;
 pub global MIN_HASHES_JSON_BYTES: u32 = 3072;
 pub global MAX_HASHES_JSON_BYTES: u32 = 5120;
 
-/// Bytes per sponge chunk: 31 bytes stay below the BN254 modulus.
-pub global CHUNK_BYTES: u32 = 31;
+/// Bytes per `H_var` chunk, from the shared library.
+pub use world_id_components::var_hash::CHUNK_BYTES;
 
 /// Sponge chunks of a maximum-length `hashes.json`.
 pub global NUM_CHUNKS: u32 = (MAX_HASHES_JSON_BYTES + CHUNK_BYTES - 1) / CHUNK_BYTES;
