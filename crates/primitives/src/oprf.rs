@@ -185,8 +185,9 @@ pub struct NullifierOprfRequestAuthV1 {
     pub wip101_data: Option<Vec<u8>>,
     /// Additional data needed to reconstruct the RP-signed message.
     ///
-    /// Currently only valid on create-and-bind session-seed queries (see
-    /// [`OprfPrefix::SessionOprfSeed`]) from EOA-backed RPs.
+    /// Only valid from EOA-backed RPs, on session-seed queries (see
+    /// [`OprfPrefix::SessionOprfSeed`]) whose RP signed a uniqueness or embedding similarity
+    /// action, and on WIP-107 billing queries ([`RpSignatureVerification::Billing`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rp_signature_verification: Option<RpSignatureVerification>,
 }
@@ -290,8 +291,9 @@ pub enum WorldIdRequestAuthError {
     InvalidActionSession,
     /// The provided RP signature verification data is invalid or not allowed on this query.
     ///
-    /// Verification data is only valid on create-and-bind session-seed queries from
-    /// EOA-backed RPs and must carry a uniqueness action (MSB `0x00`).
+    /// Verification data is only valid from EOA-backed RPs: on session-seed queries, carrying a
+    /// uniqueness (MSB `0x00`) or embedding similarity (MSB `0x03`) action, and on billing
+    /// queries, as [`RpSignatureVerification::Billing`].
     #[error("invalid_rp_signature_verification")]
     InvalidRpSignatureVerification,
     /// **Only valid for billing queries (WIP-107)**.

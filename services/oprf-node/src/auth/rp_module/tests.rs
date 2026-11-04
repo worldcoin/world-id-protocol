@@ -35,7 +35,7 @@ use crate::{
             TEST_BILLING_CONTRACT,
         },
     },
-    config::WatcherCacheConfig,
+    config::{BillingContractConfig, WatcherCacheConfig},
 };
 
 pub(crate) struct RpModuleTestSetup {
@@ -782,48 +782,6 @@ async fn test_billing_signed_action_must_be_embedding_similarity() -> eyre::Resu
 }
 
 #[tokio::test]
-async fn test_billing_rejects_another_billing_contract() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_billing().await?;
-    setup.edit_billing(|_, scope| scope.billing_contract = Address::repeat_byte(0xb2));
-    setup
-        .assert_auth_err(error_codes::INVALID_BILLING_QUERY, INVALID_BILLING_QUERY)
-        .await?;
-
-    let mut setup = RpModuleTestSetup::new_billing().await?;
-    setup.edit_billing(|_, scope| scope.chain_id = U256::from(TEST_BILLING_CHAIN_ID + 1));
-    setup
-        .assert_auth_err(error_codes::INVALID_BILLING_QUERY, INVALID_BILLING_QUERY)
-        .await
-}
-
-#[tokio::test]
-async fn test_billing_rejects_another_rp() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_billing().await?;
-    setup.edit_billing(|_, scope| scope.rp_id = RpId::new(scope.rp_id.into_inner() + 1));
-    setup
-        .assert_auth_err(error_codes::INVALID_BILLING_QUERY, INVALID_BILLING_QUERY)
-        .await
-}
-
-#[tokio::test]
-async fn test_billing_rejects_noncanonical_and_inactive_periods() -> eyre::Result<()> {
-    let mut setup = RpModuleTestSetup::new_billing().await?;
-    setup.edit_billing(|_, scope| scope.period_start += 1);
-    setup
-        .assert_auth_err(error_codes::INVALID_BILLING_QUERY, INVALID_BILLING_QUERY)
-        .await?;
-
-    // The previous month's period ended at the current period's start.
-    let mut setup = RpModuleTestSetup::new_billing().await?;
-    setup.edit_billing(|_, scope| {
-        scope.period_start = billing::period_start(scope.period_start - 1).expect("valid");
-    });
-    setup
-        .assert_auth_err(error_codes::INVALID_BILLING_QUERY, INVALID_BILLING_QUERY)
-        .await
-}
-
-#[tokio::test]
 async fn test_billing_action_must_be_the_billing_action_of_scope() -> eyre::Result<()> {
     // A billing signature must not authorize any other uniqueness action.
     let mut setup = RpModuleTestSetup::new_billing().await?;
@@ -865,6 +823,192 @@ async fn test_session_seed_rejects_billing_verification() -> eyre::Result<()> {
             "Invalid RP signature verification data",
         )
         .await
+}
+
+// ── Billing query checks at a fixed time ─────────────────────────────────
+
+/// Midnight Anywhere on Earth on 1 November 2026, a canonical period start.
+const NOVEMBER_2026: u64 = 1_793_534_400;
+/// Midnight Anywhere on Earth on 1 December 2026, the next period start.
+const DECEMBER_2026: u64 = NOVEMBER_2026 + 30 * 24 * 60 * 60;
+const BILLED_RP: u64 = 7;
+
+fn billing_auth() -> RpModuleAuth {
+    let mut auth = mock_session_auth(Asserter::new().into());
+    auth.billing = Some(BillingContractConfig::new(
+        TEST_BILLING_CHAIN_ID,
+        TEST_BILLING_CONTRACT,
+    ));
+    auth
+}
+
+fn billing_scope(period_start: u64) -> BillingContext {
+    BillingContext {
+        chain_id: U256::from(TEST_BILLING_CHAIN_ID),
+        billing_contract: TEST_BILLING_CONTRACT,
+        rp_id: RpId::new(BILLED_RP),
+        period_start,
+    }
+}
+
+/// Checks a billing query for `scope` at `now`, for its own `billingAction`, so that only the
+/// check under test can fail.
+fn check_billing(
+    auth: &RpModuleAuth,
+    scope: &BillingContext,
+    now: u64,
+) -> Result<(), RpModuleError> {
+    auth.check_billing_query(
+        scope.billing_action(),
+        action_with_msb(OprfPrefix::EmbeddingSimilarity as u8).into(),
+        scope,
+        RpId::new(BILLED_RP),
+        now,
+    )
+}
+
+#[track_caller]
+fn assert_invalid_billing(result: Result<(), RpModuleError>, expected: &str) {
+    match result {
+        Err(RpModuleError::InvalidBillingQuery { context }) => assert_eq!(context, expected),
+        other => panic!("expected InvalidBillingQuery({expected}), got {other:?}"),
+    }
+}
+
+const INACTIVE_PERIOD: &str = "period_start is not a canonical period active now";
+
+#[tokio::test]
+async fn test_billing_check_accepts_the_current_period() {
+    let scope = billing_scope(NOVEMBER_2026);
+    for now in [
+        NOVEMBER_2026,
+        NOVEMBER_2026 + 10 * 24 * 60 * 60,
+        DECEMBER_2026 - 1,
+    ] {
+        check_billing(&billing_auth(), &scope, now).expect("current period is active");
+    }
+}
+
+#[tokio::test]
+async fn test_billing_check_accepts_the_next_period_during_the_overlap() {
+    let scope = billing_scope(DECEMBER_2026);
+    for now in [DECEMBER_2026 - billing::PERIOD_OVERLAP, DECEMBER_2026 - 1] {
+        check_billing(&billing_auth(), &scope, now).expect("next period is active");
+    }
+    let before_overlap = DECEMBER_2026 - billing::PERIOD_OVERLAP - 1;
+    assert_invalid_billing(
+        check_billing(&billing_auth(), &scope, before_overlap),
+        INACTIVE_PERIOD,
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_an_ended_period() {
+    assert_invalid_billing(
+        check_billing(
+            &billing_auth(),
+            &billing_scope(NOVEMBER_2026),
+            DECEMBER_2026,
+        ),
+        INACTIVE_PERIOD,
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_a_noncanonical_period() {
+    assert_invalid_billing(
+        check_billing(
+            &billing_auth(),
+            &billing_scope(NOVEMBER_2026 + 1),
+            NOVEMBER_2026 + 60,
+        ),
+        INACTIVE_PERIOD,
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_another_billing_contract() {
+    let now = NOVEMBER_2026 + 60;
+    let mut scope = billing_scope(NOVEMBER_2026);
+    scope.billing_contract = Address::repeat_byte(0xb2);
+    assert_invalid_billing(
+        check_billing(&billing_auth(), &scope, now),
+        "scope names another Billing Contract",
+    );
+
+    let mut scope = billing_scope(NOVEMBER_2026);
+    scope.chain_id = U256::from(TEST_BILLING_CHAIN_ID + 1);
+    assert_invalid_billing(
+        check_billing(&billing_auth(), &scope, now),
+        "scope names another Billing Contract",
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_another_rp() {
+    let mut scope = billing_scope(NOVEMBER_2026);
+    scope.rp_id = RpId::new(BILLED_RP + 1);
+    assert_invalid_billing(
+        check_billing(&billing_auth(), &scope, NOVEMBER_2026 + 60),
+        "scope names another RP",
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_a_signed_uniqueness_action() {
+    let scope = billing_scope(NOVEMBER_2026);
+    assert_invalid_billing(
+        billing_auth().check_billing_query(
+            scope.billing_action(),
+            action_with_msb(0x00).into(),
+            &scope,
+            RpId::new(BILLED_RP),
+            NOVEMBER_2026 + 60,
+        ),
+        "signed action MSB must be 0x03",
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_rejects_another_action() {
+    let scope = billing_scope(NOVEMBER_2026);
+    assert_invalid_billing(
+        billing_auth().check_billing_query(
+            action_with_msb(0x00).into(),
+            action_with_msb(OprfPrefix::EmbeddingSimilarity as u8).into(),
+            &scope,
+            RpId::new(BILLED_RP),
+            NOVEMBER_2026 + 60,
+        ),
+        "action is not the billing action of scope",
+    );
+}
+
+#[tokio::test]
+async fn test_billing_check_requires_a_billing_contract() {
+    let mut auth = billing_auth();
+    auth.billing = None;
+    assert!(matches!(
+        check_billing(&auth, &billing_scope(NOVEMBER_2026), NOVEMBER_2026 + 60),
+        Err(RpModuleError::BillingQueriesDisabled)
+    ));
+}
+
+#[test]
+fn test_billing_config_rejects_zero_values() {
+    BillingContractConfig::new(TEST_BILLING_CHAIN_ID, TEST_BILLING_CONTRACT)
+        .validate()
+        .expect("nonzero config is valid");
+    assert!(
+        BillingContractConfig::new(0, TEST_BILLING_CONTRACT)
+            .validate()
+            .is_err()
+    );
+    assert!(
+        BillingContractConfig::new(TEST_BILLING_CHAIN_ID, Address::ZERO)
+            .validate()
+            .is_err()
+    );
 }
 
 const DISPATCH_TIMEOUT: Duration = Duration::from_secs(1);

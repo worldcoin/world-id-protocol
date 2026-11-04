@@ -9,6 +9,7 @@
 /// This calls the `describe_*` functions from the `metrics` crate to set metadata on the different metrics.
 pub fn describe_metrics() {
     auth_module::describe_metrics();
+    billing_queries::describe_metrics();
     nonce_history::describe_metrics();
     merkle_cache::describe_metrics();
     rp_registry_cache::describe_metrics();
@@ -23,7 +24,6 @@ pub(crate) mod auth_module {
     const METRICS_ATTR_NULLIFIER_MODULE: &str = "nullifier";
     const METRICS_ATTR_SESSION_MODULE: &str = "session";
     const METRICS_ATTR_CREDENTIAL_BLINDING: &str = "blinding";
-    const METRICS_ATTR_BILLING: &str = "billing";
 
     pub(super) fn describe_metrics() {
         metrics::describe_counter!(
@@ -41,13 +41,28 @@ pub(crate) mod auth_module {
         metrics::counter!(METRICS_ID_AUTHENTICATION_COUNTER, METRICS_ATTRID_AUTH_MODULE => METRICS_ATTR_SESSION_MODULE).increment(1);
     }
 
-    /// Counts billing queries (WIP-107), which also count as nullifier-module hits.
-    pub(crate) fn inc_billing() {
-        metrics::counter!(METRICS_ID_AUTHENTICATION_COUNTER, METRICS_ATTRID_AUTH_MODULE => METRICS_ATTR_BILLING).increment(1);
-    }
-
     pub(crate) fn inc_issuer_blinding() {
         metrics::counter!(METRICS_ID_AUTHENTICATION_COUNTER, METRICS_ATTRID_AUTH_MODULE => METRICS_ATTR_CREDENTIAL_BLINDING).increment(1);
+    }
+}
+
+/// WIP-107 billing queries, which also count as nullifier-module hits.
+pub(crate) mod billing_queries {
+    const METRICS_ID_BILLING_QUERIES: &str = "taceo.oprf.node.billing_queries";
+    const METRICS_ATTRID_RESULT: &str = "result";
+
+    pub(super) fn describe_metrics() {
+        metrics::describe_counter!(
+            METRICS_ID_BILLING_QUERIES,
+            metrics::Unit::Count,
+            "Number of billing queries authenticated, by result (accepted or rejected)."
+        );
+    }
+
+    /// Counts one billing query as accepted or rejected.
+    pub(crate) fn record(accepted: bool) {
+        let result = if accepted { "accepted" } else { "rejected" };
+        metrics::counter!(METRICS_ID_BILLING_QUERIES, METRICS_ATTRID_RESULT => result).increment(1);
     }
 }
 

@@ -86,6 +86,19 @@ impl BillingContractConfig {
     pub const fn new(chain_id: u64, contract: Address) -> Self {
         Self { chain_id, contract }
     }
+
+    /// Rejects a zero chain ID or contract address, which no billing query could match.
+    ///
+    /// # Errors
+    /// Returns an error naming the zero field.
+    pub fn validate(&self) -> eyre::Result<()> {
+        eyre::ensure!(self.chain_id != 0, "billing.chain_id must not be zero");
+        eyre::ensure!(
+            self.contract != Address::ZERO,
+            "billing.contract must not be the zero address"
+        );
+        Ok(())
+    }
 }
 
 /// Cache configuration for a registry watcher.

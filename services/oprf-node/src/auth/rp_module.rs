@@ -326,12 +326,18 @@ impl RpModuleAuth {
                 let action = match self.kind {
                     // A billing query's action is the unsigned `billingAction`; the RP signed the
                     // action it carries as verification data.
-                    RpModuleKind::Uniqueness => Some(
-                        request
-                            .auth
-                            .rp_signature_verification
-                            .map_or(action, |verification| *verification.action()),
-                    ),
+                    RpModuleKind::Uniqueness => match request.auth.rp_signature_verification {
+                        None => Some(action),
+                        Some(RpSignatureVerification::Billing {
+                            action: signed_action,
+                            ..
+                        }) => Some(*signed_action),
+                        Some(_) => {
+                            return Err(RpModuleError::InvalidRpSignatureVerification {
+                                context: "only billing verification data is allowed on the uniqueness module",
+                            });
+                        }
+                    },
                     // Session RP signatures do not include the action, unless the request
                     // carries the signed action as verification data (create-and-bind, or an
                     // embedding similarity request).
@@ -384,15 +390,17 @@ impl RpModuleAuth {
         Ok(rp.oprf_key_id)
     }
 
-    /// Checks a billing query (WIP-107 §4.5) before its RP signature and query proof: the signed
-    /// action is a Proof of Embedding Similarity's, `scope` names this node's Billing Contract, the
-    /// request's RP and an active period, and `action` is the `billingAction` of `scope`.
+    /// Checks a billing query (WIP-107 §4.5) at `now` before its RP signature and query proof: the
+    /// signed action is a Proof of Embedding Similarity's, `scope` names this node's Billing
+    /// Contract, the request's RP and a canonical period active at `now`, and `action` is the
+    /// `billingAction` of `scope`.
     fn check_billing_query(
         &self,
         action: FieldElement,
         signed_action: FieldElement,
         scope: &BillingContext,
         rp_id: RpId,
+        now: u64,
     ) -> Result<(), RpModuleError> {
         let billing = self.billing.ok_or(RpModuleError::BillingQueriesDisabled)?;
         let invalid = |context| Err(RpModuleError::InvalidBillingQuery { context });
@@ -407,13 +415,9 @@ impl RpModuleAuth {
         if scope.rp_id != rp_id {
             return invalid("scope names another RP");
         }
-        if !scope.is_canonical() {
-            return invalid("period_start is not canonical");
-        }
-        let now = u64::try_from(Utc::now().timestamp())
-            .map_err(|_| eyre::eyre!("system clock is before the Unix epoch"))?;
+        // Also rejects a noncanonical `period_start`.
         if !scope.is_active_at(now) {
-            return invalid("billing period is not active");
+            return invalid("period_start is not a canonical period active now");
         }
         if action != scope.billing_action() {
             return invalid("action is not the billing action of scope");
@@ -474,12 +478,14 @@ impl RpModuleAuth {
                         action: signed_action,
                         scope,
                     }) => {
-                        metrics::auth_module::inc_billing();
+                        let now = u64::try_from(Utc::now().timestamp())
+                            .map_err(|_| eyre::eyre!("system clock is before the Unix epoch"))?;
                         self.check_billing_query(
                             action,
                             signed_action,
                             &scope,
                             request.auth.rp_id,
+                            now,
                         )?;
                         NonceScope::Billing
                     }
@@ -541,9 +547,16 @@ impl OprfRequestAuthenticator for RpModuleAuth {
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
-        Ok(Box::pin(self.authenticate_inner(request))
-            .await
-            .map_err(|err| super::auth_module_error(err, "RP-module"))?)
+        let result = Box::pin(self.authenticate_inner(request)).await;
+        if matches!(self.kind, RpModuleKind::Uniqueness)
+            && matches!(
+                request.auth.rp_signature_verification,
+                Some(RpSignatureVerification::Billing { .. })
+            )
+        {
+            metrics::billing_queries::record(result.is_ok());
+        }
+        Ok(result.map_err(|err| super::auth_module_error(err, "RP-module"))?)
     }
 }
 

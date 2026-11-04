@@ -140,8 +140,9 @@ pub fn start(
         query_vk: Arc::clone(&query_vk),
         billing: config.billing,
     };
-    if config.billing.is_none() {
-        tracing::warn!("no Billing Contract configured, billing queries are rejected");
+    match config.billing {
+        None => tracing::warn!("no Billing Contract configured, billing queries are rejected"),
+        Some(billing) => billing.validate()?,
     }
     let nullifier_oprf_req_auth_service =
         Arc::new(RpModuleAuth::new_uniqueness(rp_module_args.clone()));
