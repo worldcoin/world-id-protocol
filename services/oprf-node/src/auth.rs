@@ -99,8 +99,13 @@ mod tests {
             rp_module::RpModuleAuthArgs, rp_registry_watcher::RpRegistryWatcher,
             schema_issuer_registry_watcher::SchemaIssuerRegistryWatcher,
         },
-        config::WatcherCacheConfig,
+        config::{BillingContractConfig, WatcherCacheConfig},
     };
+
+    /// The chain of the Billing Contract test nodes accept billing queries for.
+    pub(crate) const TEST_BILLING_CHAIN_ID: u64 = 480;
+    /// The Billing Contract test nodes accept billing queries for.
+    pub(crate) const TEST_BILLING_CONTRACT: Address = Address::repeat_byte(0xb1);
 
     /// Selects which registry (besides the World ID registry) a test setup deploys.
     #[derive(Clone, Copy)]
@@ -319,6 +324,10 @@ mod tests {
                 timeout_external_eth_call: self.timeout_external_eth_call,
                 rpc_provider: self.http_rpc_provider.clone(),
                 query_vk: Arc::new(ark_groth16::prepare_verifying_key(&vk.into())),
+                billing: Some(BillingContractConfig::new(
+                    TEST_BILLING_CHAIN_ID,
+                    TEST_BILLING_CONTRACT,
+                )),
             }
         }
 

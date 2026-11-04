@@ -23,6 +23,7 @@ pub(crate) mod auth_module {
     const METRICS_ATTR_NULLIFIER_MODULE: &str = "nullifier";
     const METRICS_ATTR_SESSION_MODULE: &str = "session";
     const METRICS_ATTR_CREDENTIAL_BLINDING: &str = "blinding";
+    const METRICS_ATTR_BILLING: &str = "billing";
 
     pub(super) fn describe_metrics() {
         metrics::describe_counter!(
@@ -38,6 +39,11 @@ pub(crate) mod auth_module {
 
     pub(crate) fn inc_session() {
         metrics::counter!(METRICS_ID_AUTHENTICATION_COUNTER, METRICS_ATTRID_AUTH_MODULE => METRICS_ATTR_SESSION_MODULE).increment(1);
+    }
+
+    /// Counts billing queries (WIP-107), which also count as nullifier-module hits.
+    pub(crate) fn inc_billing() {
+        metrics::counter!(METRICS_ID_AUTHENTICATION_COUNTER, METRICS_ATTRID_AUTH_MODULE => METRICS_ATTR_BILLING).increment(1);
     }
 
     pub(crate) fn inc_issuer_blinding() {

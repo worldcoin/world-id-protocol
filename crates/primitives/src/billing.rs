@@ -10,6 +10,7 @@
 
 use alloy_primitives::{Address, U256, keccak256};
 use alloy_sol_types::SolValue;
+use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "protocol")]
 use crate::OprfPrefix;
@@ -43,7 +44,7 @@ const AOE_OFFSET: u64 = 12 * 60 * 60;
 const SECONDS_PER_DAY: u64 = 24 * 60 * 60;
 
 /// One RP's billing period on one Billing Contract, `BillingContext` in WIP-107 §4.2.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BillingContext {
     /// The chain hosting the Billing Contract.
     pub chain_id: U256,

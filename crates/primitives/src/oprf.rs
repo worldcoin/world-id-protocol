@@ -5,7 +5,7 @@ use circom_types::groth16::Proof;
 use serde::{Deserialize, Serialize};
 use taceo_oprf::types::api::{CloseFrameMessage, OprfRequestAuthenticatorError};
 
-use crate::{FieldElement, rp::RpId};
+use crate::{FieldElement, billing::BillingContext, rp::RpId};
 
 /// The most significant byte (MSB) of an OPRF input field element, which separates
 /// the domains in which the input may be used.
@@ -99,6 +99,17 @@ pub enum RpSignatureVerification {
         /// The RP-signed action (MSB `0x03`).
         action: FieldElement,
     },
+    /// The action of a Proof of Embedding Similarity request (WIP-202) on a WIP-107 billing query.
+    ///
+    /// A billing query's OPRF action is the `billingAction` of `scope`, which the RP does not sign.
+    /// The node verifies the RP signature over the signed action and recomputes the
+    /// `billingAction` from `scope` (WIP-107 §4.5).
+    Billing {
+        /// The RP-signed action (MSB `0x03`).
+        action: FieldElement,
+        /// The billing context whose `billingAction` the query is for.
+        scope: BillingContext,
+    },
 }
 
 impl RpSignatureVerification {
@@ -106,9 +117,9 @@ impl RpSignatureVerification {
     #[must_use]
     pub const fn action(&self) -> FieldElement {
         match self {
-            Self::UniquenessAction { action } | Self::EmbeddingSimilarityAction { action } => {
-                *action
-            }
+            Self::UniquenessAction { action }
+            | Self::EmbeddingSimilarityAction { action }
+            | Self::Billing { action, .. } => *action,
         }
     }
 
@@ -117,7 +128,9 @@ impl RpSignatureVerification {
     pub const fn prefix(&self) -> OprfPrefix {
         match self {
             Self::UniquenessAction { .. } => OprfPrefix::Uniqueness,
-            Self::EmbeddingSimilarityAction { .. } => OprfPrefix::EmbeddingSimilarity,
+            Self::EmbeddingSimilarityAction { .. } | Self::Billing { .. } => {
+                OprfPrefix::EmbeddingSimilarity
+            }
         }
     }
 }
@@ -281,6 +294,16 @@ pub enum WorldIdRequestAuthError {
     /// EOA-backed RPs and must carry a uniqueness action (MSB `0x00`).
     #[error("invalid_rp_signature_verification")]
     InvalidRpSignatureVerification,
+    /// **Only valid for billing queries (WIP-107)**.
+    ///
+    /// The billing query does not match the node's Billing Contract, its RP, an active billing
+    /// period, or the `billingAction` it recomputes.
+    #[error("invalid_billing_query")]
+    InvalidBillingQuery,
+    /// The node does not accept billing queries (WIP-107) because it has no Billing Contract
+    /// configured.
+    #[error("billing_queries_disabled")]
+    BillingQueriesDisabled,
     /// The RP signer is a contract but does not implement the WIP101 interface.
     #[error("wip101_incompatible_rp_signer")]
     Wip101IncompatibleRpSigner,
@@ -357,8 +380,11 @@ impl WorldIdRequestAuthError {
             | Self::InvalidActionSchemaIssuer
             | Self::InvalidActionSession
             | Self::InvalidRpSignatureVerification
+            | Self::InvalidBillingQuery
             | Self::RpSignatureMissing => ErrorActor::Authenticator,
-            Self::Internal | Self::Unknown(_) => ErrorActor::OprfNode,
+            Self::BillingQueriesDisabled | Self::Internal | Self::Unknown(_) => {
+                ErrorActor::OprfNode
+            }
         }
     }
 }
@@ -378,6 +404,8 @@ impl From<u16> for WorldIdRequestAuthError {
             error_codes::INVALID_ACTION_NULLIFIER => Self::InvalidActionNullifier,
             error_codes::INVALID_ACTION_SESSION => Self::InvalidActionSession,
             error_codes::INVALID_RP_SIGNATURE_VERIFICATION => Self::InvalidRpSignatureVerification,
+            error_codes::INVALID_BILLING_QUERY => Self::InvalidBillingQuery,
+            error_codes::BILLING_QUERIES_DISABLED => Self::BillingQueriesDisabled,
             error_codes::RP_SIGNATURE_EXPIRED => Self::RpSignatureExpired,
             error_codes::RP_SIGNATURE_MISSING => Self::RpSignatureMissing,
             error_codes::INVALID_TIMESTAMP => Self::InvalidTimestamp,
@@ -420,6 +448,10 @@ impl From<WorldIdRequestAuthError> for u16 {
             WorldIdRequestAuthError::InvalidActionSession => error_codes::INVALID_ACTION_SESSION,
             WorldIdRequestAuthError::InvalidRpSignatureVerification => {
                 error_codes::INVALID_RP_SIGNATURE_VERIFICATION
+            }
+            WorldIdRequestAuthError::InvalidBillingQuery => error_codes::INVALID_BILLING_QUERY,
+            WorldIdRequestAuthError::BillingQueriesDisabled => {
+                error_codes::BILLING_QUERIES_DISABLED
             }
             WorldIdRequestAuthError::RpSignatureExpired => error_codes::RP_SIGNATURE_EXPIRED,
             WorldIdRequestAuthError::CreatedAtTooFarInFuture => {
@@ -498,6 +530,10 @@ pub mod error_codes {
     pub const EXPIRES_AT_TOO_FAR_IN_FUTURE: u16 = 4523;
     /// Error code for [`super::WorldIdRequestAuthError::InvalidRpSignatureVerification`].
     pub const INVALID_RP_SIGNATURE_VERIFICATION: u16 = 4524;
+    /// Error code for [`super::WorldIdRequestAuthError::InvalidBillingQuery`].
+    pub const INVALID_BILLING_QUERY: u16 = 4525;
+    /// Error code for [`super::WorldIdRequestAuthError::BillingQueriesDisabled`].
+    pub const BILLING_QUERIES_DISABLED: u16 = 4526;
     /// Error code for [`super::WorldIdRequestAuthError::Internal`].
     pub const INTERNAL: u16 = 1011;
 }
@@ -579,6 +615,12 @@ impl From<WorldIdRequestAuthError> for OprfRequestAuthenticatorError {
             }
             WorldIdRequestAuthError::InvalidRpSignatureVerification => {
                 taceo_oprf::types::close_frame_message!("Invalid RP signature verification data")
+            }
+            WorldIdRequestAuthError::InvalidBillingQuery => {
+                taceo_oprf::types::close_frame_message!("invalid billing query")
+            }
+            WorldIdRequestAuthError::BillingQueriesDisabled => {
+                taceo_oprf::types::close_frame_message!("billing queries are disabled on this node")
             }
             WorldIdRequestAuthError::Wip101AuxDataOnEoa => taceo_oprf::types::close_frame_message!(
                 "Auxiliary data must be empty with EOA backed signer"
@@ -688,6 +730,40 @@ mod tests {
         assert_eq!(parsed.rp_signature_verification, Some(verification));
     }
 
+    fn billing_verification() -> RpSignatureVerification {
+        RpSignatureVerification::Billing {
+            action: FieldElement::from(42u64),
+            scope: BillingContext {
+                chain_id: U256::from(480u64),
+                billing_contract: alloy_primitives::Address::repeat_byte(0x11),
+                rp_id: RpId::new(6),
+                period_start: 1_793_534_400,
+            },
+        }
+    }
+
+    #[test]
+    fn billing_verification_roundtrips_in_json_and_cbor() {
+        let verification = billing_verification();
+        let auth = test_auth(Some(verification));
+
+        let json = serde_json::to_string(&auth).unwrap();
+        let parsed: NullifierOprfRequestAuthV1 = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.rp_signature_verification, Some(verification));
+
+        let mut bytes = Vec::new();
+        ciborium::into_writer(&auth, &mut bytes).unwrap();
+        let parsed: NullifierOprfRequestAuthV1 = ciborium::from_reader(bytes.as_slice()).unwrap();
+        assert_eq!(parsed.rp_signature_verification, Some(verification));
+    }
+
+    #[test]
+    fn billing_verification_signs_an_embedding_similarity_action() {
+        let verification = billing_verification();
+        assert_eq!(verification.action(), FieldElement::from(42u64));
+        assert_eq!(verification.prefix(), OprfPrefix::EmbeddingSimilarity);
+    }
+
     #[test]
     fn error_code_roundtrip() {
         let codes: &[u16] = &[
@@ -703,6 +779,8 @@ mod tests {
             error_codes::INVALID_ACTION_NULLIFIER,
             error_codes::INVALID_ACTION_SESSION,
             error_codes::INVALID_RP_SIGNATURE_VERIFICATION,
+            error_codes::INVALID_BILLING_QUERY,
+            error_codes::BILLING_QUERIES_DISABLED,
             error_codes::INACTIVE_RP,
             error_codes::RP_SIGNATURE_EXPIRED,
             error_codes::INVALID_TIMESTAMP,
