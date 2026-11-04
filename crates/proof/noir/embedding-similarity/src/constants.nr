@@ -23,8 +23,10 @@ pub global NUM_CHUNKS: u32 = (MAX_HASHES_JSON_BYTES + CHUNK_BYTES - 1) / CHUNK_B
 /// Chunks spanned by the 83-byte thumbnail window (delimiter, key, digest, quote).
 pub global WINDOW_CHUNKS: u32 = 4;
 
-/// Chunk slots: `NUM_CHUNKS` plus zero slack so the window never indexes past the end.
-pub global CHUNK_SLOTS: u32 = NUM_CHUNKS + WINDOW_CHUNKS - 1;
+/// Chunk slots of `hashes_json`, `⌈MAX_HASHES_JSON_BYTES / 31⌉` as WIP-202 §4.5 specifies. The
+/// thumbnail window needs no slack: `digest_offset + 64 < len` keeps its last chunk below
+/// `NUM_CHUNKS`.
+pub global CHUNK_SLOTS: u32 = NUM_CHUNKS;
 
 /// Billing query (`DS_QUERY`, WIP-100 §3.8): b"World ID Query".
 pub global DS_QUERY: Field = 1773399373884719043551600379785849;

@@ -30,9 +30,8 @@ const DS_WIP_202_AUTH: DomainSeparator<4> = DomainSeparator::new(b"WORLD-ID/WIP-
 /// The Noir `hashes.json` bounds (`constants.nr`), pinned by `chunk_slots_match_the_noir_constants`.
 const MAX_HASHES_JSON_BYTES: usize = 5120;
 const CHUNK_BYTES: usize = 31;
-const WINDOW_CHUNKS: usize = 4;
-/// Chunk slots of the Noir `HashesJsonInputs`.
-const CHUNK_SLOTS: usize = MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES) + WINDOW_CHUNKS - 1;
+/// Chunk slots of the Noir `HashesJsonInputs`: `⌈MAX_HASHES_JSON_BYTES / 31⌉` (WIP-202 §4.5).
+const CHUNK_SLOTS: usize = MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES);
 
 /// The `hashes.json` keys of a v3 PCP as written by orb-core, besides `version`.
 const PCP_V3_KEYS: [&str; 44] = [
@@ -591,6 +590,28 @@ fn fixtures_match_the_generator() {
     }
 }
 
+/// Pins the `hashes.json` bounds to WIP-202: the spec's constants and its chunk count
+/// `⌈MAX_HASHES_JSON_BYTES / 31⌉`, so the circuit cannot drift from what a prover built from the
+/// spec passes.
+#[test]
+fn hashes_json_bounds_match_the_spec() {
+    let spec = include_str!("../../../docs/WIPs/wip-202.md");
+    let row = spec
+        .lines()
+        .find(|line| line.starts_with("| `MIN_HASHES_JSON_BYTES`, `MAX_HASHES_JSON_BYTES` |"))
+        .expect("WIP-202 defines the hashes.json bounds");
+    let values: Vec<usize> = row
+        .split('|')
+        .nth(2)
+        .unwrap()
+        .split(',')
+        .map(|v| v.trim().trim_matches('`').parse().unwrap())
+        .collect();
+    assert_eq!(values[1], MAX_HASHES_JSON_BYTES);
+    assert!(spec.contains("| `hashes_json` | [Field element; ⌈`MAX_HASHES_JSON_BYTES` / 31⌉] |"));
+    assert_eq!(CHUNK_SLOTS, MAX_HASHES_JSON_BYTES.div_ceil(31));
+}
+
 /// Pins `CHUNK_SLOTS` to the Noir constants it is derived from.
 #[test]
 fn chunk_slots_match_the_noir_constants() {
@@ -609,7 +630,6 @@ fn chunk_slots_match_the_noir_constants() {
     };
     assert_eq!(global("MAX_HASHES_JSON_BYTES"), MAX_HASHES_JSON_BYTES);
     assert_eq!(global("CHUNK_BYTES"), CHUNK_BYTES);
-    assert_eq!(global("WINDOW_CHUNKS"), WINDOW_CHUNKS);
 }
 
 /// The fixture's Flamingo Tokens are the WIP-201 Appendix A1 test vectors.
