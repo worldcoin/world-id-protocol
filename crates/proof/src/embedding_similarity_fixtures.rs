@@ -172,6 +172,11 @@ fn quoted(values: &str) -> String {
 
 /// The sponge chunks of `bytes`: 31-byte big-endian integers, zero-padded to the slots.
 fn chunks(bytes: &[u8]) -> Vec<FieldElement> {
+    assert!(
+        bytes.len() <= MAX_HASHES_JSON_BYTES,
+        "hashes.json has {} bytes, more than the {MAX_HASHES_JSON_BYTES} the circuit accepts",
+        bytes.len()
+    );
     let mut chunks: Vec<FieldElement> = bytes
         .chunks(CHUNK_BYTES)
         .map(|chunk| ark_babyjubjub::Fq::from_be_bytes_mod_order(chunk).into())
