@@ -76,7 +76,7 @@ pub use session::{SessionId, SessionNullifier, SessionRef};
 #[cfg(feature = "protocol")]
 pub mod proof;
 #[cfg(feature = "protocol")]
-pub use proof::{OwnershipProof, ZeroKnowledgeProof};
+pub use proof::{EmbeddingSimilarityProof, OwnershipProof, ZeroKnowledgeProof};
 
 /// Contains types specifically related to relying parties.
 pub mod rp;

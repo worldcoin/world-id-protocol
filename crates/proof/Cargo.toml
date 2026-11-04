@@ -23,7 +23,14 @@ zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 
 embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
 embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
-embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+embed-embedding-similarity-prover = ["dep:provekit-r1cs-compiler"]
+embed-embedding-similarity-verifier = ["dep:provekit-r1cs-compiler"]
+embed-noir-artifacts = [
+  "embed-ownership-prover",
+  "embed-ownership-verifier",
+  "embed-embedding-similarity-prover",
+  "embed-embedding-similarity-verifier",
+]
 
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
@@ -60,6 +67,7 @@ once_cell = { workspace = true }
 zeroize = { workspace = true }
 
 # Internal
+world-id-flamingo = { workspace = true }
 world-id-primitives = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -92,6 +100,5 @@ postcard = { workspace = true }
 sha2 = { workspace = true }
 test-case = { workspace = true }
 toml = { workspace = true }
-world-id-flamingo = { workspace = true }
 world-id-test-utils = { workspace = true }
 zstd = { workspace = true }

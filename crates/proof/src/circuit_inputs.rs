@@ -4,12 +4,13 @@
 
 use std::collections::HashMap;
 
-use eddsa_babyjubjub::EdDSASignature;
+use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use groth16_material::circom::ProofInput;
 use ruint::aliases::U256;
 
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, Credential, FieldElement, MAX_AUTHENTICATOR_KEYS,
+    merkle::MerkleInclusionProof,
 };
 
 type BaseField = ark_babyjubjub::Fq;
@@ -251,4 +252,91 @@ pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
     /// Private input. The blinder used in the hash to compute the [`Self::expected_commitment`]. This is usually
     /// a randomly generated seed.
     pub commitment_blinder: FieldElement,
+}
+
+/// Public inputs of the "Proof of Embedding Similarity" (WIP-202) circuit that the verifier
+/// supplies. The `merkle_root` is not one of them: the proof carries it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct EmbeddingSimilarityPublicInputs {
+    /// The proof time in Unix seconds: the Flamingo Token's `now`.
+    pub now: u32,
+    /// The RP the proof is for: the Flamingo Token's `aud`.
+    pub rp_id: FieldElement,
+    /// The RP request's nonce: the Flamingo Token's `nonce`.
+    pub nonce: FieldElement,
+    /// `R(SHA-256)` of the RP's challenge image. Must not be zero.
+    pub challenge_hash: FieldElement,
+    /// The RP's signal, hashed as for Uniqueness Proofs.
+    pub signal_hash: FieldElement,
+    /// The session commitment, or `0` for no session.
+    pub session_id: FieldElement,
+    /// The Flamingo Verifier key that signed the token.
+    pub flamingo_verifier_key: EdDSAPublicKey,
+    /// The Engine configuration hash the token was produced under.
+    pub engine_config_hash: FieldElement,
+    /// Whether the token carries an AAT. When `false`, every AAT value below must be `0`.
+    pub has_aat: bool,
+    /// WIP-106 hash of the trust anchor key that signed the TAKT.
+    pub trust_anchor_key_hash: FieldElement,
+    /// The AAT's `platform`.
+    pub platform: u8,
+    /// The AAT's `sec_level`.
+    pub sec_level: u8,
+    /// The AAT's `sec_meta`.
+    pub sec_meta: u8,
+    /// The AAT's `authenticator_meta`.
+    pub authenticator_meta: u8,
+    /// The PoH Credential's issuer schema.
+    pub issuer_schema_id: u64,
+    /// The PoH Credential's issuer version.
+    pub issuer_version: u8,
+    /// The PoH Credential's issuer key.
+    pub cred_pk: EdDSAPublicKey,
+    /// The RP's minimum Credential `genesis_issued_at`.
+    pub genesis_issued_at_min: u64,
+    /// The RP's minimum Credential `expires_at`, exclusive.
+    pub expires_at_min: u64,
+}
+
+/// Inputs for the "Proof of Embedding Similarity" (WIP-202) circuit.
+#[derive(Debug, Clone)]
+pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
+    /// **Public inputs** supplied by the verifier.
+    pub public: EmbeddingSimilarityPublicInputs,
+    /// Private input. The Flamingo Token's `compared_entry_hash_1`: `R(SHA-256)` of the live capture.
+    pub live_capture_hash: FieldElement,
+    /// Private input. The Flamingo Token's WIP-107 billing nullifier, or `0` for an RP that is not billed.
+    pub billing_nullifier: FieldElement,
+    /// Private input. The Flamingo Verifier's signature over the token digest.
+    pub token_signature: EdDSASignature,
+    /// Private input. The index of the authenticator key that signed the authorization message.
+    pub key_index: u64,
+    /// Private input. The full authenticator key set for the user's World ID.
+    pub key_set: AuthenticatorPublicKeySet,
+    /// Private input (**except** the `merkle_root`). The inclusion proof in the `WorldIDRegistry`.
+    pub inclusion_proof: MerkleInclusionProof<MAX_DEPTH>,
+    /// Private input. The authenticator's signature over the WIP-202 authorization message.
+    pub signature: EdDSASignature,
+    /// Private input. The PoH Credential's claims; `claims[0]` commits to [`Self::hashes_json`].
+    pub claims: [FieldElement; Credential::MAX_CLAIMS],
+    /// Private input. The PoH Credential's associated data hash.
+    pub associated_data_hash: FieldElement,
+    /// Private input. The PoH Credential's `genesis_issued_at`.
+    pub genesis_issued_at: u64,
+    /// Private input. The PoH Credential's `expires_at`.
+    pub expires_at: u64,
+    /// Private input. The blinding factor of the PoH Credential's `sub`.
+    pub sub_blinding_factor: FieldElement,
+    /// Private input. The PoH Credential's issuer-scoped `id`.
+    pub credential_id: u64,
+    /// Private input. The issuer's signature over the PoH Credential.
+    pub credential_signature: EdDSASignature,
+    /// Private input. The raw PCP `hashes.json` bytes the Credential claim commits to.
+    pub hashes_json: Vec<u8>,
+    /// Private input. The blinding factor of the session commitment.
+    pub session_id_r: FieldElement,
+    /// Private input. The WIP-107 `billingAction` the billing nullifier is registered under.
+    pub billing_action: FieldElement,
+    /// Private input. The unblinded OPRF output `(x, y)` of the WIP-107 billing query.
+    pub billing_oprf_output: [FieldElement; 2],
 }

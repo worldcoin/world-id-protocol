@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    OwnershipProver, OwnershipVerifier,
+    EmbeddingSimilarityProver, EmbeddingSimilarityVerifier, OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactKind, ZkArtifactSource},
     nullifier_proof::CircomGroth16Material,
 };
@@ -77,6 +77,48 @@ impl ZkArtifactSource for EmbeddedZkArtifacts {
             Err(ZkArtifactError::Unavailable {
                 kind: ZkArtifactKind::OwnershipVerifier,
                 reason: "enable `embed-ownership-verifier` on a native target",
+            })
+        }
+    }
+
+    fn embedding_similarity_prover(&self) -> Result<EmbeddingSimilarityProver, ZkArtifactError> {
+        #[cfg(feature = "embed-embedding-similarity-prover")]
+        {
+            noir::load_embedded_embedding_similarity_prover()
+                .map_err(|e| ZkArtifactError::load(ZkArtifactKind::EmbeddingSimilarityProver, e))
+        }
+
+        #[cfg(not(feature = "embed-embedding-similarity-prover"))]
+        {
+            Err(ZkArtifactError::Unavailable {
+                kind: ZkArtifactKind::EmbeddingSimilarityProver,
+                reason: "enable `embed-embedding-similarity-prover`",
+            })
+        }
+    }
+
+    fn embedding_similarity_verifier(
+        &self,
+    ) -> Result<EmbeddingSimilarityVerifier, ZkArtifactError> {
+        // NOTE: Verification is native-only, as for the ownership verifier.
+
+        #[cfg(all(
+            not(target_arch = "wasm32"),
+            feature = "embed-embedding-similarity-verifier"
+        ))]
+        {
+            noir::load_embedded_embedding_similarity_verifier()
+                .map_err(|e| ZkArtifactError::load(ZkArtifactKind::EmbeddingSimilarityVerifier, e))
+        }
+
+        #[cfg(any(
+            target_arch = "wasm32",
+            not(feature = "embed-embedding-similarity-verifier")
+        ))]
+        {
+            Err(ZkArtifactError::Unavailable {
+                kind: ZkArtifactKind::EmbeddingSimilarityVerifier,
+                reason: "enable `embed-embedding-similarity-verifier` on a native target",
             })
         }
     }
@@ -243,7 +285,12 @@ pub mod zkeys {
 
 #[cfg(any(
     feature = "embed-ownership-prover",
-    all(not(target_arch = "wasm32"), feature = "embed-ownership-verifier")
+    all(not(target_arch = "wasm32"), feature = "embed-ownership-verifier"),
+    feature = "embed-embedding-similarity-prover",
+    all(
+        not(target_arch = "wasm32"),
+        feature = "embed-embedding-similarity-verifier"
+    )
 ))]
 pub mod noir {
     #[cfg(all(feature = "embed-ownership-prover", not(docsrs)))]
@@ -282,6 +329,55 @@ pub mod noir {
     #[cfg(all(not(target_arch = "wasm32"), feature = "embed-ownership-verifier"))]
     pub fn load_embedded_ownership_verifier() -> eyre::Result<crate::OwnershipVerifier> {
         crate::ownership_proof::load_ownership_verifier_from_reader(PKV_BYTES)
+    }
+
+    #[cfg(all(feature = "embed-embedding-similarity-prover", not(docsrs)))]
+    const EMBEDDING_SIMILARITY_PKP_BYTES: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/embedding_similarity.pkp"));
+
+    #[cfg(all(feature = "embed-embedding-similarity-prover", docsrs))]
+    const EMBEDDING_SIMILARITY_PKP_BYTES: &[u8] = &[];
+
+    /// Loads the embedded embedding similarity proof prover.
+    ///
+    /// # Errors
+    /// Returns an error if embedded Noir artifacts are missing or invalid.
+    #[cfg(feature = "embed-embedding-similarity-prover")]
+    pub fn load_embedded_embedding_similarity_prover()
+    -> eyre::Result<crate::EmbeddingSimilarityProver> {
+        crate::embedding_similarity_proof::load_embedding_similarity_prover_from_reader(
+            EMBEDDING_SIMILARITY_PKP_BYTES,
+        )
+    }
+
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        feature = "embed-embedding-similarity-verifier",
+        not(docsrs)
+    ))]
+    const EMBEDDING_SIMILARITY_PKV_BYTES: &[u8] =
+        include_bytes!(concat!(env!("OUT_DIR"), "/embedding_similarity.pkv"));
+
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        feature = "embed-embedding-similarity-verifier",
+        docsrs
+    ))]
+    const EMBEDDING_SIMILARITY_PKV_BYTES: &[u8] = &[];
+
+    /// Loads the embedded embedding similarity proof verifier.
+    ///
+    /// # Errors
+    /// Returns an error if embedded Noir artifacts are missing or invalid.
+    #[cfg(all(
+        not(target_arch = "wasm32"),
+        feature = "embed-embedding-similarity-verifier"
+    ))]
+    pub fn load_embedded_embedding_similarity_verifier()
+    -> eyre::Result<crate::EmbeddingSimilarityVerifier> {
+        crate::embedding_similarity_proof::load_embedding_similarity_verifier_from_reader(
+            EMBEDDING_SIMILARITY_PKV_BYTES,
+        )
     }
 }
 

@@ -4,8 +4,11 @@ use std::{
 };
 
 use crate::{
-    OwnershipProver, OwnershipVerifier,
+    EmbeddingSimilarityProver, EmbeddingSimilarityVerifier, OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactKind, ZkArtifactSource},
+    embedding_similarity_proof::{
+        load_embedding_similarity_prover_from_path, load_embedding_similarity_verifier_from_path,
+    },
     nullifier_proof::{CircomGroth16Material, load_nullifier_material_from_paths},
     oprf_query::load_query_material_from_paths,
 };
@@ -21,6 +24,8 @@ pub struct FileSystemZkArtifacts {
     nullifier_graph_path: Option<PathBuf>,
     ownership_prover_path: Option<PathBuf>,
     ownership_verifier_path: Option<PathBuf>,
+    embedding_similarity_prover_path: Option<PathBuf>,
+    embedding_similarity_verifier_path: Option<PathBuf>,
 }
 
 impl FileSystemZkArtifacts {
@@ -68,6 +73,18 @@ impl FileSystemZkArtifacts {
         self
     }
 
+    /// Sets the embedding similarity proof prover and verifier paths.
+    #[must_use]
+    pub fn with_embedding_similarity_paths(
+        mut self,
+        prover_path: impl Into<PathBuf>,
+        verifier_path: impl Into<PathBuf>,
+    ) -> Self {
+        self.embedding_similarity_prover_path = Some(prover_path.into());
+        self.embedding_similarity_verifier_path = Some(verifier_path.into());
+        self
+    }
+
     /// Sets the query proof zkey path.
     #[must_use]
     pub fn with_query_zkey_path(mut self, path: impl Into<PathBuf>) -> Self {
@@ -107,6 +124,20 @@ impl FileSystemZkArtifacts {
     #[must_use]
     pub fn with_ownership_verifier_path(mut self, path: impl Into<PathBuf>) -> Self {
         self.ownership_verifier_path = Some(path.into());
+        self
+    }
+
+    /// Sets the embedding similarity proof prover path.
+    #[must_use]
+    pub fn with_embedding_similarity_prover_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.embedding_similarity_prover_path = Some(path.into());
+        self
+    }
+
+    /// Sets the embedding similarity proof verifier path.
+    #[must_use]
+    pub fn with_embedding_similarity_verifier_path(mut self, path: impl Into<PathBuf>) -> Self {
+        self.embedding_similarity_verifier_path = Some(path.into());
         self
     }
 }
@@ -160,6 +191,28 @@ impl ZkArtifactSource for FileSystemZkArtifacts {
             &self.ownership_verifier_path,
             kind,
             "ownership verifier path not set",
+        )?)
+        .map_err(|e| ZkArtifactError::load(kind, e))
+    }
+
+    fn embedding_similarity_prover(&self) -> Result<EmbeddingSimilarityProver, ZkArtifactError> {
+        let kind = ZkArtifactKind::EmbeddingSimilarityProver;
+        load_embedding_similarity_prover_from_path(required_path(
+            &self.embedding_similarity_prover_path,
+            kind,
+            "embedding similarity prover path not set",
+        )?)
+        .map_err(|e| ZkArtifactError::load(kind, e))
+    }
+
+    fn embedding_similarity_verifier(
+        &self,
+    ) -> Result<EmbeddingSimilarityVerifier, ZkArtifactError> {
+        let kind = ZkArtifactKind::EmbeddingSimilarityVerifier;
+        load_embedding_similarity_verifier_from_path(required_path(
+            &self.embedding_similarity_verifier_path,
+            kind,
+            "embedding similarity verifier path not set",
         )?)
         .map_err(|e| ZkArtifactError::load(kind, e))
     }

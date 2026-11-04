@@ -8,31 +8,34 @@
 //! The Credential claim is computed by `Credential::claim` over the raw `hashes.json` bytes,
 //! so the circuit's sponge is checked against the Issuer's implementation.
 //! Regenerate with `UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity`.
+//!
+//! [`embedding_similarity_fixture`] builds the same witness as a typed circuit input, which
+//! `witness_matches_the_prover_toml` checks against the committed `Prover.toml`.
 
 use std::{collections::BTreeMap, env, fs, path::PathBuf};
 
 use ark_ec::CurveGroup as _;
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
+use provekit_common::{InputMap, InputValue};
 use sha2::{Digest, Sha256};
 use taceo_oprf::core::oprf::{BlindedOprfResponse, BlindingFactor, client};
 use world_id_flamingo::{DS_SIGN, FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, Credential, DomainSeparator, FieldElement, TREE_DEPTH,
+    AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
     authenticator::oprf_query_digest,
     merkle::MerkleInclusionProof,
     poseidon::{self, ds},
 };
 use world_id_test_utils::merkle::first_leaf_merkle_path;
 
-const DS_WIP_202_AUTH: DomainSeparator<4> = DomainSeparator::new(b"WORLD-ID/WIP-202/AUTH");
-
-/// The Noir `hashes.json` bounds (`constants.nr`), pinned by `chunk_slots_match_the_noir_constants`.
-const MAX_HASHES_JSON_BYTES: usize = 5120;
-const CHUNK_BYTES: usize = 31;
-const WINDOW_CHUNKS: usize = 4;
-/// Chunk slots of the Noir `HashesJsonInputs`.
-const CHUNK_SLOTS: usize = MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES) + WINDOW_CHUNKS - 1;
+use crate::{
+    NoirCircuitInput as _,
+    circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityPublicInputs},
+    embedding_similarity_proof::{
+        CHUNK_BYTES, CHUNK_SLOTS, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, WINDOW_CHUNKS,
+    },
+};
 
 /// The `hashes.json` keys of a v3 PCP as written by orb-core, besides `version`.
 const PCP_V3_KEYS: [&str; 44] = [
@@ -245,7 +248,7 @@ fn authorization_message(
     signal_hash: FieldElement,
 ) -> FieldElement {
     poseidon::hash(
-        DS_WIP_202_AUTH,
+        ds::EMBEDDING_SIMILARITY_AUTH,
         [
             digest,
             verifier_key.pk.x.into(),
@@ -591,7 +594,7 @@ fn fixtures_match_the_generator() {
     }
 }
 
-/// Pins `CHUNK_SLOTS` to the Noir constants it is derived from.
+/// Pins the `hashes.json` constants to the Noir constants.
 #[test]
 fn chunk_slots_match_the_noir_constants() {
     let constants = include_str!("../noir/embedding-similarity/src/constants.nr");
@@ -607,6 +610,7 @@ fn chunk_slots_match_the_noir_constants() {
             .parse()
             .unwrap()
     };
+    assert_eq!(global("MIN_HASHES_JSON_BYTES"), MIN_HASHES_JSON_BYTES);
     assert_eq!(global("MAX_HASHES_JSON_BYTES"), MAX_HASHES_JSON_BYTES);
     assert_eq!(global("CHUNK_BYTES"), CHUNK_BYTES);
     assert_eq!(global("WINDOW_CHUNKS"), WINDOW_CHUNKS);
@@ -640,7 +644,7 @@ fn domain_separators_match_the_noir_constants() {
         "127603488023523044162070750169730750022280897185614"
     );
     assert_eq!(
-        as_int(b"WORLD-ID/WIP-202/AUTH"),
+        dec(*ds::EMBEDDING_SIMILARITY_AUTH.as_field_element()),
         "127603488023523044162070750169730750023380107613256"
     );
     assert_eq!(
@@ -650,5 +654,218 @@ fn domain_separators_match_the_noir_constants() {
     assert_eq!(
         as_int(b"World ID Proof"),
         "1773399373884719043551596035141478"
+    );
+}
+
+// Deterministic test keys, not real key material. The Verifier key is WIP-201's.
+fn authenticator_sk() -> EdDSAPrivateKey {
+    EdDSAPrivateKey::from_bytes([42_u8; 32])
+}
+
+fn issuer_sk() -> EdDSAPrivateKey {
+    EdDSAPrivateKey::from_bytes([13_u8; 32])
+}
+
+fn verifier_sk() -> EdDSAPrivateKey {
+    EdDSAPrivateKey::from_bytes([0x15_u8; 32])
+}
+
+/// The committed `Prover.toml` witness as a typed circuit input: unbilled, with an AAT.
+pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DEPTH> {
+    let authenticator_sk = authenticator_sk();
+    let issuer_sk = issuer_sk();
+    let key_set = AuthenticatorPublicKeySet::new(vec![authenticator_sk.public()]).unwrap();
+    let (siblings, merkle_root) = first_leaf_merkle_path(key_set.leaf_hash());
+    let compared = compared();
+    let (hashes_json, _) = hashes_json();
+
+    let sub_blinding_factor = FieldElement::from(777_u64);
+    let credential = Credential::new()
+        .id(CRED_ID)
+        .issuer_version(ISSUER_VERSION)
+        .issuer_schema_id(ISSUER_SCHEMA_ID)
+        .subject(Credential::compute_sub(LEAF_INDEX, sub_blinding_factor))
+        .genesis_issued_at(GENESIS_ISSUED_AT)
+        .expires_at(u64::from(EXPIRES_AT))
+        .claim(0, &hashes_json)
+        .unwrap()
+        .sign(&issuer_sk)
+        .unwrap();
+    let session_id_r = FieldElement::from(555_u64);
+
+    let mut input = EmbeddingSimilarityCircuitInput {
+        public: EmbeddingSimilarityPublicInputs {
+            now: NOW,
+            rp_id: FieldElement::from(RP_ID),
+            nonce: FieldElement::from(NONCE),
+            challenge_hash: compared[2],
+            signal_hash: FieldElement::from_arbitrary_raw_bytes(SIGNAL),
+            session_id: poseidon::hash(
+                ds::SESSION_COMMITMENT,
+                [FieldElement::from(LEAF_INDEX), session_id_r],
+            ),
+            flamingo_verifier_key: verifier_sk().public(),
+            engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
+            has_aat: true,
+            trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
+            platform: PLATFORM,
+            sec_level: SEC_LEVEL,
+            sec_meta: SEC_META,
+            authenticator_meta: AUTHENTICATOR_META,
+            issuer_schema_id: ISSUER_SCHEMA_ID,
+            issuer_version: ISSUER_VERSION,
+            cred_pk: credential.issuer.clone(),
+            genesis_issued_at_min: GENESIS_ISSUED_AT_MIN,
+            expires_at_min: u64::from(EXPIRES_AT_MIN),
+        },
+        live_capture_hash: compared[1],
+        billing_nullifier: FieldElement::ZERO,
+        token_signature: credential.signature.clone().unwrap(),
+        key_index: 0,
+        key_set,
+        inclusion_proof: MerkleInclusionProof::new(merkle_root, LEAF_INDEX, siblings),
+        signature: credential.signature.clone().unwrap(),
+        claims: credential.claims.clone().try_into().unwrap(),
+        associated_data_hash: credential.associated_data_commitment,
+        genesis_issued_at: GENESIS_ISSUED_AT,
+        expires_at: u64::from(EXPIRES_AT),
+        sub_blinding_factor,
+        credential_id: CRED_ID,
+        credential_signature: credential.signature.clone().unwrap(),
+        hashes_json,
+        session_id_r,
+        billing_action: FieldElement::ZERO,
+        billing_oprf_output: [FieldElement::ZERO; 2],
+    };
+    resign(&mut input);
+    input
+}
+
+/// [`embedding_similarity_fixture`] for an RP that bills this World ID.
+pub(crate) fn embedding_similarity_billed_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DEPTH> {
+    let mut input = embedding_similarity_fixture();
+    let (billing_nullifier, billing_oprf_output) = billing(LEAF_INDEX, RP_ID);
+    input.billing_nullifier = billing_nullifier;
+    input.billing_action = FieldElement::from(BILLING_ACTION);
+    input.billing_oprf_output = billing_oprf_output;
+    resign(&mut input);
+    input
+}
+
+/// Re-signs the Credential, the Flamingo Token and the authorization after a test changed them.
+pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
+    let public = &input.public;
+    let credential = Credential::new()
+        .id(input.credential_id)
+        .issuer_version(public.issuer_version)
+        .issuer_schema_id(public.issuer_schema_id)
+        .subject(Credential::compute_sub(
+            input.inclusion_proof.leaf_index,
+            input.sub_blinding_factor,
+        ))
+        .genesis_issued_at(input.genesis_issued_at)
+        .expires_at(input.expires_at);
+    let credential = Credential {
+        claims: input.claims.to_vec(),
+        associated_data_commitment: input.associated_data_hash,
+        ..credential
+    }
+    .sign(&issuer_sk())
+    .unwrap();
+    input.credential_signature = credential.signature.unwrap();
+    input.public.cred_pk = credential.issuer;
+
+    let (_, digest_offset) = hashes_json();
+    let thumbnail = std::str::from_utf8(&input.hashes_json[digest_offset..digest_offset + 64])
+        .map(from_hex)
+        .unwrap_or(FieldElement::ZERO);
+    let public = &input.public;
+    let digest = FlamingoClaims {
+        now: public.now,
+        compared_entry_hashes: [
+            thumbnail,
+            input.live_capture_hash,
+            public.challenge_hash,
+            FieldElement::ZERO,
+        ],
+        aud: public.rp_id,
+        nonce: public.nonce,
+        aat: public.has_aat.then(|| FlamingoAatClaims {
+            trust_anchor_key_hash: public.trust_anchor_key_hash,
+            aat_flags: u64::from(public.platform)
+                + (u64::from(public.sec_level) << 8)
+                + (u64::from(public.sec_meta) << 48)
+                + (u64::from(public.authenticator_meta) << 52),
+        }),
+        compare_sources: COMPARE_SOURCES,
+        engine_config_hash: public.engine_config_hash,
+        billing_nullifier: input.billing_nullifier,
+    }
+    .digest();
+    input.token_signature = verifier_sk().sign(*digest);
+    input.signature = authenticator_sk().sign(*authorization_message(
+        digest,
+        &public.flamingo_verifier_key,
+        public.signal_hash,
+    ));
+}
+
+/// A witness or `Prover.toml` value tree, so the two can be compared without the circuit ABI.
+#[derive(Debug, PartialEq, Eq)]
+enum Witness {
+    Value(String),
+    List(Vec<Self>),
+    Table(BTreeMap<String, Self>),
+}
+
+impl Witness {
+    fn from_input(value: &InputValue) -> Self {
+        match value {
+            InputValue::Field(element) => Self::Value(element.into_repr().to_string()),
+            InputValue::Vec(values) => Self::List(values.iter().map(Self::from_input).collect()),
+            InputValue::Struct(fields) => Self::Table(
+                fields
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Self::from_input(value)))
+                    .collect(),
+            ),
+            other => panic!("unexpected witness value {other:?}"),
+        }
+    }
+
+    fn from_input_map(map: &InputMap) -> Self {
+        Self::Table(
+            map.iter()
+                .map(|(key, value)| (key.clone(), Self::from_input(value)))
+                .collect(),
+        )
+    }
+
+    /// Booleans are field elements in the witness.
+    fn from_toml(value: &toml::Value) -> Self {
+        match value {
+            toml::Value::String(s) => Self::Value(s.clone()),
+            toml::Value::Integer(i) => Self::Value(i.to_string()),
+            toml::Value::Boolean(b) => Self::Value(u8::from(*b).to_string()),
+            toml::Value::Array(values) => Self::List(values.iter().map(Self::from_toml).collect()),
+            toml::Value::Table(fields) => Self::Table(
+                fields
+                    .iter()
+                    .map(|(key, value)| (key.clone(), Self::from_toml(value)))
+                    .collect(),
+            ),
+            other => panic!("unexpected Prover.toml value {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn witness_matches_the_prover_toml() {
+    let committed: toml::Value =
+        toml::from_str(include_str!("../noir/embedding-similarity/Prover.toml")).unwrap();
+    let witness = embedding_similarity_fixture().into_witness().unwrap();
+    assert_eq!(
+        Witness::from_input_map(&witness),
+        Witness::from_toml(&committed)
     );
 }

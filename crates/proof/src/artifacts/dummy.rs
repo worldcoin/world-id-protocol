@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    OwnershipProver, OwnershipVerifier,
+    EmbeddingSimilarityProver, EmbeddingSimilarityVerifier, OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactKind, ZkArtifactSource},
     nullifier_proof::CircomGroth16Material,
 };
@@ -34,5 +34,15 @@ impl ZkArtifactSource for DummyZkArtifactSource {
 
     fn ownership_verifier(&self) -> Result<OwnershipVerifier, ZkArtifactError> {
         Err(not_provided(ZkArtifactKind::OwnershipVerifier))
+    }
+
+    fn embedding_similarity_prover(&self) -> Result<EmbeddingSimilarityProver, ZkArtifactError> {
+        Err(not_provided(ZkArtifactKind::EmbeddingSimilarityProver))
+    }
+
+    fn embedding_similarity_verifier(
+        &self,
+    ) -> Result<EmbeddingSimilarityVerifier, ZkArtifactError> {
+        Err(not_provided(ZkArtifactKind::EmbeddingSimilarityVerifier))
     }
 }

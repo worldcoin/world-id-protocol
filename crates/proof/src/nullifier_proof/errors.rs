@@ -123,6 +123,37 @@ pub enum ProofInputError {
     /// The authenticator signature over the ownership message is invalid.
     #[error("The signature over the ownership message is invalid.")]
     InvalidOwnershipSignature,
+    /// The authenticator signature over the embedding similarity authorization message is invalid.
+    #[error("The signature over the embedding similarity authorization message is invalid.")]
+    InvalidEmbeddingSimilaritySignature,
+    /// The Flamingo Verifier signature over the token digest is invalid.
+    #[error("The Flamingo Token signature is invalid for the given Verifier key.")]
+    InvalidFlamingoTokenSignature,
+    /// The AAT values are not zero although the token carries no AAT.
+    #[error("The AAT values must be zero when the token carries no AAT.")]
+    UnexpectedAatValues,
+    /// The PCP `hashes.json` cannot be encoded for the circuit.
+    #[error("The provided hashes.json is invalid: {reason}.")]
+    InvalidHashesJson {
+        /// What is wrong with it.
+        reason: &'static str,
+    },
+    /// The Credential claim does not commit to the provided `hashes.json`.
+    #[error("The credential claim does not match the provided hashes.json.")]
+    InvalidHashesJsonClaim,
+    /// The Credential expires before the RP's minimum expiration.
+    #[error(
+        "The provided credential expires too early (expires_at: {expires_at}, expires_at_min: {expires_at_min})."
+    )]
+    CredentialExpiresTooEarly {
+        /// The RP's minimum expiration, exclusive.
+        expires_at_min: u64,
+        /// Expiration timestamp.
+        expires_at: u64,
+    },
+    /// The billing nullifier is neither `0` nor this World ID's WIP-107 nullifier for the RP.
+    #[error("The billing nullifier is not this World ID's nullifier for the RP.")]
+    InvalidBillingNullifier,
 }
 
 /// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.

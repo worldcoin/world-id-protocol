@@ -15,7 +15,7 @@ Each ZK artifact type has exactly one way of being obtained:
   and otherwise downloads them from the GitHub release tag pinned in `build.rs`.
   Material loaders verify them against SHA-256 fingerprints pinned in `src/oprf_query.rs`
   (query proof) and `src/nullifier_proof.rs` (nullifier proof).
-- **Noir ownership proof artifacts** (`ownership_proof.pkp` / `.pkv`) are always built
+- **Noir proof artifacts** (`ownership_proof.pkp` / `.pkv`, `embedding_similarity.pkp` / `.pkv`) are always built
   ad-hoc by `build.rs` from the checked-in circuit source using `nargo`. The required
   `nargo` version is pinned (see `flake.nix` and `REQUIRED_NARGO_VERSION` in `build.rs`); the build
   fails if a different version is on PATH, since a version mismatch can produce keys
@@ -50,9 +50,14 @@ the verifier. Requires `nargo` on PATH at the pinned version — use `nix develo
 noirup --version v1.0.0-beta.26
 ```
 
+##### `embed-embedding-similarity-prover` / `embed-embedding-similarity-verifier`
+
+The same for the WIP-202 Proof of Embedding Similarity circuit, whose prover is several times
+larger than the ownership prover.
+
 ##### Umbrellas
 
-- `embed-noir-artifacts` = ownership prover + verifier
+- `embed-noir-artifacts` = ownership and embedding similarity provers + verifiers
 - `embed-zk-artifacts` = everything
 
 ## Circom circuit artifacts
@@ -107,3 +112,11 @@ from files or a custom `ZkArtifactSource` must replace both keys and generate ne
 the new prover. Deploy the matching verifier key with those proofs: v1.0.2 ownership keys are
 rejected by v1.0.3, and old proofs cannot be reused with the new keys. Keep the previous
 version's keys and proofs available for the coordinated rollout.
+
+## Noir embedding similarity proof (WIP-202)
+
+`embedding_similarity_proof` proves and verifies the WIP-202 circuit the same way. Callers build
+an `EmbeddingSimilarityCircuitInput` from a verified Flamingo Token, the World ID's account and
+its PoH Credential. `check_embedding_similarity_input_validity` runs before proving and reports
+the first input that would fail the circuit. Verification takes the verifier-known
+`EmbeddingSimilarityPublicInputs`; the proof carries the `merkle_root`.
