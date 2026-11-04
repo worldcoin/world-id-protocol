@@ -96,13 +96,14 @@ fn es_item() -> EmbeddingSimilarityResponseItem {
     }
 }
 
-fn response(items: Vec<ResponseItem>) -> ProofResponse {
+fn response(embedding_similarity: Option<EmbeddingSimilarityResponseItem>) -> ProofResponse {
     ProofResponse {
         id: "req_es".into(),
         version: RequestVersion::V1,
         session_id: None,
         error: None,
-        responses: items,
+        responses: vec![],
+        embedding_similarity,
     }
 }
 
@@ -308,127 +309,163 @@ fn rp_signature_digest_covers_the_action() {
 }
 
 #[test]
-fn response_item_wire_encoding() {
-    let es = ResponseItem::EmbeddingSimilarity(es_item());
-    let value = serde_json::to_value(&es).unwrap();
-    assert_eq!(value["proof_type"], "embedding_similarity");
-    assert_eq!(value["proof"], "0x010203");
-    assert_eq!(value["signing_key_attestation"], "0xdead");
-    assert_eq!(value["now"], 1_735_689_650);
-    assert_eq!(value["aat"]["platform"], 2);
-    let decoded: ResponseItem = serde_json::from_value(value).unwrap();
-    assert_eq!(decoded.as_embedding_similarity(), Some(&es_item()));
-    assert!(decoded.is_embedding_similarity());
-    assert!(!decoded.is_uniqueness() && !decoded.is_session());
-    assert_eq!(decoded.identifier(), "poh");
-    assert_eq!(decoded.issuer_schema_id(), 1);
+fn response_wire_encoding() {
+    let value = serde_json::to_value(response(Some(es_item()))).unwrap();
+    assert_eq!(value["responses"], json!([]));
+    let item = &value["embedding_similarity"];
+    assert_eq!(item["proof"], "0x010203");
+    assert_eq!(item["signing_key_attestation"], "0xdead");
+    assert_eq!(item["now"], 1_735_689_650);
+    assert_eq!(item["aat"]["platform"], 2);
+
+    let decoded: ProofResponse = serde_json::from_value(value).unwrap();
+    assert_eq!(decoded.embedding_similarity, Some(es_item()));
+    assert_eq!(decoded.successful_credentials(), vec![1]);
 
     // Without an AAT, `aat` is absent.
     let mut no_aat = es_item();
     no_aat.aat = None;
-    let value = serde_json::to_value(ResponseItem::EmbeddingSimilarity(no_aat)).unwrap();
-    assert!(value.get("aat").is_none());
-    let decoded: ResponseItem = serde_json::from_value(value).unwrap();
-    assert!(decoded.as_embedding_similarity().unwrap().aat.is_none());
+    let value = serde_json::to_value(response(Some(no_aat))).unwrap();
+    assert!(value["embedding_similarity"].get("aat").is_none());
+    let decoded: ProofResponse = serde_json::from_value(value).unwrap();
+    assert!(decoded.embedding_similarity.unwrap().aat.is_none());
 }
 
 #[test]
-fn groth16_response_item_wire_encoding_is_unchanged() {
-    let item = groth16_item();
-    let value = serde_json::to_value(&item).unwrap();
-    assert!(value.get("proof_type").is_none());
-    assert!(value.get("nullifier").is_some());
-    let decoded: ResponseItem = serde_json::from_value(value).unwrap();
-    assert!(decoded.is_uniqueness());
-    assert_eq!(decoded.as_groth16().unwrap().expires_at_min, 1_735_689_600);
-    assert!(decoded.as_embedding_similarity().is_none());
+fn groth16_response_wire_encoding_is_unchanged() {
+    let mut groth16 = response(None);
+    groth16.responses = vec![groth16_item()];
+    let value = serde_json::to_value(&groth16).unwrap();
+    assert!(value.get("embedding_similarity").is_none());
+    assert!(value["responses"][0].get("proof_type").is_none());
+    let decoded: ProofResponse = serde_json::from_value(value).unwrap();
+    assert!(decoded.responses[0].is_uniqueness());
+    assert!(decoded.embedding_similarity.is_none());
 }
 
 #[test]
-fn response_item_rejects_a_truncated_embedding_similarity_item() {
-    let mut value = serde_json::to_value(ResponseItem::EmbeddingSimilarity(es_item())).unwrap();
-    value.as_object_mut().unwrap().remove("merkle_root");
-    assert!(serde_json::from_value::<ResponseItem>(value).is_err());
+fn item_rejects_a_truncated_or_malformed_value() {
+    let valid = serde_json::to_value(es_item()).unwrap();
+
+    let mut truncated = valid.clone();
+    truncated.as_object_mut().unwrap().remove("merkle_root");
+    assert!(serde_json::from_value::<EmbeddingSimilarityResponseItem>(truncated).is_err());
+
+    let mut malformed = valid;
+    malformed["cred_pk"] = json!("0x00");
+    assert!(serde_json::from_value::<EmbeddingSimilarityResponseItem>(malformed).is_err());
+}
+
+fn cbor<T: Serialize>(value: &T) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes).unwrap();
+    bytes
 }
 
 #[test]
-fn response_item_rejects_a_malformed_key() {
-    let mut value = serde_json::to_value(ResponseItem::EmbeddingSimilarity(es_item())).unwrap();
-    value["cred_pk"] = json!("0x00");
-    assert!(serde_json::from_value::<ResponseItem>(value).is_err());
+fn response_roundtrips_through_a_binary_format() {
+    let es = response(Some(es_item()));
+    let decoded: ProofResponse = ciborium::from_reader(cbor(&es).as_slice()).unwrap();
+    assert_eq!(decoded.embedding_similarity, Some(es_item()));
+
+    let mut groth16 = response(None);
+    groth16.responses = vec![groth16_item()];
+    let decoded: ProofResponse = ciborium::from_reader(cbor(&groth16).as_slice()).unwrap();
+    assert!(decoded.responses[0].is_uniqueness());
+    assert_eq!(decoded.responses[0].expires_at_min, 1_735_689_600);
+}
+
+/// The CBOR map of the item, with `edit` applied to its entries.
+fn cbor_item_with_entries(
+    edit: impl FnOnce(&mut Vec<(ciborium::Value, ciborium::Value)>),
+) -> Vec<u8> {
+    let mut value = ciborium::Value::serialized(&es_item()).unwrap();
+    let ciborium::Value::Map(entries) = &mut value else {
+        panic!("a response item is a map")
+    };
+    edit(entries);
+    cbor(&value)
 }
 
 #[test]
-fn response_json_roundtrip_with_embedding_similarity_item() {
-    let response = response(vec![ResponseItem::EmbeddingSimilarity(es_item())]);
-    let json = response.to_json_pretty().unwrap();
-    let decoded = ProofResponse::from_json(&json).unwrap();
-    assert_eq!(decoded.successful_credentials(), vec![1]);
+fn binary_item_decodes_in_canonical_key_order() {
+    let bytes = cbor_item_with_entries(|entries| {
+        entries.sort_by_key(|(key, _)| {
+            let key = cbor(key);
+            (key.len(), key)
+        });
+    });
+    let decoded: EmbeddingSimilarityResponseItem = ciborium::from_reader(bytes.as_slice()).unwrap();
+    assert_eq!(decoded, es_item());
+}
+
+#[test]
+fn binary_item_rejects_a_repeated_field() {
+    let bytes = cbor_item_with_entries(|entries| {
+        entries.push((
+            ciborium::Value::Text("now".into()),
+            ciborium::Value::Integer(1.into()),
+        ));
+    });
+    assert!(ciborium::from_reader::<EmbeddingSimilarityResponseItem, _>(bytes.as_slice()).is_err());
+}
+
+#[test]
+fn validate_response_accepts_an_embedding_similarity_result() {
+    let response = response(Some(es_item()));
+    es_request().validate_response(&response).unwrap();
+    assert!(response.constraints_satisfied(&ConstraintExpr::All {
+        all: vec![ConstraintNode::Type("poh".into())],
+    }));
+}
+
+#[test]
+fn validate_response_requires_exactly_the_embedding_similarity_result() {
     assert_eq!(
-        decoded.responses[0].as_embedding_similarity(),
-        Some(&es_item())
+        es_request().validate_response(&response(None)).unwrap_err(),
+        ValidationError::MissingCredential("poh".into())
+    );
+
+    let mut with_groth16 = response(Some(es_item()));
+    with_groth16.responses = vec![groth16_item()];
+    assert_eq!(
+        es_request().validate_response(&with_groth16).unwrap_err(),
+        ValidationError::UnexpectedCredential("poh".into())
+    );
+
+    let mut item = es_item();
+    item.identifier = "other".into();
+    assert_eq!(
+        es_request()
+            .validate_response(&response(Some(item)))
+            .unwrap_err(),
+        ValidationError::UnexpectedCredential("other".into())
     );
 }
 
 #[test]
-fn validate_response_accepts_an_embedding_similarity_item() {
-    es_request()
-        .validate_response(&response(vec![
-            ResponseItem::EmbeddingSimilarity(es_item()),
-        ]))
-        .unwrap();
-}
-
-#[test]
-fn validate_response_rejects_an_item_of_the_wrong_kind() {
-    let err = es_request()
-        .validate_response(&response(vec![groth16_item()]))
-        .unwrap_err();
-    assert_eq!(err, ValidationError::ResponseItemTypeMismatch("poh".into()));
-
+fn validate_response_rejects_the_result_for_another_proof_type() {
     let uniqueness = request(
         ProofType::Uniqueness { action: field(42) },
         SessionRef::None,
     );
-    let err = uniqueness
-        .validate_response(&response(vec![
-            ResponseItem::EmbeddingSimilarity(es_item()),
-        ]))
-        .unwrap_err();
-    assert_eq!(err, ValidationError::ResponseItemTypeMismatch("poh".into()));
-}
-
-#[test]
-fn validate_response_checks_the_item_identifier() {
-    let mut item = es_item();
-    item.identifier = "other".into();
-    let err = es_request()
-        .validate_response(&response(vec![ResponseItem::EmbeddingSimilarity(item)]))
-        .unwrap_err();
-    assert_eq!(err, ValidationError::UnexpectedCredential("other".into()));
-
-    let err = es_request()
-        .validate_response(&response(vec![]))
-        .unwrap_err();
-    assert_eq!(err, ValidationError::MissingCredential("poh".into()));
-
-    let item = ResponseItem::EmbeddingSimilarity(es_item());
-    let err = es_request()
-        .validate_response(&response(vec![item.clone(), item]))
-        .unwrap_err();
-    assert_eq!(err, ValidationError::DuplicateCredential("poh".into()));
+    let mut response = response(Some(es_item()));
+    response.responses = vec![groth16_item()];
+    assert_eq!(
+        uniqueness.validate_response(&response).unwrap_err(),
+        ValidationError::UnexpectedEmbeddingSimilarity
+    );
 }
 
 #[test]
 fn validate_response_checks_the_session() {
-    let item = || ResponseItem::EmbeddingSimilarity(es_item());
     let session_id =
         SessionId::new(field(7), action_with_prefix(OprfPrefix::SessionOprfSeed, 7)).unwrap();
     let other_session_id =
         SessionId::new(field(8), action_with_prefix(OprfPrefix::SessionOprfSeed, 8)).unwrap();
 
     // Without a session the response carries none.
-    let mut with_session = response(vec![item()]);
+    let mut with_session = response(Some(es_item()));
     with_session.session_id = Some(session_id);
     assert_eq!(
         es_request().validate_response(&with_session).unwrap_err(),
@@ -443,7 +480,7 @@ fn validate_response_checks_the_session() {
     existing.validate_response(&with_session).unwrap();
     assert_eq!(
         existing
-            .validate_response(&response(vec![item()]))
+            .validate_response(&response(Some(es_item())))
             .unwrap_err(),
         ValidationError::SessionIdMismatch
     );
@@ -460,75 +497,9 @@ fn validate_response_rejects_a_request_that_is_not_valid() {
     p.challenge_hash = FieldElement::ZERO;
     let invalid = request(ProofType::EmbeddingSimilarity(p), SessionRef::None);
     let err = invalid
-        .validate_response(&response(vec![
-            ResponseItem::EmbeddingSimilarity(es_item()),
-        ]))
+        .validate_response(&response(Some(es_item())))
         .unwrap_err();
     assert!(matches!(err, ValidationError::InvalidProofRequest(_)));
-}
-
-#[test]
-fn field_element_prefix_helper_matches_the_action_prefix() {
-    assert!(params().action.has_prefix(OprfPrefix::EmbeddingSimilarity));
-}
-
-fn cbor_roundtrip<T: Serialize + serde::de::DeserializeOwned>(value: &T) -> T {
-    let mut bytes = Vec::new();
-    ciborium::into_writer(value, &mut bytes).unwrap();
-    ciborium::from_reader(bytes.as_slice()).unwrap()
-}
-
-#[test]
-fn response_item_roundtrips_through_a_binary_format() {
-    let decoded = cbor_roundtrip(&groth16_item());
-    assert!(decoded.is_uniqueness());
-    assert_eq!(decoded.as_groth16().unwrap().expires_at_min, 1_735_689_600);
-
-    let decoded = cbor_roundtrip(&ResponseItem::EmbeddingSimilarity(es_item()));
-    assert_eq!(decoded.as_embedding_similarity(), Some(&es_item()));
-}
-
-#[test]
-fn binary_bytes_of_a_groth16_item_decode_as_a_response_item() {
-    let item = groth16_item();
-    let groth16 = item.as_groth16().unwrap().clone();
-    let mut bytes = Vec::new();
-    ciborium::into_writer(&groth16, &mut bytes).unwrap();
-    let decoded: ResponseItem = ciborium::from_reader(bytes.as_slice()).unwrap();
-    assert_eq!(decoded.as_groth16().unwrap().proof, groth16.proof);
-}
-
-#[test]
-fn proof_response_roundtrips_through_a_binary_format() {
-    let response = response(vec![
-        groth16_item(),
-        ResponseItem::EmbeddingSimilarity(es_item()),
-    ]);
-    let decoded = cbor_roundtrip(&response);
-    assert!(decoded.responses[0].is_uniqueness());
-    assert_eq!(
-        decoded.responses[1].as_embedding_similarity(),
-        Some(&es_item())
-    );
-}
-
-#[test]
-fn binary_response_item_rejects_an_unknown_proof_type() {
-    #[derive(Serialize)]
-    struct Unknown {
-        proof_type: &'static str,
-        identifier: &'static str,
-    }
-    let mut bytes = Vec::new();
-    ciborium::into_writer(
-        &Unknown {
-            proof_type: "other",
-            identifier: "poh",
-        },
-        &mut bytes,
-    )
-    .unwrap();
-    assert!(ciborium::from_reader::<ResponseItem, _>(bytes.as_slice()).is_err());
 }
 
 #[test]
@@ -557,88 +528,4 @@ fn rp_signature_verification_names_the_action_and_its_prefix() {
         serde_json::to_value(uniqueness).unwrap(),
         json!({ "uniqueness_action": { "action": field(1) } })
     );
-}
-
-/// The CBOR map of `item`, with `edit` applied to its entries.
-fn cbor_with_entries(
-    item: &ResponseItem,
-    edit: impl FnOnce(&mut Vec<(ciborium::Value, ciborium::Value)>),
-) -> Vec<u8> {
-    let mut value = ciborium::Value::serialized(item).unwrap();
-    let ciborium::Value::Map(entries) = &mut value else {
-        panic!("a response item is a map")
-    };
-    edit(entries);
-    let mut bytes = Vec::new();
-    ciborium::into_writer(&value, &mut bytes).unwrap();
-    bytes
-}
-
-fn text(s: &str) -> ciborium::Value {
-    ciborium::Value::Text(s.into())
-}
-
-#[test]
-fn binary_decoding_does_not_depend_on_key_order() {
-    let item = ResponseItem::EmbeddingSimilarity(es_item());
-    // Canonical CBOR sorts shorter keys first, so `proof_type` is not first.
-    let bytes = cbor_with_entries(&item, |entries| {
-        entries.sort_by_key(|(k, _)| {
-            let mut key = Vec::new();
-            ciborium::into_writer(k, &mut key).unwrap();
-            (key.len(), key)
-        });
-        assert_ne!(entries[0].0, text("proof_type"));
-    });
-    let decoded: ResponseItem = ciborium::from_reader(bytes.as_slice()).unwrap();
-    assert_eq!(decoded.as_embedding_similarity(), Some(&es_item()));
-
-    let bytes = cbor_with_entries(&groth16_item(), |entries| entries.reverse());
-    let decoded: ResponseItem = ciborium::from_reader(bytes.as_slice()).unwrap();
-    assert!(decoded.is_uniqueness());
-}
-
-#[test]
-fn json_decoding_does_not_depend_on_key_order() {
-    let mut value = serde_json::to_value(ResponseItem::EmbeddingSimilarity(es_item())).unwrap();
-    let tag = value.as_object_mut().unwrap().remove("proof_type").unwrap();
-    value
-        .as_object_mut()
-        .unwrap()
-        .insert("proof_type".into(), tag);
-    let decoded: ResponseItem = serde_json::from_value(value).unwrap();
-    assert_eq!(decoded.as_embedding_similarity(), Some(&es_item()));
-}
-
-#[test]
-fn decoding_rejects_a_repeated_proof_type() {
-    let item = ResponseItem::EmbeddingSimilarity(es_item());
-    for second in ["uniqueness", "embedding_similarity"] {
-        let bytes = cbor_with_entries(&item, |entries| {
-            entries.push((text("proof_type"), text(second)));
-        });
-        assert!(
-            ciborium::from_reader::<ResponseItem, _>(bytes.as_slice()).is_err(),
-            "{second}"
-        );
-    }
-
-    let json = serde_json::to_string(&item).unwrap();
-    let repeated = json.replacen('{', r#"{"proof_type":"uniqueness","#, 1);
-    assert!(serde_json::from_str::<ResponseItem>(&repeated).is_err());
-}
-
-#[test]
-fn decoding_rejects_a_repeated_field() {
-    let bytes = cbor_with_entries(&groth16_item(), |entries| {
-        entries.push((text("expires_at_min"), ciborium::Value::Integer(1.into())));
-    });
-    assert!(ciborium::from_reader::<ResponseItem, _>(bytes.as_slice()).is_err());
-}
-
-#[test]
-fn json_decoding_rejects_an_unknown_proof_type() {
-    let mut value = serde_json::to_value(groth16_item()).unwrap();
-    value["proof_type"] = json!("uniqueness");
-    assert!(serde_json::from_value::<ResponseItem>(value).is_err());
 }

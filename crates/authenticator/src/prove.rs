@@ -375,6 +375,7 @@ impl Authenticator {
 
         // 4. Assemble response
         let proof_response = ProofResponse {
+            embedding_similarity: None,
             id: proof_request.id.clone(),
             version: proof_request.version,
             session_id: resolved_session_id,

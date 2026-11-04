@@ -99,8 +99,8 @@ pub mod request;
 pub use request::{
     AatPublicValues, AatRequirements, ConstraintExpr, ConstraintKind, ConstraintNode,
     EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem, FlamingoConfiguration,
-    Groth16ResponseItem, MAX_CONSTRAINT_NODES, MAX_FLAMINGO_CONFIGURATIONS, ProofRequest,
-    ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
+    MAX_CONSTRAINT_NODES, MAX_FLAMINGO_CONFIGURATIONS, ProofRequest, ProofResponse, ProofType,
+    RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};

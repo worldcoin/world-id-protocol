@@ -153,7 +153,8 @@ pub struct AatPublicValues {
     pub authenticator_meta: u8,
 }
 
-/// The response item of a Proof of Embedding Similarity (WIP-202).
+/// The result of a Proof of Embedding Similarity (WIP-202), carried in
+/// [`ProofResponse::embedding_similarity`](super::ProofResponse::embedding_similarity).
 ///
 /// It carries the public inputs of the circuit that the request does not fix. The RP verifies the
 /// proof with its own copies of the others: `rp_id`, `nonce`, `challenge_hash`, `signal_hash`,

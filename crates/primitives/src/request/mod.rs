@@ -416,215 +416,16 @@ pub struct ProofResponse {
     /// When present, the responses array will be empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Per-credential results (empty if error is present)
+    /// Per-credential results of a Uniqueness or Session proof (empty if error is present, and
+    /// for a Proof of Embedding Similarity).
     pub responses: Vec<ResponseItem>,
+    /// The result of a WIP-202 Proof of Embedding Similarity, which proves exactly one
+    /// credential. Absent for other proof types and if error is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_similarity: Option<EmbeddingSimilarityResponseItem>,
 }
 
 /// Per-credential response item returned by the Authenticator.
-///
-/// Uniqueness and Session proofs answer with a [`Groth16ResponseItem`], which serializes without
-/// a `proof_type`. A Proof of Embedding Similarity answers with an
-/// [`EmbeddingSimilarityResponseItem`], which serializes with
-/// `"proof_type": "embedding_similarity"`.
-///
-/// Deserialization reads each field straight from the input, in any order, so binary formats
-/// keep their binary encodings and canonical CBOR key order is accepted. It rejects a repeated
-/// field and an unknown `proof_type`, and ignores unknown fields.
-#[derive(Debug, Clone, Serialize)]
-#[serde(into = "RawResponseItem")]
-pub enum ResponseItem {
-    /// A Uniqueness or Session proof.
-    Groth16(Groth16ResponseItem),
-    /// A WIP-202 Proof of Embedding Similarity.
-    EmbeddingSimilarity(EmbeddingSimilarityResponseItem),
-}
-
-/// The serialized form of [`ResponseItem`]: an item without `proof_type` is a Groth16 one.
-#[derive(Serialize)]
-#[serde(untagged)]
-enum RawResponseItem {
-    Tagged(TaggedResponseItem),
-    Groth16(Groth16ResponseItem),
-}
-
-#[derive(Serialize)]
-#[serde(tag = "proof_type", rename_all = "snake_case")]
-enum TaggedResponseItem {
-    EmbeddingSimilarity(EmbeddingSimilarityResponseItem),
-}
-
-impl From<ResponseItem> for RawResponseItem {
-    fn from(item: ResponseItem) -> Self {
-        match item {
-            ResponseItem::Groth16(item) => Self::Groth16(item),
-            ResponseItem::EmbeddingSimilarity(item) => {
-                Self::Tagged(TaggedResponseItem::EmbeddingSimilarity(item))
-            }
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for ResponseItem {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        deserializer.deserialize_map(ResponseItemVisitor)
-    }
-}
-
-/// The `proof_type` of an [`EmbeddingSimilarityResponseItem`].
-const EMBEDDING_SIMILARITY_PROOF_TYPE: &str = "embedding_similarity";
-
-/// Bytes as hex or raw bytes, by format. Both item kinds have a `proof`, so it is read as bytes
-/// and interpreted once `proof_type` is known.
-#[derive(Deserialize)]
-#[serde(transparent)]
-struct ResponseBytes(#[serde(with = "crate::serde_utils::hex_bytes")] Vec<u8>);
-
-#[derive(Deserialize)]
-#[serde(transparent)]
-struct ResponsePublicKey(
-    #[serde(deserialize_with = "crate::credential::deserialize_public_key")] crate::EdDSAPublicKey,
-);
-
-/// Every field either item kind takes, each read from the input as its own type.
-#[derive(Default)]
-struct ResponseItemFields {
-    proof_type: Option<String>,
-    identifier: Option<String>,
-    issuer_schema_id: Option<u64>,
-    proof: Option<ResponseBytes>,
-    nullifier: Option<Nullifier>,
-    session_nullifier: Option<SessionNullifier>,
-    expires_at_min: Option<u64>,
-    flamingo_verifier_key: Option<ResponsePublicKey>,
-    now: Option<u32>,
-    aat: Option<AatPublicValues>,
-    engine_config_hash: Option<FieldElement>,
-    merkle_root: Option<FieldElement>,
-    issuer_version: Option<u8>,
-    cred_pk: Option<ResponsePublicKey>,
-    signing_key_attestation: Option<ResponseBytes>,
-}
-
-/// Sets `slot` from the next map value, rejecting a repeated key.
-fn read_once<'de, A, T>(
-    map: &mut A,
-    slot: &mut Option<T>,
-    key: &'static str,
-) -> Result<(), A::Error>
-where
-    A: serde::de::MapAccess<'de>,
-    T: Deserialize<'de>,
-{
-    if slot.is_some() {
-        return Err(serde::de::Error::duplicate_field(key));
-    }
-    *slot = Some(map.next_value()?);
-    Ok(())
-}
-
-fn required<T, E: serde::de::Error>(value: Option<T>, key: &'static str) -> Result<T, E> {
-    value.ok_or_else(|| E::missing_field(key))
-}
-
-struct ResponseItemVisitor;
-
-impl<'de> serde::de::Visitor<'de> for ResponseItemVisitor {
-    type Value = ResponseItem;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter.write_str("a response item")
-    }
-
-    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
-    where
-        A: serde::de::MapAccess<'de>,
-    {
-        let mut f = ResponseItemFields::default();
-        while let Some(key) = map.next_key::<String>()? {
-            let m = &mut map;
-            match key.as_str() {
-                "proof_type" => read_once(m, &mut f.proof_type, "proof_type")?,
-                "identifier" => read_once(m, &mut f.identifier, "identifier")?,
-                "issuer_schema_id" => read_once(m, &mut f.issuer_schema_id, "issuer_schema_id")?,
-                "proof" => read_once(m, &mut f.proof, "proof")?,
-                "nullifier" => read_once(m, &mut f.nullifier, "nullifier")?,
-                "session_nullifier" => {
-                    read_once(m, &mut f.session_nullifier, "session_nullifier")?;
-                }
-                "expires_at_min" => read_once(m, &mut f.expires_at_min, "expires_at_min")?,
-                "flamingo_verifier_key" => {
-                    read_once(m, &mut f.flamingo_verifier_key, "flamingo_verifier_key")?;
-                }
-                "now" => read_once(m, &mut f.now, "now")?,
-                "aat" => read_once(m, &mut f.aat, "aat")?,
-                "engine_config_hash" => {
-                    read_once(m, &mut f.engine_config_hash, "engine_config_hash")?;
-                }
-                "merkle_root" => read_once(m, &mut f.merkle_root, "merkle_root")?,
-                "issuer_version" => read_once(m, &mut f.issuer_version, "issuer_version")?,
-                "cred_pk" => read_once(m, &mut f.cred_pk, "cred_pk")?,
-                "signing_key_attestation" => {
-                    read_once(m, &mut f.signing_key_attestation, "signing_key_attestation")?;
-                }
-                // Unknown fields are tolerated; see [`ProofResponse`].
-                _ => {
-                    m.next_value::<serde::de::IgnoredAny>()?;
-                }
-            }
-        }
-        f.into_item()
-    }
-}
-
-impl ResponseItemFields {
-    fn into_item<E: serde::de::Error>(self) -> Result<ResponseItem, E> {
-        let identifier = required(self.identifier, "identifier")?;
-        let issuer_schema_id = required(self.issuer_schema_id, "issuer_schema_id")?;
-        let proof = required(self.proof, "proof")?.0;
-        match self.proof_type.as_deref() {
-            None => Ok(ResponseItem::Groth16(Groth16ResponseItem {
-                identifier,
-                issuer_schema_id,
-                proof: ZeroKnowledgeProof::from_compressed_bytes(&proof).map_err(E::custom)?,
-                nullifier: self.nullifier,
-                session_nullifier: self.session_nullifier,
-                expires_at_min: required(self.expires_at_min, "expires_at_min")?,
-            })),
-            Some(EMBEDDING_SIMILARITY_PROOF_TYPE) => Ok(ResponseItem::EmbeddingSimilarity(
-                EmbeddingSimilarityResponseItem {
-                    identifier,
-                    issuer_schema_id,
-                    proof,
-                    flamingo_verifier_key: required(
-                        self.flamingo_verifier_key,
-                        "flamingo_verifier_key",
-                    )?
-                    .0,
-                    now: required(self.now, "now")?,
-                    aat: self.aat,
-                    engine_config_hash: required(self.engine_config_hash, "engine_config_hash")?,
-                    merkle_root: required(self.merkle_root, "merkle_root")?,
-                    issuer_version: required(self.issuer_version, "issuer_version")?,
-                    cred_pk: required(self.cred_pk, "cred_pk")?.0,
-                    signing_key_attestation: required(
-                        self.signing_key_attestation,
-                        "signing_key_attestation",
-                    )?
-                    .0,
-                },
-            )),
-            Some(other) => Err(E::unknown_variant(
-                other,
-                &[EMBEDDING_SIMILARITY_PROOF_TYPE],
-            )),
-        }
-    }
-}
-
-/// Per-credential response item of a Uniqueness or Session proof.
 ///
 /// Each entry corresponds to one requested credential with its proof material.
 /// If any credential cannot be satisfied, the entire proof response will have
@@ -643,7 +444,7 @@ impl ResponseItemFields {
 /// Unknown JSON fields are ignored during deserialization; see
 /// [`ProofResponse`] for the forward-compatibility rationale.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Groth16ResponseItem {
+pub struct ResponseItem {
     /// An RP-defined identifier for this request item used to match against constraints and responses.
     ///
     /// Example: `orb`, `document`.
@@ -683,11 +484,7 @@ impl ProofResponse {
             return false;
         }
 
-        let provided: HashSet<&str> = self
-            .responses
-            .iter()
-            .map(ResponseItem::identifier)
-            .collect();
+        let provided: HashSet<&str> = self.identifiers().collect();
 
         constraints.evaluate(&|t| provided.contains(t))
     }
@@ -703,14 +500,14 @@ impl ResponseItem {
         nullifier: Nullifier,
         expires_at_min: u64,
     ) -> Self {
-        Self::Groth16(Groth16ResponseItem {
+        Self {
             identifier,
             issuer_schema_id,
             proof,
             nullifier: Some(nullifier),
             session_nullifier: None,
             expires_at_min,
-        })
+        }
     }
 
     /// Create a new response item for a Session proof.
@@ -722,68 +519,26 @@ impl ResponseItem {
         session_nullifier: SessionNullifier,
         expires_at_min: u64,
     ) -> Self {
-        Self::Groth16(Groth16ResponseItem {
+        Self {
             identifier,
             issuer_schema_id,
             proof,
             nullifier: None,
             session_nullifier: Some(session_nullifier),
             expires_at_min,
-        })
-    }
-
-    /// The RP-defined identifier of the request item this answers.
-    #[must_use]
-    pub fn identifier(&self) -> &str {
-        match self {
-            Self::Groth16(item) => &item.identifier,
-            Self::EmbeddingSimilarity(item) => &item.identifier,
-        }
-    }
-
-    /// The Credential's `issuer_schema_id`.
-    #[must_use]
-    pub const fn issuer_schema_id(&self) -> u64 {
-        match self {
-            Self::Groth16(item) => item.issuer_schema_id,
-            Self::EmbeddingSimilarity(item) => item.issuer_schema_id,
-        }
-    }
-
-    /// The item of a Uniqueness or Session proof, if this is one.
-    #[must_use]
-    pub const fn as_groth16(&self) -> Option<&Groth16ResponseItem> {
-        match self {
-            Self::Groth16(item) => Some(item),
-            Self::EmbeddingSimilarity(_) => None,
-        }
-    }
-
-    /// The item of a Proof of Embedding Similarity, if this is one.
-    #[must_use]
-    pub const fn as_embedding_similarity(&self) -> Option<&EmbeddingSimilarityResponseItem> {
-        match self {
-            Self::EmbeddingSimilarity(item) => Some(item),
-            Self::Groth16(_) => None,
         }
     }
 
     /// Returns true if this is a Session proof response.
     #[must_use]
     pub const fn is_session(&self) -> bool {
-        matches!(self, Self::Groth16(item) if item.session_nullifier.is_some())
+        self.session_nullifier.is_some()
     }
 
     /// Returns true if this is a Uniqueness proof response.
     #[must_use]
     pub const fn is_uniqueness(&self) -> bool {
-        matches!(self, Self::Groth16(item) if item.nullifier.is_some())
-    }
-
-    /// Returns true if this is a Proof of Embedding Similarity response.
-    #[must_use]
-    pub const fn is_embedding_similarity(&self) -> bool {
-        matches!(self, Self::EmbeddingSimilarity(_))
+        self.nullifier.is_some()
     }
 }
 
@@ -1049,52 +804,52 @@ impl ProofRequest {
             }
         }
 
+        if self.proof_type.is_embedding_similarity() {
+            return self.validate_embedding_similarity_result(response);
+        }
+        if response.embedding_similarity.is_some() {
+            return Err(ValidationError::UnexpectedEmbeddingSimilarity);
+        }
+
         // Validate response items correspond to request items and are unique.
         let mut provided: HashSet<&str> = HashSet::new();
         for response_item in &response.responses {
-            let identifier = response_item.identifier();
-            if !provided.insert(identifier) {
-                return Err(ValidationError::DuplicateCredential(identifier.to_string()));
+            if !provided.insert(response_item.identifier.as_str()) {
+                return Err(ValidationError::DuplicateCredential(
+                    response_item.identifier.clone(),
+                ));
             }
 
             let request_item = self
                 .requests
                 .iter()
-                .find(|r| r.identifier == identifier)
-                .ok_or_else(|| ValidationError::UnexpectedCredential(identifier.to_string()))?;
-
-            // An embedding similarity item echoes no `expires_at_min`: the RP verifies with its own.
-            let item = match (self.proof_type.is_embedding_similarity(), response_item) {
-                (true, ResponseItem::EmbeddingSimilarity(_)) => continue,
-                (false, ResponseItem::Groth16(item)) => item,
-                (true, ResponseItem::Groth16(_))
-                | (false, ResponseItem::EmbeddingSimilarity(_)) => {
-                    return Err(ValidationError::ResponseItemTypeMismatch(
-                        identifier.to_string(),
-                    ));
-                }
-            };
+                .find(|r| r.identifier == response_item.identifier)
+                .ok_or_else(|| {
+                    ValidationError::UnexpectedCredential(response_item.identifier.clone())
+                })?;
 
             if self.is_session_proof() {
                 // Session proof: must have session_nullifier
-                if item.session_nullifier.is_none() {
+                if response_item.session_nullifier.is_none() {
                     return Err(ValidationError::MissingSessionNullifier(
-                        identifier.to_string(),
+                        response_item.identifier.clone(),
                     ));
                 }
             } else {
                 // Uniqueness proof: must have nullifier
-                if item.nullifier.is_none() {
-                    return Err(ValidationError::MissingNullifier(identifier.to_string()));
+                if response_item.nullifier.is_none() {
+                    return Err(ValidationError::MissingNullifier(
+                        response_item.identifier.clone(),
+                    ));
                 }
             }
 
             let expected_expires_at_min = request_item.effective_expires_at_min(self.created_at);
-            if item.expires_at_min != expected_expires_at_min {
+            if response_item.expires_at_min != expected_expires_at_min {
                 return Err(ValidationError::ExpiresAtMinMismatch(
-                    identifier.to_string(),
+                    response_item.identifier.clone(),
                     expected_expires_at_min,
-                    item.expires_at_min,
+                    response_item.expires_at_min,
                 ));
             }
         }
@@ -1118,6 +873,32 @@ impl ProofRequest {
                 }
             }
         }
+    }
+
+    /// Checks the result of an embedding similarity request: one
+    /// [`ProofResponse::embedding_similarity`] item for the request's single item, and no
+    /// Groth16 items.
+    fn validate_embedding_similarity_result(
+        &self,
+        response: &ProofResponse,
+    ) -> Result<(), ValidationError> {
+        if let Some(item) = response.responses.first() {
+            return Err(ValidationError::UnexpectedCredential(
+                item.identifier.clone(),
+            ));
+        }
+        // `validate_proof_type` guarantees exactly one request item.
+        let requested = &self.requests[0].identifier;
+        let item = response
+            .embedding_similarity
+            .as_ref()
+            .ok_or_else(|| ValidationError::MissingCredential(requested.clone()))?;
+        if &item.identifier != requested {
+            return Err(ValidationError::UnexpectedCredential(
+                item.identifier.clone(),
+            ));
+        }
+        Ok(())
     }
 
     /// Parse from JSON
@@ -1183,8 +964,25 @@ impl ProofResponse {
         }
         self.responses
             .iter()
-            .map(ResponseItem::issuer_schema_id)
+            .map(|item| item.issuer_schema_id)
+            .chain(
+                self.embedding_similarity
+                    .iter()
+                    .map(|item| item.issuer_schema_id),
+            )
             .collect()
+    }
+
+    /// The identifiers of every proven credential.
+    fn identifiers(&self) -> impl Iterator<Item = &str> {
+        self.responses
+            .iter()
+            .map(|item| item.identifier.as_str())
+            .chain(
+                self.embedding_similarity
+                    .iter()
+                    .map(|item| item.identifier.as_str()),
+            )
     }
 }
 
@@ -1239,9 +1037,9 @@ pub enum ValidationError {
     /// Nullifier missing for credential in uniqueness proof
     #[error("Nullifier missing for credential: {0}")]
     MissingNullifier(String),
-    /// The response item's kind does not match the request's proof type
-    #[error("Response item of the wrong type for credential: {0}")]
-    ResponseItemTypeMismatch(String),
+    /// An embedding similarity result answers a request of another proof type
+    #[error("Embedding similarity result in a response to another proof type")]
+    UnexpectedEmbeddingSimilarity,
 }
 
 // Helper selection functions for constraint evaluation
@@ -1354,6 +1152,7 @@ mod tests {
     fn constraints_all_any_nested() {
         // Build a response that has test_req_1 and test_req_2 provided
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_123".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1405,6 +1204,7 @@ mod tests {
     fn constraints_enumerate_partial_and_empty() {
         // Build a response that has orb and passport provided
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_123".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1566,6 +1366,7 @@ mod tests {
         };
 
         let ok = ProofResponse {
+            embedding_similarity: None,
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1590,6 +1391,7 @@ mod tests {
         assert!(request.validate_response(&ok).is_ok());
 
         let missing = ProofResponse {
+            embedding_similarity: None,
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1606,6 +1408,7 @@ mod tests {
         assert!(matches!(err, ValidationError::MissingCredential(_)));
 
         let unexpected = ProofResponse {
+            embedding_similarity: None,
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1641,6 +1444,7 @@ mod tests {
         ));
 
         let duplicate = ProofResponse {
+            embedding_similarity: None,
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1704,6 +1508,7 @@ mod tests {
         };
 
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_2".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1832,6 +1637,7 @@ mod tests {
 
         // Provide just enough to satisfy both any-groups and the single type
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_nodes_ok".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1983,6 +1789,7 @@ mod tests {
 
         // Response content is irrelevant; validation should fail before evaluation due to size
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_nodes_too_many".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2028,6 +1835,7 @@ mod tests {
 
         // Build matching successful response (session proof requires session_id and session_nullifier)
         let resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: Some(SessionId::default()),
@@ -2084,6 +1892,7 @@ mod tests {
 
         // Build response that fails constraints (test_req_1 is missing)
         let resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2154,6 +1963,7 @@ mod tests {
 
         // Satisfy nested any with 0x1 + 0x3
         let resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2220,6 +2030,7 @@ mod tests {
 
         // Satisfies enumerate with passport
         let ok_resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2236,6 +2047,7 @@ mod tests {
 
         // Fails enumerate because none of the enumerate candidates are present
         let fail_resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2482,6 +2294,7 @@ mod tests {
 
         // Response with error should have empty responses array
         let error_response = ProofResponse {
+            embedding_similarity: None,
             id: "req_error".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2859,6 +2672,7 @@ mod tests {
 
         // Valid response with matching expires_at_min values
         let valid_response = ProofResponse {
+            embedding_similarity: None,
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2884,6 +2698,7 @@ mod tests {
 
         // Invalid response with mismatched expires_at_min for first item
         let invalid_response_1 = ProofResponse {
+            embedding_similarity: None,
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2918,6 +2733,7 @@ mod tests {
 
         // Invalid response with mismatched expires_at_min for second item
         let invalid_response_2 = ProofResponse {
+            embedding_similarity: None,
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -3151,6 +2967,7 @@ mod tests {
         };
 
         let response = ProofResponse {
+            embedding_similarity: None,
             id: request.id.clone(),
             version: RequestVersion::V1,
             session_id: Some(session_id),
@@ -3246,6 +3063,7 @@ mod tests {
         };
 
         let missing_session = ProofResponse {
+            embedding_similarity: None,
             id: request.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -3264,6 +3082,7 @@ mod tests {
         ));
 
         let valid_response = ProofResponse {
+            embedding_similarity: None,
             session_id: Some(SessionId::default()),
             ..missing_session
         };
@@ -3296,6 +3115,7 @@ mod tests {
         };
 
         let missing_session = ProofResponse {
+            embedding_similarity: None,
             id: request.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -3314,6 +3134,7 @@ mod tests {
         ));
 
         let valid_response = ProofResponse {
+            embedding_similarity: None,
             session_id: Some(SessionId::default()),
             ..missing_session
         };
@@ -3346,6 +3167,7 @@ mod tests {
 
         // Response without session_id should fail validation
         let response_missing_session_id = ProofResponse {
+            embedding_similarity: None,
             id: "req_session".into(),
             version: RequestVersion::V1,
             session_id: None, // Missing!
@@ -3391,6 +3213,7 @@ mod tests {
 
         // Response with uniqueness nullifier instead of session nullifier should fail
         let response_wrong_nullifier_type = ProofResponse {
+            embedding_similarity: None,
             id: "req_session".into(),
             version: RequestVersion::V1,
             session_id: Some(SessionId::default()),
@@ -3441,6 +3264,7 @@ mod tests {
 
         // Response with session nullifier instead of uniqueness nullifier should fail
         let response_wrong_nullifier_type = ProofResponse {
+            embedding_similarity: None,
             id: "req_uniqueness".into(),
             version: RequestVersion::V1,
             session_id: None,

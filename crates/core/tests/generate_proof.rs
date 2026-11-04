@@ -334,9 +334,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         .await?;
     info!("generated uniqueness proof");
 
-    let response_item = result.proof_response.responses[0]
-        .as_groth16()
-        .expect("uniqueness proof should have a Groth16 item");
+    let response_item = &result.proof_response.responses[0];
     assert!(response_item.nullifier.is_some());
 
     // verify proof with verifier contract
@@ -398,9 +396,7 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     let created_session_seed = create_result
         .session_id_r_seed
         .expect("uniqueness create must return session seed");
-    let create_item = create_result.proof_response.responses[0]
-        .as_groth16()
-        .expect("uniqueness proof should have a Groth16 item");
+    let create_item = &create_result.proof_response.responses[0];
     assert!(create_item.nullifier.is_some());
     assert!(create_item.session_nullifier.is_none());
     assert_eq!(
