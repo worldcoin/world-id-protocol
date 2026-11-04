@@ -427,9 +427,9 @@ pub struct ProofResponse {
 /// [`EmbeddingSimilarityResponseItem`], which serializes with
 /// `"proof_type": "embedding_similarity"`.
 ///
-/// Human-readable formats may order the fields freely. Binary formats put `proof_type` first,
-/// as serialization does, so that deserialization never buffers the fields: buffering would
-/// make the binary values of the proof and nullifiers look human-readable.
+/// Deserialization reads each field straight from the input, in any order, so binary formats
+/// keep their binary encodings and canonical CBOR key order is accepted. It rejects a repeated
+/// field and an unknown `proof_type`, and ignores unknown fields.
 #[derive(Debug, Clone, Serialize)]
 #[serde(into = "RawResponseItem")]
 pub enum ResponseItem {
@@ -439,26 +439,26 @@ pub enum ResponseItem {
     EmbeddingSimilarity(EmbeddingSimilarityResponseItem),
 }
 
-/// The wire form of [`ResponseItem`]: an item without `proof_type` is a Groth16 one.
-#[derive(Serialize, Deserialize)]
+/// The serialized form of [`ResponseItem`]: an item without `proof_type` is a Groth16 one.
+#[derive(Serialize)]
 #[serde(untagged)]
 enum RawResponseItem {
     Tagged(TaggedResponseItem),
     Groth16(Groth16ResponseItem),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 #[serde(tag = "proof_type", rename_all = "snake_case")]
 enum TaggedResponseItem {
     EmbeddingSimilarity(EmbeddingSimilarityResponseItem),
 }
 
-impl From<RawResponseItem> for ResponseItem {
-    fn from(raw: RawResponseItem) -> Self {
-        match raw {
-            RawResponseItem::Groth16(item) => Self::Groth16(item),
-            RawResponseItem::Tagged(TaggedResponseItem::EmbeddingSimilarity(item)) => {
-                Self::EmbeddingSimilarity(item)
+impl From<ResponseItem> for RawResponseItem {
+    fn from(item: ResponseItem) -> Self {
+        match item {
+            ResponseItem::Groth16(item) => Self::Groth16(item),
+            ResponseItem::EmbeddingSimilarity(item) => {
+                Self::Tagged(TaggedResponseItem::EmbeddingSimilarity(item))
             }
         }
     }
@@ -469,19 +469,69 @@ impl<'de> Deserialize<'de> for ResponseItem {
     where
         D: serde::Deserializer<'de>,
     {
-        if deserializer.is_human_readable() {
-            RawResponseItem::deserialize(deserializer).map(Self::from)
-        } else {
-            deserializer.deserialize_map(BinaryResponseItemVisitor)
-        }
+        deserializer.deserialize_map(ResponseItemVisitor)
     }
 }
 
-/// Reads the `proof_type` key of a binary item, if it comes first, and decodes the fields that
-/// follow straight from the map, which keeps their binary encoding.
-struct BinaryResponseItemVisitor;
+/// The `proof_type` of an [`EmbeddingSimilarityResponseItem`].
+const EMBEDDING_SIMILARITY_PROOF_TYPE: &str = "embedding_similarity";
 
-impl<'de> serde::de::Visitor<'de> for BinaryResponseItemVisitor {
+/// Bytes as hex or raw bytes, by format. Both item kinds have a `proof`, so it is read as bytes
+/// and interpreted once `proof_type` is known.
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct ResponseBytes(#[serde(with = "crate::serde_utils::hex_bytes")] Vec<u8>);
+
+#[derive(Deserialize)]
+#[serde(transparent)]
+struct ResponsePublicKey(
+    #[serde(deserialize_with = "crate::credential::deserialize_public_key")] crate::EdDSAPublicKey,
+);
+
+/// Every field either item kind takes, each read from the input as its own type.
+#[derive(Default)]
+struct ResponseItemFields {
+    proof_type: Option<String>,
+    identifier: Option<String>,
+    issuer_schema_id: Option<u64>,
+    proof: Option<ResponseBytes>,
+    nullifier: Option<Nullifier>,
+    session_nullifier: Option<SessionNullifier>,
+    expires_at_min: Option<u64>,
+    flamingo_verifier_key: Option<ResponsePublicKey>,
+    now: Option<u32>,
+    aat: Option<AatPublicValues>,
+    engine_config_hash: Option<FieldElement>,
+    merkle_root: Option<FieldElement>,
+    issuer_version: Option<u8>,
+    cred_pk: Option<ResponsePublicKey>,
+    signing_key_attestation: Option<ResponseBytes>,
+}
+
+/// Sets `slot` from the next map value, rejecting a repeated key.
+fn read_once<'de, A, T>(
+    map: &mut A,
+    slot: &mut Option<T>,
+    key: &'static str,
+) -> Result<(), A::Error>
+where
+    A: serde::de::MapAccess<'de>,
+    T: Deserialize<'de>,
+{
+    if slot.is_some() {
+        return Err(serde::de::Error::duplicate_field(key));
+    }
+    *slot = Some(map.next_value()?);
+    Ok(())
+}
+
+fn required<T, E: serde::de::Error>(value: Option<T>, key: &'static str) -> Result<T, E> {
+    value.ok_or_else(|| E::missing_field(key))
+}
+
+struct ResponseItemVisitor;
+
+impl<'de> serde::de::Visitor<'de> for ResponseItemVisitor {
     type Value = ResponseItem;
 
     fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -492,60 +542,84 @@ impl<'de> serde::de::Visitor<'de> for BinaryResponseItemVisitor {
     where
         A: serde::de::MapAccess<'de>,
     {
-        use serde::de::value::MapAccessDeserializer;
-
-        let first = map.next_key::<String>()?;
-        if first.as_deref() == Some("proof_type") {
-            let proof_type: String = map.next_value()?;
-            if proof_type != "embedding_similarity" {
-                return Err(serde::de::Error::unknown_variant(
-                    &proof_type,
-                    &["embedding_similarity"],
-                ));
+        let mut f = ResponseItemFields::default();
+        while let Some(key) = map.next_key::<String>()? {
+            let m = &mut map;
+            match key.as_str() {
+                "proof_type" => read_once(m, &mut f.proof_type, "proof_type")?,
+                "identifier" => read_once(m, &mut f.identifier, "identifier")?,
+                "issuer_schema_id" => read_once(m, &mut f.issuer_schema_id, "issuer_schema_id")?,
+                "proof" => read_once(m, &mut f.proof, "proof")?,
+                "nullifier" => read_once(m, &mut f.nullifier, "nullifier")?,
+                "session_nullifier" => {
+                    read_once(m, &mut f.session_nullifier, "session_nullifier")?;
+                }
+                "expires_at_min" => read_once(m, &mut f.expires_at_min, "expires_at_min")?,
+                "flamingo_verifier_key" => {
+                    read_once(m, &mut f.flamingo_verifier_key, "flamingo_verifier_key")?;
+                }
+                "now" => read_once(m, &mut f.now, "now")?,
+                "aat" => read_once(m, &mut f.aat, "aat")?,
+                "engine_config_hash" => {
+                    read_once(m, &mut f.engine_config_hash, "engine_config_hash")?;
+                }
+                "merkle_root" => read_once(m, &mut f.merkle_root, "merkle_root")?,
+                "issuer_version" => read_once(m, &mut f.issuer_version, "issuer_version")?,
+                "cred_pk" => read_once(m, &mut f.cred_pk, "cred_pk")?,
+                "signing_key_attestation" => {
+                    read_once(m, &mut f.signing_key_attestation, "signing_key_attestation")?;
+                }
+                // Unknown fields are tolerated; see [`ProofResponse`].
+                _ => {
+                    m.next_value::<serde::de::IgnoredAny>()?;
+                }
             }
-            return EmbeddingSimilarityResponseItem::deserialize(MapAccessDeserializer::new(map))
-                .map(ResponseItem::EmbeddingSimilarity);
         }
-        Groth16ResponseItem::deserialize(MapAccessDeserializer::new(ReplayedKey { first, map }))
-            .map(ResponseItem::Groth16)
+        f.into_item()
     }
 }
 
-/// A map whose first key was already read.
-struct ReplayedKey<A> {
-    first: Option<String>,
-    map: A,
-}
-
-impl<'de, A: serde::de::MapAccess<'de>> serde::de::MapAccess<'de> for ReplayedKey<A> {
-    type Error = A::Error;
-
-    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
-    where
-        K: serde::de::DeserializeSeed<'de>,
-    {
-        use serde::de::IntoDeserializer as _;
-        match self.first.take() {
-            Some(key) => seed.deserialize(key.into_deserializer()).map(Some),
-            None => self.map.next_key_seed(seed),
-        }
-    }
-
-    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
-    where
-        V: serde::de::DeserializeSeed<'de>,
-    {
-        self.map.next_value_seed(seed)
-    }
-}
-
-impl From<ResponseItem> for RawResponseItem {
-    fn from(item: ResponseItem) -> Self {
-        match item {
-            ResponseItem::Groth16(item) => Self::Groth16(item),
-            ResponseItem::EmbeddingSimilarity(item) => {
-                Self::Tagged(TaggedResponseItem::EmbeddingSimilarity(item))
-            }
+impl ResponseItemFields {
+    fn into_item<E: serde::de::Error>(self) -> Result<ResponseItem, E> {
+        let identifier = required(self.identifier, "identifier")?;
+        let issuer_schema_id = required(self.issuer_schema_id, "issuer_schema_id")?;
+        let proof = required(self.proof, "proof")?.0;
+        match self.proof_type.as_deref() {
+            None => Ok(ResponseItem::Groth16(Groth16ResponseItem {
+                identifier,
+                issuer_schema_id,
+                proof: ZeroKnowledgeProof::from_compressed_bytes(&proof).map_err(E::custom)?,
+                nullifier: self.nullifier,
+                session_nullifier: self.session_nullifier,
+                expires_at_min: required(self.expires_at_min, "expires_at_min")?,
+            })),
+            Some(EMBEDDING_SIMILARITY_PROOF_TYPE) => Ok(ResponseItem::EmbeddingSimilarity(
+                EmbeddingSimilarityResponseItem {
+                    identifier,
+                    issuer_schema_id,
+                    proof,
+                    flamingo_verifier_key: required(
+                        self.flamingo_verifier_key,
+                        "flamingo_verifier_key",
+                    )?
+                    .0,
+                    now: required(self.now, "now")?,
+                    aat: self.aat,
+                    engine_config_hash: required(self.engine_config_hash, "engine_config_hash")?,
+                    merkle_root: required(self.merkle_root, "merkle_root")?,
+                    issuer_version: required(self.issuer_version, "issuer_version")?,
+                    cred_pk: required(self.cred_pk, "cred_pk")?.0,
+                    signing_key_attestation: required(
+                        self.signing_key_attestation,
+                        "signing_key_attestation",
+                    )?
+                    .0,
+                },
+            )),
+            Some(other) => Err(E::unknown_variant(
+                other,
+                &[EMBEDDING_SIMILARITY_PROOF_TYPE],
+            )),
         }
     }
 }

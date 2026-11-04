@@ -558,3 +558,87 @@ fn rp_signature_verification_names_the_action_and_its_prefix() {
         json!({ "uniqueness_action": { "action": field(1) } })
     );
 }
+
+/// The CBOR map of `item`, with `edit` applied to its entries.
+fn cbor_with_entries(
+    item: &ResponseItem,
+    edit: impl FnOnce(&mut Vec<(ciborium::Value, ciborium::Value)>),
+) -> Vec<u8> {
+    let mut value = ciborium::Value::serialized(item).unwrap();
+    let ciborium::Value::Map(entries) = &mut value else {
+        panic!("a response item is a map")
+    };
+    edit(entries);
+    let mut bytes = Vec::new();
+    ciborium::into_writer(&value, &mut bytes).unwrap();
+    bytes
+}
+
+fn text(s: &str) -> ciborium::Value {
+    ciborium::Value::Text(s.into())
+}
+
+#[test]
+fn binary_decoding_does_not_depend_on_key_order() {
+    let item = ResponseItem::EmbeddingSimilarity(es_item());
+    // Canonical CBOR sorts shorter keys first, so `proof_type` is not first.
+    let bytes = cbor_with_entries(&item, |entries| {
+        entries.sort_by_key(|(k, _)| {
+            let mut key = Vec::new();
+            ciborium::into_writer(k, &mut key).unwrap();
+            (key.len(), key)
+        });
+        assert_ne!(entries[0].0, text("proof_type"));
+    });
+    let decoded: ResponseItem = ciborium::from_reader(bytes.as_slice()).unwrap();
+    assert_eq!(decoded.as_embedding_similarity(), Some(&es_item()));
+
+    let bytes = cbor_with_entries(&groth16_item(), |entries| entries.reverse());
+    let decoded: ResponseItem = ciborium::from_reader(bytes.as_slice()).unwrap();
+    assert!(decoded.is_uniqueness());
+}
+
+#[test]
+fn json_decoding_does_not_depend_on_key_order() {
+    let mut value = serde_json::to_value(ResponseItem::EmbeddingSimilarity(es_item())).unwrap();
+    let tag = value.as_object_mut().unwrap().remove("proof_type").unwrap();
+    value
+        .as_object_mut()
+        .unwrap()
+        .insert("proof_type".into(), tag);
+    let decoded: ResponseItem = serde_json::from_value(value).unwrap();
+    assert_eq!(decoded.as_embedding_similarity(), Some(&es_item()));
+}
+
+#[test]
+fn decoding_rejects_a_repeated_proof_type() {
+    let item = ResponseItem::EmbeddingSimilarity(es_item());
+    for second in ["uniqueness", "embedding_similarity"] {
+        let bytes = cbor_with_entries(&item, |entries| {
+            entries.push((text("proof_type"), text(second)));
+        });
+        assert!(
+            ciborium::from_reader::<ResponseItem, _>(bytes.as_slice()).is_err(),
+            "{second}"
+        );
+    }
+
+    let json = serde_json::to_string(&item).unwrap();
+    let repeated = json.replacen('{', r#"{"proof_type":"uniqueness","#, 1);
+    assert!(serde_json::from_str::<ResponseItem>(&repeated).is_err());
+}
+
+#[test]
+fn decoding_rejects_a_repeated_field() {
+    let bytes = cbor_with_entries(&groth16_item(), |entries| {
+        entries.push((text("expires_at_min"), ciborium::Value::Integer(1.into())));
+    });
+    assert!(ciborium::from_reader::<ResponseItem, _>(bytes.as_slice()).is_err());
+}
+
+#[test]
+fn json_decoding_rejects_an_unknown_proof_type() {
+    let mut value = serde_json::to_value(groth16_item()).unwrap();
+    value["proof_type"] = json!("uniqueness");
+    assert!(serde_json::from_value::<ResponseItem>(value).is_err());
+}
