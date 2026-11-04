@@ -6,13 +6,14 @@ mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 mod embedding_similarity;
 pub use embedding_similarity::{
-    AatPublicValues, AatRequirements, EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem,
-    FlamingoConfiguration, MAX_FLAMINGO_CONFIGURATIONS,
+    EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem, FlamingoConfiguration,
+    MAX_FLAMINGO_CONFIGURATIONS,
 };
 
 use crate::{
     FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError, SessionId,
-    SessionNullifier, SessionRef, ZeroKnowledgeProof, rp::RpId,
+    SessionNullifier, SessionRef, ZeroKnowledgeProof, authenticator_assertion::AatRequirements,
+    rp::RpId,
 };
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;

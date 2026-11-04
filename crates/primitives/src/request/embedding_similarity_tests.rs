@@ -1,5 +1,8 @@
 use super::*;
-use crate::{EdDSAPrivateKey, EdDSAPublicKey};
+use crate::{
+    EdDSAPrivateKey, EdDSAPublicKey,
+    authenticator_assertion::{AatPublicValues, AatRequirements},
+};
 use alloy::{
     signers::{SignerSync, local::PrivateKeySigner},
     uint,
