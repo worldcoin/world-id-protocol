@@ -40,10 +40,55 @@ pub(crate) fn ownership_proof_fixture() -> OwnershipProofCircuitInput<TREE_DEPTH
     }
 }
 
+/// `Prover.toml` shapes the Noir circuits share: field elements are decimal strings.
+pub(crate) mod toml_types {
+    use ark_ff::PrimeField as _;
+    use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
+    use serde::Serialize;
+
+    /// A `world_id_components::types::PublicKey`.
+    #[derive(Serialize)]
+    pub(crate) struct PublicKey {
+        pub(crate) x: String,
+        pub(crate) y: String,
+    }
+
+    /// A `world_id_components::types::Signature`.
+    #[derive(Serialize)]
+    pub(crate) struct Signature {
+        pub(crate) s: String,
+        pub(crate) r: Vec<String>,
+    }
+
+    impl From<&EdDSAPublicKey> for PublicKey {
+        fn from(key: &EdDSAPublicKey) -> Self {
+            Self {
+                x: key.pk.x.into_bigint().to_string(),
+                y: key.pk.y.into_bigint().to_string(),
+            }
+        }
+    }
+
+    impl From<&EdDSASignature> for Signature {
+        fn from(sig: &EdDSASignature) -> Self {
+            Self {
+                s: sig.s.into_bigint().to_string(),
+                r: vec![
+                    sig.r.x.into_bigint().to_string(),
+                    sig.r.y.into_bigint().to_string(),
+                ],
+            }
+        }
+    }
+}
+
 mod ownership_proof_prover {
     use serde::Serialize;
 
-    use super::*;
+    use super::{
+        toml_types::{PublicKey, Signature},
+        *,
+    };
 
     /// Every key the circuit ABI is expected to have, in `BTreeMap` (alphabetical) order. A circuit
     /// input added, removed or renamed without updating the renderer below fails these assertions.
@@ -88,18 +133,6 @@ mod ownership_proof_prover {
         siblings: Vec<String>,
         sig: Signature,
         user_pk: Vec<PublicKey>,
-    }
-
-    #[derive(Serialize)]
-    struct Signature {
-        s: String,
-        r: Vec<String>,
-    }
-
-    #[derive(Serialize)]
-    struct PublicKey {
-        x: String,
-        y: String,
     }
 
     fn fixture_witness() -> InputMap {
