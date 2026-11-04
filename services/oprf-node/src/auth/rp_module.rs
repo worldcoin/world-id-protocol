@@ -478,6 +478,7 @@ impl RpModuleAuth {
                         action: signed_action,
                         scope,
                     }) => {
+                        metrics::auth_module::inc_billing();
                         let now = u64::try_from(Utc::now().timestamp())
                             .map_err(|_| eyre::eyre!("system clock is before the Unix epoch"))?;
                         self.check_billing_query(
@@ -547,16 +548,9 @@ impl OprfRequestAuthenticator for RpModuleAuth {
         &self,
         request: &OprfRequest<Self::RequestAuth>,
     ) -> Result<OprfKeyId, OprfRequestAuthenticatorError> {
-        let result = Box::pin(self.authenticate_inner(request)).await;
-        if matches!(self.kind, RpModuleKind::Uniqueness)
-            && matches!(
-                request.auth.rp_signature_verification,
-                Some(RpSignatureVerification::Billing { .. })
-            )
-        {
-            metrics::billing_queries::record(result.is_ok());
-        }
-        Ok(result.map_err(|err| super::auth_module_error(err, "RP-module"))?)
+        Ok(Box::pin(self.authenticate_inner(request))
+            .await
+            .map_err(|err| super::auth_module_error(err, "RP-module"))?)
     }
 }
 
