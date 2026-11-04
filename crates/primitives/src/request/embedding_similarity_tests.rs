@@ -471,3 +471,90 @@ fn validate_response_rejects_a_request_that_is_not_valid() {
 fn field_element_prefix_helper_matches_the_action_prefix() {
     assert!(params().action.has_prefix(OprfPrefix::EmbeddingSimilarity));
 }
+
+fn cbor_roundtrip<T: Serialize + serde::de::DeserializeOwned>(value: &T) -> T {
+    let mut bytes = Vec::new();
+    ciborium::into_writer(value, &mut bytes).unwrap();
+    ciborium::from_reader(bytes.as_slice()).unwrap()
+}
+
+#[test]
+fn response_item_roundtrips_through_a_binary_format() {
+    let decoded = cbor_roundtrip(&groth16_item());
+    assert!(decoded.is_uniqueness());
+    assert_eq!(decoded.as_groth16().unwrap().expires_at_min, 1_735_689_600);
+
+    let decoded = cbor_roundtrip(&ResponseItem::EmbeddingSimilarity(es_item()));
+    assert_eq!(decoded.as_embedding_similarity(), Some(&es_item()));
+}
+
+#[test]
+fn binary_bytes_of_a_groth16_item_decode_as_a_response_item() {
+    let item = groth16_item();
+    let groth16 = item.as_groth16().unwrap().clone();
+    let mut bytes = Vec::new();
+    ciborium::into_writer(&groth16, &mut bytes).unwrap();
+    let decoded: ResponseItem = ciborium::from_reader(bytes.as_slice()).unwrap();
+    assert_eq!(decoded.as_groth16().unwrap().proof, groth16.proof);
+}
+
+#[test]
+fn proof_response_roundtrips_through_a_binary_format() {
+    let response = response(vec![
+        groth16_item(),
+        ResponseItem::EmbeddingSimilarity(es_item()),
+    ]);
+    let decoded = cbor_roundtrip(&response);
+    assert!(decoded.responses[0].is_uniqueness());
+    assert_eq!(
+        decoded.responses[1].as_embedding_similarity(),
+        Some(&es_item())
+    );
+}
+
+#[test]
+fn binary_response_item_rejects_an_unknown_proof_type() {
+    #[derive(Serialize)]
+    struct Unknown {
+        proof_type: &'static str,
+        identifier: &'static str,
+    }
+    let mut bytes = Vec::new();
+    ciborium::into_writer(
+        &Unknown {
+            proof_type: "other",
+            identifier: "poh",
+        },
+        &mut bytes,
+    )
+    .unwrap();
+    assert!(ciborium::from_reader::<ResponseItem, _>(bytes.as_slice()).is_err());
+}
+
+#[test]
+fn rp_signature_verification_names_the_action_and_its_prefix() {
+    use crate::oprf::RpSignatureVerification;
+
+    let es = RpSignatureVerification::EmbeddingSimilarityAction {
+        action: params().action,
+    };
+    assert_eq!(es.action(), params().action);
+    assert_eq!(es.prefix(), OprfPrefix::EmbeddingSimilarity);
+    assert!(es.action().has_prefix(es.prefix()));
+    assert_eq!(
+        serde_json::to_value(es).unwrap(),
+        json!({ "embedding_similarity_action": { "action": params().action } })
+    );
+    assert_eq!(
+        serde_json::from_value::<RpSignatureVerification>(serde_json::to_value(es).unwrap())
+            .unwrap(),
+        es
+    );
+
+    let uniqueness = RpSignatureVerification::UniquenessAction { action: field(1) };
+    assert_eq!(uniqueness.prefix(), OprfPrefix::Uniqueness);
+    assert_eq!(
+        serde_json::to_value(uniqueness).unwrap(),
+        json!({ "uniqueness_action": { "action": field(1) } })
+    );
+}

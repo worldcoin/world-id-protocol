@@ -33,7 +33,7 @@ use taceo_oprf::types::{
 use tracing::instrument;
 use world_id_primitives::{
     FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
-    oprf::{NullifierOprfRequestAuthV1, RpSignatureVerification, WorldIdRequestAuthError},
+    oprf::{NullifierOprfRequestAuthV1, WorldIdRequestAuthError},
 };
 
 pub(crate) mod wip101;
@@ -306,12 +306,12 @@ impl RpModuleAuth {
                 let action = match self.kind {
                     RpModuleKind::Uniqueness => Some(action),
                     // Session RP signatures do not include the action, unless the request
-                    // carries a uniqueness action as verification data (create-and-bind).
-                    RpModuleKind::Session => request.auth.rp_signature_verification.map(
-                        |verification| match verification {
-                            RpSignatureVerification::UniquenessAction { action } => *action,
-                        },
-                    ),
+                    // carries the signed action as verification data (create-and-bind, or an
+                    // embedding similarity request).
+                    RpModuleKind::Session => request
+                        .auth
+                        .rp_signature_verification
+                        .map(|verification| *verification.action()),
                 };
                 rp.verify_eoa(action, request)
             }
@@ -370,13 +370,11 @@ impl RpModuleAuth {
             RpModuleKind::Session => {
                 metrics::auth_module::inc_session();
                 if action.has_prefix(OprfPrefix::SessionOprfSeed) {
-                    if let Some(RpSignatureVerification::UniquenessAction {
-                        action: signed_action,
-                    }) = request.auth.rp_signature_verification
-                        && !signed_action.has_prefix(OprfPrefix::Uniqueness)
+                    if let Some(verification) = request.auth.rp_signature_verification
+                        && !verification.action().has_prefix(verification.prefix())
                     {
                         return Err(RpModuleError::InvalidRpSignatureVerification {
-                            context: "uniqueness action MSB must be 0x00",
+                            context: "signed action MSB does not match its kind (0x00 uniqueness, 0x03 embedding similarity)",
                         });
                     }
                     NonceScope::SessionOprfSeed

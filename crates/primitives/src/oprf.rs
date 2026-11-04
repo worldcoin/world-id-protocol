@@ -91,6 +91,35 @@ pub enum RpSignatureVerification {
         /// The RP-signed uniqueness action (MSB `0x00`).
         action: FieldElement,
     },
+    /// The action of a Proof of Embedding Similarity request (WIP-202) covered by the RP signature.
+    ///
+    /// This is used on session-seed queries of such requests, whose OPRF action is the session
+    /// seed rather than the signed action.
+    EmbeddingSimilarityAction {
+        /// The RP-signed action (MSB `0x03`).
+        action: FieldElement,
+    },
+}
+
+impl RpSignatureVerification {
+    /// The action the RP signed.
+    #[must_use]
+    pub const fn action(&self) -> FieldElement {
+        match self {
+            Self::UniquenessAction { action } | Self::EmbeddingSimilarityAction { action } => {
+                *action
+            }
+        }
+    }
+
+    /// The prefix the signed [`Self::action`] must carry.
+    #[must_use]
+    pub const fn prefix(&self) -> OprfPrefix {
+        match self {
+            Self::UniquenessAction { .. } => OprfPrefix::Uniqueness,
+            Self::EmbeddingSimilarityAction { .. } => OprfPrefix::EmbeddingSimilarity,
+        }
+    }
 }
 
 impl std::fmt::Display for OprfModule {

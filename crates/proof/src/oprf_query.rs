@@ -289,10 +289,17 @@ impl<'a> OprfEntrypoint<'a> {
             rng,
         )?;
 
-        let rp_signature_verification = proof_request
-            .proof_type
-            .action()
-            .map(|action| RpSignatureVerification::UniquenessAction { action });
+        let rp_signature_verification = match &proof_request.proof_type {
+            ProofType::Uniqueness { action } => {
+                Some(RpSignatureVerification::UniquenessAction { action: *action })
+            }
+            ProofType::EmbeddingSimilarity(params) => {
+                Some(RpSignatureVerification::EmbeddingSimilarityAction {
+                    action: params.action,
+                })
+            }
+            ProofType::Session => None,
+        };
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: result.proof.into(),

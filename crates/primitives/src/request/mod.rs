@@ -426,8 +426,12 @@ pub struct ProofResponse {
 /// a `proof_type`. A Proof of Embedding Similarity answers with an
 /// [`EmbeddingSimilarityResponseItem`], which serializes with
 /// `"proof_type": "embedding_similarity"`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(from = "RawResponseItem", into = "RawResponseItem")]
+///
+/// Human-readable formats may order the fields freely. Binary formats put `proof_type` first,
+/// as serialization does, so that deserialization never buffers the fields: buffering would
+/// make the binary values of the proof and nullifiers look human-readable.
+#[derive(Debug, Clone, Serialize)]
+#[serde(into = "RawResponseItem")]
 pub enum ResponseItem {
     /// A Uniqueness or Session proof.
     Groth16(Groth16ResponseItem),
@@ -457,6 +461,81 @@ impl From<RawResponseItem> for ResponseItem {
                 Self::EmbeddingSimilarity(item)
             }
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for ResponseItem {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        if deserializer.is_human_readable() {
+            RawResponseItem::deserialize(deserializer).map(Self::from)
+        } else {
+            deserializer.deserialize_map(BinaryResponseItemVisitor)
+        }
+    }
+}
+
+/// Reads the `proof_type` key of a binary item, if it comes first, and decodes the fields that
+/// follow straight from the map, which keeps their binary encoding.
+struct BinaryResponseItemVisitor;
+
+impl<'de> serde::de::Visitor<'de> for BinaryResponseItemVisitor {
+    type Value = ResponseItem;
+
+    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("a response item")
+    }
+
+    fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
+    where
+        A: serde::de::MapAccess<'de>,
+    {
+        use serde::de::value::MapAccessDeserializer;
+
+        let first = map.next_key::<String>()?;
+        if first.as_deref() == Some("proof_type") {
+            let proof_type: String = map.next_value()?;
+            if proof_type != "embedding_similarity" {
+                return Err(serde::de::Error::unknown_variant(
+                    &proof_type,
+                    &["embedding_similarity"],
+                ));
+            }
+            return EmbeddingSimilarityResponseItem::deserialize(MapAccessDeserializer::new(map))
+                .map(ResponseItem::EmbeddingSimilarity);
+        }
+        Groth16ResponseItem::deserialize(MapAccessDeserializer::new(ReplayedKey { first, map }))
+            .map(ResponseItem::Groth16)
+    }
+}
+
+/// A map whose first key was already read.
+struct ReplayedKey<A> {
+    first: Option<String>,
+    map: A,
+}
+
+impl<'de, A: serde::de::MapAccess<'de>> serde::de::MapAccess<'de> for ReplayedKey<A> {
+    type Error = A::Error;
+
+    fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>, Self::Error>
+    where
+        K: serde::de::DeserializeSeed<'de>,
+    {
+        use serde::de::IntoDeserializer as _;
+        match self.first.take() {
+            Some(key) => seed.deserialize(key.into_deserializer()).map(Some),
+            None => self.map.next_key_seed(seed),
+        }
+    }
+
+    fn next_value_seed<V>(&mut self, seed: V) -> Result<V::Value, Self::Error>
+    where
+        V: serde::de::DeserializeSeed<'de>,
+    {
+        self.map.next_value_seed(seed)
     }
 }
 
