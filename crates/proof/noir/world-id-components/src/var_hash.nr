@@ -12,18 +12,21 @@ pub comptime fn safe_tag<let L: u32>(label: [u8; L], len: u32) -> Field {
     assert(L + 8 < 136, "label too long for one SHA3-256 block");
     let absorb = 0x80000000 + len;
     let mut block: [u8; 136] = [0; 136];
+    // Set absorb word
     block[0] = (absorb >> 24) as u8;
     block[1] = (absorb >> 16) as u8;
     block[2] = (absorb >> 8) as u8;
     block[3] = absorb as u8;
+    // Set squeeze word (block[4..7] are already 0, squeeze length is 32)
     block[7] = 32;
+    // Append label (domain separator)
     for i in 0..L {
         block[8 + i] = label[i];
     }
     // SHA3-256 padding for a single 136-byte block.
     block[8 + L] = 0x06;
     block[135] = block[135] | 0x80;
-
+    // Initialize Keccak state
     let mut state: [u64; 25] = [0; 25];
     for w in 0..17 {
         let mut lane: u64 = 0;
@@ -32,9 +35,10 @@ pub comptime fn safe_tag<let L: u32>(label: [u8; L], len: u32) -> Field {
         }
         state[w] = lane;
     }
+    // Perform Keccak permutation
     state = std::hash::keccakf1600(state);
 
-    // The 32-byte digest is reduced mod p, as the Rust sponge does.
+    // Reduce state to field element
     let mut tag: Field = 0;
     for w in 0..4 {
         for b in 0..8 {
@@ -44,7 +48,7 @@ pub comptime fn safe_tag<let L: u32>(label: [u8; L], len: u32) -> Field {
     tag
 }
 
-/// The tags of every length in `min_len..min_len + N`, for [`h_var`].
+/// Lookup table of SAFE capacity tags for every length in `min_len..min_len + N`, for [`h_var`].
 pub comptime fn safe_tags<let L: u32, let N: u32>(label: [u8; L], min_len: u32) -> [Field; N] {
     let mut tags = [0; N];
     for i in 0..N {
@@ -53,21 +57,32 @@ pub comptime fn safe_tags<let L: u32, let N: u32>(label: [u8; L], min_len: u32) 
     tags
 }
 
-/// `H_var` over the first `len` bytes, given as 31-byte big-endian `chunks`, the last one shorter.
-/// `tags[len - min_len]` is the input's SAFE tag, so `tags` fixes the label and the accepted
-/// lengths `min_len..min_len + N`. Range-checks `len` and requires every chunk past the input
-/// to be zero. Chunks are not checked to be canonical encodings of their bytes: a different
-/// field element is a different input, and a consumer reading bytes decodes them itself.
-pub fn h_var<let S: u32, let N: u32>(
+/// `H_var` over the first `len` bytes of `chunks`.
+///
+/// Compile-time window: `tags[i]` is the SAFE tag for length `MIN_LEN + i`, i.e. accepted
+/// lengths `MIN_LEN..MIN_LEN + N`. `chunks` must be long enough for the longest of those
+/// lengths (`MIN_LEN + N - 1` bytes).
+///
+/// Witnesses:
+/// - `chunks`: message packed as 31-byte big-endian field elements (last chunk shorter);
+///   slots past `len` must be zero. Not checked to be canonical encodings of bytes.
+/// - `len`: actual message length in bytes.
+///
+/// Rejects an empty input (matching the Rust sponge).
+pub fn h_var<let S: u32, let N: u32, let MIN_LEN: u32>(
     chunks: [Field; S],
     len: Field,
-    min_len: u32,
     tags: [Field; N],
 ) -> Field {
+    assert(
+        S * CHUNK_BYTES >= MIN_LEN + N - 1,
+        "H_var chunk buffer is shorter than its length window",
+    );
     len.assert_max_bit_size::<32>();
     let len = len as u32;
-    assert(len >= min_len, "H_var input is shorter than its bound");
-    assert(len < min_len + N, "H_var input exceeds its bound");
+    assert(len > 0, "H_var input cannot be empty");
+    assert(len >= MIN_LEN, "H_var input is shorter than its bound");
+    assert(len < MIN_LEN + N, "H_var input exceeds its bound");
     let n = (len + CHUNK_BYTES - 1) / CHUNK_BYTES;
 
     let mut active: Field = 1;
@@ -77,7 +92,7 @@ pub fn h_var<let S: u32, let N: u32>(
     }
 
     let mut state: [Field; 16] = [0; 16];
-    state[15] = tags[len - min_len];
+    state[15] = tags[len - MIN_LEN];
     for batch in 0..(S + RATE - 1) / RATE {
         // Batches past the input keep the state; their chunks are zero.
         let batch_active = (batch * RATE < n) as Field;
@@ -114,36 +129,24 @@ mod tests {
     #[test]
     fn test_matches_the_wip_100_vectors() {
         assert_eq(
-            h_var(
-                ascending::<16>(31),
-                31,
-                31,
-                [comptime { safe_tag(LABEL, 31) }],
-            ),
+            h_var::<16, 1, 31>(ascending::<16>(31), 31, [comptime { safe_tag(LABEL, 31) }]),
             12658306072862357948815044357476041793480954961275831694284480429814652585452,
         );
         assert_eq(
-            h_var(
-                ascending::<16>(32),
-                32,
-                32,
-                [comptime { safe_tag(LABEL, 32) }],
-            ),
+            h_var::<16, 1, 32>(ascending::<16>(32), 32, [comptime { safe_tag(LABEL, 32) }]),
             7105501883046959224351664232028428089815911608118705425730076057190813037341,
         );
         assert_eq(
-            h_var(
+            h_var::<16, 1, 465>(
                 ascending::<16>(465),
-                465,
                 465,
                 [comptime { safe_tag(LABEL, 465) }],
             ),
             13435504409435728907439603956434602577345452839959452028063546759536561347478,
         );
         assert_eq(
-            h_var(
+            h_var::<16, 1, 466>(
                 ascending::<16>(466),
-                466,
                 466,
                 [comptime { safe_tag(LABEL, 466) }],
             ),
@@ -151,39 +154,39 @@ mod tests {
         );
     }
 
+    #[test(should_fail_with = "H_var chunk buffer is shorter than its length window")]
+    fn test_rejects_a_chunk_buffer_shorter_than_the_window() {
+        // 32 bytes need two 31-byte chunks.
+        let _ = h_var::<1, 1, 32>(ascending::<1>(32), 32, [comptime { safe_tag(LABEL, 32) }]);
+    }
+
+    #[test(should_fail_with = "H_var input cannot be empty")]
+    fn test_rejects_an_empty_input() {
+        let _ = h_var::<16, 1, 0>(ascending::<16>(0), 0, [comptime { safe_tag(LABEL, 0) }]);
+    }
+
     #[test(should_fail_with = "H_var input is shorter than its bound")]
     fn test_rejects_a_length_below_the_bound() {
-        let _ = h_var(
-            ascending::<16>(31),
-            31,
-            32,
-            [comptime { safe_tag(LABEL, 32) }],
-        );
+        let _ = h_var::<16, 1, 32>(ascending::<16>(31), 31, [comptime { safe_tag(LABEL, 32) }]);
     }
 
     #[test(should_fail_with = "H_var input exceeds its bound")]
     fn test_rejects_a_length_above_the_bound() {
-        let _ = h_var(
-            ascending::<16>(32),
-            32,
-            31,
-            [comptime { safe_tag(LABEL, 31) }],
-        );
+        let _ = h_var::<16, 1, 31>(ascending::<16>(32), 32, [comptime { safe_tag(LABEL, 31) }]);
     }
 
     #[test(should_fail_with = "chunk past the end must be zero")]
     fn test_rejects_a_chunk_past_the_end() {
         let mut chunks = ascending::<16>(31);
         chunks[1] = 1;
-        let _ = h_var(chunks, 31, 31, [comptime { safe_tag(LABEL, 31) }]);
+        let _ = h_var::<16, 1, 31>(chunks, 31, [comptime { safe_tag(LABEL, 31) }]);
     }
 
     #[test(should_fail_with = "call to assert_max_bit_size")]
     fn test_rejects_a_length_beyond_32_bits() {
-        let _ = h_var(
+        let _ = h_var::<16, 1, 31>(
             ascending::<16>(31),
             31 + 0x100000000,
-            31,
             [comptime { safe_tag(LABEL, 31) }],
         );
     }
