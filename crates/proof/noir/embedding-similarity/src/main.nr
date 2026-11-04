@@ -108,9 +108,10 @@ fn main(
         leaf_index,
         inputs.credential,
     );
-    // The RP's minimum expiration, as in Uniqueness and Session Proofs; `verify` range-checks
-    // `expires_at`.
+    // The RP's minimum expiration, as in Uniqueness and Session Proofs. Both values are
+    // range-checked here, so the comparison runs over integers.
     expires_at_min.assert_max_bit_size::<64>();
+    inputs.credential.expires_at.assert_max_bit_size::<64>();
     assert(
         (expires_at_min as u64) < (inputs.credential.expires_at as u64),
         "credential expires too early",
