@@ -306,7 +306,9 @@ async fn main() -> Result<()> {
             None,
         )
         .await?;
-    let uniqueness_response = &uniqueness_result.proof_response.responses[0];
+    let uniqueness_response = uniqueness_result.proof_response.responses[0]
+        .as_groth16()
+        .expect("Groth16 response item");
 
     // Verify on-chain.
     info!("Verifying uniqueness proof on-chain...");
@@ -377,7 +379,9 @@ async fn main() -> Result<()> {
     let session_id_r_seed = bound_create_result
         .session_id_r_seed
         .expect("uniqueness create must return session seed");
-    let bound_response = &bound_create_result.proof_response.responses[0];
+    let bound_response = bound_create_result.proof_response.responses[0]
+        .as_groth16()
+        .expect("Groth16 response item");
     let bound_nullifier = bound_response
         .nullifier
         .expect("bound uniqueness proof should have nullifier");
@@ -442,7 +446,9 @@ async fn main() -> Result<()> {
             Some(session_id_r_seed),
         )
         .await?;
-    let session_response = &session_result.proof_response.responses[0];
+    let session_response = session_result.proof_response.responses[0]
+        .as_groth16()
+        .expect("Groth16 response item");
 
     let session_nullifier = session_response
         .session_nullifier
