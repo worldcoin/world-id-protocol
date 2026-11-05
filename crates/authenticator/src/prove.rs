@@ -37,7 +37,9 @@ fn reject_embedding_similarity(proof_request: &ProofRequest) -> Result<(), Authe
 
 /// The request item a registration proof answers (WIP-107 §4.4.1): the Proof of Embedding
 /// Similarity request's item without its signal and genesis minimum, which the Billing Contract
-/// verifies as zero.
+/// verifies as zero, and without its expiry minimum. That minimum is the RP's policy for the
+/// Proof of Embedding Similarity; the registration attests the request's `created_at` instead,
+/// which passes the verifier's freshness check whatever minimum the RP set.
 fn registration_request_item(
     proof_request: &ProofRequest,
 ) -> Result<RequestItem, AuthenticatorError> {
@@ -51,6 +53,7 @@ fn registration_request_item(
     Ok(RequestItem {
         signal: None,
         genesis_issued_at_min: None,
+        expires_at_min: None,
         ..item.clone()
     })
 }
@@ -757,7 +760,7 @@ mod tests {
     }
 
     #[test]
-    fn test_registration_request_item_drops_signal_and_genesis_minimum() {
+    fn test_registration_request_item_drops_the_rp_minima() {
         use world_id_primitives::RequestItem;
         let mut request = existing_session_request(
             SessionId::from_r_seed(
@@ -767,17 +770,24 @@ mod tests {
             )
             .expect("valid session id"),
         );
-        request.requests = vec![RequestItem::new(
-            "poh".into(),
-            1,
-            Some(b"signal".to_vec()),
-            Some(10),
-            Some(500),
-        )];
-        assert_eq!(
-            super::registration_request_item(&request).expect("one item"),
-            RequestItem::new("poh".into(), 1, None, None, Some(500))
-        );
+        request.created_at = 1_793_534_500;
+        // A stale minimum would fail the verifier's freshness check; a future one would reject
+        // credentials that are valid now.
+        for expires_at_min in [Some(0), Some(request.created_at + 365 * 86_400)] {
+            request.requests = vec![RequestItem::new(
+                "poh".into(),
+                1,
+                Some(b"signal".to_vec()),
+                Some(10),
+                expires_at_min,
+            )];
+            let item = super::registration_request_item(&request).expect("one item");
+            assert_eq!(item, RequestItem::new("poh".into(), 1, None, None, None));
+            assert_eq!(
+                item.effective_expires_at_min(request.created_at),
+                request.created_at
+            );
+        }
 
         request.requests.push(request.requests[0].clone());
         assert!(matches!(
