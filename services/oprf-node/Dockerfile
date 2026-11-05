@@ -70,5 +70,4 @@ COPY --from=core-ca-certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/cer
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/reproducible/world-id-oprf-node /app/bin
 
 USER 100
-EXPOSE 4321
 CMD ["/app/bin"]
