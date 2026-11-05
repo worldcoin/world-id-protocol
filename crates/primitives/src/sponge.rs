@@ -45,20 +45,24 @@ pub fn hash_bytes_to_field_element(
     ds: VariableLengthDomainSeparator,
     data: &[u8],
 ) -> Result<FieldElement, PrimitiveError> {
-    if data.is_empty() {
-        return Err(PrimitiveError::InvalidInput {
-            attribute: "associated_data".to_string(),
-            reason: "data cannot be empty".to_string(),
-        });
-    }
-    if data.len() > (u32::MAX as usize) {
-        return Err(PrimitiveError::InvalidInput {
-            attribute: "associated_data".to_string(),
-            reason: "data length exceeds supported range (u32::MAX)".to_string(),
-        });
-    }
+    hash_bytes_to_field_element_raw(ds.as_bytes(), data)
+}
 
-    hash_bytes_with_poseidon2_t16_r15(data, ds.as_bytes(), "associated_data")
+/// Hashes arbitrary bytes to a field element like [`hash_bytes_to_field_element`], with an
+/// unchecked raw domain separator tag.
+///
+/// **Not for protocol hashes.** Use [`hash_bytes_to_field_element`] with a separator from
+/// [`crate::poseidon::ds`] instead. This exists for hashes defined outside the protocol before
+/// [`VariableLengthDomainSeparator`] was introduced, some of which use tags it rejects (such as
+/// the empty tag), and whose outputs must not change.
+///
+/// # Errors
+/// Will error if the data is empty or longer than `u32::MAX` bytes.
+pub fn hash_bytes_to_field_element_raw(
+    tag: &[u8],
+    data: &[u8],
+) -> Result<FieldElement, PrimitiveError> {
+    hash_bytes_with_poseidon2_t16_r15(data, tag, "associated_data")
 }
 
 /// Convert arbitrary bytes into field elements using fixed-size chunks.
@@ -214,7 +218,7 @@ mod tests {
         sponge::hash_bytes_with_poseidon2_t16_r15,
     };
 
-    use super::hash_bytes_to_field_element;
+    use super::{hash_bytes_to_field_element, hash_bytes_to_field_element_raw};
 
     const TEST_DS_TAG: VariableLengthDomainSeparator =
         VariableLengthDomainSeparator::new(b"TEST_DS_TAG");
@@ -346,5 +350,43 @@ mod tests {
             );
             assert_eq!(h1, h2, "hash should be deterministic for size {size}");
         }
+    }
+
+    #[test]
+    fn raw_tag_matches_typed_separator() {
+        let data = b"some data";
+        assert_eq!(
+            hash_bytes_to_field_element_raw(TEST_DS_TAG.as_bytes(), data).unwrap(),
+            hash_bytes_to_field_element(TEST_DS_TAG, data).unwrap()
+        );
+    }
+
+    /// Pins outputs relied on outside the protocol (oxide and face-ampc face enrollment
+    /// hashes), including the empty tag that [`VariableLengthDomainSeparator`] rejects.
+    #[test]
+    fn raw_tag_outputs_are_stable() {
+        for (tag, data, expected) in [
+            (
+                &b""[..],
+                &b"hello"[..],
+                "0x0aa3b1f35812331643e4d6116ec00b7b279ef4e3ac79f5d481f3c69250be387a",
+            ),
+            (
+                b"ID_COMMITMENT_HASH_V1",
+                b"0xfeedface",
+                "0x299e43d7a6709260340fc353f1fe11a4083db8249790b8e230c29d918fd45b79",
+            ),
+        ] {
+            let hash = hash_bytes_to_field_element_raw(tag, data).unwrap();
+            assert_eq!(hash.to_string(), expected);
+        }
+    }
+
+    #[test]
+    fn raw_tag_rejects_empty_data() {
+        assert!(matches!(
+            hash_bytes_to_field_element_raw(b"", &[]),
+            Err(PrimitiveError::InvalidInput { .. })
+        ));
     }
 }
