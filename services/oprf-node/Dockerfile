@@ -18,11 +18,11 @@
 #     --output type=oci,dest=out,tar=false,rewrite-timestamp=true,force-compression=true,oci-mediatypes=true \
 #     -f services/oprf-node/Dockerfile .
 #
-# StageX release sx2026.09.0 (Rust 1.97.1). Bump all digests together.
-FROM docker.io/stagex/pallet-rust:sx2026.09.0@sha256:67f09a98d5b6f7dd99035fc81b2921c2f49f42cd5ac54f63120a3dd1db59b0d4 AS pallet-rust
-FROM docker.io/stagex/core-cmake:sx2026.09.0@sha256:75ab41e96e7142fbe667e36f482858ce190d3fe5e2bb29835cf1b153cff74d34 AS core-cmake
-FROM docker.io/stagex/core-make:sx2026.09.0@sha256:224e0158be845e591c1ebfedc3bda2495e7b45efff94674f9c5d6d8b08a59918 AS core-make
-FROM docker.io/stagex/core-ca-certificates:sx2026.09.0@sha256:fe24a3809eba30972b64ddd8b611a6494bebea7631f805d795cec4241f5a11c6 AS core-ca-certificates
+# StageX release sx2026.11.0 (Rust 1.97.1). Bump all digests together.
+FROM docker.io/stagex/pallet-rust:sx2026.11.0@sha256:4f12174acd7ccab9506e20a986c556cd5837dbd0ce616abf3031bcaaaa365590 AS pallet-rust
+FROM docker.io/stagex/core-cmake:sx2026.11.0@sha256:75ab41e96e7142fbe667e36f482858ce190d3fe5e2bb29835cf1b153cff74d34 AS core-cmake
+FROM docker.io/stagex/core-make:sx2026.11.0@sha256:224e0158be845e591c1ebfedc3bda2495e7b45efff94674f9c5d6d8b08a59918 AS core-make
+FROM docker.io/stagex/core-ca-certificates:sx2026.11.0@sha256:2e5d0da04413dfbc739f3009fe6616e90e733c463f8495ce6997b02c0832735c AS core-ca-certificates
 
 FROM pallet-rust AS toolchain
 # cmake for aws-lc-sys, make for tikv-jemalloc-sys (autotools). aws-lc-sys ships
