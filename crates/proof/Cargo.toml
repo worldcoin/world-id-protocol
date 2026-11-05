@@ -24,6 +24,10 @@ zstd-compress-zkeys = ["embed-zkeys", "dep:zstd"]
 embed-ownership-prover = ["dep:provekit-r1cs-compiler"]
 embed-ownership-verifier = ["dep:provekit-r1cs-compiler"]
 embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+# UNAUDITED. The WIP-202 Proof of Embedding Similarity artifacts; deliberately not part of
+# `embed-noir-artifacts`.
+embed-embedding-similarity-prover = ["dep:provekit-r1cs-compiler"]
+embed-embedding-similarity-verifier = ["dep:provekit-r1cs-compiler"]
 
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
@@ -86,9 +90,12 @@ provekit-r1cs-compiler = { workspace = true, optional = true }
 [dev-dependencies]
 acvm = { workspace = true }
 bn254-blackbox-solver = { workspace = true }
+hex = { workspace = true }
 lzma-rs = { workspace = true }
 postcard = { workspace = true }
+sha2 = { workspace = true }
 test-case = { workspace = true }
 toml = { workspace = true }
+world-id-flamingo = { workspace = true }
 world-id-test-utils = { workspace = true }
 zstd = { workspace = true }

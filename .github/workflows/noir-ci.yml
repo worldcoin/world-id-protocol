@@ -24,6 +24,10 @@ jobs:
             execute: false
           - package: authenticator-assertion
             execute: false
+          - package: flamingo-token
+            execute: false
+          - package: embedding-similarity
+            execute: true
     defaults:
       run:
         working-directory: ./crates/proof/noir/${{ matrix.package }}

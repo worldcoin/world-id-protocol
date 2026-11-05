@@ -22,6 +22,10 @@ pub mod circuit_inputs;
 #[cfg(test)]
 mod fixtures;
 
+/// Fixture generator for the WIP-202 Proof of Embedding Similarity circuit.
+#[cfg(test)]
+mod embedding_similarity_fixtures;
+
 pub mod compress;
 pub use compress::ProofCompression;
 pub(crate) mod oprf_query;
@@ -42,6 +46,16 @@ use provekit_common::{InputMap, InputValue, NoirElement};
 use world_id_primitives::FieldElement;
 
 pub mod ownership_proof;
+
+/// UNAUDITED. Embedded artifacts of the WIP-202 Proof of Embedding Similarity circuit.
+#[cfg(any(
+    feature = "embed-embedding-similarity-prover",
+    all(
+        not(target_arch = "wasm32"),
+        feature = "embed-embedding-similarity-verifier"
+    )
+))]
+pub mod embedding_similarity;
 
 pub use provekit_common::{
     NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,

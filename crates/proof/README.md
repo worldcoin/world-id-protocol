@@ -50,6 +50,12 @@ the verifier. Requires `nargo` on PATH at the pinned version — use `nix develo
 noirup --version v1.0.0-beta.26
 ```
 
+##### `embed-embedding-similarity-prover` / `embed-embedding-similarity-verifier`
+
+UNAUDITED. build.rs builds the WIP-202 Proof of Embedding Similarity artifacts the same way, in
+the same build script, and `embedding_similarity::{embedded_prover, embedded_verifier}` load them.
+Not part of `embed-noir-artifacts`.
+
 ##### Umbrellas
 
 - `embed-noir-artifacts` = ownership prover + verifier
