@@ -378,8 +378,6 @@ jobs:
           - advisories
           - bans licenses sources
 
-    continue-on-error: ${{ matrix.checks == 'advisories' }}
-
     # Log in to Docker Hub if a token is provided to avoid public rate limiting
     env:
       IS_DOCKER_TOKEN_SET: ${{ (secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_TOKEN != '' && secrets.DOCKER_HUB_PULL_PUBLIC_IMAGES_USERNAME != '') && 'true' || 'false' }}
