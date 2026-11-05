@@ -61,14 +61,12 @@ COPY . .
 RUN cargo fetch --locked --target "${TARGET}"
 RUN --network=none cargo build --frozen --locked --profile reproducible \
     --target "${TARGET}" --package world-id-oprf-node --bin world-id-oprf-node
-RUN mkdir -p /app/data && touch /app/data/.keep
 
 FROM scratch
 WORKDIR /app
 
 COPY --from=core-ca-certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/reproducible/world-id-oprf-node /app/bin
-COPY --from=builder --chown=100:100 /app/data /data
 
 USER 100
 EXPOSE 8080
