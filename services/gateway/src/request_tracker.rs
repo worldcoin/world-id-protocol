@@ -10,7 +10,9 @@ use crate::{
     config::RateLimitConfig,
     error::{GatewayErrorResponse, GatewayResult},
     metrics,
-    storage::request_store::{CreateRequestOutcome, RateLimitOutcome, RequestStore},
+    storage::request_store::{
+        CreateRequestOutcome, RateLimitOutcome, RequestStore, StatusGuard, StatusWriteOutcome,
+    },
 };
 
 /// Scope used to compute queued backlog stats for a specific batcher.
@@ -257,6 +259,25 @@ impl RequestTracker {
         status: &GatewayRequestState,
     ) -> GatewayResult<()> {
         self.store.update_status(id, status, now_unix_secs()).await
+    }
+
+    /// Applies a status only while the stored status is one of `allowed`.
+    ///
+    /// Returns the outcome so a caller can tell "the write landed" apart from
+    /// "another owner already advanced this request".
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the underlying Redis call fails.
+    pub(crate) async fn set_status_if(
+        &self,
+        id: &str,
+        allowed: &[StatusGuard],
+        status: GatewayRequestState,
+    ) -> GatewayResult<StatusWriteOutcome> {
+        self.store
+            .update_status_if(id, allowed, &status, now_unix_secs())
+            .await
     }
 
     // =========================================================================
