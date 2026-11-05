@@ -21,6 +21,13 @@ use crate::{
     rp::RpId,
 };
 
+#[cfg(feature = "protocol")]
+mod registration;
+#[cfg(feature = "protocol")]
+pub use registration::{
+    BillingRegistration, BillingWitness, RegistrationAuthorization, registration_period_start,
+};
+
 /// The most significant byte an RP-signed action MUST carry to authorize a billing registration
 /// (WIP-107 §4.1). Reserved for Proofs of Embedding Similarity.
 #[cfg(feature = "protocol")]
