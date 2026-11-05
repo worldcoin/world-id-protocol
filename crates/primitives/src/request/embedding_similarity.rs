@@ -11,25 +11,6 @@ use crate::{
 use alloy_primitives::Bytes;
 use serde::{Deserialize, Serialize};
 
-/// The most Flamingo configurations a request may offer, which bounds the work of validating it.
-pub const MAX_FLAMINGO_CONFIGURATIONS: usize = 16;
-
-/// A Flamingo configuration the RP accepts (WIP-202 §4.4).
-///
-/// The Authenticator picks one the Flamingo Verifier it uses offers. The RP checks that the
-/// proof's `engine_config_hash` is the hash of a configuration it accepts.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FlamingoConfiguration {
-    /// The Engine Provider whose release manifest defines the pipeline.
-    pub iss: String,
-    /// The pipeline, whose first input MUST have role `live_frame`.
-    pub pipeline_id: u16,
-    /// The match strictness level of the pipeline.
-    pub match_strictness: u8,
-    /// The lowest release `version` of the Engine Provider the RP accepts.
-    pub min_version: u64,
-}
-
 /// The parameters only a Proof of Embedding Similarity request takes (WIP-202 §4.4).
 ///
 /// The Credential policy and the `signal` are the request's single [`RequestItem`], and the
@@ -46,8 +27,6 @@ pub struct EmbeddingSimilarityParams {
     /// `R(SHA-256(challenge))` of the challenge image, which the RP computes itself. It is never
     /// zero, since zero marks an unused position of the Flamingo Token.
     pub challenge_hash: FieldElement,
-    /// The Flamingo configurations the RP accepts, from one to [`MAX_FLAMINGO_CONFIGURATIONS`].
-    pub flamingo_configurations: Vec<FlamingoConfiguration>,
     /// The AAT requirements, if the RP states any.
     pub aat: Option<AatRequirements>,
 }
@@ -57,8 +36,8 @@ impl EmbeddingSimilarityParams {
     ///
     /// # Errors
     /// Returns [`PrimitiveError::InvalidInput`] if the `action` does not carry
-    /// [`OprfPrefix::EmbeddingSimilarity`], the `challenge_hash` is zero, the number of Flamingo
-    /// configurations is out of range, or an AAT hint exceeds its width.
+    /// [`OprfPrefix::EmbeddingSimilarity`], the `challenge_hash` is zero, or an AAT hint exceeds
+    /// its width.
     pub fn validate(&self) -> Result<(), PrimitiveError> {
         if !self.action.has_prefix(OprfPrefix::EmbeddingSimilarity) {
             return Err(PrimitiveError::InvalidInput {
@@ -73,13 +52,6 @@ impl EmbeddingSimilarityParams {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "challenge_hash".to_string(),
                 reason: "must not be zero".to_string(),
-            });
-        }
-        let configurations = self.flamingo_configurations.len();
-        if !(1..=MAX_FLAMINGO_CONFIGURATIONS).contains(&configurations) {
-            return Err(PrimitiveError::InvalidInput {
-                attribute: "flamingo_configurations".to_string(),
-                reason: format!("must have 1 to {MAX_FLAMINGO_CONFIGURATIONS} entries"),
             });
         }
         self.aat.as_ref().map_or(Ok(()), AatRequirements::validate)

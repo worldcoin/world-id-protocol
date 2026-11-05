@@ -5,10 +5,7 @@
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
 mod embedding_similarity;
-pub use embedding_similarity::{
-    EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem, FlamingoConfiguration,
-    MAX_FLAMINGO_CONFIGURATIONS,
-};
+pub use embedding_similarity::{EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem};
 
 use crate::{
     FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError, SessionId,
@@ -55,8 +52,8 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 /// The high-level proof flow requested by an RP, with the parameters only that flow takes.
 ///
 /// Serialized flat into the request: `proof_type` as a snake_case name, plus `action` for
-/// uniqueness and embedding similarity proofs and, for the latter, `challenge_hash`,
-/// `flamingo_configurations` and `aat`. An absent `proof_type` means [`ProofType::Uniqueness`].
+/// uniqueness and embedding similarity proofs and, for the latter, `challenge_hash` and `aat`.
+/// An absent `proof_type` means [`ProofType::Uniqueness`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "RawProofType", into = "RawProofType")]
 pub enum ProofType {
@@ -152,8 +149,6 @@ struct RawProofType {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     challenge_hash: Option<FieldElement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    flamingo_configurations: Option<Vec<FlamingoConfiguration>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     aat: Option<AatRequirements>,
 }
 
@@ -162,10 +157,6 @@ impl RawProofType {
     fn reject_embedding_similarity_params(&self) -> Result<(), PrimitiveError> {
         let present = [
             ("challenge_hash", self.challenge_hash.is_some()),
-            (
-                "flamingo_configurations",
-                self.flamingo_configurations.is_some(),
-            ),
             ("aat", self.aat.is_some()),
         ];
         match present.into_iter().find(|(_, present)| *present) {
@@ -209,9 +200,6 @@ impl TryFrom<RawProofType> for ProofType {
                     challenge_hash: raw
                         .challenge_hash
                         .ok_or_else(|| missing_embedding_similarity_param("challenge_hash"))?,
-                    flamingo_configurations: raw.flamingo_configurations.ok_or_else(|| {
-                        missing_embedding_similarity_param("flamingo_configurations")
-                    })?,
                     aat: raw.aat,
                 }))
             }
@@ -223,19 +211,14 @@ impl From<ProofType> for RawProofType {
     fn from(proof_type: ProofType) -> Self {
         let tag = proof_type.tag();
         let action = proof_type.action();
-        let (challenge_hash, flamingo_configurations, aat) = match proof_type {
-            ProofType::EmbeddingSimilarity(params) => (
-                Some(params.challenge_hash),
-                Some(params.flamingo_configurations),
-                params.aat,
-            ),
-            ProofType::Uniqueness { .. } | ProofType::Session => (None, None, None),
+        let (challenge_hash, aat) = match proof_type {
+            ProofType::EmbeddingSimilarity(params) => (Some(params.challenge_hash), params.aat),
+            ProofType::Uniqueness { .. } | ProofType::Session => (None, None),
         };
         Self {
             proof_type: tag,
             action,
             challenge_hash,
-            flamingo_configurations,
             aat,
         }
     }
