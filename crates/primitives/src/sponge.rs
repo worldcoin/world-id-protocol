@@ -48,16 +48,13 @@ pub fn hash_bytes_to_field_element(
     hash_bytes_to_field_element_raw(ds.as_bytes(), data)
 }
 
-/// Hashes arbitrary bytes to a field element like [`hash_bytes_to_field_element`], with an
-/// unchecked raw domain separator tag.
+/// Like [`hash_bytes_to_field_element`], with an unchecked domain separator tag.
 ///
-/// **Not for protocol hashes.** Use [`hash_bytes_to_field_element`] with a separator from
-/// [`crate::poseidon::ds`] instead. This exists for hashes defined outside the protocol before
-/// [`VariableLengthDomainSeparator`] was introduced, some of which use tags it rejects (such as
-/// the empty tag), and whose outputs must not change.
+/// For non-protocol hashes using tags [`VariableLengthDomainSeparator`] rejects (such as the
+/// empty tag); protocol hashes use [`hash_bytes_to_field_element`] with [`crate::poseidon::ds`].
 ///
 /// # Errors
-/// Will error if the data is empty or longer than `u32::MAX` bytes.
+/// Will error if `data` is empty or longer than `u32::MAX` bytes.
 pub fn hash_bytes_to_field_element_raw(
     tag: &[u8],
     data: &[u8],
@@ -361,8 +358,7 @@ mod tests {
         );
     }
 
-    /// Pins outputs relied on outside the protocol (oxide and face-ampc face enrollment
-    /// hashes), including the empty tag that [`VariableLengthDomainSeparator`] rejects.
+    /// Pins oxide and face-ampc face enrollment hashes, including the empty tag.
     #[test]
     fn raw_tag_outputs_are_stable() {
         for (tag, data, expected) in [
