@@ -234,7 +234,7 @@ pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
     pub key_index: u64,
     /// Private input. The full authenticator key set for the user's World ID
     pub key_set: AuthenticatorPublicKeySet,
-    /// Private input (**except** the `merkle_root` and `depth`). The inclusion proof in the `WorldIDRegistry`
+    /// Private input (**except** the `merkle_root`). The inclusion proof in the `WorldIDRegistry`
     pub inclusion_proof: MerkleInclusionProof<MAX_DEPTH>,
     /// **Public input**. The nonce of the proof request as provided by the verifier.
     pub nonce: FieldElement,
