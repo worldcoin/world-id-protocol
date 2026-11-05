@@ -124,10 +124,7 @@ pub struct BillingRegistration {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        EmbeddingSimilarityParams, FlamingoConfiguration, OprfPrefix, RequestItem, SessionRef,
-        rp::RpId,
-    };
+    use crate::{EmbeddingSimilarityParams, OprfPrefix, RequestItem, SessionRef, rp::RpId};
     use alloy_primitives::{Address, U256};
     use ruint::uint;
 
@@ -144,12 +141,6 @@ mod tests {
             proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
                 action,
                 challenge_hash: FieldElement::from(7u64),
-                flamingo_configurations: vec![FlamingoConfiguration {
-                    iss: "https://engine.example".into(),
-                    pipeline_id: 1,
-                    match_strictness: 1,
-                    min_version: 1,
-                }],
                 aat: None,
             }),
             created_at: 1_793_534_500,
