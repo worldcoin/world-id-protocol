@@ -33,10 +33,14 @@ The image is built from `services/oprf-node/Dockerfile` on [StageX](https://stag
 full-source-bootstrapped, digest-pinned musl/LLVM toolchain. The image manifest digest is a pure
 function of the git commit: the `Build OPRF Node Docker Image` workflow builds the image on two
 independent runners with no cache, refuses to push unless both digests match, and pushes the OCI
-layout as-is with `crane` so the registry digest equals the locally computed one. The agreed
-digest and the exact rebuild command are written to the job summary.
+layout as-is with `crane` so the registry digest equals the locally computed one.
 
-To rebuild locally and compare against a published digest (linux/amd64, BuildKit v0.33.1):
+To reproduce a published image, use the run summary of the workflow run that built it: it contains
+the agreed digest, a `docker buildx create` command for the pinned BuildKit, and a copy-paste
+rebuild command including the OCI labels, which are part of the image config and therefore of
+the digest.
+
+To compare two local builders without those labels (linux/amd64, BuildKit v0.33.1):
 
 ```sh
 SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) docker buildx build \
@@ -47,6 +51,5 @@ SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) docker buildx build \
 jq -r '.manifests[0].digest' out/index.json
 ```
 
-Note that CI additionally sets the OCI labels from `docker/metadata-action`, which are part of the
-image config and therefore of the digest; a local build without those labels yields a different
-manifest digest but identical layers.
+A build without the labels yields a different manifest digest than the published image but
+identical layers.

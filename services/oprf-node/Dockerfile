@@ -5,7 +5,13 @@
 # by digest, the build runs offline after `cargo fetch`, and the resulting image
 # manifest digest is a function of the git commit. linux/amd64 only.
 #
-# Build from the repo root (digest must match across independent builders):
+# To reproduce a published image, use the commands in the "Build OPRF Node
+# Docker Image" run summary: they set up the pinned BuildKit (BUILDKIT_IMAGE in
+# .github/workflows/build-docker-oprf-node.yml) and pass the workflow's labels,
+# which are part of the image config.
+#
+# Build from the repo root without those labels, e.g. to compare two local
+# builders (matches the other builder, not the published digest):
 #   SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) docker buildx build \
 #     --platform linux/amd64 --provenance=false --sbom=false --no-cache \
 #     --build-arg GIT_HASH=$(git rev-parse HEAD) \
