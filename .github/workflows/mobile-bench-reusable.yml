@@ -91,6 +91,11 @@ on:
         required: false
         type: boolean
         default: false
+      retry_skipped_sessions:
+        description: "Fresh BrowserStack builds to schedule per function when a device session is skipped"
+        required: false
+        type: string
+        default: "2"
       requested_by:
         description: "Who triggered the run"
         required: false
@@ -288,6 +293,7 @@ jobs:
           DEVICE_SPECS: ${{ steps.resolve_device.outputs.device_specs }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
+          RETRY_SKIPPED_SESSIONS: ${{ inputs.retry_skipped_sessions }}
         run: |
           set -euo pipefail
           device_args=()
@@ -313,6 +319,7 @@ jobs:
             --ios-completion-timeout-secs "${IOS_COMPLETION_TIMEOUT_SECS}" \
             --fetch \
             --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
+            --retry-skipped-sessions "${RETRY_SKIPPED_SESSIONS}" \
             --output-dir target/mobench/ci/ios
 
       - name: Validate iOS benchmark outputs
@@ -534,6 +541,7 @@ jobs:
           DEVICE_SPECS: ${{ steps.resolve_device.outputs.device_specs }}
           RELEASE_FLAG: ${{ inputs.build_release && '--release' || '' }}
           CRATE_PATH: ${{ inputs.crate_path }}
+          RETRY_SKIPPED_SESSIONS: ${{ inputs.retry_skipped_sessions }}
         run: |
           set -euo pipefail
           device_args=()
@@ -558,6 +566,7 @@ jobs:
             $RELEASE_FLAG \
             --fetch \
             --fetch-timeout-secs "${FETCH_TIMEOUT_SECS}" \
+            --retry-skipped-sessions "${RETRY_SKIPPED_SESSIONS}" \
             --output-dir target/mobench/ci/android
 
       - name: Validate Android benchmark outputs
