@@ -10,16 +10,6 @@ on:
       - "world-id-gateway-v*"
       - "world-id-relay-v*"
   workflow_dispatch:
-  workflow_call:
-    inputs:
-      service:
-        description: "Service to build (e.g. oprf-node)"
-        required: true
-        type: string
-      version:
-        description: "Version tag including v prefix (e.g. v1.0.0)"
-        required: true
-        type: string
 
 permissions:
   contents: read
@@ -36,11 +26,8 @@ jobs:
         env:
           REF_TYPE: ${{ github.ref_type }}
           REF_NAME: ${{ github.ref_name }}
-          INPUT_SERVICE: ${{ inputs.service }}
         run: |
-          if [[ -n "$INPUT_SERVICE" ]]; then
-            echo "services=[\"$INPUT_SERVICE\"]" >> "$GITHUB_OUTPUT"
-          elif [[ "$REF_TYPE" == "branch" ]]; then
+          if [[ "$REF_TYPE" == "branch" ]]; then
             echo 'services=["indexer","gateway","relay"]' >> "$GITHUB_OUTPUT"
           elif [[ "$REF_NAME" == world-id-indexer-v* ]]; then
             echo 'services=["indexer"]' >> "$GITHUB_OUTPUT"
@@ -73,15 +60,9 @@ jobs:
 
       - name: Resolve version
         id: tag
-        if: github.ref_type == 'tag' || inputs.version != ''
-        env:
-          INPUT_VERSION: ${{ inputs.version }}
+        if: github.ref_type == 'tag'
         run: |
-          if [[ -n "$INPUT_VERSION" ]]; then
-            VERSION="$INPUT_VERSION"
-          else
-            VERSION="${GITHUB_REF_NAME#world-id-${{ matrix.service }}-}"
-          fi
+          VERSION="${GITHUB_REF_NAME#world-id-${{ matrix.service }}-}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           # latest only for stable releases (no pre-release suffix like -alpha, -rc.1)
           if [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -96,7 +77,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}/world-id-${{ matrix.service }}
           tags: |
-            type=raw,value=latest,enable=${{ (github.ref == 'refs/heads/main' && inputs.version == '') || steps.tag.outputs.is_stable == 'true' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || steps.tag.outputs.is_stable == 'true' }}
             type=sha
             type=raw,value=${{ steps.tag.outputs.version }},enable=${{ steps.tag.outputs.version != '' }}
 
@@ -132,7 +113,7 @@ jobs:
           subject-digest: ${{ steps.docker_build.outputs.digest }}
 
       - name: Trigger staging deploy
-        if: (github.ref_type == 'tag' || inputs.version != '') && matrix.service != 'oprf-node'
+        if: github.ref_type == 'tag'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 https://github.com/actions/github-script/releases/tag/v9.0.0
         env:
           SERVICE: ${{ matrix.service }}

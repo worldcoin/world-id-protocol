@@ -52,6 +52,7 @@ ENV RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-Wl,--build-id=none"
 FROM toolchain AS builder
 # Embedded via `taceo_nodes_common::version_info!()`; a function of the commit.
 ARG GIT_HASH
+RUN test -n "$GIT_HASH" || (echo "ERROR: build-arg GIT_HASH is required" && exit 1)
 ENV GIT_HASH=$GIT_HASH
 WORKDIR /app
 # look at .dockerignore if this does not copy what you want
@@ -69,5 +70,5 @@ COPY --from=core-ca-certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/cer
 COPY --from=builder /app/target/x86_64-unknown-linux-musl/reproducible/world-id-oprf-node /app/bin
 
 USER 100
-EXPOSE 8080
+EXPOSE 4321
 CMD ["/app/bin"]
