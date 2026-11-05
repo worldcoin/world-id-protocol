@@ -44,6 +44,8 @@ RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /app/recipe.json recipe.json
+# cargo-chef's recipe does not include excluded path dependencies.
+COPY --from=planner /app/patches patches
 RUN cargo chef cook --release --target x86_64-unknown-linux-musl --recipe-path recipe.json --package $SERVICE_NAME
 COPY . .
 

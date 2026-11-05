@@ -1,1 +1,4 @@
 contracts/out/**/*.json linguist-generated
+patches/testcontainers/** linguist-vendored
+patches/semaphore-rs-storage/** linguist-vendored
+patches/semaphore-rs-trees/** linguist-vendored

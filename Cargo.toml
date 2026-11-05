@@ -21,6 +21,18 @@ members = [
 ]
 
 resolver = "2"
+exclude = [
+  "patches/testcontainers",
+  "patches/semaphore-rs-storage",
+  "patches/semaphore-rs-trees",
+]
+
+# Temporary dependency fixes; provenance and removal criteria are in patches/README.md.
+[patch.crates-io]
+testcontainers = { path = "patches/testcontainers" }
+semaphore-rs-storage = { path = "patches/semaphore-rs-storage" }
+semaphore-rs-trees = { path = "patches/semaphore-rs-trees" }
+wasmtimer = { git = "https://github.com/whizsid/wasmtimer-rs", rev = "ec8e518dfd7056b03e309c7776cb1371869c1487" }
 
 [workspace.package]
 edition = "2024"
@@ -33,7 +45,7 @@ authors = [
 ]
 homepage = "https://docs.world.org/world-id"
 repository = "https://github.com/worldcoin/world-id-protocol"
-rust-version = "1.91"
+rust-version = "1.94.1"
 
 [workspace.lints.clippy]
 all = { level = "deny", priority = -1 }
