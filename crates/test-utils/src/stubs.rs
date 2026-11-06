@@ -196,7 +196,6 @@ impl MutableIndexerStub {
 }
 
 async fn spawn_orpf_node(
-    id: usize,
     anvil: &TestAnvil,
     secret_manager: taceo_oprf::service::secret_manager::SecretManagerService,
     world_id_registry_contract: Address,
@@ -204,8 +203,15 @@ async fn spawn_orpf_node(
     credential_schema_issuer_registry_contract: Address,
     billing: Option<BillingContractConfig>,
 ) -> String {
-    let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
-    let bind_addr = format!("0.0.0.0:1{id:04}");
+    // An OS-assigned port: tests spawning nodes run concurrently in separate processes.
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0")
+        .await
+        .expect("Can bind listener");
+    let port = listener
+        .local_addr()
+        .expect("Can read listener address")
+        .port();
+    let url = format!("http://localhost:{port}");
     let contracts = WorldIdNodeContracts {
         world_id_registry_contract,
         rp_registry_contract,
@@ -229,9 +235,6 @@ async fn spawn_orpf_node(
 
         let router = world_id_oprf_node::start(config, secret_manager, &node_information)
             .expect("Can start");
-        let listener = tokio::net::TcpListener::bind(bind_addr)
-            .await
-            .expect("Can bind listener");
         let res = axum::serve(listener, router)
             .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
             .await;
@@ -285,9 +288,8 @@ pub async fn spawn_oprf_nodes_with_billing(
         secret_manager3,
         secret_manager4,
     ] = secret_managers;
-    let spawn = |id, secret_manager| {
+    let spawn = |secret_manager| {
         spawn_orpf_node(
-            id,
             anvil,
             secret_manager,
             world_id_registry_contract,
@@ -297,11 +299,11 @@ pub async fn spawn_oprf_nodes_with_billing(
         )
     };
     tokio::join!(
-        spawn(0, secret_manager0),
-        spawn(1, secret_manager1),
-        spawn(2, secret_manager2),
-        spawn(3, secret_manager3),
-        spawn(4, secret_manager4),
+        spawn(secret_manager0),
+        spawn(secret_manager1),
+        spawn(secret_manager2),
+        spawn(secret_manager3),
+        spawn(secret_manager4),
     )
     .into()
 }
