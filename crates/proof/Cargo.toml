@@ -64,6 +64,8 @@ once_cell = { workspace = true }
 zeroize = { workspace = true }
 
 # Internal
+# Only the test fixtures use it so far; see the TODO in src/lib.rs.
+world-id-flamingo = { workspace = true }
 world-id-primitives = { workspace = true }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -97,6 +99,5 @@ postcard = { workspace = true }
 sha2 = { workspace = true }
 test-case = { workspace = true }
 toml = { workspace = true }
-world-id-flamingo = { workspace = true }
 world-id-test-utils = { workspace = true }
 zstd = { workspace = true }
