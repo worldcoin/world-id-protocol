@@ -2,6 +2,10 @@
 
 // Enforce the portable transcript version even though ProveKit uses Spongefish indirectly.
 use spongefish as _;
+// TODO: remove this line once the crate uses world-id-flamingo (#1177). Only the test fixtures use
+// it so far; it is a normal dependency so that release-plz, which orders crates by their normal
+// dependencies, publishes world-id-flamingo before this crate.
+use world_id_flamingo as _;
 
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use groth16_material::Groth16Error;
