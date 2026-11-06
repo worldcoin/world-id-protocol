@@ -1,11 +1,15 @@
 //! Unified batcher abstraction: generic policy-driven runner, per-batcher
 //! strategies, and the public handle/command routing layer.
 
+mod billing;
 mod create;
 mod ops;
 
-pub(crate) use create::{CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope};
-pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope};
+pub(crate) use billing::{BillingBatcherHandle, BillingBatcherRunner, BillingStrategy};
+pub(crate) use create::{
+    CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope, CreateStrategy,
+};
+pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope, OpsStrategy};
 
 use std::{collections::VecDeque, sync::Arc, time::Duration};
 
@@ -34,6 +38,8 @@ use crate::{
 pub struct BatcherHandle {
     pub create: CreateBatcherHandle,
     pub ops: OpsBatcherHandle,
+    /// `None` when no Billing Contract is configured.
+    pub billing: Option<BillingBatcherHandle>,
 }
 
 impl BatcherHandle {
@@ -54,14 +60,35 @@ impl BatcherHandle {
                 };
                 self.ops.tx.send(envelope).await.is_ok()
             }
+            Command::RegisterBilling { id, calldata } => {
+                let Some(billing) = &self.billing else {
+                    return false;
+                };
+                let envelope = OpsEnvelope {
+                    id: id.to_string(),
+                    calldata,
+                };
+                billing.tx.send(envelope).await.is_ok()
+            }
         }
     }
 }
 
 /// Unified command type for all batcher operations.
 pub enum Command {
-    CreateAccount { id: Uuid, req: CreateAccountRequest },
-    Operation { id: Uuid, calldata: Bytes },
+    CreateAccount {
+        id: Uuid,
+        req: CreateAccountRequest,
+    },
+    Operation {
+        id: Uuid,
+        calldata: Bytes,
+    },
+    /// A `WorldIDBilling.register` call, batched apart from registry operations.
+    RegisterBilling {
+        id: Uuid,
+        calldata: Bytes,
+    },
 }
 
 impl Command {
@@ -73,6 +100,11 @@ impl Command {
     /// Create a new operation command (insert/update/remove/recover).
     pub fn operation(id: Uuid, calldata: Bytes) -> Self {
         Self::Operation { id, calldata }
+    }
+
+    /// Create a new billing registration command.
+    pub fn register_billing(id: Uuid, calldata: Bytes) -> Self {
+        Self::RegisterBilling { id, calldata }
     }
 }
 
@@ -104,7 +136,7 @@ impl PendingBatchTx {
 /// Strategy trait that captures the only per-batcher differences:
 ///   - batch label / backlog scope (for metrics / policy)
 ///   - the actual on-chain send call
-pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + Default + 'static {
+pub(crate) trait BatchSubmitStrategy<E: BatcherEnvelope>: Send + 'static {
     fn batch_type(&self) -> &'static str;
     fn backlog_scope(&self) -> BacklogScope;
 
@@ -156,6 +188,7 @@ where
         batch_policy: BatchPolicyConfig,
         base_fee_cache: BaseFeeCache,
         tx_send_lock: Arc<Mutex<()>>,
+        strategy: S,
     ) -> Self {
         Self {
             rx,
@@ -166,7 +199,7 @@ where
             batch_policy,
             base_fee_cache,
             tx_send_lock,
-            strategy: S::default(),
+            strategy,
         }
     }
 

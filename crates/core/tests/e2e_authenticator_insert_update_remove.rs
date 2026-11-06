@@ -124,6 +124,7 @@ async fn e2e_authenticator_insert_update_remove() {
     let gateway_config = GatewayConfig {
         registry_addr: registry_address,
         registry_version: RegistryVersion::V1,
+        billing_addr: None,
         provider: world_id_gateway::ProviderArgs {
             http: vec![anvil.endpoint().parse().unwrap()],
             signer: signer_args,
