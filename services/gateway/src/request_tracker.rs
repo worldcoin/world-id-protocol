@@ -22,6 +22,8 @@ pub enum BacklogScope {
     Create,
     /// Include only ops requests (insert/update/remove/recover).
     Ops,
+    /// Include only billing registrations.
+    Billing,
 }
 
 pub fn now_unix_secs() -> u64 {
@@ -408,5 +410,6 @@ fn matches_scope(kind: GatewayRequestKind, scope: BacklogScope) -> bool {
                 | GatewayRequestKind::ExecuteRecoveryAgentUpdate
                 | GatewayRequestKind::RecoverAccount
         ),
+        BacklogScope::Billing => matches!(kind, GatewayRequestKind::RegisterBilling),
     }
 }

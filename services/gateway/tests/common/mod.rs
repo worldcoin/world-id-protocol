@@ -101,6 +101,7 @@ async fn spawn_test_gateway_for_registry(
         None => GatewayConfig {
             registry_addr,
             registry_version,
+            billing_addr: None,
             provider: ProviderArgs {
                 http: vec![rpc_url.parse().unwrap()],
                 signer: signer_args,
@@ -124,6 +125,7 @@ async fn spawn_test_gateway_for_registry(
             GatewayConfig {
                 registry_addr,
                 registry_version,
+                billing_addr: None,
                 provider: ProviderArgs {
                     http: vec![rpc_url.parse().unwrap()],
                     signer: signer_args,

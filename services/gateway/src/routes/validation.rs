@@ -5,21 +5,26 @@ use alloy::{
     primitives::{Address, Bytes, Signature, TxKind, U256},
     providers::Provider,
     rpc::types::{BlockId, TransactionRequest},
-    sol_types::{Eip712Domain, SolStruct, eip712_domain},
+    sol_types::{Eip712Domain, SolCall, SolStruct, eip712_domain},
 };
 use axum::http::StatusCode;
 use world_id_primitives::{
+    FieldElement,
     api_types::{
         CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
         GatewayErrorCode, InsertAuthenticatorRequest, RecoverAccountRequest,
         RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
     },
+    billing::BillingRegistration,
     decode_authenticator_pubkey,
 };
-use world_id_registries::world_id::{
-    CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
-    InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
-    UpdateAuthenticatorTypedData, WorldIdRegistryV2::WorldIdRegistryV2Instance,
+use world_id_registries::{
+    world_id::{
+        CancelRecoveryAgentUpdateTypedData, InitiateRecoveryAgentUpdateTypedData,
+        InsertAuthenticatorTypedData, RecoverAccountTypedData, RemoveAuthenticatorTypedData,
+        UpdateAuthenticatorTypedData, WorldIdRegistryV2::WorldIdRegistryV2Instance,
+    },
+    world_id_billing::{IWorldIDBilling, WorldIdBilling},
 };
 
 use crate::{
@@ -76,15 +81,7 @@ pub(crate) trait RequestValidation: Sized + Sync {
     ) -> impl Future<Output = Result<Bytes, GatewayErrorResponse>> + Send {
         async move {
             let registry = ctx.registry.as_ref();
-            let chain_id = *CHAIN_ID
-                .get_or_try_init(|| async {
-                    registry
-                        .provider()
-                        .get_chain_id()
-                        .await
-                        .map_err(|_| GatewayErrorResponse::internal_server_error())
-                })
-                .await?;
+            let chain_id = chain_id(registry.provider()).await?;
             let pre_flight_ctx = PreFlightContext {
                 chain_id,
                 verifying_contract: *registry.address(),
@@ -97,6 +94,19 @@ pub(crate) trait RequestValidation: Sized + Sync {
             Ok(calldata)
         }
     }
+}
+
+/// The chain ID, fetched once.
+async fn chain_id(provider: &impl Provider) -> Result<u64, GatewayErrorResponse> {
+    CHAIN_ID
+        .get_or_try_init(|| async {
+            provider
+                .get_chain_id()
+                .await
+                .map_err(|_| GatewayErrorResponse::internal_server_error())
+        })
+        .await
+        .copied()
 }
 
 async fn simulate_calldata(
@@ -656,6 +666,139 @@ impl RequestValidation for RecoverAccountRequest {
             .calldata()
             .clone()
     }
+}
+
+// =============================================================================
+// BillingRegistration (WIP-107)
+// =============================================================================
+
+/// ABI-encodes `WorldIDBilling.register` for `registration`.
+fn billing_register_calldata(registration: &BillingRegistration) -> Bytes {
+    let BillingRegistration {
+        scope,
+        authorization,
+        issuer_schema_id,
+        expires_at_min,
+        billing_nullifier,
+        proof,
+    } = registration;
+    WorldIdBilling::registerCall {
+        scope: IWorldIDBilling::BillingContext {
+            chainId: scope.chain_id,
+            billingContract: scope.billing_contract,
+            rpId: scope.rp_id.into_inner(),
+            periodStart: scope.period_start,
+        },
+        authorization: IWorldIDBilling::RegistrationAuthorization {
+            version: authorization.version as u8,
+            oprfKeyId: authorization.oprf_key_id.into_inner(),
+            nonce: authorization.nonce.into(),
+            createdAt: authorization.created_at,
+            expiresAt: authorization.expires_at,
+            signedAction: authorization.signed_action.into(),
+            signature: authorization.signature.as_bytes().into(),
+            wip101Data: authorization.wip101_data.clone(),
+        },
+        issuerSchemaId: *issuer_schema_id,
+        expiresAtMin: *expires_at_min,
+        billingNullifier: (*billing_nullifier).into(),
+        proof: proof.as_ethereum_representation(),
+    }
+    .abi_encode()
+    .into()
+}
+
+impl RequestValidation for BillingRegistration {
+    /// Checks what the Billing Contract would reject without verifying the proof.
+    fn pre_flight(&self, ctx: PreFlightContext) -> Result<(), GatewayErrorResponse> {
+        if self.scope.chain_id != U256::from(ctx.chain_id) {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "scope.chain_id is not the gateway's chain".to_string(),
+            ));
+        }
+        if self.billing_nullifier == FieldElement::ZERO {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "billing_nullifier cannot be zero".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    fn calldata(&self, _registry: &Registry) -> Bytes {
+        billing_register_calldata(self)
+    }
+
+    /// Simulates `register` against the Billing Contract instead of the registry, and rejects a
+    /// registration that would be a no-op because its nullifier is already registered.
+    async fn validate_and_calldata(
+        &self,
+        ctx: &GatewayContext,
+    ) -> Result<Bytes, GatewayErrorResponse> {
+        let billing = ctx.billing.as_deref().ok_or_else(|| {
+            GatewayErrorResponse::new(
+                GatewayErrorCode::MethodNotAvailable,
+                "POST /register-billing requires a Billing Contract (BILLING_ADDRESS)".to_string(),
+                StatusCode::NOT_IMPLEMENTED,
+            )
+        })?;
+        if self.scope.billing_contract != *billing.address() {
+            return Err(GatewayErrorResponse::bad_request_message(
+                "scope.billing_contract is not the gateway's Billing Contract".to_string(),
+            ));
+        }
+        let chain_id = chain_id(billing.provider()).await?;
+        self.pre_flight(PreFlightContext {
+            chain_id,
+            verifying_contract: *billing.address(),
+            registry_version: ctx.registry_version,
+        })?;
+
+        // Checked before simulating: resending a registration reuses its nonce, which `register`
+        // rejects before it reaches the duplicate check.
+        let billing_nullifier: U256 = self.billing_nullifier.into();
+        let registered = billing
+            .isRegistered(billing_nullifier)
+            .call()
+            .await
+            .map_err(|err| {
+                tracing::error!(error = %err, "failed to read the billing registration");
+                GatewayErrorResponse::internal_server_error()
+            })?;
+        if registered {
+            return Err(already_registered());
+        }
+
+        let calldata = billing_register_calldata(self);
+        let tx = TransactionRequest {
+            to: Some(TxKind::Call(*billing.address())),
+            input: calldata.clone().into(),
+            ..Default::default()
+        };
+        let output = billing
+            .provider()
+            .call(tx)
+            .block(BlockId::default())
+            .await
+            .map_err(GatewayErrorResponse::from_simulation_error)?;
+        let registers =
+            WorldIdBilling::registerCall::abi_decode_returns(&output).map_err(|err| {
+                tracing::error!(error = %err, "failed to decode the register simulation");
+                GatewayErrorResponse::internal_server_error()
+            })?;
+        // `register` returns false for a nullifier registered since the check above.
+        if !registers {
+            return Err(already_registered());
+        }
+        Ok(calldata)
+    }
+}
+
+fn already_registered() -> GatewayErrorResponse {
+    GatewayErrorResponse::new(
+        GatewayErrorCode::BillingNullifierAlreadyRegistered,
+        "billing_nullifier is already registered".to_string(),
+        StatusCode::CONFLICT,
+    )
 }
 
 #[cfg(test)]

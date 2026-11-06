@@ -342,6 +342,8 @@ pub enum GatewayRequestKind {
     ExecuteRecoveryAgentUpdate,
     /// Account recovery request.
     RecoverAccount,
+    /// WIP-107 billing registration (`WorldIDBilling.register`).
+    RegisterBilling,
 }
 
 /// Tracking state for a registry gateway request.
@@ -696,6 +698,8 @@ pub enum GatewayErrorCode {
     /// registry version (e.g. a WIP-102 V2-only route hit while the registry
     /// is still on V1). Mirrors the contract-level `MethodUnsupported()` revert.
     MethodNotAvailable,
+    /// The billing nullifier is already registered, so `WorldIDBilling.register` would be a no-op.
+    BillingNullifierAlreadyRegistered,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).

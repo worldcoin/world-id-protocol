@@ -522,3 +522,54 @@ async fn test_same_authenticator_different_accounts() {
         "Error should indicate 'authenticator already exists', got: {error_msg}"
     );
 }
+
+/// Without a Billing Contract, `/register-billing` is unavailable instead of failing on-chain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_register_billing_without_billing_contract() {
+    use world_id_primitives::{
+        FieldElement, ZeroKnowledgeProof,
+        api_types::GatewayErrorCode,
+        billing::{BillingContext, BillingRegistration, RegistrationAuthorization},
+        request::RequestVersion,
+        rp::RpId,
+    };
+
+    let gw = spawn_test_gateway(None).await;
+    let registration = BillingRegistration {
+        scope: BillingContext {
+            chain_id: U256::from(gw.chain_id),
+            billing_contract: Address::repeat_byte(0xb1),
+            rp_id: RpId::new(1),
+            period_start: 1_793_534_400,
+        },
+        authorization: RegistrationAuthorization {
+            version: RequestVersion::V1,
+            oprf_key_id: world_id_primitives::OprfKeyId::new(alloy::primitives::U160::from(1u64)),
+            nonce: FieldElement::from(1u64),
+            created_at: 1,
+            expires_at: 2,
+            signed_action: FieldElement::from(3u64),
+            signature: alloy::signers::Signature::new(U256::from(1u64), U256::from(2u64), false),
+            wip101_data: Default::default(),
+        },
+        issuer_schema_id: 1,
+        expires_at_min: 1,
+        billing_nullifier: FieldElement::from(7u64),
+        proof: ZeroKnowledgeProof::default(),
+    };
+
+    let resp = gw
+        .client
+        .post(format!("{}/register-billing", gw.base_url))
+        .json(&registration)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(
+        body["code"],
+        GatewayErrorCode::MethodNotAvailable.to_string(),
+        "{body}"
+    );
+}

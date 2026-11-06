@@ -128,6 +128,11 @@ pub struct GatewayConfig {
     #[arg(long, env = "REGISTRY_VERSION")]
     pub registry_version: RegistryVersion,
 
+    /// The address of the WIP-107 `WorldIDBilling` contract. Unset, `/register-billing` is
+    /// unavailable.
+    #[arg(long, env = "BILLING_ADDRESS")]
+    pub billing_addr: Option<Address>,
+
     /// The HTTP RPC endpoint to submit transactions
     #[command(flatten)]
     pub provider: ProviderArgs,
@@ -197,6 +202,12 @@ impl GatewayConfig {
                 "exactly one of --wallet-private-key, --aws-kms-key-id, or \
                  --aws-kms-key-ids must be provided"
                     .to_string(),
+            ));
+        }
+
+        if self.billing_addr == Some(Address::ZERO) {
+            return Err(GatewayError::Config(
+                "BILLING_ADDRESS must not be the zero address".to_string(),
             ));
         }
 
