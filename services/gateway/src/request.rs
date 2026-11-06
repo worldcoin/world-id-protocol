@@ -488,21 +488,11 @@ impl Request<BillingRegistration> {
         // Validation already required a relay.
         let relay = ctx
             .billing
-            .clone()
+            .as_ref()
             .ok_or_else(GatewayErrorResponse::internal_server_error)?;
-        let permit = relay.reserve()?;
-        ctx.tracker
-            .new_request_with_id(id.to_string(), kind, payload.inflight_keys())
+        let tx_hash = relay
+            .submit(id, kind, payload.inflight_keys(), calldata)
             .await?;
-        // Spawned so that a request timeout cannot interrupt the send between broadcasting the
-        // transaction and recording it.
-        let tx_hash =
-            tokio::spawn(async move { relay.send(id.to_string(), calldata, permit).await })
-                .await
-                .map_err(|err| {
-                    tracing::error!(request_id = %id, error = %err, "billing send task failed");
-                    GatewayErrorResponse::internal_server_error()
-                })??;
         Ok(SubmittedRequest {
             id,
             kind,

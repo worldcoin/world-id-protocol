@@ -157,6 +157,7 @@ pub(crate) async fn build_app(
             )),
             tracker.clone(),
             tx_send_lock.clone(),
+            Duration::from_secs(request_timeout_secs),
         )
     });
 
