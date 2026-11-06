@@ -104,6 +104,8 @@ impl BillingRelay {
         let task = tokio::spawn(async move {
             let _permit = permit;
             let deadline = received_at + relay.lock_deadline;
+            // `timeout_at` polls the lock before the deadline, so a free lock is taken even past
+            // it: only a registration that would have to wait is rejected.
             let _send_guard = tokio::time::timeout_at(deadline, relay.tx_send_lock.lock())
                 .await
                 .map_err(|_| busy("The gateway is busy sending transactions."))?;
@@ -207,4 +209,23 @@ fn busy(reason: &str) -> GatewayErrorResponse {
         format!("{reason} Please try again."),
         StatusCode::SERVICE_UNAVAILABLE,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use tokio::{sync::Mutex, time::Instant};
+
+    /// `submit` relies on it: a registration whose validation outlasted the lock deadline is still
+    /// sent while the lock is free.
+    #[tokio::test]
+    async fn a_free_lock_is_taken_past_the_deadline() {
+        let lock = Mutex::new(());
+        let past = Instant::now() - Duration::from_secs(1);
+        assert!(tokio::time::timeout_at(past, lock.lock()).await.is_ok());
+
+        let _held = lock.lock().await;
+        assert!(tokio::time::timeout_at(past, lock.lock()).await.is_err());
+    }
 }
