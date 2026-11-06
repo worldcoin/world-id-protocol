@@ -4,7 +4,9 @@ use crate::{
     AppState,
     batch_policy::{BaseFeeCache, spawn_base_fee_sampler},
     batcher::{
-        BatcherHandle, CreateBatcherHandle, CreateBatcherRunner, OpsBatcherHandle, OpsBatcherRunner,
+        BatcherHandle, BillingBatcherHandle, BillingBatcherRunner, BillingStrategy,
+        CreateBatcherHandle, CreateBatcherRunner, CreateStrategy, OpsBatcherHandle,
+        OpsBatcherRunner, OpsStrategy,
     },
     config::{
         BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
@@ -22,6 +24,7 @@ use crate::{
         insert_authenticator::insert_authenticator,
         is_valid_root::is_valid_root,
         recover_account::recover_account,
+        register_billing::register_billing,
         remove_authenticator::remove_authenticator,
         request_status::request_status,
         revert_recovery_agent_update::revert_recovery_agent_update,
@@ -30,7 +33,7 @@ use crate::{
     },
     types::RootExpiry,
 };
-use alloy::providers::DynProvider;
+use alloy::{primitives::Address, providers::DynProvider};
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -48,7 +51,9 @@ use world_id_primitives::api_types::{
     RecoverAccountRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
     UpdateRecoveryAgentRequest,
 };
-use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_registries::{
+    world_id::WorldIdRegistry::WorldIdRegistryInstance, world_id_billing::WorldIdBilling,
+};
 use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
 // Health and status routes
@@ -71,6 +76,9 @@ mod initiate_recovery_agent_update;
 mod revert_recovery_agent_update;
 mod update_recovery_agent;
 
+// Billing routes (WIP-107)
+mod register_billing;
+
 // Admin / utility routes
 mod is_valid_root;
 
@@ -81,11 +89,16 @@ pub(crate) mod validation;
 const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
+/// Time for a sent billing batch to be included, on top of the longest a registration stays
+/// queued.
+const BILLING_INCLUSION_MARGIN_SECS: u64 = 30;
+const BILLING_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
     registry: Arc<WorldIdRegistryInstance<Arc<DynProvider>>>,
     registry_version: RegistryVersion,
+    billing_addr: Option<Address>,
     batcher_config: BatcherConfig,
     redis_url: String,
     rate_limit: Option<RateLimitConfig>,
@@ -101,6 +114,11 @@ pub(crate) async fn build_app(
     )
     .await;
     let base_fee_cache = BaseFeeCache::default();
+    // A registration behind a backlog waits for more than `max_wait_secs`, but none stays queued
+    // past the orphan sweeper's deadline plus one sweep.
+    let billing_min_validity_secs = orphan_sweeper_config.stale_queued_threshold_secs
+        + orphan_sweeper_config.interval_secs
+        + BILLING_INCLUSION_MARGIN_SECS;
     let tx_send_lock = Arc::new(Mutex::new(()));
 
     spawn_base_fee_sampler(
@@ -120,6 +138,7 @@ pub(crate) async fn build_app(
         batch_policy_config.clone(),
         base_fee_cache.clone(),
         tx_send_lock.clone(),
+        CreateStrategy,
     );
     tokio::spawn(runner.run());
 
@@ -132,13 +151,38 @@ pub(crate) async fn build_app(
         OPS_BATCHER_CHANNEL_CAPACITY,
         orx,
         tracker.clone(),
-        batch_policy_config,
-        base_fee_cache,
-        tx_send_lock,
+        batch_policy_config.clone(),
+        base_fee_cache.clone(),
+        tx_send_lock.clone(),
+        OpsStrategy,
     );
     tokio::spawn(ops_runner.run());
 
     tracing::info!("Ops batcher initialized");
+
+    // billing batcher (WIP-107 registrations), only with a Billing Contract
+    let billing_batcher = billing_addr.map(|billing_addr| {
+        let (btx, brx) = mpsc::channel(BILLING_BATCHER_CHANNEL_CAPACITY);
+        let runner = BillingBatcherRunner::new(
+            registry.clone(),
+            batcher_config.max_ops_batch_size,
+            BILLING_BATCHER_CHANNEL_CAPACITY,
+            brx,
+            tracker.clone(),
+            batch_policy_config,
+            base_fee_cache,
+            tx_send_lock,
+            BillingStrategy::new(billing_addr),
+        );
+        tokio::spawn(runner.run());
+        BillingBatcherHandle { tx: btx }
+    });
+    let billing = billing_addr.map(|billing_addr| {
+        Arc::new(WorldIdBilling::new(
+            billing_addr,
+            registry.provider().clone(),
+        ))
+    });
 
     let sweeper_tracker = tracker.clone();
     let sweeper_provider = registry.provider().clone();
@@ -157,10 +201,13 @@ pub(crate) async fn build_app(
     let batcher_handle = BatcherHandle {
         create: batcher,
         ops: ops_batcher,
+        billing: billing_batcher,
     };
     let ctx = GatewayContext {
         registry: registry.clone(),
         registry_version,
+        billing,
+        billing_min_validity_secs,
         tracker,
         batcher: batcher_handle,
         root_cache,
@@ -199,6 +246,8 @@ pub(crate) async fn build_app(
             "/revert-recovery-agent-update",
             post(revert_recovery_agent_update),
         )
+        // WIP-107 billing registration
+        .route("/register-billing", post(register_billing))
         // admin / utility
         .route("/is-valid-root", get(is_valid_root))
         .route("/openapi.json", get(openapi))

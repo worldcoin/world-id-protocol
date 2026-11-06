@@ -13,22 +13,36 @@ use alloy::{
 };
 use moka::future::Cache;
 use uuid::Uuid;
-use world_id_primitives::api_types::{
-    CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
-    GatewayErrorCode, GatewayRequestId, GatewayRequestKind, GatewayRequestState,
-    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
-    RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+use world_id_primitives::{
+    api_types::{
+        CancelRecoveryAgentUpdateRequest, CreateAccountRequest, ExecuteRecoveryAgentUpdateRequest,
+        GatewayErrorCode, GatewayRequestId, GatewayRequestKind, GatewayRequestState,
+        GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+        RemoveAuthenticatorRequest, UpdateAuthenticatorRequest, UpdateRecoveryAgentRequest,
+    },
+    billing::BillingRegistration,
 };
-use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
+use world_id_registries::{
+    world_id::WorldIdRegistry::WorldIdRegistryInstance,
+    world_id_billing::WorldIdBilling::WorldIdBillingInstance,
+};
 
 /// Type alias for the registry instance.
 pub type Registry = WorldIdRegistryInstance<Arc<DynProvider>>;
+
+/// Type alias for the Billing Contract instance.
+pub type Billing = WorldIdBillingInstance<Arc<DynProvider>>;
 
 /// Context required for request validation and submission.
 #[derive(Clone)]
 pub struct GatewayContext {
     pub registry: Arc<Registry>,
     pub registry_version: RegistryVersion,
+    /// The WIP-107 Billing Contract; `None` disables billing registrations.
+    pub billing: Option<Arc<Billing>>,
+    /// How long a billing registration's authorization must stay valid when accepted: the
+    /// longest it can stay queued, until the orphan sweeper fails it, plus time for inclusion.
+    pub billing_min_validity_secs: u64,
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,
     pub root_cache: Cache<U256, U256>,
@@ -436,6 +450,37 @@ impl IntoCommand for RecoverAccountRequest {
 impl IntoRequestWithRateLimit for RecoverAccountRequest {}
 
 impl Request<RecoverAccountRequest> {
+    pub async fn submit(
+        self,
+        ctx: &GatewayContext,
+    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
+        submit_request(self, ctx).await
+    }
+}
+
+// =============================================================================
+// BillingRegistration (WIP-107)
+// =============================================================================
+
+// No rate limit: a registration carries no leaf index, and each one consumes an RP-signed nonce.
+// The in-flight lock on the billing nullifier rejects concurrent copies.
+impl HasInflightKeys for BillingRegistration {
+    fn inflight_keys(&self) -> Vec<String> {
+        vec![self.billing_nullifier.to_string()]
+    }
+}
+
+impl IntoRequest for BillingRegistration {
+    const KIND: GatewayRequestKind = GatewayRequestKind::RegisterBilling;
+}
+
+impl IntoCommand for BillingRegistration {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::register_billing(id, calldata)
+    }
+}
+
+impl Request<BillingRegistration> {
     pub async fn submit(
         self,
         ctx: &GatewayContext,

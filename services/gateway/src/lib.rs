@@ -61,6 +61,7 @@ pub async fn spawn_gateway_for_tests(cfg: GatewayConfig) -> GatewayResult<Gatewa
     let app = build_app(
         registry,
         cfg.registry_version,
+        cfg.billing_addr,
         batcher_config,
         cfg.redis_url,
         rate_limit,
@@ -121,6 +122,7 @@ pub async fn run() -> GatewayResult<()> {
     let app = build_app(
         registry,
         cfg.registry_version,
+        cfg.billing_addr,
         batcher_config,
         cfg.redis_url,
         rate_limit,

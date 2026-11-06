@@ -66,6 +66,7 @@ async fn test_rate_limit_basic() {
     let cfg = GatewayConfig {
         registry_addr,
         registry_version: RegistryVersion::V2,
+        billing_addr: None,
         provider: ProviderArgs {
             http: vec![rpc_url.parse().unwrap()],
             signer: signer_args,
@@ -274,6 +275,7 @@ async fn test_rate_limit_different_leaf_indexes() {
     let cfg = GatewayConfig {
         registry_addr,
         registry_version: RegistryVersion::V2,
+        billing_addr: None,
         provider: ProviderArgs {
             http: vec![rpc_url.parse().unwrap()],
             signer: signer_args,
@@ -431,6 +433,7 @@ async fn test_rate_limit_sliding_window() {
     let cfg = GatewayConfig {
         registry_addr,
         registry_version: RegistryVersion::V2,
+        billing_addr: None,
         provider: ProviderArgs {
             http: vec![rpc_url.parse().unwrap()],
             signer: signer_args,
@@ -585,6 +588,7 @@ async fn test_rate_limit_multiple_endpoints() {
     let cfg = GatewayConfig {
         registry_addr,
         registry_version: RegistryVersion::V2,
+        billing_addr: None,
         provider: ProviderArgs {
             http: vec![rpc_url.parse().unwrap()],
             signer: signer_args,
