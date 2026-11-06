@@ -97,6 +97,8 @@ postcard = { workspace = true }
 sha2 = { workspace = true }
 test-case = { workspace = true }
 toml = { workspace = true }
-world-id-flamingo = { workspace = true }
+# Path-only, so `cargo publish` drops it. release-plz publishes crates in order of their normal
+# dependencies, so world-id-flamingo may not be on crates.io yet when this crate is published.
+world-id-flamingo = { path = "../flamingo" }
 world-id-test-utils = { workspace = true }
 zstd = { workspace = true }
