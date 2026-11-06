@@ -41,7 +41,7 @@ pub struct GatewayContext {
     /// The WIP-107 Billing Contract; `None` disables billing registrations.
     pub billing: Option<Arc<Billing>>,
     /// How long a billing registration's authorization must stay valid when accepted: the
-    /// longest it can wait for a batch, plus time for inclusion.
+    /// longest it can stay queued, until the orphan sweeper fails it, plus time for inclusion.
     pub billing_min_validity_secs: u64,
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,

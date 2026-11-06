@@ -3,7 +3,7 @@
 //! Registrations are batched apart from registry operations, so a registration that reverts at
 //! inclusion fails only a billing batch, never an account operation. Within a batch, Multicall3
 //! calls do not allow failure. Validation simulates each registration and rejects those whose
-//! authorization would expire while queued, so the remaining way for a batch to revert is a race
+//! authorization could expire before the orphan sweeper would fail them as stale, so the remaining way for a batch to revert is a race
 //! on shared state, mainly an RP's last capacity: when more registrations for an RP share a batch
 //! than it has slots left, the whole batch reverts. Their retries then fit or fail simulation, so
 //! this resolves within one retry.

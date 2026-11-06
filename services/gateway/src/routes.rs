@@ -89,7 +89,8 @@ pub(crate) mod validation;
 const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
-/// Time for a sent billing batch to be included, on top of the longest batching wait.
+/// Time for a sent billing batch to be included, on top of the longest a registration stays
+/// queued.
 const BILLING_INCLUSION_MARGIN_SECS: u64 = 30;
 const BILLING_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 
@@ -113,8 +114,11 @@ pub(crate) async fn build_app(
     )
     .await;
     let base_fee_cache = BaseFeeCache::default();
-    let billing_min_validity_secs =
-        batch_policy_config.max_wait_secs + BILLING_INCLUSION_MARGIN_SECS;
+    // A registration behind a backlog waits for more than `max_wait_secs`, but none stays queued
+    // past the orphan sweeper's deadline plus one sweep.
+    let billing_min_validity_secs = orphan_sweeper_config.stale_queued_threshold_secs
+        + orphan_sweeper_config.interval_secs
+        + BILLING_INCLUSION_MARGIN_SECS;
     let tx_send_lock = Arc::new(Mutex::new(()));
 
     spawn_base_fee_sampler(
