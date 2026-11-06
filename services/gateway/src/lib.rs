@@ -15,7 +15,6 @@ use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 mod batch_policy;
 mod batcher;
-mod billing;
 mod config;
 mod error;
 pub mod metrics;

@@ -4,9 +4,10 @@ use crate::{
     AppState,
     batch_policy::{BaseFeeCache, spawn_base_fee_sampler},
     batcher::{
-        BatcherHandle, CreateBatcherHandle, CreateBatcherRunner, OpsBatcherHandle, OpsBatcherRunner,
+        BatcherHandle, BillingBatcherHandle, BillingBatcherRunner, BillingStrategy,
+        CreateBatcherHandle, CreateBatcherRunner, CreateStrategy, OpsBatcherHandle,
+        OpsBatcherRunner, OpsStrategy,
     },
-    billing::BillingRelay,
     config::{
         BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
     },
@@ -88,6 +89,9 @@ pub(crate) mod validation;
 const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
+/// Time for a sent billing batch to be included, on top of the longest batching wait.
+const BILLING_INCLUSION_MARGIN_SECS: u64 = 30;
+const BILLING_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
@@ -109,6 +113,8 @@ pub(crate) async fn build_app(
     )
     .await;
     let base_fee_cache = BaseFeeCache::default();
+    let billing_min_validity_secs =
+        batch_policy_config.max_wait_secs + BILLING_INCLUSION_MARGIN_SECS;
     let tx_send_lock = Arc::new(Mutex::new(()));
 
     spawn_base_fee_sampler(
@@ -128,6 +134,7 @@ pub(crate) async fn build_app(
         batch_policy_config.clone(),
         base_fee_cache.clone(),
         tx_send_lock.clone(),
+        CreateStrategy,
     );
     tokio::spawn(runner.run());
 
@@ -140,25 +147,37 @@ pub(crate) async fn build_app(
         OPS_BATCHER_CHANNEL_CAPACITY,
         orx,
         tracker.clone(),
-        batch_policy_config,
-        base_fee_cache,
+        batch_policy_config.clone(),
+        base_fee_cache.clone(),
         tx_send_lock.clone(),
+        OpsStrategy,
     );
     tokio::spawn(ops_runner.run());
 
     tracing::info!("Ops batcher initialized");
 
-    // WIP-107 registrations are sent on accept, outside the batchers; see `billing`.
-    let billing = billing_addr.map(|billing_addr| {
-        BillingRelay::new(
-            Arc::new(WorldIdBilling::new(
-                billing_addr,
-                registry.provider().clone(),
-            )),
+    // billing batcher (WIP-107 registrations), only with a Billing Contract
+    let billing_batcher = billing_addr.map(|billing_addr| {
+        let (btx, brx) = mpsc::channel(BILLING_BATCHER_CHANNEL_CAPACITY);
+        let runner = BillingBatcherRunner::new(
+            registry.clone(),
+            batcher_config.max_ops_batch_size,
+            BILLING_BATCHER_CHANNEL_CAPACITY,
+            brx,
             tracker.clone(),
-            tx_send_lock.clone(),
-            Duration::from_secs(request_timeout_secs),
-        )
+            batch_policy_config,
+            base_fee_cache,
+            tx_send_lock,
+            BillingStrategy::new(billing_addr),
+        );
+        tokio::spawn(runner.run());
+        BillingBatcherHandle { tx: btx }
+    });
+    let billing = billing_addr.map(|billing_addr| {
+        Arc::new(WorldIdBilling::new(
+            billing_addr,
+            registry.provider().clone(),
+        ))
     });
 
     let sweeper_tracker = tracker.clone();
@@ -178,11 +197,13 @@ pub(crate) async fn build_app(
     let batcher_handle = BatcherHandle {
         create: batcher,
         ops: ops_batcher,
+        billing: billing_batcher,
     };
     let ctx = GatewayContext {
         registry: registry.clone(),
         registry_version,
         billing,
+        billing_min_validity_secs,
         tracker,
         batcher: batcher_handle,
         root_cache,

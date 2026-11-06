@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use crate::{
     batcher::{BatcherHandle, Command},
-    billing::BillingRelay,
     config::RegistryVersion,
     error::GatewayErrorResponse,
     request_tracker::RequestTracker,
@@ -39,8 +38,11 @@ pub type Billing = WorldIdBillingInstance<Arc<DynProvider>>;
 pub struct GatewayContext {
     pub registry: Arc<Registry>,
     pub registry_version: RegistryVersion,
-    /// The WIP-107 Billing Contract relay; `None` disables billing registrations.
-    pub billing: Option<BillingRelay>,
+    /// The WIP-107 Billing Contract; `None` disables billing registrations.
+    pub billing: Option<Arc<Billing>>,
+    /// How long a billing registration's authorization must stay valid when accepted: the
+    /// longest it can wait for a batch, plus time for inclusion.
+    pub billing_min_validity_secs: u64,
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,
     pub root_cache: Cache<U256, U256>,
@@ -59,7 +61,6 @@ pub struct Request<T> {
 pub struct SubmittedRequest {
     id: Uuid,
     kind: GatewayRequestKind,
-    status: GatewayRequestState,
 }
 
 impl SubmittedRequest {
@@ -68,7 +69,7 @@ impl SubmittedRequest {
         GatewayStatusResponse {
             request_id: GatewayRequestId::new(self.id.to_string()),
             kind: self.kind,
-            status: self.status,
+            status: GatewayRequestState::Queued,
         }
     }
 }
@@ -473,33 +474,18 @@ impl IntoRequest for BillingRegistration {
     const KIND: GatewayRequestKind = GatewayRequestKind::RegisterBilling;
 }
 
+impl IntoCommand for BillingRegistration {
+    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
+        Command::register_billing(id, calldata)
+    }
+}
+
 impl Request<BillingRegistration> {
-    /// Sends the registration now instead of queueing it; see [`crate::billing`]. `received_at`
-    /// is when the HTTP request arrived.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
-        received_at: tokio::time::Instant,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        let Request {
-            id,
-            kind,
-            payload,
-            calldata,
-        } = self;
-        // Validation already required a relay.
-        let relay = ctx
-            .billing
-            .as_ref()
-            .ok_or_else(GatewayErrorResponse::internal_server_error)?;
-        let tx_hash = relay
-            .submit(received_at, id, kind, payload.inflight_keys(), calldata)
-            .await?;
-        Ok(SubmittedRequest {
-            id,
-            kind,
-            status: GatewayRequestState::Submitted { tx_hash },
-        })
+        submit_request(self, ctx).await
     }
 }
 
@@ -537,9 +523,5 @@ where
         return Err(GatewayErrorResponse::batcher_unavailable());
     }
 
-    Ok(SubmittedRequest {
-        id,
-        kind,
-        status: GatewayRequestState::Queued,
-    })
+    Ok(SubmittedRequest { id, kind })
 }

@@ -20,7 +20,6 @@ pub const METRICS_BATCH_SUCCESS: &str = "batch.success";
 pub const METRICS_BATCH_FAILURE: &str = "batch.failure";
 /// Incremented when a batch transaction fails to submit to the RPC node.
 pub const METRICS_BATCH_SEND_FAILED: &str = "batch.send_failed";
-pub const METRICS_BILLING_REJECTED_BUSY: &str = "billing.rejected_busy";
 pub const METRICS_BATCH_POLICY_COST_SCORE: &str = "batch.policy.cost_score";
 pub const METRICS_BATCH_POLICY_URGENCY_SCORE: &str = "batch.policy.urgency_score";
 pub const METRICS_BATCH_POLICY_DEFER: &str = "batch.policy.defer";
@@ -80,11 +79,6 @@ pub fn describe_metrics() {
         ::metrics::Unit::Count,
         "Number of batches that failed to submit to the RPC node."
     );
-    ::metrics::describe_counter!(
-        METRICS_BILLING_REJECTED_BUSY,
-        ::metrics::Unit::Count,
-        "Number of billing registrations rejected because too many were in flight."
-    );
 
     ::metrics::describe_histogram!(
         METRICS_BATCH_POLICY_COST_SCORE,
@@ -127,10 +121,6 @@ pub fn increment_root_cache_hit() {
 
 pub fn increment_root_cache_miss() {
     ::metrics::counter!(METRICS_ROOT_CACHE_MISSES).increment(1);
-}
-
-pub fn record_billing_rejected_busy() {
-    ::metrics::counter!(METRICS_BILLING_REJECTED_BUSY).increment(1);
 }
 
 pub fn record_batch_submitted(batch_type: &'static str, batch_size: usize) {

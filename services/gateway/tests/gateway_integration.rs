@@ -532,6 +532,7 @@ fn billing_registration(
     chain_id: u64,
     billing_contract: Address,
     billing_nullifier: u64,
+    expires_at: u64,
 ) -> world_id_primitives::billing::BillingRegistration {
     use world_id_primitives::{
         FieldElement, ZeroKnowledgeProof,
@@ -551,7 +552,7 @@ fn billing_registration(
             oprf_key_id: world_id_primitives::OprfKeyId::new(alloy::primitives::U160::from(1u64)),
             nonce: FieldElement::from(billing_nullifier),
             created_at: 1,
-            expires_at: 2,
+            expires_at,
             signed_action: FieldElement::from(3u64),
             signature: alloy::signers::Signature::new(U256::from(1u64), U256::from(2u64), false),
             wip101_data: Default::default(),
@@ -569,7 +570,7 @@ async fn test_register_billing_without_billing_contract() {
     use world_id_primitives::api_types::GatewayErrorCode;
 
     let gw = spawn_test_gateway(None).await;
-    let registration = billing_registration(gw.chain_id, Address::repeat_byte(0xb1), 7);
+    let registration = billing_registration(gw.chain_id, Address::repeat_byte(0xb1), 7, u64::MAX);
     let resp = gw
         .client
         .post(format!("{}/register-billing", gw.base_url))
@@ -586,15 +587,48 @@ async fn test_register_billing_without_billing_contract() {
     );
 }
 
-/// A burst of registrations, more than the relay sends at once and more than the orphan sweeper's
-/// queued-request deadline in seconds: each one is either rejected up front (503) or sent and
-/// finalized, never accepted and then expired.
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+/// A registration whose authorization could expire while it waits for a batch is rejected, so
+/// that it cannot revert the batch at inclusion.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_register_billing_rejects_expiring_authorization() {
+    let gw = spawn_test_gateway_with_billing_stub().await;
+    let billing_contract = gw.billing_addr.expect("billing stub");
+    let resp = gw
+        .client
+        .post(format!("{}/register-billing", gw.base_url))
+        .json(&billing_registration(
+            gw.chain_id,
+            billing_contract,
+            1,
+            now_secs() + 10,
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(
+        body["message"].as_str().unwrap().contains("expires_at"),
+        "{body}"
+    );
+}
+
+/// A burst of registrations larger than the orphan sweeper's queued-request deadline in seconds:
+/// each one is accepted and finalized, none expires in the queue.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_register_billing_burst() {
     const BURST: u64 = 120;
 
     let gw = spawn_test_gateway_with_billing_stub().await;
     let billing_contract = gw.billing_addr.expect("billing stub");
+    let expires_at = now_secs() + 3_600;
 
     let responses = futures::future::join_all((1..=BURST).map(|nullifier| {
         let request = gw
@@ -604,6 +638,7 @@ async fn test_register_billing_burst() {
                 gw.chain_id,
                 billing_contract,
                 nullifier,
+                expires_at,
             ));
         async move {
             let resp = request.send().await.unwrap();
@@ -614,19 +649,15 @@ async fn test_register_billing_burst() {
     }))
     .await;
 
-    let mut accepted = Vec::new();
-    for (status, body) in responses {
-        match status {
-            StatusCode::OK => {
-                assert_eq!(body["status"]["state"], "submitted", "{body}");
-                accepted.push(body["request_id"].as_str().unwrap().to_string());
-            }
-            StatusCode::SERVICE_UNAVAILABLE => {}
-            other => panic!("unexpected response {other}: {body}"),
-        }
+    for (status, body) in &responses {
+        assert_eq!(*status, StatusCode::OK, "{body}");
     }
-    assert!(!accepted.is_empty(), "no registration was accepted");
-    for request_id in &accepted {
-        wait_for_finalized(&gw.client, &gw.base_url, request_id).await;
+    for (_, body) in &responses {
+        wait_for_finalized(
+            &gw.client,
+            &gw.base_url,
+            body["request_id"].as_str().unwrap(),
+        )
+        .await;
     }
 }

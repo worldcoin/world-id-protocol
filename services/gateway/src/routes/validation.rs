@@ -1,6 +1,6 @@
 use tokio::sync::OnceCell;
 
-use crate::{RegistryVersion, error::GatewayErrorResponse};
+use crate::{RegistryVersion, error::GatewayErrorResponse, request_tracker::now_unix_secs};
 use alloy::{
     primitives::{Address, Bytes, Signature, TxKind, U256},
     providers::Provider,
@@ -734,22 +734,27 @@ impl RequestValidation for BillingRegistration {
         &self,
         ctx: &GatewayContext,
     ) -> Result<Bytes, GatewayErrorResponse> {
-        let billing = ctx
-            .billing
-            .as_ref()
-            .map(|relay| relay.contract.as_ref())
-            .ok_or_else(|| {
-                GatewayErrorResponse::new(
-                    GatewayErrorCode::MethodNotAvailable,
-                    "POST /register-billing requires a Billing Contract (BILLING_ADDRESS)"
-                        .to_string(),
-                    StatusCode::NOT_IMPLEMENTED,
-                )
-            })?;
+        let billing = ctx.billing.as_deref().ok_or_else(|| {
+            GatewayErrorResponse::new(
+                GatewayErrorCode::MethodNotAvailable,
+                "POST /register-billing requires a Billing Contract (BILLING_ADDRESS)".to_string(),
+                StatusCode::NOT_IMPLEMENTED,
+            )
+        })?;
         if self.scope.billing_contract != *billing.address() {
             return Err(GatewayErrorResponse::bad_request_message(
                 "scope.billing_contract is not the gateway's Billing Contract".to_string(),
             ));
+        }
+        // `register` checks the authorization's expiry at inclusion, and one registration
+        // expiring in a batch would revert the whole batch.
+        let min_expires_at = now_unix_secs() + ctx.billing_min_validity_secs;
+        if self.authorization.expires_at < min_expires_at {
+            return Err(GatewayErrorResponse::bad_request_message(format!(
+                "authorization.expires_at must be at least {}s away; request a new proof request \
+                 from the RP",
+                ctx.billing_min_validity_secs
+            )));
         }
         let chain_id = chain_id(billing.provider()).await?;
         self.pre_flight(PreFlightContext {
