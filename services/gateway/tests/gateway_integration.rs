@@ -17,7 +17,10 @@ use world_id_registries::world_id::{
     sign_remove_authenticator, sign_update_authenticator,
 };
 
-use crate::common::{authenticator_pubkey, spawn_test_gateway, wait_for_finalized};
+use crate::common::{
+    authenticator_pubkey, spawn_test_gateway, spawn_test_gateway_with_billing_stub,
+    wait_for_finalized,
+};
 
 mod common;
 
@@ -523,29 +526,30 @@ async fn test_same_authenticator_different_accounts() {
     );
 }
 
-/// Without a Billing Contract, `/register-billing` is unavailable instead of failing on-chain.
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_register_billing_without_billing_contract() {
+/// A `BillingRegistration` with dummy authorization and proof, which only a stub Billing
+/// Contract accepts.
+fn billing_registration(
+    chain_id: u64,
+    billing_contract: Address,
+    billing_nullifier: u64,
+) -> world_id_primitives::billing::BillingRegistration {
     use world_id_primitives::{
         FieldElement, ZeroKnowledgeProof,
-        api_types::GatewayErrorCode,
         billing::{BillingContext, BillingRegistration, RegistrationAuthorization},
         request::RequestVersion,
         rp::RpId,
     };
-
-    let gw = spawn_test_gateway(None).await;
-    let registration = BillingRegistration {
+    BillingRegistration {
         scope: BillingContext {
-            chain_id: U256::from(gw.chain_id),
-            billing_contract: Address::repeat_byte(0xb1),
+            chain_id: U256::from(chain_id),
+            billing_contract,
             rp_id: RpId::new(1),
             period_start: 1_793_534_400,
         },
         authorization: RegistrationAuthorization {
             version: RequestVersion::V1,
             oprf_key_id: world_id_primitives::OprfKeyId::new(alloy::primitives::U160::from(1u64)),
-            nonce: FieldElement::from(1u64),
+            nonce: FieldElement::from(billing_nullifier),
             created_at: 1,
             expires_at: 2,
             signed_action: FieldElement::from(3u64),
@@ -554,10 +558,18 @@ async fn test_register_billing_without_billing_contract() {
         },
         issuer_schema_id: 1,
         expires_at_min: 1,
-        billing_nullifier: FieldElement::from(7u64),
+        billing_nullifier: FieldElement::from(billing_nullifier),
         proof: ZeroKnowledgeProof::default(),
-    };
+    }
+}
 
+/// Without a Billing Contract, `/register-billing` is unavailable instead of failing on-chain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_register_billing_without_billing_contract() {
+    use world_id_primitives::api_types::GatewayErrorCode;
+
+    let gw = spawn_test_gateway(None).await;
+    let registration = billing_registration(gw.chain_id, Address::repeat_byte(0xb1), 7);
     let resp = gw
         .client
         .post(format!("{}/register-billing", gw.base_url))
@@ -572,4 +584,49 @@ async fn test_register_billing_without_billing_contract() {
         GatewayErrorCode::MethodNotAvailable.to_string(),
         "{body}"
     );
+}
+
+/// A burst of registrations, more than the relay sends at once and more than the orphan sweeper's
+/// queued-request deadline in seconds: each one is either rejected up front (503) or sent and
+/// finalized, never accepted and then expired.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_register_billing_burst() {
+    const BURST: u64 = 120;
+
+    let gw = spawn_test_gateway_with_billing_stub().await;
+    let billing_contract = gw.billing_addr.expect("billing stub");
+
+    let responses = futures::future::join_all((1..=BURST).map(|nullifier| {
+        let request = gw
+            .client
+            .post(format!("{}/register-billing", gw.base_url))
+            .json(&billing_registration(
+                gw.chain_id,
+                billing_contract,
+                nullifier,
+            ));
+        async move {
+            let resp = request.send().await.unwrap();
+            let status = resp.status();
+            let body: serde_json::Value = resp.json().await.unwrap();
+            (status, body)
+        }
+    }))
+    .await;
+
+    let mut accepted = Vec::new();
+    for (status, body) in responses {
+        match status {
+            StatusCode::OK => {
+                assert_eq!(body["status"]["state"], "submitted", "{body}");
+                accepted.push(body["request_id"].as_str().unwrap().to_string());
+            }
+            StatusCode::SERVICE_UNAVAILABLE => {}
+            other => panic!("unexpected response {other}: {body}"),
+        }
+    }
+    assert!(!accepted.is_empty(), "no registration was accepted");
+    for request_id in &accepted {
+        wait_for_finalized(&gw.client, &gw.base_url, request_id).await;
+    }
 }

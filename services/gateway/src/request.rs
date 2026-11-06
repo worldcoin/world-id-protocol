@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     batcher::{BatcherHandle, Command},
+    billing::BillingRelay,
     config::RegistryVersion,
     error::GatewayErrorResponse,
     request_tracker::RequestTracker,
@@ -38,8 +39,8 @@ pub type Billing = WorldIdBillingInstance<Arc<DynProvider>>;
 pub struct GatewayContext {
     pub registry: Arc<Registry>,
     pub registry_version: RegistryVersion,
-    /// The WIP-107 Billing Contract; `None` disables billing registrations.
-    pub billing: Option<Arc<Billing>>,
+    /// The WIP-107 Billing Contract relay; `None` disables billing registrations.
+    pub billing: Option<BillingRelay>,
     pub tracker: RequestTracker,
     pub batcher: BatcherHandle,
     pub root_cache: Cache<U256, U256>,
@@ -58,6 +59,7 @@ pub struct Request<T> {
 pub struct SubmittedRequest {
     id: Uuid,
     kind: GatewayRequestKind,
+    status: GatewayRequestState,
 }
 
 impl SubmittedRequest {
@@ -66,7 +68,7 @@ impl SubmittedRequest {
         GatewayStatusResponse {
             request_id: GatewayRequestId::new(self.id.to_string()),
             kind: self.kind,
-            status: GatewayRequestState::Queued,
+            status: self.status,
         }
     }
 }
@@ -471,18 +473,41 @@ impl IntoRequest for BillingRegistration {
     const KIND: GatewayRequestKind = GatewayRequestKind::RegisterBilling;
 }
 
-impl IntoCommand for BillingRegistration {
-    fn into_command(id: Uuid, _payload: Self, calldata: Bytes) -> Command {
-        Command::register_billing(id, calldata)
-    }
-}
-
 impl Request<BillingRegistration> {
+    /// Sends the registration now instead of queueing it; see [`crate::billing`].
     pub async fn submit(
         self,
         ctx: &GatewayContext,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        submit_request(self, ctx).await
+        let Request {
+            id,
+            kind,
+            payload,
+            calldata,
+        } = self;
+        // Validation already required a relay.
+        let relay = ctx
+            .billing
+            .clone()
+            .ok_or_else(GatewayErrorResponse::internal_server_error)?;
+        let permit = relay.reserve()?;
+        ctx.tracker
+            .new_request_with_id(id.to_string(), kind, payload.inflight_keys())
+            .await?;
+        // Spawned so that a request timeout cannot interrupt the send between broadcasting the
+        // transaction and recording it.
+        let tx_hash =
+            tokio::spawn(async move { relay.send(id.to_string(), calldata, permit).await })
+                .await
+                .map_err(|err| {
+                    tracing::error!(request_id = %id, error = %err, "billing send task failed");
+                    GatewayErrorResponse::internal_server_error()
+                })??;
+        Ok(SubmittedRequest {
+            id,
+            kind,
+            status: GatewayRequestState::Submitted { tx_hash },
+        })
     }
 }
 
@@ -520,5 +545,9 @@ where
         return Err(GatewayErrorResponse::batcher_unavailable());
     }
 
-    Ok(SubmittedRequest { id, kind })
+    Ok(SubmittedRequest {
+        id,
+        kind,
+        status: GatewayRequestState::Queued,
+    })
 }

@@ -734,13 +734,18 @@ impl RequestValidation for BillingRegistration {
         &self,
         ctx: &GatewayContext,
     ) -> Result<Bytes, GatewayErrorResponse> {
-        let billing = ctx.billing.as_deref().ok_or_else(|| {
-            GatewayErrorResponse::new(
-                GatewayErrorCode::MethodNotAvailable,
-                "POST /register-billing requires a Billing Contract (BILLING_ADDRESS)".to_string(),
-                StatusCode::NOT_IMPLEMENTED,
-            )
-        })?;
+        let billing = ctx
+            .billing
+            .as_ref()
+            .map(|relay| relay.contract.as_ref())
+            .ok_or_else(|| {
+                GatewayErrorResponse::new(
+                    GatewayErrorCode::MethodNotAvailable,
+                    "POST /register-billing requires a Billing Contract (BILLING_ADDRESS)"
+                        .to_string(),
+                    StatusCode::NOT_IMPLEMENTED,
+                )
+            })?;
         if self.scope.billing_contract != *billing.address() {
             return Err(GatewayErrorResponse::bad_request_message(
                 "scope.billing_contract is not the gateway's Billing Contract".to_string(),

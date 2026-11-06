@@ -42,6 +42,8 @@ pub(crate) struct TestGateway {
     pub(crate) rpc_url: String,
     pub(crate) chain_id: u64,
     pub(crate) redis_url: String,
+    /// The Billing Contract the gateway relays to, if any.
+    pub(crate) billing_addr: Option<Address>,
     pub(crate) _handle: GatewayHandle,
     pub(crate) _anvil: TestAnvil,
     // Keep the Redis container alive for the duration of the test.
@@ -67,7 +69,56 @@ pub(crate) async fn spawn_test_gateway(batch_ms: Option<u64>) -> TestGateway {
         .deploy_world_id_registry(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry");
-    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V1, batch_ms).await
+    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V1, batch_ms, None).await
+}
+
+/// Runtime of a stub Billing Contract: `isRegistered` returns false, every other call returns
+/// true, so `register` simulates and lands without a proof.
+const BILLING_STUB_RUNTIME: &str = "60003560e01c63579a698814601957600160005260206000f35b60206000f3";
+
+/// Same as [`spawn_test_gateway`] but relays billing registrations to a stub Billing Contract,
+/// so tests can exercise the relay without proofs.
+#[allow(dead_code)]
+pub(crate) async fn spawn_test_gateway_with_billing_stub() -> TestGateway {
+    use alloy::{
+        network::{EthereumWallet, TransactionBuilder as _},
+        primitives::Bytes,
+        providers::{Provider as _, ProviderBuilder},
+        rpc::types::TransactionRequest,
+    };
+
+    let anvil = spawn_test_anvil().await;
+    let deployer = anvil.signer(0).expect("failed to fetch deployer signer");
+    let registry_addr = anvil
+        .deploy_world_id_registry(deployer)
+        .await
+        .expect("failed to deploy WorldIDRegistry");
+
+    // Deployed from another account than the gateway's, which owns account 0's nonces.
+    let provider = ProviderBuilder::new()
+        .wallet(EthereumWallet::from(anvil.signer(1).expect("signer 1")))
+        .connect_http(anvil.endpoint().parse().expect("anvil endpoint"));
+    // Init code: CODECOPY the 31-byte runtime that follows it and RETURN it.
+    let init_code: Bytes = hex::decode(format!("601f80600b6000396000f3{BILLING_STUB_RUNTIME}"))
+        .expect("valid hex")
+        .into();
+    let receipt = provider
+        .send_transaction(TransactionRequest::default().with_deploy_code(init_code))
+        .await
+        .expect("send stub deployment")
+        .get_receipt()
+        .await
+        .expect("stub deployment receipt");
+    let billing_addr = receipt.contract_address.expect("stub deployed");
+
+    spawn_test_gateway_for_registry(
+        anvil,
+        registry_addr,
+        RegistryVersion::V1,
+        None,
+        Some(billing_addr),
+    )
+    .await
 }
 
 /// Same as [`spawn_test_gateway`] but deploys the V2 (WIP-102) registry —
@@ -80,7 +131,7 @@ pub(crate) async fn spawn_test_gateway_v2(batch_ms: Option<u64>) -> TestGateway 
         .deploy_world_id_registry_v2(deployer)
         .await
         .expect("failed to deploy WorldIDRegistry V2");
-    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V2, batch_ms).await
+    spawn_test_gateway_for_registry(anvil, registry_addr, RegistryVersion::V2, batch_ms, None).await
 }
 
 /// Spawn the gateway/Redis half of the stack against an already-deployed
@@ -90,6 +141,7 @@ async fn spawn_test_gateway_for_registry(
     registry_addr: Address,
     registry_version: RegistryVersion,
     batch_ms: Option<u64>,
+    billing_addr: Option<Address>,
 ) -> TestGateway {
     let rpc_url = anvil.endpoint().to_string();
     let chain_id = anvil.instance.chain_id();
@@ -101,7 +153,7 @@ async fn spawn_test_gateway_for_registry(
         None => GatewayConfig {
             registry_addr,
             registry_version,
-            billing_addr: None,
+            billing_addr,
             provider: ProviderArgs {
                 http: vec![rpc_url.parse().unwrap()],
                 signer: signer_args,
@@ -125,7 +177,7 @@ async fn spawn_test_gateway_for_registry(
             GatewayConfig {
                 registry_addr,
                 registry_version,
-                billing_addr: None,
+                billing_addr,
                 provider: ProviderArgs {
                     http: vec![rpc_url.parse().unwrap()],
                     signer: signer_args,
@@ -164,6 +216,7 @@ async fn spawn_test_gateway_for_registry(
         rpc_url,
         chain_id,
         redis_url,
+        billing_addr,
         _handle: handle,
         _anvil: anvil,
         _redis: redis_container,
