@@ -1,28 +1,34 @@
 //! Batcher for WIP-107 `WorldIDBilling.register` calls.
 //!
-//! Registrations are batched apart from registry operations: Multicall3 calls do not allow failure,
-//! so a registration that reverts at inclusion (a consumed nonce, exhausted capacity, a period
-//! that ended) fails only its own batch, never an account operation.
+//! Each registration is its own transaction, sent straight to the Billing Contract. Registrations
+//! of one RP share its period capacity and nonces, so in a shared all-or-nothing batch one
+//! registration that reverts at inclusion (exhausted capacity, a consumed nonce, an ended period)
+//! would revert every other one, even those that passed simulation.
 
 use std::sync::Arc;
 
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::{
+    primitives::{Address, TxKind},
+    providers::{DynProvider, Provider as _},
+    rpc::types::TransactionRequest,
+    transports::TransportErrorKind,
+};
 use tokio::sync::mpsc;
 use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
 
 use crate::request_tracker::BacklogScope;
 
-use super::{
-    BatchSubmitStrategy, GenericBatcherRunner, OpsEnvelope, PendingBatchTx,
-    ops::{MULTICALL3_ADDR, Multicall3},
-};
+use super::{BatchSubmitStrategy, GenericBatcherRunner, OpsEnvelope, PendingBatchTx};
+
+/// Registrations per transaction; see the module documentation.
+pub(crate) const BILLING_BATCH_SIZE: usize = 1;
 
 #[derive(Clone)]
 pub struct BillingBatcherHandle {
     pub tx: mpsc::Sender<OpsEnvelope>,
 }
 
-/// Submits each batch through Multicall3 to the Billing Contract.
+/// Sends each registration as one transaction to the Billing Contract.
 pub(crate) struct BillingStrategy {
     billing_contract: Address,
 }
@@ -47,16 +53,19 @@ impl BatchSubmitStrategy<OpsEnvelope> for BillingStrategy {
         registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
         batch: Vec<OpsEnvelope>,
     ) -> Result<PendingBatchTx, alloy::contract::Error> {
-        let mc = Multicall3::new(MULTICALL3_ADDR, registry.provider().clone());
-        let calls: Vec<Multicall3::Call3> = batch
-            .into_iter()
-            .map(|envelope| Multicall3::Call3 {
-                target: self.billing_contract,
-                allowFailure: false,
-                callData: envelope.calldata,
-            })
-            .collect();
-        let builder = mc.aggregate3(calls).send().await?;
+        let [envelope] = <[OpsEnvelope; BILLING_BATCH_SIZE]>::try_from(batch).map_err(|batch| {
+            alloy::contract::Error::TransportError(TransportErrorKind::custom_str(&format!(
+                "a billing batch holds exactly one registration, got {}",
+                batch.len()
+            )))
+        })?;
+        // No explicit gas limit: the provider's gas filler estimates it.
+        let tx = TransactionRequest {
+            to: Some(TxKind::Call(self.billing_contract)),
+            input: envelope.calldata.into(),
+            ..Default::default()
+        };
+        let builder = registry.provider().send_transaction(tx).await?;
         Ok(PendingBatchTx::new(builder))
     }
 }

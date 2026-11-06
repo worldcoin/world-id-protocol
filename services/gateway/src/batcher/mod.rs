@@ -5,7 +5,9 @@ mod billing;
 mod create;
 mod ops;
 
-pub(crate) use billing::{BillingBatcherHandle, BillingBatcherRunner, BillingStrategy};
+pub(crate) use billing::{
+    BILLING_BATCH_SIZE, BillingBatcherHandle, BillingBatcherRunner, BillingStrategy,
+};
 pub(crate) use create::{
     CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope, CreateStrategy,
 };

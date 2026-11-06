@@ -4,9 +4,9 @@ use crate::{
     AppState,
     batch_policy::{BaseFeeCache, spawn_base_fee_sampler},
     batcher::{
-        BatcherHandle, BillingBatcherHandle, BillingBatcherRunner, BillingStrategy,
-        CreateBatcherHandle, CreateBatcherRunner, CreateStrategy, OpsBatcherHandle,
-        OpsBatcherRunner, OpsStrategy,
+        BILLING_BATCH_SIZE, BatcherHandle, BillingBatcherHandle, BillingBatcherRunner,
+        BillingStrategy, CreateBatcherHandle, CreateBatcherRunner, CreateStrategy,
+        OpsBatcherHandle, OpsBatcherRunner, OpsStrategy,
     },
     config::{
         BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
@@ -157,7 +157,7 @@ pub(crate) async fn build_app(
         let (btx, brx) = mpsc::channel(BILLING_BATCHER_CHANNEL_CAPACITY);
         let runner = BillingBatcherRunner::new(
             registry.clone(),
-            batcher_config.max_ops_batch_size,
+            BILLING_BATCH_SIZE,
             BILLING_BATCHER_CHANNEL_CAPACITY,
             brx,
             tracker.clone(),
