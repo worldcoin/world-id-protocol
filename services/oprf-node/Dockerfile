@@ -1,0 +1,73 @@
+# Reproducible build of the OPRF node image on StageX (https://stagex.tools).
+#
+# StageX is a full-source-bootstrapped musl/LLVM toolchain distributed as
+# digest-pinned, multi-maintainer-signed OCI images. Every input below is pinned
+# by digest, the build runs offline after `cargo fetch`, and the resulting image
+# manifest digest is a function of the git commit. linux/amd64 only.
+#
+# To reproduce a published image, use the commands in the "Build OPRF Node
+# Docker Image" run summary: they set up the pinned BuildKit (BUILDKIT_IMAGE in
+# .github/workflows/build-docker-oprf-node.yml) and pass the workflow's labels,
+# which are part of the image config.
+#
+# Build from the repo root without those labels, e.g. to compare two local
+# builders (matches the other builder, not the published digest):
+#   SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct) docker buildx build \
+#     --platform linux/amd64 --provenance=false --sbom=false --no-cache \
+#     --build-arg GIT_HASH=$(git rev-parse HEAD) \
+#     --output type=oci,dest=out,tar=false,rewrite-timestamp=true,force-compression=true,oci-mediatypes=true \
+#     -f services/oprf-node/Dockerfile .
+#
+# StageX release sx2026.11.0 (Rust 1.97.1). Bump all digests together.
+FROM docker.io/stagex/pallet-rust:sx2026.11.0@sha256:4f12174acd7ccab9506e20a986c556cd5837dbd0ce616abf3031bcaaaa365590 AS pallet-rust
+FROM docker.io/stagex/core-cmake:sx2026.11.0@sha256:75ab41e96e7142fbe667e36f482858ce190d3fe5e2bb29835cf1b153cff74d34 AS core-cmake
+FROM docker.io/stagex/core-make:sx2026.11.0@sha256:224e0158be845e591c1ebfedc3bda2495e7b45efff94674f9c5d6d8b08a59918 AS core-make
+FROM docker.io/stagex/core-ca-certificates:sx2026.11.0@sha256:2e5d0da04413dfbc739f3009fe6616e90e733c463f8495ce6997b02c0832735c AS core-ca-certificates
+
+FROM pallet-rust AS toolchain
+# cmake for aws-lc-sys, make for tikv-jemalloc-sys (autotools). aws-lc-sys ships
+# pregenerated bindings for x86_64-unknown-linux-musl, so no bindgen/perl needed.
+COPY --from=core-cmake . /
+COPY --from=core-make . /
+# The pallet provides clang/lld but only exports CC & co. via /etc/profile
+# (login shells). Set them explicitly so cc-rs, cmake and configure agree.
+ENV CC=clang CXX=clang++ AR=llvm-ar RANLIB=llvm-ranlib \
+    TZ=UTC LC_ALL=C \
+    CARGO_HOME=/cargo \
+    TARGET=x86_64-unknown-linux-musl
+# Pin every value jemalloc's configure would otherwise probe from the build host.
+# LG_PAGE=12 is the x86_64 page size (image is amd64 only); LG_VADDR is
+# cpuid-detected (48 vs 57 on LA57 hosts); LG_HUGEPAGE is read from /sys.
+# GIT_CEILING_DIRECTORIES stops configure from `git describe`-ing anything into
+# the allocator's version string (.git is also excluded via .dockerignore).
+ENV JEMALLOC_SYS_WITH_LG_PAGE=12 \
+    JEMALLOC_SYS_WITH_LG_VADDR=48 \
+    JEMALLOC_SYS_WITH_LG_HUGEPAGE=21 \
+    GIT_CEILING_DIRECTORIES=/app/target
+# StageX's musl target defaults to dynamic linking; crt-static restores fully
+# static binaries. build-id=none removes the linker's build-id note.
+ENV RUSTFLAGS="-C target-feature=+crt-static -C link-arg=-Wl,--build-id=none"
+# SOURCE_DATE_EPOCH=1 and CARGO_INCREMENTAL=0 are preset by the pallet.
+
+FROM toolchain AS builder
+# Embedded via `taceo_nodes_common::version_info!()`; a function of the commit.
+ARG GIT_HASH
+RUN test -n "$GIT_HASH" || (echo "ERROR: build-arg GIT_HASH is required" && exit 1)
+ENV GIT_HASH=$GIT_HASH
+WORKDIR /app
+# look at .dockerignore if this does not copy what you want
+COPY . .
+# Fetch with network, build without. --target is required so RUSTFLAGS do not
+# apply to proc-macros and build scripts (crt-static breaks proc-macro dylibs).
+RUN cargo fetch --locked --target "${TARGET}"
+RUN --network=none cargo build --frozen --locked --profile reproducible \
+    --target "${TARGET}" --package world-id-oprf-node --bin world-id-oprf-node
+
+FROM scratch
+WORKDIR /app
+
+COPY --from=core-ca-certificates /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=builder /app/target/x86_64-unknown-linux-musl/reproducible/world-id-oprf-node /app/bin
+
+USER 100
+CMD ["/app/bin"]

@@ -1,0 +1,237 @@
+# Reproducible image pipeline for the OPRF node (services/oprf-node/Dockerfile).
+# Two independent runners build the image with no cache, the manifest digests
+# must match, and only then is the OCI layout pushed as-is (crane preserves
+# blobs, so the registry digest equals the locally computed one). linux/amd64 only.
+name: Build OPRF Node Docker Image
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version tag including v prefix (e.g. v1.0.0); empty for sha-only tags"
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      version:
+        description: "Version tag including v prefix (e.g. v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/world-id-oprf-node
+  DOCKERFILE: services/oprf-node/Dockerfile
+  # BuildKit upgrades can change image config fields and layer compression and
+  # therefore digests; pin it so rebuilds stay comparable over time.
+  BUILDKIT_IMAGE: moby/buildkit:v0.33.1@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea
+
+jobs:
+  build:
+    name: Build (${{ matrix.builder }})
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - builder: primary
+            runner: ubuntu-latest
+          - builder: verify
+            runner: ubuntu-22.04
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1 https://github.com/actions/checkout/releases/tag/v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Source date epoch
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
+
+      - name: Resolve version
+        id: tag
+        if: inputs.version != ''
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+          # latest only for stable releases (no pre-release suffix like -alpha, -rc.1)
+          if [[ "$INPUT_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "is_stable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_stable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0 https://github.com/docker/metadata-action/releases/tag/v6.2.0
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=raw,value=latest,enable=${{ steps.tag.outputs.is_stable == 'true' }}
+            type=sha
+            type=raw,value=${{ steps.tag.outputs.version }},enable=${{ steps.tag.outputs.version != '' }}
+          # Labels end up in the image config and thus in the digest: the
+          # default `created` label is the wall clock, pin it to the commit date.
+          labels: |
+            org.opencontainers.image.created={{commit_date 'YYYY-MM-DDTHH:mm:ss[Z]' tz='UTC'}}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1 https://github.com/docker/setup-buildx-action/releases/tag/v4.4.1
+        with:
+          driver-opts: image=${{ env.BUILDKIT_IMAGE }}
+
+      - name: Build image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0 https://github.com/docker/build-push-action/releases/tag/v7.4.0
+        env:
+          SOURCE_DATE_EPOCH: ${{ env.SOURCE_DATE_EPOCH }}
+        with:
+          context: .
+          file: ${{ env.DOCKERFILE }}
+          platforms: linux/amd64
+          labels: ${{ steps.meta.outputs.labels }}
+          provenance: false
+          sbom: false
+          no-cache: true
+          build-args: |
+            GIT_HASH=${{ github.sha }}
+          outputs: type=oci,dest=${{ runner.temp }}/oci,tar=false,rewrite-timestamp=true,force-compression=true,oci-mediatypes=true
+
+      - name: Record manifest digest
+        run: |
+          digest="$(jq -r '.manifests[0].digest' "${{ runner.temp }}/oci/index.json")"
+          [[ "$digest" =~ ^sha256:[[:xdigit:]]{64}$ ]] || { echo "bad digest: $digest" >&2; exit 1; }
+          echo "$digest" | tee "${{ runner.temp }}/digest-${{ matrix.builder }}.txt"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 https://github.com/actions/upload-artifact/releases/tag/v7.0.2
+        with:
+          name: oprf-node-digest-${{ matrix.builder }}
+          path: ${{ runner.temp }}/digest-${{ matrix.builder }}.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Save tags and labels
+        if: matrix.builder == 'primary'
+        env:
+          LABELS: ${{ steps.meta.outputs.labels }}
+        run: |
+          printf '%s\n' '${{ steps.meta.outputs.tags }}' > "${{ runner.temp }}/tags.txt"
+          printf '%s\n' "$LABELS" > "${{ runner.temp }}/labels.txt"
+          echo "$SOURCE_DATE_EPOCH" > "${{ runner.temp }}/source-date-epoch.txt"
+
+      - name: Upload OCI layout
+        if: matrix.builder == 'primary'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 https://github.com/actions/upload-artifact/releases/tag/v7.0.2
+        with:
+          name: oprf-node-oci
+          path: ${{ runner.temp }}/oci
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload tags
+        if: matrix.builder == 'primary'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2 https://github.com/actions/upload-artifact/releases/tag/v7.0.2
+        with:
+          name: oprf-node-tags
+          path: |
+            ${{ runner.temp }}/tags.txt
+            ${{ runner.temp }}/labels.txt
+            ${{ runner.temp }}/source-date-epoch.txt
+          if-no-files-found: error
+          retention-days: 1
+
+  push:
+    name: Verify and Push
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+      attestations: write
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2 https://github.com/actions/download-artifact/releases/tag/v8.0.2
+        with:
+          pattern: oprf-node-*
+          path: ${{ runner.temp }}/in
+
+      - name: Verify both builders produced the same digest
+        run: |
+          cd "${{ runner.temp }}/in"
+          primary="$(cat oprf-node-digest-primary/digest-primary.txt)"
+          verify="$(cat oprf-node-digest-verify/digest-verify.txt)"
+          echo "primary: $primary"
+          echo "verify:  $verify"
+          if [[ "$primary" != "$verify" ]]; then
+            echo "::error::Image is not reproducible across runners; refusing to push" >&2
+            exit 1
+          fi
+          echo "EXPECTED_DIGEST=$primary" >> "$GITHUB_ENV"
+          echo "OCI_DIR=${{ runner.temp }}/in/oprf-node-oci" >> "$GITHUB_ENV"
+
+      - name: Set up crane
+        uses: imjasonh/setup-crane@feee3b6bb0d4c68370f256a4502498c9227e5c6b # v0.7 https://github.com/imjasonh/setup-crane/releases/tag/v0.7
+        with:
+          version: v0.22.1
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0 https://github.com/docker/login-action/releases/tag/v4.8.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push OCI layout (blobs preserved, digest unchanged)
+        run: |
+          while IFS= read -r tag; do
+            [[ -n "$tag" ]] || continue
+            crane push "$OCI_DIR" "$tag"
+            pushed="$(crane digest "$tag")"
+            echo "$tag -> $pushed"
+            if [[ "$pushed" != "$EXPECTED_DIGEST" ]]; then
+              echo "::error::Registry digest $pushed differs from built digest $EXPECTED_DIGEST" >&2
+              exit 1
+            fi
+          done < "${{ runner.temp }}/in/oprf-node-tags/tags.txt"
+
+      - name: Attest
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2 https://github.com/actions/attest-build-provenance/releases/tag/v4.2.2
+        with:
+          push-to-registry: true
+          subject-name: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          subject-digest: ${{ env.EXPECTED_DIGEST }}
+
+      - name: Summary
+        run: |
+          meta="${{ runner.temp }}/in/oprf-node-tags"
+          # Labels are part of the image config, so the rebuild command must
+          # carry them; single-quote each one for the shell.
+          labels=""
+          while IFS= read -r l; do
+            [[ -n "$l" ]] || continue
+            q=$(printf '%s' "$l" | sed "s/'/'\\\\''/g")
+            labels+=" --label '$q'"
+          done < "$meta/labels.txt"
+          {
+            echo "### world-id-oprf-node"
+            echo
+            echo "Reproducible digest (two runners agreed): \`$EXPECTED_DIGEST\`"
+            echo
+            echo "Create a builder with the pinned BuildKit (once):"
+            echo
+            echo '```sh'
+            echo "docker buildx create --name repro --driver docker-container --driver-opt image=${{ env.BUILDKIT_IMAGE }} --use"
+            echo '```'
+            echo
+            echo "Rebuild from a checkout of \`${{ github.sha }}\` with that builder active:"
+            echo
+            echo '```sh'
+            echo "SOURCE_DATE_EPOCH=$(cat "$meta/source-date-epoch.txt") docker buildx build --platform linux/amd64 --provenance=false --sbom=false --no-cache --build-arg GIT_HASH=${{ github.sha }}${labels} --output type=oci,dest=out,tar=false,rewrite-timestamp=true,force-compression=true,oci-mediatypes=true -f ${{ env.DOCKERFILE }} ."
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
