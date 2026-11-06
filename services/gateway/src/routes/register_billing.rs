@@ -18,10 +18,11 @@ pub(crate) async fn register_billing(
     Extension(RequestId(id)): Extension<RequestId>,
     Json(payload): Json<BillingRegistration>,
 ) -> Result<Json<GatewayStatusResponse>, GatewayErrorResponse> {
+    let received_at = tokio::time::Instant::now();
     payload
         .into_request(id, &state.ctx)
         .await?
-        .submit(&state.ctx)
+        .submit(&state.ctx, received_at)
         .await
         .map(|r| Json(r.into_response()))
 }

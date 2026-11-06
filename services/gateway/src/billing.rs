@@ -7,10 +7,19 @@
 //! queued-request deadline.
 //!
 //! A registration is tracked only once it holds the transaction lock, and is sent right after,
-//! so a tracked registration is never left waiting where the sweeper or a request timeout could
-//! fail it. One that cannot get the lock in time is rejected with 503, untracked.
+//! so a tracked registration is never left waiting where the sweeper could fail it. It waits for
+//! the lock only until half the request timeout has passed since the request arrived, and is
+//! dropped untracked if its request is gone by then, so a client that timed out never has its
+//! registration sent behind its back. One that cannot get the lock in time is rejected with 503,
+//! untracked.
 
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use alloy::{
     primitives::{Bytes, TxKind},
@@ -47,9 +56,9 @@ pub struct BillingRelay {
     tracker: RequestTracker,
     /// Shared with the batchers, which use the same signer.
     tx_send_lock: Arc<Mutex<()>>,
-    /// How long a registration waits for `tx_send_lock`: half the request timeout, so that the
-    /// request is answered before it times out.
-    lock_wait: Duration,
+    /// How long after its request arrived a registration may still take `tx_send_lock`: half the
+    /// request timeout, leaving the rest for tracking and sending it.
+    lock_deadline: Duration,
     in_flight: Arc<Semaphore>,
 }
 
@@ -64,17 +73,19 @@ impl BillingRelay {
             contract,
             tracker,
             tx_send_lock,
-            lock_wait: request_timeout / 2,
+            lock_deadline: request_timeout / 2,
             in_flight: Arc::new(Semaphore::new(MAX_IN_FLIGHT_SENDS)),
         }
     }
 
-    /// Tracks request `id` and sends its `register` call, returning the transaction hash.
+    /// Tracks request `id`, which arrived at `received_at`, and sends its `register` call,
+    /// returning the transaction hash.
     ///
     /// Rejects the registration with 503, untracked, while [`MAX_IN_FLIGHT_SENDS`] are in flight
-    /// or if the transaction lock stays busy for longer than half the request timeout.
+    /// or if the transaction lock stays busy until half the request timeout has passed.
     pub(crate) async fn submit(
         &self,
+        received_at: Instant,
         id: Uuid,
         kind: GatewayRequestKind,
         inflight_keys: Vec<String>,
@@ -86,21 +97,31 @@ impl BillingRelay {
             .try_acquire_owned()
             .map_err(|_| busy("Too many billing registrations in flight."))?;
         let relay = self.clone();
+        let caller = CallerGuard::new();
+        let caller_waiting = caller.0.clone();
         // Spawned so that a request timeout cannot interrupt it between tracking the request and
         // recording the sent transaction.
-        tokio::spawn(async move {
+        let task = tokio::spawn(async move {
             let _permit = permit;
-            let _send_guard = tokio::time::timeout(relay.lock_wait, relay.tx_send_lock.lock())
+            let deadline = received_at + relay.lock_deadline;
+            let _send_guard = tokio::time::timeout_at(deadline, relay.tx_send_lock.lock())
                 .await
                 .map_err(|_| busy("The gateway is busy sending transactions."))?;
+            // A caller that timed out has no request ID to follow the registration with, so it is
+            // dropped untracked; nobody receives this error.
+            if !caller_waiting.load(Ordering::Acquire) {
+                tracing::warn!(request_id = %id, "billing registration dropped: its request is gone");
+                return Err(busy("The request timed out."));
+            }
             relay
                 .tracker
                 .new_request_with_id(id.to_string(), kind, inflight_keys)
                 .await?;
             relay.send(id.to_string(), calldata).await
-        })
-        .await
-        .map_err(|err| {
+        });
+        let result = task.await;
+        drop(caller);
+        result.map_err(|err| {
             tracing::error!(request_id = %id, error = %err, "billing send task failed");
             GatewayErrorResponse::internal_server_error()
         })?
@@ -159,6 +180,22 @@ impl BillingRelay {
                 })
             }
         }
+    }
+}
+
+/// Set while the request handler waits for the registration, cleared when it stops waiting, e.g.
+/// on a request timeout.
+struct CallerGuard(Arc<AtomicBool>);
+
+impl CallerGuard {
+    fn new() -> Self {
+        Self(Arc::new(AtomicBool::new(true)))
+    }
+}
+
+impl Drop for CallerGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Release);
     }
 }
 

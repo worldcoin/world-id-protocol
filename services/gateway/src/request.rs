@@ -474,10 +474,12 @@ impl IntoRequest for BillingRegistration {
 }
 
 impl Request<BillingRegistration> {
-    /// Sends the registration now instead of queueing it; see [`crate::billing`].
+    /// Sends the registration now instead of queueing it; see [`crate::billing`]. `received_at`
+    /// is when the HTTP request arrived.
     pub async fn submit(
         self,
         ctx: &GatewayContext,
+        received_at: tokio::time::Instant,
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         let Request {
             id,
@@ -491,7 +493,7 @@ impl Request<BillingRegistration> {
             .as_ref()
             .ok_or_else(GatewayErrorResponse::internal_server_error)?;
         let tx_hash = relay
-            .submit(id, kind, payload.inflight_keys(), calldata)
+            .submit(received_at, id, kind, payload.inflight_keys(), calldata)
             .await?;
         Ok(SubmittedRequest {
             id,
