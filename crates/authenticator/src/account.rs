@@ -406,11 +406,32 @@ impl Authenticator {
         Ok(gateway_resp.request_id)
     }
 
+    /// Submits a billing registration to the gateway, which relays it to `WorldIDBilling.register`
+    /// (WIP-107 §4.2).
+    ///
+    /// The gateway rejects a registration whose `billing_nullifier` is already registered with
+    /// [`GatewayErrorCode::BillingNullifierAlreadyRegistered`](crate::api_types::GatewayErrorCode).
+    /// Track the request with [`poll_status`](Self::poll_status).
+    ///
+    /// # Errors
+    /// Returns an error if the gateway rejects the registration or a network error occurs.
+    pub async fn submit_billing_registration(
+        &self,
+        registration: &world_id_primitives::billing::BillingRegistration,
+    ) -> Result<GatewayRequestId, AuthenticatorError> {
+        let body: GatewayStatusResponse = self
+            .gateway_client
+            .post_json(self.config.gateway_url(), "/register-billing", registration)
+            .await?;
+        Ok(body.request_id)
+    }
+
     /// Polls the gateway for the current status of a previously submitted request.
     ///
     /// Use the [`GatewayRequestId`] returned by [`insert_authenticator`](Self::insert_authenticator),
-    /// [`update_authenticator`](Self::update_authenticator), or
-    /// [`remove_authenticator`](Self::remove_authenticator) to track the operation.
+    /// [`update_authenticator`](Self::update_authenticator),
+    /// [`remove_authenticator`](Self::remove_authenticator), or
+    /// [`submit_billing_registration`](Self::submit_billing_registration) to track the operation.
     ///
     /// # Errors
     /// - Will error if the network request fails.

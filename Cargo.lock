@@ -12341,6 +12341,7 @@ dependencies = [
  "world-id-authenticator",
  "world-id-gateway",
  "world-id-issuer",
+ "world-id-oprf-node",
  "world-id-primitives",
  "world-id-proof",
  "world-id-registries",
