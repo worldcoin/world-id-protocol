@@ -18,6 +18,7 @@ use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
     Credential, CredentialVersion, FieldElement, TREE_DEPTH,
     authenticator::oprf_query_digest,
+    authenticator_assertion::AatPublicValues,
     poseidon::{self, ds},
     proof::EmbeddingSimilarityProof,
     sponge::hash_bytes_to_field_element,
@@ -157,11 +158,6 @@ fn token_digest<const MAX_DEPTH: usize>(
 ) -> Result<FieldElement, ProofInputError> {
     let public = &inputs.public;
     let (_, credential_digest) = thumbnail_digest(&inputs.hashes_json)?;
-    // `sec_flags` layout with `min_build_version` (bits 16-47) fixed to 0 by WIP-202.
-    let aat_flags = u64::from(public.platform)
-        | (u64::from(public.sec_level) << 8)
-        | (u64::from(public.sec_meta) << 48)
-        | (u64::from(public.authenticator_meta) << 52);
     Ok(FlamingoClaims {
         now: public.now,
         compared_entry_hashes: [
@@ -172,9 +168,13 @@ fn token_digest<const MAX_DEPTH: usize>(
         ],
         aud: public.rp_id,
         nonce: public.nonce,
-        aat: public.has_aat.then_some(FlamingoAatClaims {
-            trust_anchor_key_hash: public.trust_anchor_key_hash,
-            aat_flags,
+        // `sec_flags` layout with `min_build_version` (bits 16-47) fixed to 0 by WIP-202.
+        aat: public.aat.as_ref().map(|aat| FlamingoAatClaims {
+            trust_anchor_key_hash: aat.trust_anchor_key_hash,
+            aat_flags: u64::from(aat.platform)
+                | (u64::from(aat.sec_level) << 8)
+                | (u64::from(aat.sec_meta) << 48)
+                | (u64::from(aat.authenticator_meta) << 52),
         }),
         compare_sources: COMPARE_SOURCES,
         engine_config_hash: public.engine_config_hash,
@@ -202,15 +202,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         });
     }
 
-    // 2. The Flamingo Verifier must have signed the token, whose AAT values are zero without an AAT.
-    let has_aat_values = public.trust_anchor_key_hash != FieldElement::ZERO
-        || public.platform != 0
-        || public.sec_level != 0
-        || public.sec_meta != 0
-        || public.authenticator_meta != 0;
-    if !public.has_aat && has_aat_values {
-        return Err(ProofInputError::UnexpectedAatValues);
-    }
+    // 2. The Flamingo Verifier must have signed the token.
     let digest = token_digest(inputs)?;
     if !public
         .flamingo_verifier_key
@@ -316,6 +308,13 @@ fn public_witness(
     merkle_root: FieldElement,
 ) -> [(&'static str, InputValue); 20] {
     let field = |value: u64| InputValue::Field(NoirElement::from(value));
+    let aat = public.aat.clone().unwrap_or(AatPublicValues {
+        trust_anchor_key_hash: FieldElement::ZERO,
+        platform: 0,
+        sec_level: 0,
+        sec_meta: 0,
+        authenticator_meta: 0,
+    });
     [
         ("now", field(public.now.into())),
         ("rp_id", public.rp_id.into_noir_value()),
@@ -331,18 +330,15 @@ fn public_witness(
             "engine_config_hash",
             public.engine_config_hash.into_noir_value(),
         ),
-        ("has_aat", field(public.has_aat.into())),
+        ("has_aat", field(public.aat.is_some().into())),
         (
             "trust_anchor_key_hash",
-            public.trust_anchor_key_hash.into_noir_value(),
+            aat.trust_anchor_key_hash.into_noir_value(),
         ),
-        ("platform", field(public.platform.into())),
-        ("sec_level", field(public.sec_level.into())),
-        ("sec_meta", field(public.sec_meta.into())),
-        (
-            "authenticator_meta",
-            field(public.authenticator_meta.into()),
-        ),
+        ("platform", field(aat.platform.into())),
+        ("sec_level", field(aat.sec_level.into())),
+        ("sec_meta", field(aat.sec_meta.into())),
+        ("authenticator_meta", field(aat.authenticator_meta.into())),
         ("merkle_root", merkle_root.into_noir_value()),
         ("issuer_schema_id", field(public.issuer_schema_id)),
         ("issuer_version", field(public.issuer_version.into())),
@@ -541,14 +537,11 @@ mod input_validation_tests {
     }
 
     #[test]
-    fn test_rejects_aat_values_without_an_aat() {
+    fn test_accepts_a_token_without_an_aat() {
         let mut input = embedding_similarity_fixture();
-        input.public.has_aat = false;
+        input.public.aat = None;
         resign(&mut input);
-        assert!(matches!(
-            check(&input),
-            ProofInputError::UnexpectedAatValues
-        ));
+        check_embedding_similarity_input_validity(&input).expect("a token without an AAT is valid");
     }
 
     #[test]

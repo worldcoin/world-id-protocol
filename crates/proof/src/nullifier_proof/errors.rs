@@ -129,9 +129,6 @@ pub enum ProofInputError {
     /// The Flamingo Verifier signature over the token digest is invalid.
     #[error("The Flamingo Token signature is invalid for the given Verifier key.")]
     InvalidFlamingoTokenSignature,
-    /// The AAT values are not zero although the token carries no AAT.
-    #[error("The AAT values must be zero when the token carries no AAT.")]
-    UnexpectedAatValues,
     /// The PCP `hashes.json` cannot be encoded for the circuit.
     #[error("The provided hashes.json is invalid: {reason}.")]
     InvalidHashesJson {

@@ -10,7 +10,7 @@ use ruint::aliases::U256;
 
 use world_id_primitives::{
     AuthenticatorPublicKeySet, Credential, FieldElement, MAX_AUTHENTICATOR_KEYS,
-    merkle::MerkleInclusionProof,
+    authenticator_assertion::AatPublicValues, merkle::MerkleInclusionProof,
 };
 
 type BaseField = ark_babyjubjub::Fq;
@@ -274,18 +274,8 @@ pub struct EmbeddingSimilarityPublicInputs {
     pub flamingo_verifier_key: EdDSAPublicKey,
     /// The Engine configuration hash the token was produced under.
     pub engine_config_hash: FieldElement,
-    /// Whether the token carries an AAT. When `false`, every AAT value below must be `0`.
-    pub has_aat: bool,
-    /// WIP-106 hash of the trust anchor key that signed the TAKT.
-    pub trust_anchor_key_hash: FieldElement,
-    /// The AAT's `platform`.
-    pub platform: u8,
-    /// The AAT's `sec_level`.
-    pub sec_level: u8,
-    /// The AAT's `sec_meta`.
-    pub sec_meta: u8,
-    /// The AAT's `authenticator_meta`.
-    pub authenticator_meta: u8,
+    /// The AAT values, if the Flamingo Verifier verified an AAT; all zero in the circuit otherwise.
+    pub aat: Option<AatPublicValues>,
     /// The PoH Credential's issuer schema.
     pub issuer_schema_id: u64,
     /// The PoH Credential's issuer version.

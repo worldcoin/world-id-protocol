@@ -25,6 +25,7 @@ use world_id_flamingo::{DS_SIGN, FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
     authenticator::oprf_query_digest,
+    authenticator_assertion::AatPublicValues,
     merkle::MerkleInclusionProof,
     poseidon::{self, ds},
 };
@@ -711,7 +712,7 @@ fn domain_separators_match_the_noir_constants() {
         "127603488023523044162070750169730750022280897185614"
     );
     assert_eq!(
-        dec(*ds::EMBEDDING_SIMILARITY_AUTH.as_field_element()),
+        as_int(b"WORLD-ID/WIP-202/AUTH"),
         "127603488023523044162070750169730750023380107613256"
     );
     assert_eq!(
@@ -773,12 +774,13 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
             ),
             flamingo_verifier_key: verifier_sk().public(),
             engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
-            has_aat: true,
-            trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
-            platform: PLATFORM,
-            sec_level: SEC_LEVEL,
-            sec_meta: SEC_META,
-            authenticator_meta: AUTHENTICATOR_META,
+            aat: Some(AatPublicValues {
+                trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
+                platform: PLATFORM,
+                sec_level: SEC_LEVEL,
+                sec_meta: SEC_META,
+                authenticator_meta: AUTHENTICATOR_META,
+            }),
             issuer_schema_id: ISSUER_SCHEMA_ID,
             issuer_version: ISSUER_VERSION,
             cred_pk: credential.issuer.clone(),
@@ -857,12 +859,12 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
         ],
         aud: public.rp_id,
         nonce: public.nonce,
-        aat: public.has_aat.then(|| FlamingoAatClaims {
-            trust_anchor_key_hash: public.trust_anchor_key_hash,
-            aat_flags: u64::from(public.platform)
-                + (u64::from(public.sec_level) << 8)
-                + (u64::from(public.sec_meta) << 48)
-                + (u64::from(public.authenticator_meta) << 52),
+        aat: public.aat.as_ref().map(|aat| FlamingoAatClaims {
+            trust_anchor_key_hash: aat.trust_anchor_key_hash,
+            aat_flags: u64::from(aat.platform)
+                + (u64::from(aat.sec_level) << 8)
+                + (u64::from(aat.sec_meta) << 48)
+                + (u64::from(aat.authenticator_meta) << 52),
         }),
         compare_sources: COMPARE_SOURCES,
         engine_config_hash: public.engine_config_hash,
