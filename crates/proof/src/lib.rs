@@ -58,6 +58,8 @@ pub mod ownership_proof;
 
 mod noir_components;
 
+mod provekit;
+
 /// UNAUDITED. Embedded artifacts of the WIP-202 Proof of Embedding Similarity circuit.
 #[cfg(any(
     feature = "embed-embedding-similarity-prover",
