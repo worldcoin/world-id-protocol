@@ -27,8 +27,8 @@ const PKV_BYTES: &[u8] = &[];
 /// Returns an error if the embedded bytes cannot be deserialized.
 #[cfg(feature = "embed-embedding-similarity-prover")]
 pub fn embedded_prover() -> eyre::Result<provekit_common::Prover> {
-    provekit_common::register_ntt();
-    provekit_common::file::deserialize(PKP_BYTES).map_err(|e| eyre::eyre!(e.to_string()))
+    // Decodes in pure Rust on wasm32, where `provekit_common::file` is unavailable.
+    crate::embedding_similarity_proof::load_embedding_similarity_prover_from_reader(PKP_BYTES)
 }
 
 /// Loads the embedded WIP-202 verifier.
