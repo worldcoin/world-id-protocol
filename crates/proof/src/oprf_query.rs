@@ -17,6 +17,7 @@ use taceo_oprf::{
 
 use world_id_primitives::{
     FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, ProofType, TREE_DEPTH,
+    billing::{BILLED_ACTION_PREFIX, BillingContext, BillingWitness},
     oprf::{
         CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule,
         RpSignatureVerification,
@@ -103,6 +104,18 @@ impl FullOprfOutput {
     #[must_use]
     pub fn oprf_output(&self) -> FieldElement {
         self.verifiable_oprf_output.output.into()
+    }
+
+    /// The values a Proof of Embedding Similarity needs from a billing query (WIP-107 §4.6), for
+    /// an output of [`OprfEntrypoint::gen_billing_nullifier`].
+    #[must_use]
+    pub fn billing_witness(&self) -> BillingWitness {
+        let response = self.verifiable_oprf_output.unblinded_response;
+        BillingWitness {
+            billing_action: self.query_proof_input.action.into(),
+            billing_nullifier: self.oprf_output(),
+            billing_oprf_output: [response.x.into(), response.y.into()],
+        }
     }
 }
 
@@ -216,6 +229,11 @@ impl<'a> OprfEntrypoint<'a> {
                 OprfModule::Session,
             ),
             ProofType::Uniqueness { action } => (action, OprfModule::Nullifier),
+            ProofType::EmbeddingSimilarity(_) => {
+                return Err(ProofError::GenerationError(
+                    "embedding similarity proofs have no nullifier query".to_string(),
+                ));
+            }
         };
 
         // Quick validation before performing the compute-heavy `generate_query_proof` fn.
@@ -260,6 +278,71 @@ impl<'a> OprfEntrypoint<'a> {
         })
     }
 
+    /// Generates the billing nullifier of `scope` for a Proof of Embedding Similarity request
+    /// through the OPRF nodes (WIP-107 §4.5).
+    ///
+    /// The query's action is the `billingAction` of `scope`. It carries the request's signed action
+    /// and `scope` so that the nodes can check the RP authorized it. The output's
+    /// [`FullOprfOutput::oprf_output`] is the `billingNullifier`; the output also feeds the
+    /// registration proof and [`FullOprfOutput::billing_witness`].
+    ///
+    /// # Errors
+    /// Returns [`ProofError::GenerationError`] if `proof_request` is not a valid Proof of
+    /// Embedding Similarity request, or `scope` is for another RP or not active at `now`, and
+    /// [`ProofError::ProofInputError`] if the request has expired. Other errors propagate from the
+    /// query proof and the OPRF nodes.
+    pub async fn gen_billing_nullifier<R: rand::CryptoRng + rand::RngCore>(
+        &self,
+        rng: &mut R,
+        proof_request: &ProofRequest,
+        scope: &BillingContext,
+        now: u64,
+    ) -> Result<FullOprfOutput, ProofError> {
+        let signed_action = validate_billing_query(proof_request, scope, now)?;
+        let billing_action = scope.billing_action();
+
+        let result = Self::generate_query_proof(
+            self.query_material,
+            &self.authenticator_input,
+            billing_action,
+            proof_request.nonce,
+            proof_request.rp_id.into(),
+            rng,
+        )?;
+
+        let auth = NullifierOprfRequestAuthV1 {
+            proof: result.proof.into(),
+            action: *billing_action,
+            nonce: *proof_request.nonce,
+            merkle_root: *self.authenticator_input.inclusion_proof.root,
+            created_at: proof_request.created_at,
+            expires_at: proof_request.expires_at,
+            signature: Some(proof_request.signature),
+            rp_id: proof_request.rp_id,
+            wip101_data: None,
+            rp_signature_verification: Some(RpSignatureVerification::Billing {
+                action: signed_action,
+                scope: *scope,
+            }),
+        };
+
+        let verifiable_oprf_output = Self::execute_distributed_oprf(
+            self.services,
+            self.threshold,
+            result.query_hash,
+            result.blinding_factor,
+            auth,
+            OprfModule::Nullifier,
+            self.connector.clone(),
+        )
+        .await?;
+
+        Ok(FullOprfOutput {
+            query_proof_input: result.query_proof_input,
+            verifiable_oprf_output,
+        })
+    }
+
     pub async fn derive_session_id_r_seed<R: rand::CryptoRng + rand::RngCore>(
         &self,
         rng: &mut R,
@@ -284,10 +367,17 @@ impl<'a> OprfEntrypoint<'a> {
             rng,
         )?;
 
-        let rp_signature_verification = proof_request
-            .proof_type
-            .action()
-            .map(|action| RpSignatureVerification::UniquenessAction { action });
+        let rp_signature_verification = match &proof_request.proof_type {
+            ProofType::Uniqueness { action } => {
+                Some(RpSignatureVerification::UniquenessAction { action: *action })
+            }
+            ProofType::EmbeddingSimilarity(params) => {
+                Some(RpSignatureVerification::EmbeddingSimilarityAction {
+                    action: params.action,
+                })
+            }
+            ProofType::Session => None,
+        };
 
         let auth = NullifierOprfRequestAuthV1 {
             proof: result.proof.into(),
@@ -318,6 +408,42 @@ impl<'a> OprfEntrypoint<'a> {
             verifiable_oprf_output,
         })
     }
+}
+
+/// Checks a billing query before the compute-heavy query proof and returns the request's signed
+/// action: the request is a valid Proof of Embedding Similarity request whose action carries
+/// [`BILLED_ACTION_PREFIX`], it has not expired, and `scope` is for its RP and active at `now`.
+fn validate_billing_query(
+    proof_request: &ProofRequest,
+    scope: &BillingContext,
+    now: u64,
+) -> Result<FieldElement, ProofError> {
+    proof_request
+        .validate_proof_type()
+        .map_err(|err| ProofError::GenerationError(err.to_string()))?;
+    let ProofType::EmbeddingSimilarity(params) = &proof_request.proof_type else {
+        return Err(ProofError::GenerationError(
+            "billing queries are only made for embedding similarity requests".to_string(),
+        ));
+    };
+    // `validate_proof_type` checks the prefix too; this keeps the invariant local.
+    if !params.action.has_prefix(BILLED_ACTION_PREFIX) {
+        return Err(ProofError::GenerationError(
+            "the request's action must carry the billed action prefix".to_string(),
+        ));
+    }
+    if scope.rp_id != proof_request.rp_id {
+        return Err(ProofError::GenerationError(
+            "the billing context is for another RP".to_string(),
+        ));
+    }
+    if !scope.is_active_at(now) {
+        return Err(ProofError::GenerationError(
+            "the billing context is not a canonical period active now".to_string(),
+        ));
+    }
+    validate_proof_request_timestamps(proof_request.created_at, proof_request.expires_at, now)?;
+    Ok(params.action)
 }
 
 fn validate_proof_request_timestamps(
@@ -454,5 +580,117 @@ mod tests {
         now: u64,
     ) -> Result<(), ProofError> {
         validate_proof_request_timestamps(created_at, expires_at, now)
+    }
+
+    mod billing {
+        use super::*;
+        use alloy_primitives::{Address, U256};
+        use world_id_primitives::{
+            EmbeddingSimilarityParams, RequestItem, SessionRef, request::RequestVersion, rp::RpId,
+        };
+
+        /// Midnight Anywhere on Earth on 1 November 2026, a canonical period start.
+        const NOVEMBER_2026: u64 = 1_793_534_400;
+        const NOW: u64 = NOVEMBER_2026 + 600;
+
+        fn prefixed(prefix: OprfPrefix) -> FieldElement {
+            let mut bytes = [0x22u8; 32];
+            bytes[0] = prefix as u8;
+            FieldElement::from_be_bytes(&bytes).expect("in field")
+        }
+
+        fn request() -> ProofRequest {
+            ProofRequest {
+                id: "req".into(),
+                version: RequestVersion::V1,
+                proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
+                    action: prefixed(OprfPrefix::EmbeddingSimilarity),
+                    challenge_hash: FieldElement::from(7u64),
+                    aat: None,
+                }),
+                created_at: NOW - 60,
+                expires_at: NOW + 240,
+                rp_id: RpId::new(42),
+                oprf_key_id: taceo_oprf::types::OprfKeyId::new(ruint::uint!(9_U160)),
+                session_id: SessionRef::None,
+                signature: alloy_primitives::Signature::new(
+                    U256::from(1u64),
+                    U256::from(2u64),
+                    true,
+                ),
+                nonce: FieldElement::from(5u64),
+                requests: vec![RequestItem::new("poh".into(), 1, None, None, None)],
+                constraints: None,
+            }
+        }
+
+        fn scope(period_start: u64) -> BillingContext {
+            BillingContext {
+                chain_id: U256::from(480u64),
+                billing_contract: Address::repeat_byte(0xb1),
+                rp_id: RpId::new(42),
+                period_start,
+            }
+        }
+
+        fn rejection(result: Result<FieldElement, ProofError>) -> String {
+            match result {
+                Err(ProofError::GenerationError(reason)) => reason,
+                other => panic!("expected a generation error, got {other:?}"),
+            }
+        }
+
+        #[test]
+        fn accepts_an_embedding_similarity_request_for_an_active_period() {
+            let signed = validate_billing_query(&request(), &scope(NOVEMBER_2026), NOW)
+                .expect("valid billing query");
+            assert_eq!(signed, prefixed(OprfPrefix::EmbeddingSimilarity));
+        }
+
+        #[test]
+        fn rejects_other_proof_types() {
+            let mut request = request();
+            request.proof_type = ProofType::Uniqueness {
+                action: prefixed(OprfPrefix::Uniqueness),
+            };
+            assert!(
+                rejection(validate_billing_query(&request, &scope(NOVEMBER_2026), NOW))
+                    .contains("embedding similarity")
+            );
+        }
+
+        #[test]
+        fn rejects_another_rp() {
+            let mut scope = scope(NOVEMBER_2026);
+            scope.rp_id = RpId::new(43);
+            assert!(
+                rejection(validate_billing_query(&request(), &scope, NOW)).contains("another RP")
+            );
+        }
+
+        #[test]
+        fn rejects_an_inactive_or_noncanonical_period() {
+            for period_start in [NOVEMBER_2026 + 1, NOVEMBER_2026 + 31 * 24 * 60 * 60] {
+                assert!(
+                    rejection(validate_billing_query(
+                        &request(),
+                        &scope(period_start),
+                        NOW
+                    ))
+                    .contains("not a canonical period active now")
+                );
+            }
+        }
+
+        #[test]
+        fn rejects_an_expired_request() {
+            let request = request();
+            assert!(matches!(
+                validate_billing_query(&request, &scope(NOVEMBER_2026), request.expires_at + 1),
+                Err(ProofError::ProofInputError(
+                    errors::ProofInputError::ProofRequestExpired { .. }
+                ))
+            ));
+        }
     }
 }

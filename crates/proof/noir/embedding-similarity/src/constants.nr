@@ -14,8 +14,8 @@ pub global CLAIM_INDEX: u32 = 0;
 pub global MIN_HASHES_JSON_BYTES: u32 = 3072;
 pub global MAX_HASHES_JSON_BYTES: u32 = 5120;
 
-/// Bytes per sponge chunk: 31 bytes stay below the BN254 modulus.
-pub global CHUNK_BYTES: u32 = 31;
+/// Bytes per `H_var` chunk, from the shared library.
+pub use world_id_components::var_hash::CHUNK_BYTES;
 
 /// Sponge chunks of a maximum-length `hashes.json`.
 pub global NUM_CHUNKS: u32 = (MAX_HASHES_JSON_BYTES + CHUNK_BYTES - 1) / CHUNK_BYTES;
@@ -23,14 +23,10 @@ pub global NUM_CHUNKS: u32 = (MAX_HASHES_JSON_BYTES + CHUNK_BYTES - 1) / CHUNK_B
 /// Chunks spanned by the 83-byte thumbnail window (delimiter, key, digest, quote).
 pub global WINDOW_CHUNKS: u32 = 4;
 
-/// Chunk slots: `NUM_CHUNKS` plus zero slack so the window never indexes past the end.
-pub global CHUNK_SLOTS: u32 = NUM_CHUNKS + WINDOW_CHUNKS - 1;
-
-/// Billing query (`DS_QUERY`, WIP-100 §3.8): b"World ID Query".
-pub global DS_QUERY: Field = 1773399373884719043551600379785849;
-
-/// Billing nullifier (`DS_OPRF_PROOF`): b"World ID Proof".
-pub global DS_OPRF_PROOF: Field = 1773399373884719043551596035141478;
+/// Chunk slots of `hashes_json`, `⌈MAX_HASHES_JSON_BYTES / 31⌉` as WIP-202 §4.5 specifies. The
+/// thumbnail window needs no slack: `digest_offset + 64 < len` keeps its last chunk below
+/// `NUM_CHUNKS`.
+pub global CHUNK_SLOTS: u32 = NUM_CHUNKS;
 
 /// Account authorization (`DS_WIP_202_AUTH`): b"WORLD-ID/WIP-202/AUTH".
 pub global DS_WIP_202_AUTH: Field = 127603488023523044162070750169730750023380107613256;

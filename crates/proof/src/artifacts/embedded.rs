@@ -331,13 +331,6 @@ pub mod noir {
         crate::ownership_proof::load_ownership_verifier_from_reader(PKV_BYTES)
     }
 
-    #[cfg(all(feature = "embed-embedding-similarity-prover", not(docsrs)))]
-    const EMBEDDING_SIMILARITY_PKP_BYTES: &[u8] =
-        include_bytes!(concat!(env!("OUT_DIR"), "/embedding_similarity.pkp"));
-
-    #[cfg(all(feature = "embed-embedding-similarity-prover", docsrs))]
-    const EMBEDDING_SIMILARITY_PKP_BYTES: &[u8] = &[];
-
     /// Loads the embedded embedding similarity proof prover.
     ///
     /// # Errors
@@ -345,25 +338,8 @@ pub mod noir {
     #[cfg(feature = "embed-embedding-similarity-prover")]
     pub fn load_embedded_embedding_similarity_prover()
     -> eyre::Result<crate::EmbeddingSimilarityProver> {
-        crate::embedding_similarity_proof::load_embedding_similarity_prover_from_reader(
-            EMBEDDING_SIMILARITY_PKP_BYTES,
-        )
+        crate::embedding_similarity::embedded_prover()
     }
-
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        feature = "embed-embedding-similarity-verifier",
-        not(docsrs)
-    ))]
-    const EMBEDDING_SIMILARITY_PKV_BYTES: &[u8] =
-        include_bytes!(concat!(env!("OUT_DIR"), "/embedding_similarity.pkv"));
-
-    #[cfg(all(
-        not(target_arch = "wasm32"),
-        feature = "embed-embedding-similarity-verifier",
-        docsrs
-    ))]
-    const EMBEDDING_SIMILARITY_PKV_BYTES: &[u8] = &[];
 
     /// Loads the embedded embedding similarity proof verifier.
     ///
@@ -375,9 +351,7 @@ pub mod noir {
     ))]
     pub fn load_embedded_embedding_similarity_verifier()
     -> eyre::Result<crate::EmbeddingSimilarityVerifier> {
-        crate::embedding_similarity_proof::load_embedding_similarity_verifier_from_reader(
-            EMBEDDING_SIMILARITY_PKV_BYTES,
-        )
+        crate::embedding_similarity::embedded_verifier()
     }
 }
 

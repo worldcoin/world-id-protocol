@@ -9,12 +9,13 @@ pub(crate) mod types;
 mod test_fixtures;
 mod tests;
 
-use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_OPRF_PROOF, DS_QUERY, DS_WIP_202_AUTH};
+use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_WIP_202_AUTH};
 use flamingo_token::{FlamingoTokenClaims, FlamingoTokenPublic};
 use poseidon2::bn254::permutation;
 use types::PrivateInputs;
 use world_id_components::{
     authentication,
+    constants::{DS_OPRF_PROOF, DS_QUERY},
     credential::{self, CredentialPublic},
     session,
     types::PublicKey,
@@ -56,7 +57,7 @@ fn main(
     let credential_digest = hashes_json::thumbnail_digest(inputs.hashes_json);
 
     // 1. Flamingo Token verification; fixing the entries binds the Credential image and challenge.
-    let public = FlamingoTokenPublic {
+    let flamingo_public = FlamingoTokenPublic {
         verifier_key: flamingo_verifier_key,
         now: now as Field,
         aud: rp_id,
@@ -82,7 +83,7 @@ fn main(
         compare_sources: COMPARE_SOURCES as Field,
         billing_nullifier,
     };
-    let digest = flamingo_token::verify(public, token_claims, inputs.token.sig);
+    let digest = flamingo_token::verify(flamingo_public, token_claims, inputs.token.sig);
 
     // 4. World ID Authentication over the authorization message, which also binds the
     // RP's signal. One `leaf_index` witness binds the World ID, the Credential and the session.
@@ -108,9 +109,10 @@ fn main(
         leaf_index,
         inputs.credential,
     );
-    // The RP's minimum expiration, as in Uniqueness and Session Proofs; `verify` range-checks
-    // `expires_at`.
+    // The RP's minimum expiration, as in Uniqueness and Session Proofs. Both values are
+    // range-checked here, so the comparison runs over integers.
     expires_at_min.assert_max_bit_size::<64>();
+    inputs.credential.expires_at.assert_max_bit_size::<64>();
     assert(
         (expires_at_min as u64) < (inputs.credential.expires_at as u64),
         "credential expires too early",
@@ -118,8 +120,11 @@ fn main(
 
     // 7. Billing nullifier ownership: `0` means the RP is not billed, anything else must be this
     // World ID's WIP-107 nullifier for `rp_id`, recomputed as in the Uniqueness Proof.
-    // The OPRF output is not checked to be on the curve: registration verified it, and a wrong
-    // output only yields a nullifier the Verifier never signs (WIP-202 Rationale 8).
+    // Unlike the Uniqueness Proof, the circuit doesn't re-verify the OPRF evaluation, neither the
+    // DLogEq proof against the RP's OPRF key nor the output's curve membership: registration
+    // proved both for every registered nullifier, and the Verifier signs only registered ones.
+    // A registered nullifier of another World ID or RP would satisfy this check only through a
+    // Poseidon2 collision (WIP-202 Rationale 8).
     let billing_query = permutation::t4([DS_QUERY, leaf_index, rp_id, inputs.billing_action])[1];
     let own_nullifier = permutation::t4([
         DS_OPRF_PROOF,

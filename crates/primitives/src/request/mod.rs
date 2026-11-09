@@ -4,10 +4,13 @@
 //! for Authenticators to handle such requests.
 mod constraints;
 pub use constraints::{ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES};
+mod embedding_similarity;
+pub use embedding_similarity::{EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem};
 
 use crate::{
     FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError, SessionId,
-    SessionNullifier, SessionRef, ZeroKnowledgeProof, rp::RpId,
+    SessionNullifier, SessionRef, ZeroKnowledgeProof, authenticator_assertion::AatRequirements,
+    rp::RpId,
 };
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
@@ -49,7 +52,8 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 /// The high-level proof flow requested by an RP, with the parameters only that flow takes.
 ///
 /// Serialized flat into the request: `proof_type` as a snake_case name, plus `action` for
-/// uniqueness proofs. An absent `proof_type` means [`ProofType::Uniqueness`].
+/// uniqueness and embedding similarity proofs and, for the latter, `challenge_hash` and `aat`.
+/// An absent `proof_type` means [`ProofType::Uniqueness`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "RawProofType", into = "RawProofType")]
 pub enum ProofType {
@@ -69,6 +73,11 @@ pub enum ProofType {
     /// Prove an RP-scoped session — either minting a fresh one
     /// (`session_id: "create"`) or an existing one (`session_id: "session_<hex>"`).
     Session,
+    /// A WIP-202 Proof of Embedding Similarity.
+    ///
+    /// The request has exactly one [`RequestItem`], for the PoH Credential, and no constraints.
+    /// `session_id` may be absent or an existing session; minting one is not supported.
+    EmbeddingSimilarity(EmbeddingSimilarityParams),
 }
 
 impl ProofType {
@@ -84,11 +93,19 @@ impl ProofType {
         matches!(self, Self::Session)
     }
 
-    /// The uniqueness `action`, if this is a uniqueness proof.
+    /// Returns true for the WIP-202 Proof of Embedding Similarity flow.
+    #[must_use]
+    pub const fn is_embedding_similarity(&self) -> bool {
+        matches!(self, Self::EmbeddingSimilarity(_))
+    }
+
+    /// The `action` the RP signs, if the flow has one: the uniqueness `action` or the
+    /// embedding similarity `action`.
     #[must_use]
     pub const fn action(&self) -> Option<FieldElement> {
         match self {
             Self::Uniqueness { action } => Some(*action),
+            Self::EmbeddingSimilarity(params) => Some(params.action),
             Self::Session => None,
         }
     }
@@ -106,6 +123,7 @@ impl ProofType {
         match self {
             Self::Uniqueness { .. } => ProofTypeTag::Uniqueness,
             Self::Session => ProofTypeTag::Session,
+            Self::EmbeddingSimilarity(_) => ProofTypeTag::EmbeddingSimilarity,
         }
     }
 }
@@ -118,6 +136,7 @@ enum ProofTypeTag {
     #[default]
     Uniqueness = OprfPrefix::Uniqueness as u8,
     Session = OprfPrefix::SessionAction as u8,
+    EmbeddingSimilarity = OprfPrefix::EmbeddingSimilarity as u8,
 }
 
 /// The flat wire form of [`ProofType`].
@@ -127,12 +146,43 @@ struct RawProofType {
     proof_type: ProofTypeTag,
     #[serde(default)]
     action: Option<FieldElement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    challenge_hash: Option<FieldElement>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    aat: Option<AatRequirements>,
+}
+
+impl RawProofType {
+    /// Rejects the parameters only embedding similarity proofs take.
+    fn reject_embedding_similarity_params(&self) -> Result<(), PrimitiveError> {
+        let present = [
+            ("challenge_hash", self.challenge_hash.is_some()),
+            ("aat", self.aat.is_some()),
+        ];
+        match present.into_iter().find(|(_, present)| *present) {
+            Some((attribute, _)) => Err(PrimitiveError::InvalidInput {
+                attribute: attribute.to_string(),
+                reason: "only embedding similarity proofs take it".to_string(),
+            }),
+            None => Ok(()),
+        }
+    }
+}
+
+fn missing_embedding_similarity_param(attribute: &str) -> PrimitiveError {
+    PrimitiveError::InvalidInput {
+        attribute: attribute.to_string(),
+        reason: "must be present for embedding similarity proofs".to_string(),
+    }
 }
 
 impl TryFrom<RawProofType> for ProofType {
     type Error = PrimitiveError;
 
     fn try_from(raw: RawProofType) -> Result<Self, Self::Error> {
+        if raw.proof_type != ProofTypeTag::EmbeddingSimilarity {
+            raw.reject_embedding_similarity_params()?;
+        }
         match (raw.proof_type, raw.action) {
             (ProofTypeTag::Uniqueness, Some(action)) => Ok(Self::Uniqueness { action }),
             (ProofTypeTag::Uniqueness, None) => Err(PrimitiveError::InvalidInput {
@@ -144,15 +194,32 @@ impl TryFrom<RawProofType> for ProofType {
                 attribute: "action".to_string(),
                 reason: "must be omitted for session proofs".to_string(),
             }),
+            (ProofTypeTag::EmbeddingSimilarity, action) => {
+                Ok(Self::EmbeddingSimilarity(EmbeddingSimilarityParams {
+                    action: action.ok_or_else(|| missing_embedding_similarity_param("action"))?,
+                    challenge_hash: raw
+                        .challenge_hash
+                        .ok_or_else(|| missing_embedding_similarity_param("challenge_hash"))?,
+                    aat: raw.aat,
+                }))
+            }
         }
     }
 }
 
 impl From<ProofType> for RawProofType {
     fn from(proof_type: ProofType) -> Self {
+        let tag = proof_type.tag();
+        let action = proof_type.action();
+        let (challenge_hash, aat) = match proof_type {
+            ProofType::EmbeddingSimilarity(params) => (Some(params.challenge_hash), params.aat),
+            ProofType::Uniqueness { .. } | ProofType::Session => (None, None),
+        };
         Self {
-            proof_type: proof_type.tag(),
-            action: proof_type.action(),
+            proof_type: tag,
+            action,
+            challenge_hash,
+            aat,
         }
     }
 }
@@ -191,7 +258,8 @@ pub struct ProofRequest {
     /// Three states: absent/`null` (no session), `"create"` (mint a fresh session),
     /// or an existing `"session_"`-prefixed id. [`ProofType::Uniqueness`] accepts
     /// absent or `"create"` (see [`Self::binds_session`]); [`ProofType::Session`]
-    /// requires `"create"` or an existing id.
+    /// requires `"create"` or an existing id; [`ProofType::EmbeddingSimilarity`]
+    /// accepts absent or an existing id.
     /// The proof will only be valid if the session ID is meant for this context and
     /// this particular World ID holder.
     #[serde(default)]
@@ -333,8 +401,13 @@ pub struct ProofResponse {
     /// When present, the responses array will be empty.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    /// Per-credential results (empty if error is present)
+    /// Per-credential results of a Uniqueness or Session proof (empty if error is present, and
+    /// for a Proof of Embedding Similarity).
     pub responses: Vec<ResponseItem>,
+    /// The result of a WIP-202 Proof of Embedding Similarity, which proves exactly one
+    /// credential. Absent for other proof types and if error is present.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub embedding_similarity: Option<EmbeddingSimilarityResponseItem>,
 }
 
 /// Per-credential response item returned by the Authenticator.
@@ -396,11 +469,7 @@ impl ProofResponse {
             return false;
         }
 
-        let provided: HashSet<&str> = self
-            .responses
-            .iter()
-            .map(|item| item.identifier.as_str())
-            .collect();
+        let provided: HashSet<&str> = self.identifiers().collect();
 
         constraints.evaluate(&|t| provided.contains(t))
     }
@@ -546,11 +615,13 @@ impl ProofRequest {
         Ok(hasher.finalize().into())
     }
 
-    /// Validates that `session_id` and the uniqueness `action` fit the proof type.
+    /// Validates that `session_id` and the `action` fit the proof type.
     ///
     /// Which parameters a flow carries is enforced by [`ProofType`] itself. A uniqueness
     /// `action` must also carry [`OprfPrefix::Uniqueness`], so that an action from another
-    /// domain is rejected here rather than by the OPRF nodes after a round trip.
+    /// domain is rejected here rather than by the OPRF nodes after a round trip. An embedding
+    /// similarity request must pass [`EmbeddingSimilarityParams::validate`], carry exactly one
+    /// request item and no constraints, and not ask to mint a session.
     ///
     /// # Errors
     /// Returns [`PrimitiveError::InvalidInput`] when the request has an invalid
@@ -573,6 +644,31 @@ impl ProofRequest {
                     attribute: "action".to_string(),
                     reason: format!("MSB must be 0x{:02x}", OprfPrefix::Uniqueness as u8),
                 })
+            }
+            (ProofType::EmbeddingSimilarity(_), SessionRef::Create) => {
+                Err(PrimitiveError::InvalidInput {
+                    attribute: "session_id".to_string(),
+                    reason:
+                        "must be omitted or an existing session id for embedding similarity proofs"
+                            .to_string(),
+                })
+            }
+            (ProofType::EmbeddingSimilarity(params), _) => {
+                params.validate()?;
+                if self.requests.len() != 1 {
+                    return Err(PrimitiveError::InvalidInput {
+                        attribute: "proof_requests".to_string(),
+                        reason: "must have exactly one entry for embedding similarity proofs"
+                            .to_string(),
+                    });
+                }
+                if self.constraints.is_some() {
+                    return Err(PrimitiveError::InvalidInput {
+                        attribute: "constraints".to_string(),
+                        reason: "must be omitted for embedding similarity proofs".to_string(),
+                    });
+                }
+                Ok(())
             }
             _ => Ok(()),
         }
@@ -675,6 +771,29 @@ impl ProofRequest {
                     "session proof without session_id".to_string(),
                 ));
             }
+            (ProofType::EmbeddingSimilarity(_), SessionRef::None) => {
+                if response.session_id.is_some() {
+                    return Err(ValidationError::UnexpectedSessionId);
+                }
+            }
+            (ProofType::EmbeddingSimilarity(_), SessionRef::Existing(session_id)) => {
+                if response.session_id != Some(session_id) {
+                    return Err(ValidationError::SessionIdMismatch);
+                }
+            }
+            // Rejected by validate_proof_type() above; kept explicit to stay exhaustive.
+            (ProofType::EmbeddingSimilarity(_), SessionRef::Create) => {
+                return Err(ValidationError::InvalidProofRequest(
+                    "embedding similarity proof with a \"create\" session_id".to_string(),
+                ));
+            }
+        }
+
+        if self.proof_type.is_embedding_similarity() {
+            return self.validate_embedding_similarity_result(response);
+        }
+        if response.embedding_similarity.is_some() {
+            return Err(ValidationError::UnexpectedEmbeddingSimilarity);
         }
 
         // Validate response items correspond to request items and are unique.
@@ -741,6 +860,32 @@ impl ProofRequest {
         }
     }
 
+    /// Checks the result of an embedding similarity request: one
+    /// [`ProofResponse::embedding_similarity`] item for the request's single item, and no
+    /// Groth16 items.
+    fn validate_embedding_similarity_result(
+        &self,
+        response: &ProofResponse,
+    ) -> Result<(), ValidationError> {
+        if let Some(item) = response.responses.first() {
+            return Err(ValidationError::UnexpectedCredential(
+                item.identifier.clone(),
+            ));
+        }
+        // `validate_proof_type` guarantees exactly one request item.
+        let requested = &self.requests[0].identifier;
+        let item = response
+            .embedding_similarity
+            .as_ref()
+            .ok_or_else(|| ValidationError::MissingCredential(requested.clone()))?;
+        if &item.identifier != requested {
+            return Err(ValidationError::UnexpectedCredential(
+                item.identifier.clone(),
+            ));
+        }
+        Ok(())
+    }
+
     /// Parse from JSON
     ///
     /// # Errors
@@ -802,7 +947,27 @@ impl ProofResponse {
         if self.error.is_some() {
             return vec![];
         }
-        self.responses.iter().map(|r| r.issuer_schema_id).collect()
+        self.responses
+            .iter()
+            .map(|item| item.issuer_schema_id)
+            .chain(
+                self.embedding_similarity
+                    .iter()
+                    .map(|item| item.issuer_schema_id),
+            )
+            .collect()
+    }
+
+    /// The identifiers of every proven credential.
+    fn identifiers(&self) -> impl Iterator<Item = &str> {
+        self.responses
+            .iter()
+            .map(|item| item.identifier.as_str())
+            .chain(
+                self.embedding_similarity
+                    .iter()
+                    .map(|item| item.identifier.as_str()),
+            )
     }
 }
 
@@ -857,6 +1022,9 @@ pub enum ValidationError {
     /// Nullifier missing for credential in uniqueness proof
     #[error("Nullifier missing for credential: {0}")]
     MissingNullifier(String),
+    /// An embedding similarity result answers a request of another proof type
+    #[error("Embedding similarity result in a response to another proof type")]
+    UnexpectedEmbeddingSimilarity,
 }
 
 // Helper selection functions for constraint evaluation
@@ -969,6 +1137,7 @@ mod tests {
     fn constraints_all_any_nested() {
         // Build a response that has test_req_1 and test_req_2 provided
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_123".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1020,6 +1189,7 @@ mod tests {
     fn constraints_enumerate_partial_and_empty() {
         // Build a response that has orb and passport provided
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_123".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1181,6 +1351,7 @@ mod tests {
         };
 
         let ok = ProofResponse {
+            embedding_similarity: None,
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1205,6 +1376,7 @@ mod tests {
         assert!(request.validate_response(&ok).is_ok());
 
         let missing = ProofResponse {
+            embedding_similarity: None,
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1221,6 +1393,7 @@ mod tests {
         assert!(matches!(err, ValidationError::MissingCredential(_)));
 
         let unexpected = ProofResponse {
+            embedding_similarity: None,
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1256,6 +1429,7 @@ mod tests {
         ));
 
         let duplicate = ProofResponse {
+            embedding_similarity: None,
             id: "req_1".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1319,6 +1493,7 @@ mod tests {
         };
 
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_2".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1447,6 +1622,7 @@ mod tests {
 
         // Provide just enough to satisfy both any-groups and the single type
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_nodes_ok".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1598,6 +1774,7 @@ mod tests {
 
         // Response content is irrelevant; validation should fail before evaluation due to size
         let response = ProofResponse {
+            embedding_similarity: None,
             id: "req_nodes_too_many".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1643,6 +1820,7 @@ mod tests {
 
         // Build matching successful response (session proof requires session_id and session_nullifier)
         let resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: Some(SessionId::default()),
@@ -1699,6 +1877,7 @@ mod tests {
 
         // Build response that fails constraints (test_req_1 is missing)
         let resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1769,6 +1948,7 @@ mod tests {
 
         // Satisfy nested any with 0x1 + 0x3
         let resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1835,6 +2015,7 @@ mod tests {
 
         // Satisfies enumerate with passport
         let ok_resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -1851,6 +2032,7 @@ mod tests {
 
         // Fails enumerate because none of the enumerate candidates are present
         let fail_resp = ProofResponse {
+            embedding_similarity: None,
             id: req.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2097,6 +2279,7 @@ mod tests {
 
         // Response with error should have empty responses array
         let error_response = ProofResponse {
+            embedding_similarity: None,
             id: "req_error".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2474,6 +2657,7 @@ mod tests {
 
         // Valid response with matching expires_at_min values
         let valid_response = ProofResponse {
+            embedding_similarity: None,
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2499,6 +2683,7 @@ mod tests {
 
         // Invalid response with mismatched expires_at_min for first item
         let invalid_response_1 = ProofResponse {
+            embedding_similarity: None,
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2533,6 +2718,7 @@ mod tests {
 
         // Invalid response with mismatched expires_at_min for second item
         let invalid_response_2 = ProofResponse {
+            embedding_similarity: None,
             id: "req_expires_test".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2766,6 +2952,7 @@ mod tests {
         };
 
         let response = ProofResponse {
+            embedding_similarity: None,
             id: request.id.clone(),
             version: RequestVersion::V1,
             session_id: Some(session_id),
@@ -2861,6 +3048,7 @@ mod tests {
         };
 
         let missing_session = ProofResponse {
+            embedding_similarity: None,
             id: request.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2879,6 +3067,7 @@ mod tests {
         ));
 
         let valid_response = ProofResponse {
+            embedding_similarity: None,
             session_id: Some(SessionId::default()),
             ..missing_session
         };
@@ -2911,6 +3100,7 @@ mod tests {
         };
 
         let missing_session = ProofResponse {
+            embedding_similarity: None,
             id: request.id.clone(),
             version: RequestVersion::V1,
             session_id: None,
@@ -2929,6 +3119,7 @@ mod tests {
         ));
 
         let valid_response = ProofResponse {
+            embedding_similarity: None,
             session_id: Some(SessionId::default()),
             ..missing_session
         };
@@ -2961,6 +3152,7 @@ mod tests {
 
         // Response without session_id should fail validation
         let response_missing_session_id = ProofResponse {
+            embedding_similarity: None,
             id: "req_session".into(),
             version: RequestVersion::V1,
             session_id: None, // Missing!
@@ -3006,6 +3198,7 @@ mod tests {
 
         // Response with uniqueness nullifier instead of session nullifier should fail
         let response_wrong_nullifier_type = ProofResponse {
+            embedding_similarity: None,
             id: "req_session".into(),
             version: RequestVersion::V1,
             session_id: Some(SessionId::default()),
@@ -3056,6 +3249,7 @@ mod tests {
 
         // Response with session nullifier instead of uniqueness nullifier should fail
         let response_wrong_nullifier_type = ProofResponse {
+            embedding_similarity: None,
             id: "req_uniqueness".into(),
             version: RequestVersion::V1,
             session_id: None,
@@ -3078,3 +3272,6 @@ mod tests {
         ));
     }
 }
+
+#[cfg(test)]
+mod embedding_similarity_tests;

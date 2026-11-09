@@ -24,7 +24,7 @@ resolver = "2"
 
 [workspace.package]
 edition = "2024"
-version = "0.18.0"
+version = "0.20.0"
 license = "MIT"
 authors = [
   "World Foundation",
@@ -49,6 +49,7 @@ unused_crate_dependencies = "deny"
 # alloy
 alloy = { version = "2.0.1", default-features = false }
 alloy-primitives = { version = "1.5.7", default-features = false }
+alloy-sol-types = { version = "1.5.7", default-features = false }
 alloy-node-bindings = "2.0.1"
 
 anyhow = "1"
@@ -59,7 +60,7 @@ ark-serde-compat = { package = "taceo-ark-serde-compat", version = "0.6.2", defa
 ] }
 ark-bn254 = "0.6"
 ark-ff = "0.6"
-ark-groth16 = "0.6"
+ark-groth16 = { version = "0.6", default-features = false }
 ark-serialize = "0.6"
 backon = "1"
 base64 = "0.22"
@@ -173,13 +174,13 @@ p256 = { version = "0.13.2", default-features = false }
 jose-jwk = { version = "0.1.2", default-features = false, features = ["p256"] }
 
 # Internal
-world-id-core = { version = "0.18.0", default-features = false, path = "crates/core" }
-world-id-issuer = { version = "0.18.0", path = "crates/issuer" }
-world-id-proof = { version = "0.18.0", path = "crates/proof" }
-world-id-registries = { version = "0.18.0", path = "crates/registries" }
-world-id-authenticator = { version = "0.18.0", path = "crates/authenticator" }
-world-id-primitives = { version = "0.18.0", path = "crates/primitives" }
-world-id-flamingo = { version = "0.18.0", path = "crates/flamingo" }
+world-id-core = { version = "0.20.0", default-features = false, path = "crates/core" }
+world-id-issuer = { version = "0.20.0", path = "crates/issuer" }
+world-id-proof = { version = "0.20.0", path = "crates/proof" }
+world-id-registries = { version = "0.20.0", path = "crates/registries" }
+world-id-authenticator = { version = "0.20.0", path = "crates/authenticator" }
+world-id-primitives = { version = "0.20.0", path = "crates/primitives" }
+world-id-flamingo = { version = "0.20.0", path = "crates/flamingo" }
 world-id-oprf-node = { version = "1.2.0", path = "services/oprf-node" }
 world-id-test-utils = { path = "crates/test-utils" }
 world-id-services-common = { path = "services/common", version = "0.1.0" }

@@ -4364,7 +4364,7 @@ checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.18.0"
+version = "0.20.0"
 dependencies = [
  "alloy",
  "eyre",
@@ -5638,7 +5638,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "legacy-recovery-migration"
-version = "0.18.0"
+version = "0.20.0"
 dependencies = [
  "alloy",
  "clap",
@@ -12272,7 +12272,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.18.0"
+version = "0.20.0"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -12320,7 +12320,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.18.0"
+version = "0.20.0"
 dependencies = [
  "alloy",
  "backon",
@@ -12341,6 +12341,7 @@ dependencies = [
  "world-id-authenticator",
  "world-id-gateway",
  "world-id-issuer",
+ "world-id-oprf-node",
  "world-id-primitives",
  "world-id-proof",
  "world-id-registries",
@@ -12368,7 +12369,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-flamingo"
-version = "0.18.0"
+version = "0.20.0"
 dependencies = [
  "base64 0.22.1",
  "coset",
@@ -12394,6 +12395,7 @@ dependencies = [
  "axum",
  "clap",
  "dotenvy",
+ "futures",
  "hex",
  "http 1.5.0",
  "indoc",
@@ -12472,7 +12474,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.18.0"
+version = "0.20.0"
 dependencies = [
  "alloy",
  "ark-ff 0.6.0",
@@ -12557,10 +12559,11 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.18.0"
+version = "0.20.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
+ "alloy-sol-types",
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
  "ark-ff 0.6.0",
@@ -12600,8 +12603,9 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.18.0"
+version = "0.20.0"
 dependencies = [
+ "alloy-primitives",
  "ark-bn254 0.6.0",
  "ark-ec 0.6.0",
  "ark-ff 0.6.0",
@@ -12645,7 +12649,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-registries"
-version = "0.18.0"
+version = "0.20.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -12978,7 +12982,6 @@ dependencies = [
  "mobench-sdk",
  "provekit-common",
  "provekit-prover",
- "provekit-r1cs-compiler",
  "provekit-verifier",
  "rand 0.8.6",
  "rand_chacha 0.3.1",

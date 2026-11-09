@@ -62,6 +62,9 @@ pub mod oprf;
 #[cfg(feature = "protocol")]
 pub use oprf::{OprfPrefix, OprfPrefixedFieldElement};
 
+/// WIP-107 per-period fees: billing contexts, actions, periods and nullifiers.
+pub mod billing;
+
 /// A nullifier is a unique, one-time identifier. See [`Nullifier`] for more details.
 mod nullifier;
 pub use nullifier::Nullifier;
@@ -94,8 +97,9 @@ pub use signer::Signer;
 pub mod request;
 #[cfg(feature = "protocol")]
 pub use request::{
-    ConstraintExpr, ConstraintKind, ConstraintNode, MAX_CONSTRAINT_NODES, ProofRequest,
-    ProofResponse, ProofType, RequestItem, RequestVersion, ResponseItem, ValidationError,
+    ConstraintExpr, ConstraintKind, ConstraintNode, EmbeddingSimilarityParams,
+    EmbeddingSimilarityResponseItem, MAX_CONSTRAINT_NODES, ProofRequest, ProofResponse, ProofType,
+    RequestItem, RequestVersion, ResponseItem, ValidationError,
 };
 
 pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};

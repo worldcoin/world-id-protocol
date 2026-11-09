@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.19.0...world-id-primitives-v0.20.0) - 2026-11-06
+
+### Added
+
+- *(authenticator)* generate WIP-107 billing nullifiers and registrations ([#1183](https://github.com/worldcoin/world-id-protocol/pull/1183))
+- *(primitives)* add the WIP-202 Embedding Similarity request and response types ([#1180](https://github.com/worldcoin/world-id-protocol/pull/1180))
+- *(authenticator)* prefer X-Wing OHTTP keys with an X25519 fallback ([#1168](https://github.com/worldcoin/world-id-protocol/pull/1168))
+- WIP-202 Proof of Embedding Similarity circuit and benchmark ([#1057](https://github.com/worldcoin/world-id-protocol/pull/1057))
+- *(indexer)* expose proof verification endpoint ([#1166](https://github.com/worldcoin/world-id-protocol/pull/1166))
+
+### Fixed
+
+- *(proof)* make world-id-flamingo a normal dependency ([#1193](https://github.com/worldcoin/world-id-protocol/pull/1193))
+
+### Other
+
+- [**breaking**] build the ownership proof on shared circuit components ([#1143](https://github.com/worldcoin/world-id-protocol/pull/1143))
+- refactor WIP-201 ([#1139](https://github.com/worldcoin/world-id-protocol/pull/1139))
+- release v0.19.0 ([#1190](https://github.com/worldcoin/world-id-protocol/pull/1190))
+- sign the Flamingo Token digest under WORLD-ID/WIP-201/SIGN ([#1173](https://github.com/worldcoin/world-id-protocol/pull/1173))
+
+## [0.19.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.18.0...world-id-primitives-v0.19.0) - 2026-11-06
+
+### Added
+
+- *(authenticator)* generate WIP-107 billing nullifiers and registrations ([#1183](https://github.com/worldcoin/world-id-protocol/pull/1183))
+- *(oprf-node)* accept WIP-107 billing queries ([#1181](https://github.com/worldcoin/world-id-protocol/pull/1181))
+- *(primitives)* add the WIP-202 Embedding Similarity request and response types ([#1180](https://github.com/worldcoin/world-id-protocol/pull/1180))
+- *(primitives)* add WIP-107 billing primitives ([#1170](https://github.com/worldcoin/world-id-protocol/pull/1170))
+- *(authenticator)* prefer X-Wing OHTTP keys with an X25519 fallback ([#1168](https://github.com/worldcoin/world-id-protocol/pull/1168))
+- *(indexer)* expose proof verification endpoint ([#1166](https://github.com/worldcoin/world-id-protocol/pull/1166))
+- WIP-202 Proof of Embedding Similarity circuit and benchmark ([#1057](https://github.com/worldcoin/world-id-protocol/pull/1057))
+
+### Fixed
+
+- drop Flamingo configurations from embedding similarity requests ([#1184](https://github.com/worldcoin/world-id-protocol/pull/1184))
+
+### Other
+
+- [**breaking**] build the ownership proof on shared circuit components ([#1143](https://github.com/worldcoin/world-id-protocol/pull/1143))
+- refactor WIP-201 ([#1139](https://github.com/worldcoin/world-id-protocol/pull/1139))
+- describe constraint leaves as request item identifiers ([#1159](https://github.com/worldcoin/world-id-protocol/pull/1159))
+- sign the Flamingo Token digest under WORLD-ID/WIP-201/SIGN ([#1173](https://github.com/worldcoin/world-id-protocol/pull/1173))
+
 ## [0.18.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.17.1...world-id-primitives-v0.18.0) - 2026-10-28
 
 ### Added

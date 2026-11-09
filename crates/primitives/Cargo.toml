@@ -36,6 +36,7 @@ alloy-primitives = { workspace = true, default-features = false, features = [
     "serde",
     "std",
 ] }
+alloy-sol-types = { workspace = true, features = ["std"] }
 ark-babyjubjub = { workspace = true }
 ark-bn254 = { workspace = true, optional = true }
 ark-ff = { workspace = true }

@@ -94,6 +94,7 @@ interface IWorldIDBilling {
     error PinnedOprfKeyChanged();
     error CapacityExhausted();
     error RegistrationFeeUnsupported();
+    error InvalidActionPrefix();
 
     ////////////////////////////////////////////////////////////
     //                        EVENTS                          //
@@ -123,6 +124,8 @@ interface IWorldIDBilling {
         uint64 oldMaxRequestAge, uint64 oldMaxRequestLifetime, uint64 newMaxRequestAge, uint64 newMaxRequestLifetime
     );
     event OprfKeyPinned(uint64 indexed rpId, uint64 indexed periodStart, uint160 oprfKeyId);
+    /// @notice Whether the RP's Proofs of Embedding Similarity are billed changed (WIP-107 §4.2).
+    event BilledRpUpdated(uint64 indexed rpId, bool billed);
 
     ////////////////////////////////////////////////////////////
     //                   PUBLIC FUNCTIONS                     //
@@ -196,6 +199,10 @@ interface IWorldIDBilling {
     /// @notice Billing OPRF action for `scope` (WIP-107 §4.3).
     function getBillingAction(BillingContext calldata scope) external pure returns (uint256);
 
+    /// @notice Whether the RP's Proofs of Embedding Similarity are billed; TEE Verifiers require a registration
+    ///  only for these RPs (WIP-107 §4.7). Purchases and registrations do not depend on it.
+    function isBilledRp(uint64 rpId) external view returns (bool);
+
     /// @notice WLD ERC-20 in which capacity is paid.
     function getFeeToken() external view returns (address);
     /// @notice Protocol fee address that receives purchase payments.
@@ -226,6 +233,9 @@ interface IWorldIDBilling {
     function setMaxPriceAge(uint64 newMaxPriceAge) external;
     function setPriceSource(address newPriceSource) external;
     function setRequestLimits(uint64 newMaxRequestAge, uint64 newMaxRequestLifetime) external;
+
+    /// @notice Adds the RP to, or removes it from, the billed RPs; takes effect immediately (WIP-107 §4.2).
+    function setBilledRp(uint64 rpId, bool billed) external;
 
     /// @notice Pauses purchases and new registrations; registering a duplicate is unaffected.
     function setPaused(bool isPaused) external;

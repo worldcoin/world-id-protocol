@@ -52,12 +52,14 @@ noirup --version v1.0.0-beta.26
 
 ##### `embed-embedding-similarity-prover` / `embed-embedding-similarity-verifier`
 
-The same for the WIP-202 Proof of Embedding Similarity circuit, whose prover is several times
-larger than the ownership prover.
+UNAUDITED. build.rs builds the WIP-202 Proof of Embedding Similarity artifacts the same way, in
+the same build script, and `EmbeddedZkArtifacts` serves them through
+`ZkArtifactSource::{embedding_similarity_prover, embedding_similarity_verifier}`.
+Not part of `embed-noir-artifacts`.
 
 ##### Umbrellas
 
-- `embed-noir-artifacts` = ownership and embedding similarity provers + verifiers
+- `embed-noir-artifacts` = ownership prover + verifier
 - `embed-zk-artifacts` = everything
 
 ## Circom circuit artifacts

@@ -214,8 +214,9 @@ contract WorldIDBillingTest is Test {
     uint64 constant ISSUER_SCHEMA_ID = 7;
     uint256 constant ROOT = 0x1234;
     uint256 constant NULLIFIER = 0xabcdef;
-    /// @dev The RP's own `ProofRequest` action; unrelated to the derived billing action.
-    uint256 constant RP_ACTION = 0x5150;
+    /// @dev The RP's own `ProofRequest` action, with the billed `0x03` prefix; unrelated to the derived billing action.
+    uint256 constant RP_ACTION = (uint256(0x03) << 248) | 0x5150;
+    uint256 constant ACTION_PREFIX_MASK = type(uint256).max >> 8;
     uint256 constant SECP256K1_N = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141;
 
     uint256 constant PRICE_PER_WORLD_ID = 0.05e18;
@@ -984,12 +985,13 @@ contract WorldIDBillingTest is Test {
         _register(auth, NULLIFIER);
     }
 
-    /// @dev WIP-107 §4.5: the RP keeps its own action; any signed action authorizes the billing registration,
-    ///  whose proof always uses the derived billing action.
-    function testFuzz_Register_AcceptsAnyRpAction(uint256 signedAction) public {
+    /// @dev WIP-107 §4.5: the RP keeps its own action; any signed action with the billed prefix authorizes the billing
+    ///  registration, whose proof always uses the derived billing action.
+    function testFuzz_Register_AcceptsAnyBilledRpAction(uint256 actionBits) public {
         _buy(OCT_2026, 1);
         IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(scope);
+        uint256 signedAction = (uint256(billing.BILLED_ACTION_PREFIX()) << 248) | (actionBits & ACTION_PREFIX_MASK);
         auth.signedAction = signedAction;
         auth.signature = _sign(auth, signedAction);
 
@@ -1012,6 +1014,22 @@ contract WorldIDBillingTest is Test {
             )
         );
         assertTrue(_register(auth, NULLIFIER));
+    }
+
+    /// @dev WIP-107 §4.5: the RP signature does not cover the proof type, so only the `0x03` prefix marks a request
+    ///  that may consume capacity. A Uniqueness (`0x00`) or session (`0x01`, `0x02`) action must not.
+    function testFuzz_Register_RejectsUnbilledActionPrefix(uint8 prefix, uint256 actionBits) public {
+        vm.assume(prefix != billing.BILLED_ACTION_PREFIX());
+        _buy(OCT_2026, 1);
+        IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(_scope(OCT_2026));
+        auth.signedAction = (uint256(prefix) << 248) | (actionBits & ACTION_PREFIX_MASK);
+        auth.signature = _sign(auth, auth.signedAction);
+
+        vm.expectRevert(IWorldIDBilling.InvalidActionPrefix.selector);
+        _register(auth, NULLIFIER);
+        assertFalse(billing.usedNonces(RP_ID, auth.nonce), "a rejected prefix consumes no nonce");
+        (, uint256 registeredCount) = billing.getPeriodCapacity(RP_ID, OCT_2026);
+        assertEq(registeredCount, 0, "a rejected prefix consumes no capacity");
     }
 
     function test_Register_UsedNonceRevertsEvenForRegisteredNullifier() public {
@@ -1095,8 +1113,8 @@ contract WorldIDBillingTest is Test {
         _register(auth, NULLIFIER);
 
         auth = _authorize(scope);
-        auth.createdAt = NOW + 1;
-        auth.expiresAt = NOW + 60;
+        auth.createdAt = NOW + MAX_REQUEST_AGE + 1;
+        auth.expiresAt = auth.createdAt + 60;
         auth.signature = _sign(auth, action);
         vm.expectRevert(IWorldIDBilling.RequestNotYetValid.selector);
         _register(auth, NULLIFIER);
@@ -1126,6 +1144,32 @@ contract WorldIDBillingTest is Test {
         auth.expiresAt = auth.createdAt + REQUEST_LIFETIME;
         auth.signature = _sign(auth, action);
         assertTrue(_register(auth, NULLIFIER), "limits are inclusive");
+    }
+
+    /// @dev WIP-107 §4.5: freshness matches the OPRF nodes, which accept a `createdAt` up to `maxRequestAge` ahead of
+    ///  their clock, so an RP whose clock runs ahead still authorizes registration.
+    function test_Register_AcceptsCreatedAtAheadWithinRequestAge() public {
+        _buy(OCT_2026, 3);
+        IWorldIDBilling.BillingContext memory scope = _scope(OCT_2026);
+
+        IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(scope);
+        auth.createdAt = NOW + 5;
+        auth.expiresAt = auth.createdAt + REQUEST_LIFETIME;
+        auth.signature = _sign(auth, RP_ACTION);
+        assertTrue(_register(auth, NULLIFIER), "a few seconds of skew");
+
+        auth = _authorize(scope);
+        auth.createdAt = NOW + MAX_REQUEST_AGE;
+        auth.expiresAt = auth.createdAt + REQUEST_LIFETIME;
+        auth.signature = _sign(auth, RP_ACTION);
+        assertTrue(_register(auth, NULLIFIER + 1), "the tolerance is inclusive");
+
+        // As on the nodes, only `now < expiresAt` bounds the expiry from below, even if it precedes `createdAt`.
+        auth = _authorize(scope);
+        auth.createdAt = NOW + 60;
+        auth.expiresAt = NOW + 30;
+        auth.signature = _sign(auth, RP_ACTION);
+        assertTrue(_register(auth, NULLIFIER + 2), "an expiry before createdAt does not underflow");
     }
 
     function test_Register_RejectsOprfKeyIdOtherThanRpId() public {
@@ -1428,7 +1472,37 @@ contract WorldIDBillingTest is Test {
         billing.setRequestLimits(1, 1);
         vm.expectRevert(err);
         billing.setRegistrationFee(1);
+        vm.expectRevert(err);
+        billing.setBilledRp(RP_ID, true);
         vm.stopPrank();
+    }
+
+    /// @dev WIP-107 §4.2: the owner adds and removes billed RPs immediately; RPs start out unbilled.
+    function test_SetBilledRp_TogglesAndEmits() public {
+        assertFalse(billing.isBilledRp(RP_ID), "unbilled by default");
+
+        vm.expectEmit(true, false, false, true, address(billing));
+        emit IWorldIDBilling.BilledRpUpdated(RP_ID, true);
+        billing.setBilledRp(RP_ID, true);
+        assertTrue(billing.isBilledRp(RP_ID));
+        assertFalse(billing.isBilledRp(RP_ID + 1), "other RPs are unaffected");
+
+        vm.expectEmit(true, false, false, true, address(billing));
+        emit IWorldIDBilling.BilledRpUpdated(RP_ID, false);
+        billing.setBilledRp(RP_ID, false);
+        assertFalse(billing.isBilledRp(RP_ID));
+    }
+
+    /// @dev WIP-107 §4.2: purchases and registrations do not depend on the allowlist, so capacity can be bought before
+    ///  an RP is billed and in-flight registrations survive its removal.
+    function test_BilledRp_DoesNotGatePurchasesOrRegistrations() public {
+        assertFalse(billing.isBilledRp(RP_ID));
+        _buy(OCT_2026, 2);
+        assertTrue(_register(_authorize(_scope(OCT_2026)), NULLIFIER), "registers while unbilled");
+
+        billing.setBilledRp(RP_ID, true);
+        billing.setBilledRp(RP_ID, false);
+        assertTrue(_register(_authorize(_scope(OCT_2026)), NULLIFIER + 1), "registers after removal");
     }
 
     /// @dev WIP-107 §4.2 lists these inherited methods in the normative interface.

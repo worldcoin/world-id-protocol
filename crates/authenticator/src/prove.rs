@@ -1,7 +1,8 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
-    Credential, FieldElement, ProofRequest, ProofResponse, ProofType, RequestItem, ResponseItem,
-    SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
+    Credential, FieldElement, PrimitiveError, ProofRequest, ProofResponse, ProofType, RequestItem,
+    ResponseItem, SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
+    billing::{BillingContext, BillingRegistration, RegistrationAuthorization},
 };
 use world_id_proof::{
     AuthenticatorProofInput, FullOprfOutput, OprfEntrypoint, ProofCompression,
@@ -21,6 +22,41 @@ use world_id_proof::{
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::Nullifier;
+
+/// The Groth16 flows below do not prove embedding similarity requests; those have their own proof.
+fn reject_embedding_similarity(proof_request: &ProofRequest) -> Result<(), AuthenticatorError> {
+    if proof_request.proof_type.is_embedding_similarity() {
+        return Err(PrimitiveError::InvalidInput {
+            attribute: "proof_type".to_string(),
+            reason: "embedding_similarity is not supported by this flow".to_string(),
+        }
+        .into());
+    }
+    Ok(())
+}
+
+/// The request item a registration proof answers (WIP-107 §4.4.1): the Proof of Embedding
+/// Similarity request's item without its signal and genesis minimum, which the Billing Contract
+/// verifies as zero, and without its expiry minimum. That minimum is the RP's policy for the
+/// Proof of Embedding Similarity; the registration attests the request's `created_at` instead,
+/// which passes the verifier's freshness check whatever minimum the RP set.
+fn registration_request_item(
+    proof_request: &ProofRequest,
+) -> Result<RequestItem, AuthenticatorError> {
+    let [item] = proof_request.requests.as_slice() else {
+        return Err(PrimitiveError::InvalidInput {
+            attribute: "requests".to_string(),
+            reason: "an embedding_similarity request has exactly one request item".to_string(),
+        }
+        .into());
+    };
+    Ok(RequestItem {
+        signal: None,
+        genesis_issued_at_min: None,
+        expires_at_min: None,
+        ..item.clone()
+    })
+}
 
 impl Authenticator {
     /// Gets an object to request OPRF computations to OPRF Nodes.
@@ -131,6 +167,7 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<FullOprfOutput, AuthenticatorError> {
         proof_request.validate_proof_type()?;
+        reject_embedding_similarity(proof_request)?;
         let mut rng = rand::rngs::OsRng;
 
         let query_material = self
@@ -144,6 +181,123 @@ impl Authenticator {
         Ok(oprf_entrypoint
             .gen_nullifier(&mut rng, proof_request, now)
             .await?)
+    }
+
+    /// Generates the billing nullifier of `scope` for a Proof of Embedding Similarity request
+    /// (through OPRF Nodes, WIP-107 §4.5).
+    ///
+    /// Call it only without a cached registration for an active context (WIP-107 §4.6). Its output
+    /// feeds [`Self::generate_billing_registration`], and its
+    /// [`billing_witness`](FullOprfOutput::billing_witness) is what to cache for the Proof of
+    /// Embedding Similarity. Unlike Uniqueness nullifiers, billing nullifiers MUST NOT be replay
+    /// protected, so that a failed registration can be retried.
+    ///
+    /// # Arguments
+    /// - `proof_request`: the Proof of Embedding Similarity request received from the RP.
+    /// - `scope`: the billing context to register for, see
+    ///   [`registration_period_start`](world_id_primitives::billing::registration_period_start).
+    /// - `now`: the current Unix timestamp, used to reject expired requests and inactive periods.
+    /// - `account_inclusion_proof`: an optionally cached object can be passed to
+    ///   avoid an additional network call. If not passed, it'll be fetched from the indexer.
+    ///
+    /// # Errors
+    /// - Will raise a [`ProofError`](world_id_proof::ProofError) if the request or `scope` cannot
+    ///   make a billing query, or on network issues and unexpected responses from OPRF Nodes.
+    /// - Raises an error if the OPRF Nodes configuration is not correctly set.
+    pub async fn generate_billing_nullifier(
+        &self,
+        proof_request: &ProofRequest,
+        scope: &BillingContext,
+        now: u64,
+        account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
+    ) -> Result<FullOprfOutput, AuthenticatorError> {
+        let mut rng = rand::rngs::OsRng;
+
+        let query_material = self
+            .zk_artifact_source
+            .query_material()
+            .map_err(AuthenticatorError::ZkArtifactError)?;
+        let oprf_entrypoint = self
+            .get_oprf_entrypoint(&query_material, account_inclusion_proof)
+            .await?;
+
+        Ok(oprf_entrypoint
+            .gen_billing_nullifier(&mut rng, proof_request, scope, now)
+            .await?)
+    }
+
+    /// Generates the registration of this World ID for `scope` (WIP-107 §4.4): the arguments of
+    /// `WorldIDBilling.register`, with a Uniqueness Proof for `billingAction`.
+    ///
+    /// Any valid credential proves registration, so `credential` need not match the request's
+    /// item; its `issuer_schema_id` is the one registered. Submitting the registration is up to the
+    /// caller.
+    ///
+    /// # Arguments
+    /// - `proof_request`: the Proof of Embedding Similarity request the billing query was for.
+    /// - `scope`: the billing context the billing query was for.
+    /// - `billing_query`: the output of [`Self::generate_billing_nullifier`].
+    /// - `credential`: the credential the registration proof uses.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::PrimitiveError`] if the request cannot authorize registration, or
+    ///   `billing_query` is not the billing query of `scope`.
+    /// - Other `AuthenticatorError` variants on proof circuit failures.
+    pub fn generate_billing_registration(
+        &self,
+        proof_request: &ProofRequest,
+        scope: &BillingContext,
+        billing_query: FullOprfOutput,
+        credential: &CredentialInput,
+    ) -> Result<BillingRegistration, AuthenticatorError> {
+        let authorization = RegistrationAuthorization::from_request(proof_request)?;
+        if scope.rp_id != proof_request.rp_id {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "scope.rp_id".to_string(),
+                reason: "must be the request's RP".to_string(),
+            }
+            .into());
+        }
+        let billing_action: FieldElement = billing_query.query_proof_input.action.into();
+        if billing_action != scope.billing_action() {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "billing_query".to_string(),
+                reason: "is not the billing query of scope".to_string(),
+            }
+            .into());
+        }
+
+        let request_item = RequestItem {
+            issuer_schema_id: credential.credential.issuer_schema_id,
+            ..registration_request_item(proof_request)?
+        };
+        let expires_at_min = request_item.effective_expires_at_min(proof_request.created_at);
+
+        let nullifier_material = self
+            .zk_artifact_source
+            .nullifier_material()
+            .map_err(AuthenticatorError::ZkArtifactError)?;
+        let merkle_root: FieldElement = billing_query.query_proof_input.merkle_root.into();
+        let (proof, _public_inputs, billing_nullifier) = generate_nullifier_proof(
+            &nullifier_material,
+            &mut rand::rngs::OsRng,
+            &credential.credential,
+            credential.blinding_factor,
+            billing_query,
+            &request_item,
+            None,
+            None,
+            expires_at_min,
+        )?;
+
+        Ok(BillingRegistration {
+            scope: *scope,
+            authorization,
+            issuer_schema_id: request_item.issuer_schema_id,
+            expires_at_min,
+            billing_nullifier: billing_nullifier.into(),
+            proof: ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root),
+        })
     }
 
     /// Generates a blinding factor for a Credential sub (through OPRF Nodes). The credential
@@ -296,6 +450,7 @@ impl Authenticator {
         session_id_r_seed: Option<FieldElement>,
     ) -> Result<ProofResult, AuthenticatorError> {
         proof_request.validate_proof_type()?;
+        reject_embedding_similarity(proof_request)?;
 
         // 1. Determine request items to prove
         let available: std::collections::HashSet<u64> = credentials
@@ -361,6 +516,7 @@ impl Authenticator {
 
         // 4. Assemble response
         let proof_response = ProofResponse {
+            embedding_similarity: None,
             id: proof_request.id.clone(),
             version: proof_request.version,
             session_id: resolved_session_id,
@@ -601,6 +757,44 @@ mod tests {
             requests: Vec::new(),
             constraints: None,
         }
+    }
+
+    #[test]
+    fn test_registration_request_item_drops_the_rp_minima() {
+        use world_id_primitives::RequestItem;
+        let mut request = existing_session_request(
+            SessionId::from_r_seed(
+                1,
+                FieldElement::from(1u64),
+                SessionId::generate_oprf_seed(&mut rand::rngs::OsRng),
+            )
+            .expect("valid session id"),
+        );
+        request.created_at = 1_793_534_500;
+        // A stale minimum would fail the verifier's freshness check; a future one would reject
+        // credentials that are valid now.
+        for expires_at_min in [Some(0), Some(request.created_at + 365 * 86_400)] {
+            request.requests = vec![RequestItem::new(
+                "poh".into(),
+                1,
+                Some(b"signal".to_vec()),
+                Some(10),
+                expires_at_min,
+            )];
+            let item = super::registration_request_item(&request).expect("one item");
+            assert_eq!(item, RequestItem::new("poh".into(), 1, None, None, None));
+            assert_eq!(
+                item.effective_expires_at_min(request.created_at),
+                request.created_at
+            );
+        }
+
+        request.requests.push(request.requests[0].clone());
+        assert!(matches!(
+            super::registration_request_item(&request),
+            Err(AuthenticatorError::PrimitiveError(PrimitiveError::InvalidInput { attribute, .. }))
+                if attribute == "requests"
+        ));
     }
 
     #[tokio::test]

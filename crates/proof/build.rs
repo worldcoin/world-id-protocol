@@ -37,10 +37,8 @@ fn main() -> eyre::Result<()> {
         feature = "embed-embedding-similarity-prover",
         feature = "embed-embedding-similarity-verifier"
     ))]
-    for circuit in noir_artifacts::CIRCUITS {
-        if circuit.should_embed() {
-            noir_artifacts::setup(circuit, &out_dir)?;
-        }
+    if noir_artifacts::should_embed() {
+        noir_artifacts::setup(&out_dir)?;
     }
 
     if env::var("CARGO_FEATURE_EMBED_ZKEYS").is_err() {
@@ -248,44 +246,17 @@ mod noir_artifacts {
     /// and what provekit expects (see https://github.com/worldfnd/provekit).
     const REQUIRED_NARGO_VERSION: &str = "1.0.0-beta.26";
 
-    /// A Noir circuit whose ProveKit prover and verifier can be embedded.
-    pub(super) struct Circuit {
-        /// Package directory under `noir/`.
-        dir: &'static str,
-        /// Package name, which names the compiled `target/<name>.json` and the embedded files.
-        name: &'static str,
-        /// Path dependencies under `noir/`, whose sources change the artifacts too.
-        dependencies: &'static [&'static str],
-        /// Cargo feature env vars that embed the prover and the verifier.
-        prover_feature: &'static str,
-        verifier_feature: &'static str,
+    /// Whether the build embeds a circuit's artifacts (`CARGO_FEATURE_EMBED_<circuit>_*`): its
+    /// prover on every target, its verifier only on native targets.
+    fn wants(circuit: &str) -> bool {
+        let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
+        env::var_os(format!("CARGO_FEATURE_EMBED_{circuit}_PROVER")).is_some()
+            || (target_arch.as_deref() != Some("wasm32")
+                && env::var_os(format!("CARGO_FEATURE_EMBED_{circuit}_VERIFIER")).is_some())
     }
 
-    pub(super) const CIRCUITS: &[Circuit] = &[
-        Circuit {
-            dir: "ownership-proof",
-            name: "ownership_proof",
-            dependencies: &["world-id-components"],
-            prover_feature: "CARGO_FEATURE_EMBED_OWNERSHIP_PROVER",
-            verifier_feature: "CARGO_FEATURE_EMBED_OWNERSHIP_VERIFIER",
-        },
-        Circuit {
-            dir: "embedding-similarity",
-            name: "embedding_similarity",
-            dependencies: &["world-id-components", "flamingo-token"],
-            prover_feature: "CARGO_FEATURE_EMBED_EMBEDDING_SIMILARITY_PROVER",
-            verifier_feature: "CARGO_FEATURE_EMBED_EMBEDDING_SIMILARITY_VERIFIER",
-        },
-    ];
-
-    impl Circuit {
-        /// Verifiers are native-only, so a wasm32 build embeds only the prover.
-        pub(super) fn should_embed(&self) -> bool {
-            let target_arch = env::var("CARGO_CFG_TARGET_ARCH").ok();
-            env::var_os(self.prover_feature).is_some()
-                || (target_arch.as_deref() != Some("wasm32")
-                    && env::var_os(self.verifier_feature).is_some())
-        }
+    pub(super) fn should_embed() -> bool {
+        wants("OWNERSHIP") || wants("EMBEDDING_SIMILARITY")
     }
 
     /// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].
@@ -300,7 +271,7 @@ mod noir_artifacts {
             .map_err(|e| {
                 if e.kind() == std::io::ErrorKind::NotFound {
                     eyre::eyre!(
-                        "`nargo` was not found on PATH. It is required to build the Noir proof \
+                        "`nargo` was not found on PATH. It is required to build the Noir circuit \
                          artifacts. Install it with `nix develop` (the repo flake pins the \
                          right version) or `noirup --version v{REQUIRED_NARGO_VERSION}`"
                     )
@@ -321,29 +292,55 @@ mod noir_artifacts {
         Ok(())
     }
 
-    /// Builds a Noir circuit's proof artifacts ad-hoc with `nargo` and the
+    /// Builds the enabled Noir circuits' artifacts ad-hoc with `nargo` and the
     /// provekit R1CS compiler. This is the only way to obtain them: the
     /// proving/verifying keys must come from the checked-in circuit source, built
     /// with the pinned nargo toolchain (see `flake.nix`), so every builder
-    /// produces identical bytes.
-    pub(super) fn setup(circuit: &Circuit, out_dir: &Path) -> eyre::Result<()> {
-        let noir_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?).join("noir");
-        let circuit_dir = noir_dir.join(circuit.dir);
-        let dependency_dirs: Vec<PathBuf> = circuit
-            .dependencies
-            .iter()
-            .map(|dir| noir_dir.join(dir))
-            .collect();
+    /// produces identical bytes. All circuits compile in this one build script, one after
+    /// another, so no two `nargo` processes share its git dependency cache at once.
+    pub(super) fn setup(out_dir: &Path) -> eyre::Result<()> {
+        let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
+        check_nargo()?;
+        if wants("OWNERSHIP") {
+            compile(
+                &manifest_dir,
+                "ownership-proof",
+                "ownership_proof",
+                &["world-id-components"],
+                out_dir,
+            )?;
+        }
+        if wants("EMBEDDING_SIMILARITY") {
+            compile(
+                &manifest_dir,
+                "embedding-similarity",
+                "embedding_similarity",
+                &["world-id-components", "flamingo-token"],
+                out_dir,
+            )?;
+        }
+        Ok(())
+    }
 
-        for dir in std::iter::once(&circuit_dir).chain(&dependency_dirs) {
+    /// Compiles `noir/<package>` and writes `<target>.pkp` and `<target>.pkv` to `out_dir`.
+    /// The circuit's path dependencies under `noir/` change the artifacts too.
+    fn compile(
+        manifest_dir: &Path,
+        package: &str,
+        target: &str,
+        dependencies: &[&str],
+        out_dir: &Path,
+    ) -> eyre::Result<()> {
+        let noir_dir = manifest_dir.join("noir");
+        let circuit_dir = noir_dir.join(package);
+        for dir in std::iter::once(package).chain(dependencies.iter().copied()) {
+            let dir = noir_dir.join(dir);
             println!("cargo:rerun-if-changed={}", dir.join("src").display());
             println!(
                 "cargo:rerun-if-changed={}",
                 dir.join("Nargo.toml").display()
             );
         }
-
-        check_nargo()?;
 
         let nargo_output = Command::new("nargo")
             .arg("compile")
@@ -353,22 +350,21 @@ mod noir_artifacts {
 
         if !nargo_output.status.success() {
             let stderr = String::from_utf8_lossy(&nargo_output.stderr);
-            eyre::bail!("nargo compile of {} failed:\n{stderr}", circuit.dir);
+            eyre::bail!("nargo compile failed for {package}:\n{stderr}");
         }
 
-        let name = circuit.name;
-        let scheme = NoirProofScheme::from_file(circuit_dir.join(format!("target/{name}.json")))
+        let scheme = NoirProofScheme::from_file(circuit_dir.join(format!("target/{target}.json")))
             .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         provekit_common::file::write(
             &Prover::from_noir_proof_scheme(scheme.clone()),
-            &out_dir.join(format!("{name}.pkp")),
+            &out_dir.join(format!("{target}.pkp")),
         )
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 
         provekit_common::file::write(
             &Verifier::from_noir_proof_scheme(scheme),
-            &out_dir.join(format!("{name}.pkv")),
+            &out_dir.join(format!("{target}.pkv")),
         )
         .map_err(|e| eyre::eyre!(e.to_string()))?;
 

@@ -18,6 +18,7 @@ use ark_ec::CurveGroup as _;
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use provekit_common::{InputMap, InputValue};
+use serde::Serialize;
 use sha2::{Digest, Sha256};
 use taceo_oprf::core::oprf::{BlindedOprfResponse, BlindingFactor, client};
 use world_id_flamingo::{DS_SIGN, FlamingoAatClaims, FlamingoClaims};
@@ -33,8 +34,9 @@ use crate::{
     NoirCircuitInput as _,
     circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityPublicInputs},
     embedding_similarity_proof::{
-        CHUNK_BYTES, CHUNK_SLOTS, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, WINDOW_CHUNKS,
+        CHUNK_BYTES, CHUNK_SLOTS, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES,
     },
+    fixtures::toml_types::{PublicKey, Signature},
 };
 
 /// The `hashes.json` keys of a v3 PCP as written by orb-core, besides `version`.
@@ -148,34 +150,21 @@ fn noir_sig(signature: &EdDSASignature) -> String {
     format!("Signature {{ s: {s}, r: {r} }}")
 }
 
-fn toml_sig(signature: &EdDSASignature) -> String {
-    let (s, r) = sig(signature);
-    format!("s = \"{s}\"\nr = {}", quoted(&r))
-}
-
 fn noir_point(pk: &EdDSAPublicKey) -> String {
     format!("PublicKey {{ x: {}, y: {} }}", dec(pk.pk.x), dec(pk.pk.y))
-}
-
-fn toml_point(pk: &EdDSAPublicKey) -> String {
-    format!("x = \"{}\"\ny = \"{}\"", dec(pk.pk.x), dec(pk.pk.y))
 }
 
 fn list(values: impl IntoIterator<Item = String>) -> String {
     format!("[{}]", values.into_iter().collect::<Vec<_>>().join(", "))
 }
 
-fn quoted(values: &str) -> String {
-    list(
-        values
-            .trim_matches(['[', ']'])
-            .split(", ")
-            .map(|v| format!("\"{v}\"")),
-    )
-}
-
 /// The sponge chunks of `bytes`: 31-byte big-endian integers, zero-padded to the slots.
 fn chunks(bytes: &[u8]) -> Vec<FieldElement> {
+    assert!(
+        bytes.len() <= MAX_HASHES_JSON_BYTES,
+        "hashes.json has {} bytes, more than the {MAX_HASHES_JSON_BYTES} the circuit accepts",
+        bytes.len()
+    );
     let mut chunks: Vec<FieldElement> = bytes
         .chunks(CHUNK_BYTES)
         .map(|chunk| ark_babyjubjub::Fq::from_be_bytes_mod_order(chunk).into())
@@ -289,6 +278,85 @@ fn hashes_json() -> (Vec<u8>, usize) {
     // The digest starts after the 17-byte key `"thumbnail.png":"`.
     let offset = json.find("\"thumbnail.png\":\"").unwrap() + 17;
     (json.into_bytes(), offset)
+}
+
+const TOML_HEADER: &str = "\
+# Prover.toml for the WIP-202 Proof of Embedding Similarity circuit.
+#
+# GENERATED FILE. Do not edit by hand; regenerate with:
+#   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity
+
+";
+
+/// The circuit's `main` inputs as `Prover.toml`; scalars precede tables, as TOML requires.
+#[derive(Serialize)]
+struct ProverToml {
+    now: String,
+    rp_id: String,
+    nonce: String,
+    has_aat: bool,
+    trust_anchor_key_hash: String,
+    platform: String,
+    sec_level: String,
+    sec_meta: String,
+    authenticator_meta: String,
+    engine_config_hash: String,
+    challenge_hash: String,
+    signal_hash: String,
+    merkle_root: String,
+    issuer_schema_id: String,
+    issuer_version: String,
+    genesis_issued_at_min: String,
+    expires_at_min: String,
+    session_id: String,
+    flamingo_verifier_key: PublicKey,
+    cred_pk: PublicKey,
+    inputs: PrivateInputs,
+}
+
+#[derive(Serialize)]
+struct PrivateInputs {
+    session_id_r: String,
+    billing_action: String,
+    billing_oprf_output: Vec<String>,
+    token: TokenInputs,
+    account: AccountInputs,
+    credential: CredentialInputs,
+    hashes_json: HashesJsonInputs,
+}
+
+#[derive(Serialize)]
+struct TokenInputs {
+    live_capture_hash: String,
+    billing_nullifier: String,
+    sig: Signature,
+}
+
+#[derive(Serialize)]
+struct AccountInputs {
+    pk_index: String,
+    leaf_index: String,
+    siblings: Vec<String>,
+    sig: Signature,
+    user_pk: Vec<PublicKey>,
+}
+
+#[derive(Serialize)]
+struct CredentialInputs {
+    claims: Vec<String>,
+    associated_data_hash: String,
+    genesis_issued_at: String,
+    expires_at: String,
+    sub_blinding_factor: String,
+    id: String,
+    sig: Signature,
+}
+
+#[derive(Serialize)]
+struct HashesJsonInputs {
+    chunks: Vec<String>,
+    len: String,
+    digest_offset: String,
 }
 
 struct Rendered {
@@ -467,93 +535,70 @@ fn render() -> Rendered {
             .collect::<String>()
     );
 
-    let user_pk = std::iter::once(toml_point(&authenticator_sk.public()))
-        .chain(std::iter::repeat_n("x = \"0\"\ny = \"1\"".to_string(), 6))
-        .map(|point| format!("\n[[inputs.account.user_pk]]\n{point}\n"))
-        .collect::<String>();
-    let mut claims = vec!["\"0\"".to_string(); Credential::MAX_CLAIMS];
-    claims[0] = format!("\"{claim_0}\"");
-
+    let identity = || PublicKey {
+        x: "0".into(),
+        y: "1".into(),
+    };
+    let mut claims = vec!["0".to_string(); Credential::MAX_CLAIMS];
+    claims[0] = claim_0;
+    let prover_toml = ProverToml {
+        now: NOW.to_string(),
+        rp_id: RP_ID.to_string(),
+        nonce: NONCE.to_string(),
+        has_aat: true,
+        trust_anchor_key_hash: takh,
+        platform: PLATFORM.to_string(),
+        sec_level: SEC_LEVEL.to_string(),
+        sec_meta: SEC_META.to_string(),
+        authenticator_meta: AUTHENTICATOR_META.to_string(),
+        engine_config_hash,
+        challenge_hash: dec(*compared[2]),
+        signal_hash: dec(*signal_hash),
+        merkle_root: dec(*merkle_root),
+        issuer_schema_id: ISSUER_SCHEMA_ID.to_string(),
+        issuer_version: ISSUER_VERSION.to_string(),
+        genesis_issued_at_min: GENESIS_ISSUED_AT_MIN.to_string(),
+        expires_at_min: EXPIRES_AT_MIN.to_string(),
+        session_id: dec(*session_id),
+        flamingo_verifier_key: (&verifier_key).into(),
+        cred_pk: (&credential.issuer).into(),
+        inputs: PrivateInputs {
+            session_id_r: dec(*session_id_r),
+            billing_action: "0".into(),
+            billing_oprf_output: vec!["0".into(), "0".into()],
+            token: TokenInputs {
+                live_capture_hash: dec(*compared[1]),
+                billing_nullifier: "0".into(),
+                sig: (&token).into(),
+            },
+            account: AccountInputs {
+                pk_index: "0".into(),
+                leaf_index: LEAF_INDEX.to_string(),
+                siblings: siblings.iter().map(|s| dec(**s)).collect(),
+                sig: (&auth).into(),
+                user_pk: std::iter::once((&authenticator_sk.public()).into())
+                    .chain(std::iter::repeat_with(identity).take(6))
+                    .collect(),
+            },
+            credential: CredentialInputs {
+                claims,
+                associated_data_hash: "0".into(),
+                genesis_issued_at: GENESIS_ISSUED_AT.to_string(),
+                expires_at: EXPIRES_AT.to_string(),
+                sub_blinding_factor: dec(*sub_blinding_factor),
+                id: CRED_ID.to_string(),
+                sig: cred_sig.into(),
+            },
+            hashes_json: HashesJsonInputs {
+                chunks: chunks(&hashes_json).iter().map(|c| dec(**c)).collect(),
+                len: hashes_json.len().to_string(),
+                digest_offset: digest_offset.to_string(),
+            },
+        },
+    };
     let toml = format!(
-        "# Prover.toml for the WIP-202 Proof of Embedding Similarity circuit.\n\
-         #\n\
-         # GENERATED FILE. Do not edit by hand; regenerate with:\n\
-         #   UPDATE_PROVER_TOML=1 cargo test -p world-id-proof embedding_similarity\n\
-         \n\
-         # Public inputs\n\
-         now = \"{NOW}\"\n\
-         rp_id = \"{RP_ID}\"\n\
-         nonce = \"{NONCE}\"\n\
-         has_aat = true\n\
-         trust_anchor_key_hash = \"{takh}\"\n\
-         platform = \"{PLATFORM}\"\n\
-         sec_level = \"{SEC_LEVEL}\"\n\
-         sec_meta = \"{SEC_META}\"\n\
-         authenticator_meta = \"{AUTHENTICATOR_META}\"\n\
-         engine_config_hash = \"{engine_config_hash}\"\n\
-         challenge_hash = \"{challenge_hash}\"\n\
-         signal_hash = \"{signal_hash}\"\n\
-         merkle_root = \"{merkle_root}\"\n\
-         issuer_schema_id = \"{ISSUER_SCHEMA_ID}\"\n\
-         issuer_version = \"{ISSUER_VERSION}\"\n\
-         genesis_issued_at_min = \"{GENESIS_ISSUED_AT_MIN}\"\n\
-         expires_at_min = \"{EXPIRES_AT_MIN}\"\n\
-         session_id = \"{session_id}\"\n\
-         \n\
-         [flamingo_verifier_key]\n{verifier_key}\n\
-         \n\
-         [cred_pk]\n{cred_pk}\n\
-         \n\
-         # Private inputs\n\
-         [inputs]\n\
-         session_id_r = \"{session_id_r}\"\n\
-         billing_action = \"0\"\n\
-         billing_oprf_output = [\"0\", \"0\"]\n\
-         \n\
-         [inputs.token]\n\
-         live_capture_hash = \"{live_capture_hash}\"\n\
-         billing_nullifier = \"0\"\n\
-         \n\
-         [inputs.token.sig]\n{token_sig}\n\
-         \n\
-         [inputs.account]\n\
-         pk_index = \"0\"\n\
-         leaf_index = \"{LEAF_INDEX}\"\n\
-         siblings = {siblings}\n\
-         \n\
-         [inputs.account.sig]\n{auth_sig}\n\
-         {user_pk}\
-         \n\
-         [inputs.credential]\n\
-         claims = [{claims}]\n\
-         associated_data_hash = \"0\"\n\
-         genesis_issued_at = \"{GENESIS_ISSUED_AT}\"\n\
-         expires_at = \"{EXPIRES_AT}\"\n\
-         sub_blinding_factor = \"{sub_blinding_factor}\"\n\
-         id = \"{CRED_ID}\"\n\
-         \n\
-         [inputs.credential.sig]\n{cred_sig}\n\
-         \n\
-         [inputs.hashes_json]\n\
-         chunks = {chunks}\n\
-         len = \"{len}\"\n\
-         digest_offset = \"{digest_offset}\"\n",
-        challenge_hash = dec(*compared[2]),
-        signal_hash = dec(*signal_hash),
-        merkle_root = dec(*merkle_root),
-        session_id = dec(*session_id),
-        verifier_key = toml_point(&verifier_key),
-        cred_pk = toml_point(&credential.issuer),
-        session_id_r = dec(*session_id_r),
-        live_capture_hash = dec(*compared[1]),
-        token_sig = toml_sig(&token),
-        siblings = quoted(&siblings_list),
-        auth_sig = toml_sig(&auth),
-        claims = claims.join(", "),
-        sub_blinding_factor = dec(*sub_blinding_factor),
-        cred_sig = toml_sig(cred_sig),
-        chunks = quoted(&chunk_list),
-        len = hashes_json.len(),
+        "{TOML_HEADER}{}",
+        toml::to_string_pretty(&prover_toml).expect("fixture serializes to TOML")
     );
 
     Rendered { toml, noir }
@@ -594,7 +639,29 @@ fn fixtures_match_the_generator() {
     }
 }
 
-/// Pins the `hashes.json` constants to the Noir constants.
+/// Pins the `hashes.json` bounds to WIP-202: the spec's constants and its chunk count
+/// `⌈MAX_HASHES_JSON_BYTES / 31⌉`, so the circuit cannot drift from what a prover built from the
+/// spec passes.
+#[test]
+fn hashes_json_bounds_match_the_spec() {
+    let spec = include_str!("../../../docs/WIPs/wip-202.md");
+    let row = spec
+        .lines()
+        .find(|line| line.starts_with("| `MIN_HASHES_JSON_BYTES`, `MAX_HASHES_JSON_BYTES` |"))
+        .expect("WIP-202 defines the hashes.json bounds");
+    let values: Vec<usize> = row
+        .split('|')
+        .nth(2)
+        .unwrap()
+        .split(',')
+        .map(|v| v.trim().trim_matches('`').parse().unwrap())
+        .collect();
+    assert_eq!(values[1], MAX_HASHES_JSON_BYTES);
+    assert!(spec.contains("| `hashes_json` | [Field element; ⌈`MAX_HASHES_JSON_BYTES` / 31⌉] |"));
+    assert_eq!(CHUNK_SLOTS, MAX_HASHES_JSON_BYTES.div_ceil(31));
+}
+
+/// Pins `CHUNK_SLOTS` to the Noir constants it is derived from.
 #[test]
 fn chunk_slots_match_the_noir_constants() {
     let constants = include_str!("../noir/embedding-similarity/src/constants.nr");
@@ -612,8 +679,8 @@ fn chunk_slots_match_the_noir_constants() {
     };
     assert_eq!(global("MIN_HASHES_JSON_BYTES"), MIN_HASHES_JSON_BYTES);
     assert_eq!(global("MAX_HASHES_JSON_BYTES"), MAX_HASHES_JSON_BYTES);
-    assert_eq!(global("CHUNK_BYTES"), CHUNK_BYTES);
-    assert_eq!(global("WINDOW_CHUNKS"), WINDOW_CHUNKS);
+    let var_hash = include_str!("../noir/world-id-components/src/var_hash.nr");
+    assert!(var_hash.contains(&format!("pub global CHUNK_BYTES: u32 = {CHUNK_BYTES};")));
 }
 
 /// The fixture's Flamingo Tokens are the WIP-201 Appendix A1 test vectors.

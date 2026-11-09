@@ -21,7 +21,7 @@ inventory = "0.3"
 # World ID
 world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "embed-ownership-prover", "issuer"] }
 world-id-primitives = { workspace = true }
-world-id-proof = { workspace = true }
+world-id-proof = { workspace = true, features = ["embed-embedding-similarity-prover", "embed-embedding-similarity-verifier"] }
 
 # ZK dependencies
 ark-babyjubjub = { workspace = true }
@@ -53,7 +53,3 @@ uniffi = { version = "0.32", features = ["cli"] }
 [dev-dependencies]
 provekit-verifier = { workspace = true }
 
-[build-dependencies]
-eyre = { workspace = true }
-provekit-common = { workspace = true }
-provekit-r1cs-compiler = { workspace = true }
