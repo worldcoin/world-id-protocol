@@ -29,7 +29,7 @@ pub use world_id_issuer::Issuer;
 pub use world_id_primitives::Signer;
 
 #[cfg(feature = "authenticator")]
-pub use world_id_proof::{artifacts, error, nullifier_proof};
+pub use world_id_proof::{artifacts, error, nullifier_proof, oprf_query_proof};
 
 #[cfg(any(feature = "authenticator", feature = "rp"))]
 pub use world_id_primitives::request as requests;

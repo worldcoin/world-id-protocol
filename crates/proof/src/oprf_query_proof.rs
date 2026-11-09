@@ -5,6 +5,7 @@ use std::{io::Read, path::Path};
 
 use ark_bn254::Bn254;
 use ark_groth16::Proof;
+use eddsa_babyjubjub::EdDSAPublicKey;
 use eyre::Context;
 use groth16_material::circom::{CircomGroth16Material, CircomGroth16MaterialBuilder};
 use serde::Serialize;
@@ -16,8 +17,10 @@ use taceo_oprf::{
 };
 
 use world_id_primitives::{
-    FieldElement, OprfPrefix, OprfPrefixedFieldElement, ProofRequest, ProofType, TREE_DEPTH,
+    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, OprfPrefix,
+    OprfPrefixedFieldElement, ProofRequest, ProofType, TREE_DEPTH,
     billing::{BILLED_ACTION_PREFIX, BillingContext, BillingWitness},
+    merkle::MerkleInclusionProof,
     oprf::{
         CredentialBlindingFactorOprfRequestAuthV1, NullifierOprfRequestAuthV1, OprfModule,
         RpSignatureVerification,
@@ -26,8 +29,11 @@ use world_id_primitives::{
 
 use crate::circuit_inputs::QueryProofCircuitInput;
 
-use crate::{AuthenticatorProofInput, ProofError, nullifier_proof::errors};
+use crate::{AuthenticatorProofInput, ProofError, ProofInputError};
 use world_id_primitives::poseidon::ds;
+
+type BaseField = ark_babyjubjub::Fq;
+type Affine = ark_babyjubjub::EdwardsAffine;
 
 #[expect(unused_imports, reason = "used for docs")]
 use world_id_primitives::SessionNullifier;
@@ -453,7 +459,7 @@ fn validate_proof_request_timestamps(
 ) -> Result<(), ProofError> {
     if created_at > expires_at {
         return Err(ProofError::ProofInputError(
-            errors::ProofInputError::InvalidExpiresAt {
+            ProofInputError::InvalidExpiresAt {
                 created_at,
                 expires_at,
             },
@@ -461,7 +467,7 @@ fn validate_proof_request_timestamps(
     }
     if now > expires_at {
         return Err(ProofError::ProofInputError(
-            errors::ProofInputError::ProofRequestExpired {
+            ProofInputError::ProofRequestExpired {
                 current_timestamp: now,
                 expires_at,
             },
@@ -508,7 +514,7 @@ impl<'a> OprfEntrypoint<'a> {
             action: *action,
             nonce: *nonce,
         };
-        let _ = errors::check_query_input_validity(&query_proof_input)?;
+        let _ = check_query_input_validity(&query_proof_input)?;
 
         tracing::debug!("generating query proof");
         let (proof, public_inputs) = query_material.generate_proof(&query_proof_input, rng)?;
@@ -562,6 +568,309 @@ struct QueryProofResult {
     blinding_factor: BlindingFactor,
 }
 
+// ============================================================================
+// Input Check
+// ============================================================================
+
+/// This method checks the validity of the input parameters by emulating the operations that are proved in ZK and raising Errors that would result in an invalid proof.
+///
+/// Returns the blinded OPRF query point if everything is ok.
+///
+/// # Errors
+/// This function will return a [`ProofInputError`] if any of the checks fail.
+/// The `Display` implementation of this error can be used to get a human-readable error message on which parts of the input were invalid.
+pub fn check_query_input_validity<const TREE_DEPTH: usize>(
+    inputs: &QueryProofCircuitInput<TREE_DEPTH>,
+) -> Result<Affine, ProofInputError> {
+    // 1. Check that the depth is within bounds.
+    if inputs.depth != BaseField::new((TREE_DEPTH as u64).into()) {
+        return Err(ProofInputError::InvalidMerkleTreeDepth {
+            expected: TREE_DEPTH,
+            is: inputs.depth,
+        });
+    }
+    // 2. Check the merkle proof is valid
+    // Check the Merkle tree idx is valid.
+    let idx_u64 = u64::try_from(FieldElement::from(inputs.mt_index)).map_err(|_| {
+        ProofInputError::ValueOutOfBounds {
+            name: "Merkle tree index",
+            is: inputs.mt_index,
+            limit: BaseField::new((1u64 << TREE_DEPTH).into()),
+        }
+    })?;
+    if idx_u64 >= (1u64 << TREE_DEPTH) {
+        return Err(ProofInputError::ValueOutOfBounds {
+            name: "Merkle tree index",
+            is: inputs.mt_index,
+            limit: BaseField::new((1u64 << TREE_DEPTH).into()),
+        });
+    }
+
+    // Build the leaf from the PKs.
+    let pk_set = AuthenticatorPublicKeySet::new(
+        inputs
+            .pk
+            .iter()
+            .map(|&x| EdDSAPublicKey { pk: x })
+            .collect(),
+    )
+    .map_err(|_| ProofInputError::InvalidAuthenticatorPublicKeySet)?;
+    let pk_set_hash = pk_set.leaf_hash();
+    let merkle_tree_inclusion_proof = MerkleInclusionProof::new(
+        FieldElement::from(inputs.merkle_root),
+        idx_u64,
+        inputs.siblings.map(FieldElement::from),
+    );
+    if !merkle_tree_inclusion_proof.is_valid(FieldElement::from(pk_set_hash)) {
+        return Err(ProofInputError::InvalidMerkleTreeInclusionProof);
+    }
+
+    // 3. Check that the signature is valid.
+    let pk_index_usize = usize::try_from(FieldElement::from(inputs.pk_index)).map_err(|_| {
+        ProofInputError::ValueOutOfBounds {
+            name: "Authenticator PubKey index",
+            is: inputs.pk_index,
+            limit: BaseField::new((MAX_AUTHENTICATOR_KEYS as u64).into()),
+        }
+    })?;
+    let pk = pk_set
+        .get(pk_index_usize)
+        .ok_or_else(|| ProofInputError::ValueOutOfBounds {
+            name: "Authenticator PubKey index",
+            is: inputs.pk_index,
+            limit: BaseField::new((MAX_AUTHENTICATOR_KEYS as u64).into()),
+        })?;
+
+    if !inputs.r.is_on_curve() || !inputs.r.is_in_correct_subgroup_assuming_on_curve() {
+        return Err(ProofInputError::InvalidBabyJubJubPoint {
+            name: "Query Signature R",
+        });
+    }
+    if !pk.pk.is_on_curve() || !pk.pk.is_in_correct_subgroup_assuming_on_curve() {
+        return Err(ProofInputError::InvalidBabyJubJubPoint {
+            name: "Authenticator Public Key",
+        });
+    }
+
+    let _rp_id_u64 = u64::try_from(FieldElement::from(inputs.rp_id)).map_err(|_| {
+        ProofInputError::ValueOutOfBounds {
+            name: "RP Id",
+            is: inputs.rp_id,
+            limit: BaseField::new(u64::MAX.into()),
+        }
+    })?;
+    let query = world_id_primitives::authenticator::oprf_query_digest(
+        idx_u64,
+        FieldElement::from(inputs.action),
+        FieldElement::from(inputs.rp_id),
+    );
+    let signature = eddsa_babyjubjub::EdDSASignature {
+        r: inputs.r,
+        s: inputs.s,
+    };
+
+    if !pk.verify(*query, &signature) {
+        return Err(ProofInputError::InvalidAuthenticatorSignature);
+    }
+
+    let blinding_factor = BlindingFactor::from_scalar(inputs.beta)
+        .map_err(|_| ProofInputError::InvalidBlindingFactor)?;
+    let query_point = taceo_oprf::core::oprf::client::blind_query(*query, blinding_factor);
+
+    Ok(query_point.blinded_query())
+}
+
+#[cfg(test)]
+pub(crate) mod input_validation_tests {
+    use std::str::FromStr;
+
+    use ark_ec::twisted_edwards::Affine;
+
+    use world_id_primitives::poseidon;
+
+    use super::check_query_input_validity;
+    use crate::circuit_inputs::QueryProofCircuitInput;
+
+    // gotten these values by `dbg`-ing the struct in the e2e_authenticator_generate test
+    pub(crate) fn get_valid_query_proof_input() -> QueryProofCircuitInput<30> {
+        QueryProofCircuitInput {
+            pk: [Affine {
+                x: ark_babyjubjub::Fq::from_str(
+                    "19037598474602150174935475944965340829216795940473064039209388058233204431288",
+                ).unwrap(),
+                y: ark_babyjubjub::Fq::from_str(
+                    "3549932221586364715003722955756497910920276078443163728621283280434115857197",
+                ).unwrap(),
+            },
+                Affine::zero(),
+                Affine::zero(),
+                Affine::zero(),
+                Affine::zero(),
+                Affine::zero(),
+                Affine::zero(),
+            ],
+            pk_index: ark_bn254::Fr::from(0u64),
+            s: ark_babyjubjub::Fr::from_str(
+                "2692248185200295468055279425612708965310378163906753799023551825366269352327",
+            ).unwrap(),
+            r: Affine {
+               x: ark_babyjubjub::Fq::from_str(
+                    "14689596469778385278298478829656243946283084496217945909620117398922933730711",
+                ).unwrap(),
+                y: ark_babyjubjub::Fq::from_str(
+                    "4424830738973486800075394160997493242162871494907432163152597205147606706197",
+                ).unwrap(),
+            },
+            merkle_root: ark_bn254::Fr::from_str("4959814736111706042728533661656003495359474679272202023690954858781105690707").unwrap(),
+            depth: ark_babyjubjub::Fq::from(30u64),
+            mt_index: ark_bn254::Fr::from(1u64),
+            siblings: [
+                    ark_bn254::Fr::from_str("0").unwrap(),
+                    ark_bn254::Fr::from_str("15621590199821056450610068202457788725601603091791048810523422053872049975191").unwrap(),
+                    ark_bn254::Fr::from_str("15180302612178352054084191513289999058431498575847349863917170755410077436260").unwrap(),
+                    ark_bn254::Fr::from_str("20846426933296943402289409165716903143674406371782261099735847433924593192150").unwrap(),
+                    ark_bn254::Fr::from_str("19570709311100149041770094415303300085749902031216638721752284824736726831172").unwrap(),
+                    ark_bn254::Fr::from_str("11737142173000203701607979434185548337265641794352013537668027209469132654026").unwrap(),
+                    ark_bn254::Fr::from_str("11865865012735342650993929214218361747705569437250152833912362711743119784159").unwrap(),
+                    ark_bn254::Fr::from_str("1493463551715988755902230605042557878234810673525086316376178495918903796315").unwrap(),
+                    ark_bn254::Fr::from_str("18746103596419850001763894956142528089435746267438407061601783590659355049966").unwrap(),
+                    ark_bn254::Fr::from_str("21234194473503024590374857258930930634542887619436018385581872843343250130100").unwrap(),
+                    ark_bn254::Fr::from_str("14681119568252857310414189897145410009875739166689283501408363922419813627484").unwrap(),
+                    ark_bn254::Fr::from_str("13243470632183094581890559006623686685113540193867211988709619438324105679244").unwrap(),
+                    ark_bn254::Fr::from_str("19463898140191333844443019106944343282402694318119383727674782613189581590092").unwrap(),
+                    ark_bn254::Fr::from_str("10565902370220049529800497209344287504121041033501189980624875736992201671117").unwrap(),
+                    ark_bn254::Fr::from_str("5560307625408070902174028041423028597194394554482880015024167821933869023078").unwrap(),
+                    ark_bn254::Fr::from_str("20576730574720116265513866548855226316241518026808984067485384181494744706390").unwrap(),
+                    ark_bn254::Fr::from_str("11166760821615661136366651998133963805984915741187325490784169611245269155689").unwrap(),
+                    ark_bn254::Fr::from_str("13692603500396323648417392244466291089928913430742736835590182936663435788822").unwrap(),
+                    ark_bn254::Fr::from_str("11129674755567463025028188404867541558752927519269975708924528737249823830641").unwrap(),
+                    ark_bn254::Fr::from_str("6673535049007525806710184801639542254440636510496168661971704157154828514023").unwrap(),
+                    ark_bn254::Fr::from_str("7958154589163466663626421142270206662020519181323839780192984613274682930816").unwrap(),
+                    ark_bn254::Fr::from_str("3739156991379607404516753076057250171966250101655747790592556040569841550790").unwrap(),
+                    ark_bn254::Fr::from_str("1334107297020502384420211493664486465203492095766400031330900935069700302301").unwrap(),
+                    ark_bn254::Fr::from_str("20357028769054354174264046872903423695314313082869184437966002491602414517674").unwrap(),
+                    ark_bn254::Fr::from_str("19392290367394672558538719012722289280213395590510602524366987685302929990731").unwrap(),
+                    ark_bn254::Fr::from_str("7360502715619830055199267117332475946442427205382059394111067387016428818088").unwrap(),
+                    ark_bn254::Fr::from_str("9629177338475347225553791169746168712988898028547587350296027054067573957412").unwrap(),
+                    ark_bn254::Fr::from_str("21877160135037839571797468541807904053886800340144060811298025652177410263004").unwrap(),
+                    ark_bn254::Fr::from_str("7105691694342706282901391345307729036900705570482804586768449537652208350743").unwrap(),
+                    ark_bn254::Fr::from_str("15888057581779748293164452094398990053773731478520540058125130669204703869637").unwrap(),
+            ],
+            beta: ark_babyjubjub::Fr::from_str("1277277022932719396321614946989807194659268059729440522321681213750340643042").unwrap(),
+            rp_id: ark_bn254::Fr::from_str("14631649082411674499").unwrap(),
+            action: ark_bn254::Fr::from_str("8982441576518976929447725179565370305223105654688049122733783421407497941726").unwrap(),
+            nonce: ark_bn254::Fr::from_str("8530676162050357218814694371816107906694725175836943927290214963954696613748").unwrap(),
+        }
+    }
+
+    #[test]
+    fn test_valid_query_proof_input() {
+        let inputs = get_valid_query_proof_input();
+        let _ = check_query_input_validity(&inputs).unwrap();
+    }
+
+    #[test]
+    fn test_invalid_query_proof_input() {
+        let inputs = get_valid_query_proof_input();
+        {
+            let mut inputs = inputs.clone();
+            inputs.depth = ark_babyjubjub::Fq::from(29u64); // invalid depth
+            assert!(matches!(
+                check_query_input_validity(&inputs).unwrap_err(),
+                crate::ProofInputError::InvalidMerkleTreeDepth { .. }
+            ));
+        }
+        {
+            let mut inputs = inputs.clone();
+            // 1 << 30
+            inputs.mt_index = ark_bn254::Fr::from(1073741824u64);
+            assert!(matches!(
+                check_query_input_validity(&inputs).unwrap_err(),
+                crate::ProofInputError::ValueOutOfBounds {
+                    name: "Merkle tree index",
+                    ..
+                }
+            ));
+        }
+        {
+            let mut inputs = inputs.clone();
+            inputs.merkle_root = ark_bn254::Fr::from(12345u64);
+            assert!(matches!(
+                check_query_input_validity(&inputs).unwrap_err(),
+                crate::ProofInputError::InvalidMerkleTreeInclusionProof
+            ));
+        }
+        {
+            let mut inputs = inputs.clone();
+            inputs.pk_index = ark_bn254::Fr::from(7u64); // MAX_AUTHENTICATOR_KEYS is 7, so index 7 is out of bounds (0-6)
+            assert!(matches!(
+                check_query_input_validity(&inputs).unwrap_err(),
+                crate::ProofInputError::ValueOutOfBounds {
+                    name: "Authenticator PubKey index",
+                    ..
+                }
+            ));
+        }
+        {
+            let mut inputs = inputs.clone();
+            inputs.r = Affine {
+                x: ark_babyjubjub::Fq::from(1u64),
+                y: ark_babyjubjub::Fq::from(2u64),
+            };
+            assert!(matches!(
+                check_query_input_validity(&inputs).unwrap_err(),
+                crate::ProofInputError::InvalidBabyJubJubPoint {
+                    name: "Query Signature R"
+                }
+            ));
+        }
+        {
+            let mut inputs = inputs.clone();
+            inputs.pk[0] = Affine {
+                x: ark_babyjubjub::Fq::from(1u64),
+                y: ark_babyjubjub::Fq::from(2u64),
+            };
+
+            // Recompute the merkle root so the proof is valid
+            let pk_set = world_id_primitives::AuthenticatorPublicKeySet::new(
+                inputs
+                    .pk
+                    .iter()
+                    .map(|&x| eddsa_babyjubjub::EdDSAPublicKey { pk: x })
+                    .collect(),
+            )
+            .unwrap();
+            let mut current = pk_set.leaf_hash();
+            let idx =
+                u64::try_from(world_id_primitives::FieldElement::from(inputs.mt_index)).unwrap();
+            for (i, sibling) in inputs.siblings.iter().enumerate() {
+                let sibling_fr = *world_id_primitives::FieldElement::from(*sibling);
+                current = if (idx >> i) & 1 == 0 {
+                    *poseidon::compress(current.into(), sibling_fr.into())
+                } else {
+                    *poseidon::compress(sibling_fr.into(), current.into())
+                };
+            }
+            inputs.merkle_root = current;
+
+            assert!(matches!(
+                check_query_input_validity(&inputs).unwrap_err(),
+                crate::ProofInputError::InvalidBabyJubJubPoint {
+                    name: "Authenticator Public Key"
+                }
+            ));
+        }
+        {
+            let mut inputs = inputs.clone();
+            inputs.action = ark_bn254::Fr::from(12345u64);
+            assert!(matches!(
+                check_query_input_validity(&inputs).unwrap_err(),
+                crate::ProofInputError::InvalidAuthenticatorSignature
+            ));
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -569,10 +878,10 @@ mod tests {
 
     #[test_case(100, 200, 150 => matches Ok(()); "valid")]
     #[test_case(201, 200, 150 => matches Err(ProofError::ProofInputError(
-        errors::ProofInputError::InvalidExpiresAt { created_at: 201, expires_at: 200 }
+        ProofInputError::InvalidExpiresAt { created_at: 201, expires_at: 200 }
     )); "created after expiration")]
     #[test_case(100, 200, 201 => matches Err(ProofError::ProofInputError(
-        errors::ProofInputError::ProofRequestExpired { current_timestamp: 201, expires_at: 200 }
+        ProofInputError::ProofRequestExpired { current_timestamp: 201, expires_at: 200 }
     )); "expired at caller time")]
     fn proof_request_timestamp_validation(
         created_at: u64,
@@ -688,7 +997,7 @@ mod tests {
             assert!(matches!(
                 validate_billing_query(&request, &scope(NOVEMBER_2026), request.expires_at + 1),
                 Err(ProofError::ProofInputError(
-                    errors::ProofInputError::ProofRequestExpired { .. }
+                    ProofInputError::ProofRequestExpired { .. }
                 ))
             ));
         }

@@ -30,7 +30,7 @@ use world_id_primitives::{
 
 use crate::{
     NoirCircuitInput, NoirRepresentable, ProofError, artifacts::ZkArtifactSource,
-    circuit_inputs::OwnershipProofCircuitInput, errors::ProofInputError, to_noir_element,
+    circuit_inputs::OwnershipProofCircuitInput, error::ProofInputError, to_noir_element,
 };
 
 /// Loads an ownership proof prover from a reader containing PKP bytes.

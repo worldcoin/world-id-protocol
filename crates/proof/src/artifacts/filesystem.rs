@@ -7,7 +7,7 @@ use crate::{
     OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactKind, ZkArtifactSource},
     nullifier_proof::{CircomGroth16Material, load_nullifier_material_from_paths},
-    oprf_query::load_query_material_from_paths,
+    oprf_query_proof::load_query_material_from_paths,
 };
 
 use crate::ownership_proof::{load_ownership_prover_from_path, load_ownership_verifier_from_path};

@@ -33,14 +33,18 @@ mod embedding_similarity_fixtures;
 
 pub mod compress;
 pub use compress::ProofCompression;
-pub(crate) mod oprf_query;
-pub use oprf_query::{
+pub mod oprf_query_proof;
+pub use oprf_query_proof::{
     FullOprfOutput, OprfEntrypoint, QUERY_GRAPH_FINGERPRINT, QUERY_ZKEY_FINGERPRINT,
     load_query_material_from_paths, load_query_material_from_reader,
 };
 
 pub mod nullifier_proof;
-pub use nullifier_proof::*;
+pub use nullifier_proof::{
+    CircomGroth16Material, CircomGroth16MaterialBuilder, NULLIFIER_GRAPH_FINGERPRINT,
+    NULLIFIER_ZKEY_FINGERPRINT, ZkeyError, generate_nullifier_proof,
+    load_nullifier_material_from_paths, load_nullifier_material_from_reader,
+};
 
 /// Moved to [`world_id_primitives::authenticator_assertion`]; re-exported for existing imports.
 pub use world_id_primitives::authenticator_assertion;

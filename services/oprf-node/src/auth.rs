@@ -85,7 +85,9 @@ mod tests {
     use world_id_primitives::{
         AuthenticatorPublicKeySet, FieldElement, Signer, TREE_DEPTH, merkle::MerkleInclusionProof,
     };
-    use world_id_proof::{circuit_inputs::QueryProofCircuitInput, errors};
+    use world_id_proof::{
+        circuit_inputs::QueryProofCircuitInput, oprf_query_proof::check_query_input_validity,
+    };
     use world_id_test_utils::{
         anvil::TestAnvil,
         fixtures::{self, RpFixture},
@@ -384,7 +386,7 @@ mod tests {
                 action: *action,
                 nonce: self.setup.rp_fixture.nonce,
             };
-            let _affine = errors::check_query_input_validity(&query_proof_input)?;
+            let _affine = check_query_input_validity(&query_proof_input)?;
 
             let (proof, public_inputs) =
                 query_material.generate_proof(&query_proof_input, &mut rng)?;
