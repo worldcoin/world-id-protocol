@@ -37,10 +37,14 @@ use world_id_proof::{
         embedded::{EmbeddedZkArtifacts, zkeys},
     },
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
+    embedding_similarity_proof::check_embedding_similarity_input_validity,
     ownership_proof::check_ownership_input_validity,
 };
 
-use fixtures::{first_leaf_merkle_path, generate_rp_fixture, ownership_proof_fixture};
+use fixtures::{
+    embedding_similarity_fixture, first_leaf_merkle_path, generate_rp_fixture,
+    ownership_proof_fixture,
+};
 
 // ============================================================================
 // Fixture Generation (deterministic for reproducible benchmarks)
@@ -428,9 +432,8 @@ pub fn bench_ownership_proof_generation() {
             .expect("embedded ownership prover")
     });
 
-    check_ownership_input_validity(&input).expect("valid ownership input");
-
     let witness = profile_phase("witness", || {
+        check_ownership_input_validity(&input).expect("valid ownership input");
         let input_map = input.into_witness().expect("ownership circuit input maps");
         prover
             .generate_witness(input_map)
@@ -450,14 +453,19 @@ pub fn bench_ownership_proof_generation() {
 /// `prover_load` / `witness` / `prove` phases.
 #[benchmark]
 pub fn bench_embedding_similarity_proof_generation() {
+    let input = embedding_similarity_fixture();
+
     let mut prover = profile_phase("prover_load", || {
         embedding_similarity_bench::load_embedded_prover().expect("embedded WIP-202 prover")
     });
-    let input = embedding_similarity_bench::inputs(&prover).expect("WIP-202 witness inputs");
 
+    // The Authenticator's own work, the input check and the witness encoding, counts as witness
+    // generation, as it does for the ownership proof.
     let witness = profile_phase("witness", || {
+        check_embedding_similarity_input_validity(&input).expect("valid WIP-202 input");
+        let input_map = input.into_witness().expect("WIP-202 circuit input maps");
         prover
-            .generate_witness(input)
+            .generate_witness(input_map)
             .expect("WIP-202 witness generation")
     });
 
@@ -700,6 +708,16 @@ mod tests {
     #[ignore = "expensive benchmark smoke test; run via mobench workflow"]
     fn test_embedding_similarity_proof_benchmark() {
         bench_embedding_similarity_proof_generation();
+    }
+
+    /// The WIP-202 fixture must encode exactly the circuit's committed `Prover.toml`.
+    #[test]
+    fn test_embedding_similarity_fixture_matches_the_prover_toml() {
+        let prover = embedding_similarity_bench::load_embedded_prover().unwrap();
+        let committed = embedding_similarity_bench::inputs(&prover).unwrap();
+        let input = fixtures::embedding_similarity_fixture();
+        check_embedding_similarity_input_validity(&input).expect("valid WIP-202 input");
+        assert_eq!(input.into_witness().unwrap(), committed);
     }
 
     /// The ownership fixture must stay in sync with the one backing the circuit's `Prover.toml`

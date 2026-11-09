@@ -44,7 +44,7 @@ pub(crate) const THUMBNAIL_KEY: &[u8] = b"\"thumbnail.png\":\"";
 /// Hex digits of a SHA-256 digest.
 pub(crate) const DIGEST_HEX_LEN: usize = 64;
 /// The `compare_sources` WIP-202 fixes: compared entry 1 is pipeline input 0.
-pub(crate) const COMPARE_SOURCES: u32 = 256;
+pub const COMPARE_SOURCES: u32 = 256;
 /// Credential claim holding the `hashes.json` commitment.
 pub(crate) const CLAIM_INDEX: usize = 0;
 
