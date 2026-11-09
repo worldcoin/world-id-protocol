@@ -528,6 +528,27 @@ impl ResponseItem {
 }
 
 impl ProofRequest {
+    /// Return the `issuer_schema_id`s of the credentials `response` proved.
+    /// Returns an empty vec if the response has an error.
+    ///
+    /// An embedding similarity response names no schema: the request's single item does.
+    #[must_use]
+    pub fn successful_credentials(&self, response: &ProofResponse) -> Vec<u64> {
+        if response.error.is_some() {
+            return vec![];
+        }
+        let embedding_similarity = response
+            .embedding_similarity
+            .iter()
+            .filter_map(|_| self.requests.first().map(|item| item.issuer_schema_id));
+        response
+            .responses
+            .iter()
+            .map(|item| item.issuer_schema_id)
+            .chain(embedding_similarity)
+            .collect()
+    }
+
     /// Determine which requested credentials to prove given available credentials.
     ///
     /// Returns `None` if constraints (or lack thereof) cannot be satisfied with the available set.
@@ -938,24 +959,6 @@ impl ProofResponse {
     /// Returns an error if serialization fails.
     pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
-    }
-
-    /// Return the list of successful `issuer_schema_id`s in the response.
-    /// Returns an empty vec if the response has an error.
-    #[must_use]
-    pub fn successful_credentials(&self) -> Vec<u64> {
-        if self.error.is_some() {
-            return vec![];
-        }
-        self.responses
-            .iter()
-            .map(|item| item.issuer_schema_id)
-            .chain(
-                self.embedding_similarity
-                    .iter()
-                    .map(|item| item.issuer_schema_id),
-            )
-            .collect()
     }
 
     /// The identifiers of every proven credential.
@@ -2152,7 +2155,7 @@ mod tests {
 }"#;
 
         let resp = ProofResponse::from_json(json).expect("unknown fields must be tolerated");
-        assert_eq!(resp.successful_credentials(), vec![100]);
+        assert_eq!(resp.responses[0].issuer_schema_id, 100);
         assert!(resp.responses[0].is_uniqueness());
     }
 
@@ -2174,7 +2177,7 @@ mod tests {
 }"#;
 
         let ok = ProofResponse::from_json(ok_json).unwrap();
-        assert_eq!(ok.successful_credentials(), vec![100]);
+        assert_eq!(ok.responses[0].issuer_schema_id, 100);
         assert!(ok.responses[0].is_uniqueness());
 
         // Canonical session nullifier representation (prefixed hex bytes).
@@ -2199,7 +2202,7 @@ mod tests {
 }}"#
         );
         let sess_canonical = ProofResponse::from_json(&sess_json_canonical).unwrap();
-        assert_eq!(sess_canonical.successful_credentials(), vec![100]);
+        assert_eq!(sess_canonical.responses[0].issuer_schema_id, 100);
         assert!(sess_canonical.responses[0].is_session());
         assert_eq!(
             sess_canonical.session_id.unwrap().oprf_seed.to_u256(),
@@ -2295,7 +2298,10 @@ mod tests {
         }
 
         // successful_credentials should return empty vec when error is present
-        assert_eq!(error_response.successful_credentials(), Vec::<u64>::new());
+        assert_eq!(
+            request.successful_credentials(&error_response),
+            Vec::<u64>::new()
+        );
 
         // constraints_satisfied should return false when error is present
         let expr = ConstraintExpr::All {
@@ -2317,7 +2323,7 @@ mod tests {
         let error_resp = ProofResponse::from_json(error_json).unwrap();
         assert_eq!(error_resp.error, Some("credential_not_available".into()));
         assert_eq!(error_resp.responses.len(), 0);
-        assert_eq!(error_resp.successful_credentials(), Vec::<u64>::new());
+        assert!(error_resp.error.is_some());
     }
 
     #[test]

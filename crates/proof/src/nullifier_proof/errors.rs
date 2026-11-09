@@ -120,12 +120,9 @@ pub enum ProofInputError {
         /// The selected key slot.
         index: u64,
     },
-    /// The authenticator signature over the ownership message is invalid.
-    #[error("The signature over the ownership message is invalid.")]
-    InvalidOwnershipSignature,
-    /// The authenticator signature over the embedding similarity authorization message is invalid.
-    #[error("The signature over the embedding similarity authorization message is invalid.")]
-    InvalidEmbeddingSimilaritySignature,
+    /// The authenticator signature over the message the circuit verifies is invalid.
+    #[error("The authenticator signature over the circuit's message is invalid.")]
+    InvalidAuthenticatorSignature,
     /// The Flamingo Verifier signature over the token digest is invalid.
     #[error("The Flamingo Token signature is invalid for the given Verifier key.")]
     InvalidFlamingoTokenSignature,
@@ -138,16 +135,6 @@ pub enum ProofInputError {
     /// The Credential claim does not commit to the provided `hashes.json`.
     #[error("The credential claim does not match the provided hashes.json.")]
     InvalidHashesJsonClaim,
-    /// The Credential expires before the RP's minimum expiration.
-    #[error(
-        "The provided credential expires too early (expires_at: {expires_at}, expires_at_min: {expires_at_min})."
-    )]
-    CredentialExpiresTooEarly {
-        /// The RP's minimum expiration, exclusive.
-        expires_at_min: u64,
-        /// Expiration timestamp.
-        expires_at: u64,
-    },
     /// The billing nullifier is neither `0` nor this World ID's WIP-107 nullifier for the RP.
     #[error("The billing nullifier is not this World ID's nullifier for the RP.")]
     InvalidBillingNullifier,

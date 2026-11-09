@@ -255,11 +255,9 @@ pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
 }
 
 /// Public inputs of the "Proof of Embedding Similarity" (WIP-202) circuit that the verifier
-/// supplies. The `merkle_root` is not one of them: the proof carries it.
-#[derive(Debug, Clone, PartialEq)]
+/// supplies from its own request. The prover chooses the others, which the proof carries.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddingSimilarityPublicInputs {
-    /// The proof time in Unix seconds: the Flamingo Token's `now`.
-    pub now: u32,
     /// The RP the proof is for: the Flamingo Token's `aud`.
     pub rp_id: FieldElement,
     /// The RP request's nonce: the Flamingo Token's `nonce`.
@@ -270,18 +268,10 @@ pub struct EmbeddingSimilarityPublicInputs {
     pub signal_hash: FieldElement,
     /// The session commitment, or `0` for no session.
     pub session_id: FieldElement,
-    /// The Flamingo Verifier key that signed the token.
-    pub flamingo_verifier_key: EdDSAPublicKey,
-    /// The Engine configuration hash the token was produced under.
-    pub engine_config_hash: FieldElement,
-    /// The AAT values, if the Flamingo Verifier verified an AAT; all zero in the circuit otherwise.
-    pub aat: Option<AatPublicValues>,
     /// The PoH Credential's issuer schema.
     pub issuer_schema_id: u64,
     /// The PoH Credential's issuer version.
     pub issuer_version: u8,
-    /// The PoH Credential's issuer key.
-    pub cred_pk: EdDSAPublicKey,
     /// The RP's minimum Credential `genesis_issued_at`.
     pub genesis_issued_at_min: u64,
     /// The RP's minimum Credential `expires_at`, exclusive.
@@ -293,6 +283,16 @@ pub struct EmbeddingSimilarityPublicInputs {
 pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
     /// **Public inputs** supplied by the verifier.
     pub public: EmbeddingSimilarityPublicInputs,
+    /// **Public input** the proof carries. The Flamingo Verifier's time: the token's `now`.
+    pub now: u32,
+    /// **Public input** the proof carries. The Flamingo Verifier key that signed the token.
+    pub flamingo_verifier_key: EdDSAPublicKey,
+    /// **Public input** the proof carries. The Engine configuration the token was produced under.
+    pub engine_config_hash: FieldElement,
+    /// **Public input** the proof carries. The AAT values, if the Flamingo Verifier verified an AAT.
+    pub aat: Option<AatPublicValues>,
+    /// **Public input** the proof carries. The PoH Credential's issuer key.
+    pub cred_pk: EdDSAPublicKey,
     /// Private input. The Flamingo Token's `compared_entry_hash_1`: `R(SHA-256)` of the live capture.
     pub live_capture_hash: FieldElement,
     /// Private input. The Flamingo Token's WIP-107 billing nullifier, or `0` for an RP that is not billed.

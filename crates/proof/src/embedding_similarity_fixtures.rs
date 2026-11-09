@@ -763,7 +763,6 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
 
     let mut input = EmbeddingSimilarityCircuitInput {
         public: EmbeddingSimilarityPublicInputs {
-            now: NOW,
             rp_id: FieldElement::from(RP_ID),
             nonce: FieldElement::from(NONCE),
             challenge_hash: compared[2],
@@ -772,21 +771,22 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
                 ds::SESSION_COMMITMENT,
                 [FieldElement::from(LEAF_INDEX), session_id_r],
             ),
-            flamingo_verifier_key: verifier_sk().public(),
-            engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
-            aat: Some(AatPublicValues {
-                trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
-                platform: PLATFORM,
-                sec_level: SEC_LEVEL,
-                sec_meta: SEC_META,
-                authenticator_meta: AUTHENTICATOR_META,
-            }),
             issuer_schema_id: ISSUER_SCHEMA_ID,
             issuer_version: ISSUER_VERSION,
-            cred_pk: credential.issuer.clone(),
             genesis_issued_at_min: GENESIS_ISSUED_AT_MIN,
             expires_at_min: u64::from(EXPIRES_AT_MIN),
         },
+        now: NOW,
+        flamingo_verifier_key: verifier_sk().public(),
+        engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
+        aat: Some(AatPublicValues {
+            trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
+            platform: PLATFORM,
+            sec_level: SEC_LEVEL,
+            sec_meta: SEC_META,
+            authenticator_meta: AUTHENTICATOR_META,
+        }),
+        cred_pk: credential.issuer.clone(),
         live_capture_hash: compared[1],
         billing_nullifier: FieldElement::ZERO,
         token_signature: credential.signature.clone().unwrap(),
@@ -842,7 +842,7 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
     .sign(&issuer_sk())
     .unwrap();
     input.credential_signature = credential.signature.unwrap();
-    input.public.cred_pk = credential.issuer;
+    input.cred_pk = credential.issuer;
 
     let (_, digest_offset) = hashes_json();
     let thumbnail = std::str::from_utf8(&input.hashes_json[digest_offset..digest_offset + 64])
@@ -850,7 +850,7 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
         .unwrap_or(FieldElement::ZERO);
     let public = &input.public;
     let digest = FlamingoClaims {
-        now: public.now,
+        now: input.now,
         compared_entry_hashes: [
             thumbnail,
             input.live_capture_hash,
@@ -859,7 +859,7 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
         ],
         aud: public.rp_id,
         nonce: public.nonce,
-        aat: public.aat.as_ref().map(|aat| FlamingoAatClaims {
+        aat: input.aat.as_ref().map(|aat| FlamingoAatClaims {
             trust_anchor_key_hash: aat.trust_anchor_key_hash,
             aat_flags: u64::from(aat.platform)
                 + (u64::from(aat.sec_level) << 8)
@@ -867,14 +867,14 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
                 + (u64::from(aat.authenticator_meta) << 52),
         }),
         compare_sources: COMPARE_SOURCES,
-        engine_config_hash: public.engine_config_hash,
+        engine_config_hash: input.engine_config_hash,
         billing_nullifier: input.billing_nullifier,
     }
     .digest();
     input.token_signature = verifier_sk().sign(*digest);
     input.signature = authenticator_sk().sign(*authorization_message(
         digest,
-        &public.flamingo_verifier_key,
+        &input.flamingo_verifier_key,
         public.signal_hash,
     ));
 }
