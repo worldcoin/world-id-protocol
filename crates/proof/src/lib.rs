@@ -56,6 +56,8 @@ use world_id_primitives::FieldElement;
 
 pub mod ownership_proof;
 
+mod noir_components;
+
 /// UNAUDITED. Embedded artifacts of the WIP-202 Proof of Embedding Similarity circuit.
 #[cfg(any(
     feature = "embed-embedding-similarity-prover",

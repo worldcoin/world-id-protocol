@@ -13,24 +13,28 @@ use acvm::{
     acir::native_types::WitnessMap,
     pwg::{ACVM, ACVMStatus},
 };
-use ark_ff::{BigInteger as _, PrimeField as _};
 #[cfg(any(target_arch = "wasm32", test))]
 use bn254_blackbox_solver::Bn254BlackBoxSolver;
-use provekit_common::{InputMap, InputValue, NoirElement};
+#[cfg(any(target_arch = "wasm32", test))]
+use provekit_common::NoirElement;
+use provekit_common::{InputMap, InputValue};
 #[cfg(not(target_arch = "wasm32"))]
 use provekit_common::{NoirProof, PublicInputs};
 use provekit_prover::Prove;
 #[cfg(not(target_arch = "wasm32"))]
 use provekit_verifier::Verify;
 use world_id_primitives::{
-    Credential, FieldElement, MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
+    Credential, FieldElement, TREE_DEPTH,
     poseidon::{self, ds},
     proof::OwnershipProof,
 };
 
 use crate::{
-    NoirCircuitInput, NoirRepresentable, ProofError, artifacts::ZkArtifactSource,
-    circuit_inputs::OwnershipProofCircuitInput, error::ProofInputError, to_noir_element,
+    NoirCircuitInput, NoirRepresentable, ProofError,
+    artifacts::ZkArtifactSource,
+    circuit_inputs::OwnershipProofCircuitInput,
+    error::ProofInputError,
+    noir_components::{account_inputs, check_account_input_validity},
 };
 
 /// Loads an ownership proof prover from a reader containing PKP bytes.
@@ -152,18 +156,9 @@ pub fn check_ownership_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::ValueMustNotBeZero { name: "context" });
     }
 
-    // 2. The circuit requires `0 < leaf_index < 2^30`; leaf `0` is reserved in the `WorldIDRegistry`.
-    let leaf_index = inputs.inclusion_proof.leaf_index;
-    if leaf_index == 0 {
-        return Err(ProofInputError::ValueMustNotBeZero { name: "leaf_index" });
-    }
-    if leaf_index >= 1 << TREE_DEPTH {
-        return Err(ProofInputError::ValueOutOfBounds {
-            name: "leaf_index",
-            is: leaf_index.into(),
-            limit: (1u64 << TREE_DEPTH).into(),
-        });
-    }
+    // 2. The account must be a registered World ID, whose key at `key_index` signs below.
+    let key =
+        check_account_input_validity(&inputs.key_set, inputs.key_index, &inputs.inclusion_proof)?;
 
     // 3. The commitment being proven must match the leaf index and blinder it is derived from.
     let derived =
@@ -172,26 +167,7 @@ pub fn check_ownership_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::InvalidExpectedCommitment);
     }
 
-    // 4. A registered key of the World ID at `leaf_index` must have signed the ownership message.
-    if inputs.key_index >= MAX_AUTHENTICATOR_KEYS as u64 {
-        return Err(ProofInputError::ValueOutOfBounds {
-            name: "key_index",
-            is: inputs.key_index.into(),
-            limit: (MAX_AUTHENTICATOR_KEYS as u64).into(),
-        });
-    }
-    let key = usize::try_from(inputs.key_index)
-        .ok()
-        .and_then(|index| inputs.key_set.get(index))
-        .ok_or(ProofInputError::InactiveAuthenticatorKey {
-            index: inputs.key_index,
-        })?;
-    if !inputs
-        .inclusion_proof
-        .is_valid(inputs.key_set.leaf_hash().into())
-    {
-        return Err(ProofInputError::InvalidMerkleTreeInclusionProof);
-    }
+    // 4. The registered key must have signed the ownership message.
     let message = poseidon::hash(
         ds::OWNERSHIP_PROOF,
         [inputs.expected_commitment, inputs.nonce, inputs.context],
@@ -348,58 +324,17 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
         );
         map.insert("context".into(), self.context.into_noir_value());
 
-        // `AccountInputs` of the shared World ID Authentication component
-        let mut account: BTreeMap<String, InputValue> = BTreeMap::new();
-
-        // user_pk: [PublicKey; 7]
-        let affine_keys = self.key_set.as_affine_array();
-        let user_pk: Vec<InputValue> = affine_keys
-            .iter()
-            .map(|pk| {
-                let mut s = BTreeMap::new();
-                s.insert("x".into(), InputValue::Field(to_noir_element(pk.x)));
-                s.insert("y".into(), InputValue::Field(to_noir_element(pk.y)));
-                InputValue::Struct(s)
-            })
-            .collect();
-        account.insert("user_pk".into(), InputValue::Vec(user_pk));
-
-        // pk_index
-        account.insert(
-            "pk_index".into(),
-            InputValue::Field(NoirElement::from(self.key_index)),
-        );
-
-        // sig: Signature { s, r }. `s` is a babyjubjub scalar → bn254 scalar via big-endian bytes,
-        // `r` is the point (x, y).
-        let s_native =
-            ark_bn254::Fr::from_be_bytes_mod_order(&self.signature.s.into_bigint().to_bytes_be());
-        let mut sig = BTreeMap::new();
-        sig.insert("s".into(), InputValue::Field(to_noir_element(s_native)));
-        sig.insert(
-            "r".into(),
-            InputValue::Vec(vec![
-                InputValue::Field(to_noir_element(self.signature.r.x)),
-                InputValue::Field(to_noir_element(self.signature.r.y)),
-            ]),
-        );
-        account.insert("sig".into(), InputValue::Struct(sig));
-
-        let siblings: Vec<InputValue> = self
-            .inclusion_proof
-            .siblings
-            .iter()
-            .map(|s| (*s).into_noir_value())
-            .collect();
-        account.insert(
-            "leaf_index".into(),
-            InputValue::Field(NoirElement::from(self.inclusion_proof.leaf_index)),
-        );
-        account.insert("siblings".into(), InputValue::Vec(siblings));
-
         // Private inputs struct
         let mut inputs: BTreeMap<String, InputValue> = BTreeMap::new();
-        inputs.insert("account".into(), InputValue::Struct(account));
+        inputs.insert(
+            "account".into(),
+            account_inputs(
+                &self.key_set,
+                self.key_index,
+                &self.signature,
+                &self.inclusion_proof,
+            ),
+        );
         inputs.insert(
             "commitment_blinder".into(),
             self.commitment_blinder.into_noir_value(),
@@ -413,7 +348,10 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
 
 #[cfg(test)]
 mod input_validation_tests {
-    use world_id_primitives::poseidon::{self, ds};
+    use world_id_primitives::{
+        MAX_AUTHENTICATOR_KEYS,
+        poseidon::{self, ds},
+    };
 
     use super::*;
     use std::str::FromStr as _;
