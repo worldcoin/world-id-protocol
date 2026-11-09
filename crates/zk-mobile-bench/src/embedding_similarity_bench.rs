@@ -5,6 +5,7 @@
 //! `nargo execute` solves in CI.
 
 use provekit_common::{Format, InputMap};
+use world_id_proof::artifacts::{ZkArtifactSource as _, embedded::EmbeddedZkArtifacts};
 
 const PROVER_TOML: &str = include_str!("../../proof/noir/embedding-similarity/Prover.toml");
 
@@ -13,7 +14,7 @@ const PROVER_TOML: &str = include_str!("../../proof/noir/embedding-similarity/Pr
 /// # Errors
 /// Fails if the embedded bytes cannot be deserialized.
 pub fn load_embedded_prover() -> eyre::Result<provekit_common::Prover> {
-    world_id_proof::embedding_similarity::embedded_prover()
+    Ok(EmbeddedZkArtifacts.embedding_similarity_prover()?)
 }
 
 /// Loads the WIP-202 verifier `world-id-proof` embeds.
@@ -22,7 +23,7 @@ pub fn load_embedded_prover() -> eyre::Result<provekit_common::Prover> {
 /// Fails if the embedded bytes cannot be deserialized.
 #[cfg(test)]
 pub fn load_embedded_verifier() -> eyre::Result<provekit_common::Verifier> {
-    world_id_proof::embedding_similarity::embedded_verifier()
+    Ok(EmbeddedZkArtifacts.embedding_similarity_verifier()?)
 }
 
 /// Parses the committed witness against the prover's ABI.
