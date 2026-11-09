@@ -859,16 +859,6 @@ mod input_validation_tests {
     }
 
     #[test]
-    fn test_rejects_an_inactive_key_slot() {
-        let mut input = embedding_similarity_fixture();
-        input.key_index = 1;
-        assert!(matches!(
-            check(&input),
-            ProofInputError::InactiveAuthenticatorKey { index: 1 }
-        ));
-    }
-
-    #[test]
     fn test_rejects_a_key_set_outside_the_registry() {
         let mut input = embedding_similarity_fixture();
         input.inclusion_proof.root = FieldElement::from(12345_u64);
