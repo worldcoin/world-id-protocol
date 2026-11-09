@@ -14,7 +14,7 @@ use world_id_primitives::{
     Credential, CredentialVersion, EdDSAPublicKey, FieldElement, ProofRequest, ProofType,
     SessionRef, TREE_DEPTH,
     authenticator::oprf_query_digest,
-    authenticator_assertion::AatPublicValues,
+    authenticator_assertion::{AatPublicValues, AatRequirements},
     poseidon::{self, ds},
     proof::EmbeddingSimilarityProof,
     sponge::hash_bytes_to_field_element,
@@ -92,6 +92,9 @@ pub fn load_embedding_similarity_verifier_from_path(
 }
 
 /// The byte offset of the thumbnail digest in `hashes.json`, and the digest `R(d)` it encodes.
+///
+/// Takes the first `thumbnail.png` key. The circuit accepts any, which is the same entry for the
+/// compact, flat `hashes.json` with unique keys that orb-core writes (WIP-202 §4.1).
 fn thumbnail_digest(hashes_json: &[u8]) -> Result<(usize, FieldElement), ProofInputError> {
     let invalid = |reason| ProofInputError::InvalidHashesJson { reason };
 
@@ -240,7 +243,36 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         });
     }
 
-    // 2. The Flamingo Verifier must have signed the token.
+    // 2. `hashes.json` must fit the circuit, before its thumbnail digest is read below.
+    hashes_json_inputs(&inputs.hashes_json)?;
+
+    // 3. The AAT values must fit their claim widths, as the token library range-checks them.
+    if let Some(aat) = &inputs.aat {
+        let widths = [
+            ("sec_meta", aat.sec_meta, AatRequirements::SEC_META_BITS),
+            (
+                "authenticator_meta",
+                aat.authenticator_meta,
+                AatRequirements::AUTHENTICATOR_META_BITS,
+            ),
+        ];
+        for (name, value, bits) in widths {
+            if u32::from(value) >> bits != 0 {
+                return Err(ProofInputError::ValueOutOfBounds {
+                    name,
+                    is: u64::from(value).into(),
+                    limit: (1u64 << bits).into(),
+                });
+            }
+        }
+        // WIP-106 reserves `user_presence` (bits 0-2 of `authenticator_meta`) values 5 to 7.
+        let user_presence = aat.authenticator_meta & 7;
+        if user_presence >= 5 {
+            return Err(ProofInputError::ReservedUserPresence { user_presence });
+        }
+    }
+
+    // 4. The Flamingo Verifier must have signed the token.
     let digest = token_digest(inputs)?;
     if !inputs
         .flamingo_verifier_key
@@ -249,7 +281,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::InvalidFlamingoTokenSignature);
     }
 
-    // 3. A registered key of the World ID must have authorized the token and the RP's signal.
+    // 5. A registered key of the World ID must have authorized the token and the RP's signal.
     let key =
         check_account_input_validity(&inputs.key_set, inputs.key_index, &inputs.inclusion_proof)?;
     let message = poseidon::hash(
@@ -265,7 +297,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::InvalidAuthenticatorSignature);
     }
 
-    // 4. The session ID is either absent or this World ID's session commitment.
+    // 6. The session ID is either absent or this World ID's session commitment.
     let session_commitment = poseidon::hash(
         ds::SESSION_COMMITMENT,
         [leaf_index.into(), inputs.session_id_r],
@@ -274,7 +306,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::InvalidSessionId);
     }
 
-    // 5. The issuer must have signed the World ID's PoH Credential, which must be valid.
+    // 7. The issuer must have signed the World ID's PoH Credential, which must be valid.
     let credential = Credential {
         id: inputs.credential_id,
         version: CredentialVersion::V1,
@@ -314,7 +346,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         });
     }
 
-    // 6. The billing nullifier is `0` or this World ID's WIP-107 nullifier for the RP.
+    // 8. The billing nullifier is `0` or this World ID's WIP-107 nullifier for the RP.
     if inputs.billing_nullifier != FieldElement::ZERO {
         let query = oprf_query_digest(leaf_index, inputs.billing_action, request.rp_id);
         let own_nullifier = poseidon::hash(
@@ -330,8 +362,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         }
     }
 
-    // 7. The Credential claim must commit to `hashes.json`, which must fit the circuit.
-    hashes_json_inputs(&inputs.hashes_json)?;
+    // 9. The Credential claim must commit to `hashes.json`.
     let claim = hash_bytes_to_field_element(ds::CLAIMS_HASH_V1, &inputs.hashes_json)
         .map_err(|_| ProofInputError::InvalidHashesJsonClaim)?;
     if inputs.claims[CLAIM_INDEX] != claim {
@@ -538,6 +569,11 @@ pub fn generate_embedding_similarity_proof_with_prover(
 
 /// Verifies an embedding similarity proof using artifacts from the provided source.
 ///
+/// This is WIP-202 §4.8 item 1 only. The RP must also check items 2-7 itself: the Flamingo Token
+/// values, including the Verifier's attestation and the Engine configuration (2), the freshness
+/// of `now` (3), the `merkle_root` and the Issuer key (4), that `request` and the challenge image
+/// are its own (5), the session (6), and its AAT policy (7).
+///
 /// # Errors
 /// Returns an error if Noir artifacts cannot be loaded, the proof bytes are malformed,
 /// or verification fails.
@@ -551,7 +587,8 @@ pub fn verify_embedding_similarity_proof(
     verify_embedding_similarity_proof_with_verifier(proof, request, &mut verifier)
 }
 
-/// Verifies an embedding similarity proof using the provided verifier.
+/// Verifies an embedding similarity proof using the provided verifier. Like
+/// [`verify_embedding_similarity_proof`], it checks only WIP-202 §4.8 item 1.
 ///
 /// # Errors
 /// Returns an error if the proof bytes are malformed or verification fails.
@@ -751,6 +788,54 @@ mod input_validation_tests {
         input.aat = None;
         resign(&mut input);
         check_embedding_similarity_input_validity(&input).expect("a token without an AAT is valid");
+    }
+
+    #[test]
+    fn test_rejects_aat_values_wider_than_their_claims() {
+        // `sec_meta = 19` packs like `sec_meta = 3` with `authenticator_meta` bit 0 set, so the
+        // token signature alone would not catch it.
+        let mut input = embedding_similarity_fixture();
+        input.aat.as_mut().unwrap().sec_meta = 16;
+        assert!(matches!(
+            check(&input),
+            ProofInputError::ValueOutOfBounds {
+                name: "sec_meta",
+                ..
+            }
+        ));
+
+        let mut input = embedding_similarity_fixture();
+        input.aat.as_mut().unwrap().authenticator_meta = 32;
+        assert!(matches!(
+            check(&input),
+            ProofInputError::ValueOutOfBounds {
+                name: "authenticator_meta",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_a_reserved_user_presence() {
+        let mut input = embedding_similarity_fixture();
+        input.aat.as_mut().unwrap().authenticator_meta = 0b01_101;
+        resign(&mut input);
+        assert!(matches!(
+            check(&input),
+            ProofInputError::ReservedUserPresence { user_presence: 5 }
+        ));
+    }
+
+    #[test]
+    fn test_reports_the_length_of_a_short_hashes_json_before_its_thumbnail() {
+        let mut input = embedding_similarity_fixture();
+        input.hashes_json.truncate(100);
+        assert!(matches!(
+            check(&input),
+            ProofInputError::InvalidHashesJson {
+                reason: "length is outside the accepted range"
+            }
+        ));
     }
 
     #[test]

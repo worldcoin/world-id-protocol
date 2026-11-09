@@ -29,9 +29,9 @@ pub struct AatRequirements {
 
 impl AatRequirements {
     /// The width of `sec_meta` in bits.
-    const SEC_META_BITS: u32 = 4;
+    pub const SEC_META_BITS: u32 = 4;
     /// The width of `authenticator_meta` in bits.
-    const AUTHENTICATOR_META_BITS: u32 = 5;
+    pub const AUTHENTICATOR_META_BITS: u32 = 5;
 
     /// Checks that every hint fits its width.
     ///

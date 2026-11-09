@@ -85,6 +85,13 @@ pub enum ProofInputError {
     /// The Credential claim does not commit to the provided `hashes.json`.
     #[error("The credential claim does not match the provided hashes.json.")]
     InvalidHashesJsonClaim,
+    /// The AAT's `user_presence` (bits 0-2 of `authenticator_meta`) is one of the values 5 to 7
+    /// WIP-106 reserves.
+    #[error("The AAT's user_presence {user_presence} is reserved.")]
+    ReservedUserPresence {
+        /// The reserved value.
+        user_presence: u8,
+    },
     /// The proof request is not a valid Proof of Embedding Similarity request.
     #[error("The proof request is not a valid embedding similarity request: {reason}.")]
     InvalidEmbeddingSimilarityRequest {
