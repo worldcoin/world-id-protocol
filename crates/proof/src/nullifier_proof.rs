@@ -10,7 +10,10 @@
 //! 4. Verifying `DLog` equality proofs from OPRF nodes
 //! 5. Generating the final Uniqueness Proof `π2`
 
-use crate::{ProofError, ProofInputError, oprf_query_proof::check_query_input_validity};
+use crate::{
+    ProofError, ProofInputError, groth16::groth16_material_builder,
+    oprf_query_proof::check_query_input_validity,
+};
 use ark_bn254::Bn254;
 use ark_ec::{AffineRepr, CurveGroup};
 use ark_ff::{BigInt, Zero};
@@ -72,14 +75,7 @@ pub fn load_nullifier_material_from_paths(
 }
 
 fn build_nullifier_builder() -> CircomGroth16MaterialBuilder {
-    CircomGroth16MaterialBuilder::new()
-        .fingerprint_zkey(NULLIFIER_ZKEY_FINGERPRINT.into())
-        .fingerprint_graph(NULLIFIER_GRAPH_FINGERPRINT.into())
-        .bbf_num_2_bits_helper()
-        .bbf_inv()
-        .bbf_legendre()
-        .bbf_sqrt_input()
-        .bbf_sqrt_unchecked()
+    groth16_material_builder(NULLIFIER_ZKEY_FINGERPRINT, NULLIFIER_GRAPH_FINGERPRINT)
 }
 
 // ============================================================================

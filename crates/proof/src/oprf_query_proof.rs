@@ -29,7 +29,9 @@ use world_id_primitives::{
 
 use crate::circuit_inputs::QueryProofCircuitInput;
 
-use crate::{AuthenticatorProofInput, ProofError, ProofInputError};
+use crate::{
+    AuthenticatorProofInput, ProofError, ProofInputError, groth16::groth16_material_builder,
+};
 use world_id_primitives::poseidon::ds;
 
 type BaseField = ark_babyjubjub::Fq;
@@ -68,14 +70,7 @@ pub fn load_query_material_from_paths(
 }
 
 fn build_query_builder() -> CircomGroth16MaterialBuilder {
-    CircomGroth16MaterialBuilder::new()
-        .fingerprint_zkey(QUERY_ZKEY_FINGERPRINT.into())
-        .fingerprint_graph(QUERY_GRAPH_FINGERPRINT.into())
-        .bbf_num_2_bits_helper()
-        .bbf_inv()
-        .bbf_legendre()
-        .bbf_sqrt_input()
-        .bbf_sqrt_unchecked()
+    groth16_material_builder(QUERY_ZKEY_FINGERPRINT, QUERY_GRAPH_FINGERPRINT)
 }
 
 /// The main entry point to execute OPRF computations using the
