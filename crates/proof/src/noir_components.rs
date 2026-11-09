@@ -7,7 +7,8 @@ use ark_ff::{BigInteger as _, PrimeField as _};
 use eddsa_babyjubjub::{EdDSAPublicKey, EdDSASignature};
 use provekit_common::{InputValue, NoirElement};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, MAX_AUTHENTICATOR_KEYS, TREE_DEPTH, merkle::MerkleInclusionProof,
+    AuthenticatorPublicKeySet, FieldElement, MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
+    merkle::MerkleInclusionProof,
 };
 
 use crate::{NoirRepresentable as _, error::ProofInputError, to_noir_element};
@@ -71,6 +72,47 @@ pub(crate) fn account_inputs<const MAX_DEPTH: usize>(
     InputValue::Struct(account)
 }
 
+/// Encodes the `CredentialInputs` of the Credential verification component.
+pub(crate) fn credential_inputs(
+    claims: &[FieldElement],
+    associated_data_hash: FieldElement,
+    genesis_issued_at: u64,
+    expires_at: u64,
+    sub_blinding_factor: FieldElement,
+    id: u64,
+    signature: &EdDSASignature,
+) -> InputValue {
+    let mut credential = BTreeMap::new();
+    credential.insert(
+        "claims".into(),
+        InputValue::Vec(
+            claims
+                .iter()
+                .map(|claim| (*claim).into_noir_value())
+                .collect(),
+        ),
+    );
+    credential.insert(
+        "associated_data_hash".into(),
+        associated_data_hash.into_noir_value(),
+    );
+    credential.insert(
+        "genesis_issued_at".into(),
+        InputValue::Field(NoirElement::from(genesis_issued_at)),
+    );
+    credential.insert(
+        "expires_at".into(),
+        InputValue::Field(NoirElement::from(expires_at)),
+    );
+    credential.insert(
+        "sub_blinding_factor".into(),
+        sub_blinding_factor.into_noir_value(),
+    );
+    credential.insert("id".into(), InputValue::Field(NoirElement::from(id)));
+    credential.insert("sig".into(), self::signature(signature));
+    InputValue::Struct(credential)
+}
+
 /// Checks the account inputs of the World ID Authentication component the way the circuit does,
 /// and returns the authenticator key that must have signed the circuit's message.
 ///
@@ -109,4 +151,83 @@ pub(crate) fn check_account_input_validity<'a, const MAX_DEPTH: usize>(
         return Err(ProofInputError::InvalidMerkleTreeInclusionProof);
     }
     Ok(key)
+}
+
+#[cfg(test)]
+mod tests {
+    use eddsa_babyjubjub::EdDSAPrivateKey;
+    use world_id_test_utils::merkle::first_leaf_merkle_path;
+
+    use super::*;
+
+    /// A one-key World ID at leaf 1 and its inclusion proof.
+    fn account() -> (AuthenticatorPublicKeySet, MerkleInclusionProof<TREE_DEPTH>) {
+        let key_set =
+            AuthenticatorPublicKeySet::new(vec![EdDSAPrivateKey::from_bytes([42u8; 32]).public()])
+                .unwrap();
+        let (siblings, root) = first_leaf_merkle_path(key_set.leaf_hash());
+        (key_set, MerkleInclusionProof::new(root, 1, siblings))
+    }
+
+    #[test]
+    fn test_returns_the_key_of_a_registered_account() {
+        let (key_set, inclusion_proof) = account();
+        let key = check_account_input_validity(&key_set, 0, &inclusion_proof).unwrap();
+        assert_eq!(Some(key), key_set.get(0));
+    }
+
+    #[test]
+    fn test_rejects_zero_leaf_index() {
+        let (key_set, mut inclusion_proof) = account();
+        inclusion_proof.leaf_index = 0;
+        assert!(matches!(
+            check_account_input_validity(&key_set, 0, &inclusion_proof).unwrap_err(),
+            ProofInputError::ValueMustNotBeZero { name: "leaf_index" }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_leaf_index_beyond_the_tree() {
+        let (key_set, mut inclusion_proof) = account();
+        inclusion_proof.leaf_index = 1 << TREE_DEPTH;
+        assert!(matches!(
+            check_account_input_validity(&key_set, 0, &inclusion_proof).unwrap_err(),
+            ProofInputError::ValueOutOfBounds {
+                name: "leaf_index",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_key_index_beyond_the_key_slots() {
+        let (key_set, inclusion_proof) = account();
+        assert!(matches!(
+            check_account_input_validity(&key_set, MAX_AUTHENTICATOR_KEYS as u64, &inclusion_proof)
+                .unwrap_err(),
+            ProofInputError::ValueOutOfBounds {
+                name: "key_index",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_an_inactive_key_slot() {
+        let (key_set, inclusion_proof) = account();
+        assert!(matches!(
+            check_account_input_validity(&key_set, 1, &inclusion_proof).unwrap_err(),
+            ProofInputError::InactiveAuthenticatorKey { index: 1 }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_a_key_set_outside_the_registry() {
+        let (key_set, mut inclusion_proof) = account();
+        inclusion_proof.root = FieldElement::from(12345_u64);
+        assert!(matches!(
+            check_account_input_validity(&key_set, 0, &inclusion_proof).unwrap_err(),
+            ProofInputError::InvalidMerkleTreeInclusionProof
+        ));
+    }
 }

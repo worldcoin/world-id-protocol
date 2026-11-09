@@ -73,6 +73,34 @@ pub enum ProofInputError {
     /// The authenticator signature over the message the circuit verifies is invalid.
     #[error("The authenticator signature over the circuit's message is invalid.")]
     InvalidAuthenticatorSignature,
+    /// The Flamingo Verifier signature over the token digest is invalid.
+    #[error("The Flamingo Token signature is invalid for the given Verifier key.")]
+    InvalidFlamingoTokenSignature,
+    /// The PCP `hashes.json` cannot be encoded for the circuit.
+    #[error("The provided hashes.json is invalid: {reason}.")]
+    InvalidHashesJson {
+        /// What is wrong with it.
+        reason: &'static str,
+    },
+    /// The Credential claim does not commit to the provided `hashes.json`.
+    #[error("The credential claim does not match the provided hashes.json.")]
+    InvalidHashesJsonClaim,
+    /// The AAT's `user_presence` (bits 0-2 of `authenticator_meta`) is one of the values 5 to 7
+    /// WIP-106 reserves.
+    #[error("The AAT's user_presence {user_presence} is reserved.")]
+    ReservedUserPresence {
+        /// The reserved value.
+        user_presence: u8,
+    },
+    /// The proof request is not a valid Proof of Embedding Similarity request.
+    #[error("The proof request is not a valid embedding similarity request: {reason}.")]
+    InvalidEmbeddingSimilarityRequest {
+        /// Why it is not.
+        reason: String,
+    },
+    /// The billing nullifier is neither `0` nor this World ID's WIP-107 nullifier for the RP.
+    #[error("The billing nullifier is not this World ID's nullifier for the RP.")]
+    InvalidBillingNullifier,
     /// The provided blinding factor is invalid, or the sub is incorrect.
     #[error("The provided blinding factor is invalid.")]
     InvalidBlindingFactor,

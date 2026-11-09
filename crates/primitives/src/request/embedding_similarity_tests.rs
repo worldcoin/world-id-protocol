@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    EdDSAPrivateKey, EdDSAPublicKey,
+    EdDSAPrivateKey, EdDSAPublicKey, EmbeddingSimilarityProof, POH_ISSUER_SCHEMA_ID,
     authenticator_assertion::{AatPublicValues, AatRequirements},
 };
 use alloy::{
@@ -52,13 +52,12 @@ fn request(proof_type: ProofType, session_id: SessionRef) -> ProofRequest {
         oprf_key_id: OprfKeyId::new(uint!(1_U160)),
         signature: signature(),
         nonce: field(1),
-        requests: vec![RequestItem {
-            identifier: "poh".into(),
-            issuer_schema_id: 1,
-            signal: None,
-            genesis_issued_at_min: None,
-            expires_at_min: None,
-        }],
+        requests: vec![RequestItem::embedding_similarity(
+            "poh".into(),
+            None,
+            None,
+            None,
+        )],
         constraints: None,
     }
 }
@@ -74,21 +73,26 @@ fn public_key(seed: u8) -> EdDSAPublicKey {
 fn es_item() -> EmbeddingSimilarityResponseItem {
     EmbeddingSimilarityResponseItem {
         identifier: "poh".into(),
-        issuer_schema_id: 1,
-        proof: vec![1, 2, 3].into(),
-        flamingo_verifier_key: public_key(1),
-        now: 1_735_689_650,
-        aat: Some(AatPublicValues {
-            trust_anchor_key_hash: field(9),
-            platform: 2,
-            sec_level: 1,
-            sec_meta: 3,
-            authenticator_meta: 10,
-        }),
-        engine_config_hash: field(10),
-        merkle_root: field(11),
-        issuer_version: 1,
-        cred_pk: public_key(2),
+        proof: EmbeddingSimilarityProof {
+            proof: provekit_common::WhirR1CSProof {
+                narg_string: vec![1, 2, 3],
+                hints: vec![4, 5],
+                #[cfg(debug_assertions)]
+                pattern: vec![],
+            },
+            now: 1_735_689_650,
+            flamingo_verifier_key: public_key(1),
+            engine_config_hash: field(10),
+            aat: Some(AatPublicValues {
+                trust_anchor_key_hash: field(9),
+                platform: 2,
+                sec_level: 1,
+                sec_meta: 3,
+                authenticator_meta: 10,
+            }),
+            merkle_root: field(11),
+            cred_pk: public_key(2),
+        },
         signing_key_attestation: vec![0xde, 0xad].into(),
     }
 }
@@ -251,6 +255,9 @@ fn validate_proof_type_is_strict_for_embedding_similarity() {
         all: vec![ConstraintNode::Type("poh".into())],
     });
     invalid(constrained, "constraints");
+    let mut other_credential = es_request();
+    other_credential.requests[0].issuer_schema_id = POH_ISSUER_SCHEMA_ID + 1;
+    invalid(other_credential, "issuer_schema_id");
 }
 
 #[test]
@@ -290,22 +297,23 @@ fn response_wire_encoding() {
     let value = serde_json::to_value(response(Some(es_item()))).unwrap();
     assert_eq!(value["responses"], json!([]));
     let item = &value["embedding_similarity"];
-    assert_eq!(item["proof"], "0x010203");
+    // ProveKit encodes the proof bytes as base64 in human-readable formats.
+    assert_eq!(item["proof"]["proof"]["narg_string"], "AQID");
     assert_eq!(item["signing_key_attestation"], "0xdead");
-    assert_eq!(item["now"], 1_735_689_650);
-    assert_eq!(item["aat"]["platform"], 2);
+    assert_eq!(item["proof"]["now"], 1_735_689_650);
+    assert_eq!(item["proof"]["aat"]["platform"], 2);
 
     let decoded: ProofResponse = serde_json::from_value(value).unwrap();
     assert_eq!(decoded.embedding_similarity, Some(es_item()));
-    assert_eq!(decoded.successful_credentials(), vec![1]);
+    assert_eq!(decoded.successful_credentials(), vec![POH_ISSUER_SCHEMA_ID]);
 
     // Without an AAT, `aat` is absent.
     let mut no_aat = es_item();
-    no_aat.aat = None;
+    no_aat.proof.aat = None;
     let value = serde_json::to_value(response(Some(no_aat))).unwrap();
-    assert!(value["embedding_similarity"].get("aat").is_none());
+    assert!(value["embedding_similarity"]["proof"].get("aat").is_none());
     let decoded: ProofResponse = serde_json::from_value(value).unwrap();
-    assert!(decoded.embedding_similarity.unwrap().aat.is_none());
+    assert!(decoded.embedding_similarity.unwrap().proof.aat.is_none());
 }
 
 #[test]
@@ -325,11 +333,14 @@ fn item_rejects_a_truncated_or_malformed_value() {
     let valid = serde_json::to_value(es_item()).unwrap();
 
     let mut truncated = valid.clone();
-    truncated.as_object_mut().unwrap().remove("merkle_root");
+    truncated["proof"]
+        .as_object_mut()
+        .unwrap()
+        .remove("merkle_root");
     assert!(serde_json::from_value::<EmbeddingSimilarityResponseItem>(truncated).is_err());
 
     let mut malformed = valid;
-    malformed["cred_pk"] = json!("0x00");
+    malformed["proof"]["cred_pk"] = json!("0x00");
     assert!(serde_json::from_value::<EmbeddingSimilarityResponseItem>(malformed).is_err());
 }
 
@@ -380,8 +391,8 @@ fn binary_item_decodes_in_canonical_key_order() {
 fn binary_item_rejects_a_repeated_field() {
     let bytes = cbor_item_with_entries(|entries| {
         entries.push((
-            ciborium::Value::Text("now".into()),
-            ciborium::Value::Integer(1.into()),
+            ciborium::Value::Text("identifier".into()),
+            ciborium::Value::Text("other".into()),
         ));
     });
     assert!(ciborium::from_reader::<EmbeddingSimilarityResponseItem, _>(bytes.as_slice()).is_err());

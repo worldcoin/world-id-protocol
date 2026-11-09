@@ -2,10 +2,6 @@
 
 // Enforce the portable transcript version even though ProveKit uses Spongefish indirectly.
 use spongefish as _;
-// TODO: remove this line once the crate uses world-id-flamingo (#1177). Only the test fixtures use
-// it so far; it is a normal dependency so that release-plz, which orders crates by their normal
-// dependencies, publishes world-id-flamingo before this crate.
-use world_id_flamingo as _;
 
 use eddsa_babyjubjub::EdDSAPrivateKey;
 
@@ -56,24 +52,17 @@ use world_id_primitives::FieldElement;
 
 pub mod ownership_proof;
 
+pub mod embedding_similarity_proof;
+
 mod noir_components;
 
 mod provekit;
 
 mod groth16;
 
-/// UNAUDITED. Embedded artifacts of the WIP-202 Proof of Embedding Similarity circuit.
-#[cfg(any(
-    feature = "embed-embedding-similarity-prover",
-    all(
-        not(target_arch = "wasm32"),
-        feature = "embed-embedding-similarity-verifier"
-    )
-))]
-pub mod embedding_similarity;
-
 pub use provekit_common::{
-    NoirProof, Prover as OwnershipProver, Verifier as OwnershipVerifier, WhirR1CSProof,
+    NoirProof, Prover as OwnershipProver, Prover as EmbeddingSimilarityProver,
+    Verifier as OwnershipVerifier, Verifier as EmbeddingSimilarityVerifier, WhirR1CSProof,
 };
 
 pub trait NoirCircuitInput {

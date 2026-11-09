@@ -21,6 +21,7 @@ inventory = "0.3"
 # World ID
 world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "embed-ownership-prover", "issuer"] }
 world-id-primitives = { workspace = true }
+world-id-flamingo = { workspace = true }
 world-id-proof = { workspace = true, features = ["embed-embedding-similarity-prover", "embed-embedding-similarity-verifier"] }
 
 # ZK dependencies
@@ -42,6 +43,7 @@ serde_json = { workspace = true }
 taceo-oprf = { workspace = true }
 
 # Utilities
+sha2 = { workspace = true }
 eyre = { workspace = true }
 rand = { workspace = true }
 rand_chacha = { workspace = true }

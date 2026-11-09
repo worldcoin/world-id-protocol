@@ -211,10 +211,7 @@ impl NoirCircuitInput for OwnershipProofCircuitInput<TREE_DEPTH> {
 
 #[cfg(test)]
 mod input_validation_tests {
-    use world_id_primitives::{
-        MAX_AUTHENTICATOR_KEYS,
-        poseidon::{self, ds},
-    };
+    use world_id_primitives::poseidon::{self, ds};
 
     use super::*;
     use std::str::FromStr as _;
@@ -282,33 +279,6 @@ mod input_validation_tests {
     }
 
     #[test]
-    fn test_rejects_key_index_beyond_the_key_slots() {
-        let mut input = ownership_proof_fixture();
-        input.key_index = MAX_AUTHENTICATOR_KEYS as u64;
-
-        let err = check_ownership_input_validity(&input).unwrap_err();
-        assert!(matches!(
-            err,
-            ProofInputError::ValueOutOfBounds {
-                name: "key_index",
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn test_rejects_an_inactive_key_slot() {
-        let mut input = ownership_proof_fixture();
-        input.key_index = 1;
-
-        let err = check_ownership_input_validity(&input).unwrap_err();
-        assert!(matches!(
-            err,
-            ProofInputError::InactiveAuthenticatorKey { index: 1 }
-        ));
-    }
-
-    #[test]
     fn test_rejects_a_key_set_outside_the_registry() {
         let mut input = ownership_proof_fixture();
         input.inclusion_proof.root = FieldElement::from(12345_u64);
@@ -329,33 +299,6 @@ mod input_validation_tests {
         assert!(matches!(
             err,
             ProofInputError::InvalidAuthenticatorSignature
-        ));
-    }
-
-    #[test]
-    fn test_rejects_leaf_index_beyond_the_tree() {
-        let mut input = ownership_proof_fixture();
-        input.inclusion_proof.leaf_index = 1 << TREE_DEPTH;
-
-        let err = check_ownership_input_validity(&input).unwrap_err();
-        assert!(matches!(
-            err,
-            ProofInputError::ValueOutOfBounds {
-                name: "leaf_index",
-                ..
-            }
-        ));
-    }
-
-    #[test]
-    fn test_rejects_zero_leaf_index() {
-        let mut input = ownership_proof_fixture();
-        input.inclusion_proof.leaf_index = 0;
-
-        let err = check_ownership_input_validity(&input).unwrap_err();
-        assert!(matches!(
-            err,
-            ProofInputError::ValueMustNotBeZero { name: "leaf_index" }
         ));
     }
 

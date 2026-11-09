@@ -3,7 +3,7 @@ use std::sync::Arc;
 use once_cell::sync::OnceCell;
 
 use crate::{
-    OwnershipProver, OwnershipVerifier,
+    EmbeddingSimilarityProver, EmbeddingSimilarityVerifier, OwnershipProver, OwnershipVerifier,
     artifacts::{ZkArtifactError, ZkArtifactSource},
     nullifier_proof::CircomGroth16Material,
 };
@@ -15,6 +15,8 @@ pub struct CachedZkArtifactSource {
     nullifier: OnceCell<Arc<CircomGroth16Material>>,
     ownership_prover: OnceCell<OwnershipProver>,
     ownership_verifier: OnceCell<OwnershipVerifier>,
+    embedding_similarity_prover: OnceCell<EmbeddingSimilarityProver>,
+    embedding_similarity_verifier: OnceCell<EmbeddingSimilarityVerifier>,
 }
 
 impl CachedZkArtifactSource {
@@ -33,6 +35,8 @@ impl CachedZkArtifactSource {
             nullifier: OnceCell::new(),
             ownership_prover: OnceCell::new(),
             ownership_verifier: OnceCell::new(),
+            embedding_similarity_prover: OnceCell::new(),
+            embedding_similarity_verifier: OnceCell::new(),
         }
     }
 }
@@ -59,6 +63,20 @@ impl ZkArtifactSource for CachedZkArtifactSource {
     fn ownership_verifier(&self) -> Result<OwnershipVerifier, ZkArtifactError> {
         self.ownership_verifier
             .get_or_try_init(|| self.inner.ownership_verifier())
+            .cloned()
+    }
+
+    fn embedding_similarity_prover(&self) -> Result<EmbeddingSimilarityProver, ZkArtifactError> {
+        self.embedding_similarity_prover
+            .get_or_try_init(|| self.inner.embedding_similarity_prover())
+            .cloned()
+    }
+
+    fn embedding_similarity_verifier(
+        &self,
+    ) -> Result<EmbeddingSimilarityVerifier, ZkArtifactError> {
+        self.embedding_similarity_verifier
+            .get_or_try_init(|| self.inner.embedding_similarity_verifier())
             .cloned()
     }
 }

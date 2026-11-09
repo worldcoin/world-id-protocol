@@ -8,9 +8,9 @@ mod embedding_similarity;
 pub use embedding_similarity::{EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem};
 
 use crate::{
-    FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError, SessionId,
-    SessionNullifier, SessionRef, ZeroKnowledgeProof, authenticator_assertion::AatRequirements,
-    rp::RpId,
+    FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, POH_ISSUER_SCHEMA_ID,
+    PrimitiveError, SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
+    authenticator_assertion::AatRequirements, rp::RpId,
 };
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
@@ -350,6 +350,24 @@ impl RequestItem {
         }
     }
 
+    /// Create the request item of a Proof of Embedding Similarity (WIP-202) request: one for the
+    /// PoH Credential, the one Credential such a proof proves.
+    #[must_use]
+    pub const fn embedding_similarity(
+        identifier: String,
+        signal: Option<Vec<u8>>,
+        genesis_issued_at_min: Option<u64>,
+        expires_at_min: Option<u64>,
+    ) -> Self {
+        Self::new(
+            identifier,
+            POH_ISSUER_SCHEMA_ID,
+            signal,
+            genesis_issued_at_min,
+            expires_at_min,
+        )
+    }
+
     /// Get the signal hash for the request item.
     #[must_use]
     pub fn signal_hash(&self) -> FieldElement {
@@ -621,7 +639,7 @@ impl ProofRequest {
     /// `action` must also carry [`OprfPrefix::Uniqueness`], so that an action from another
     /// domain is rejected here rather than by the OPRF nodes after a round trip. An embedding
     /// similarity request must pass [`EmbeddingSimilarityParams::validate`], carry exactly one
-    /// request item and no constraints, and not ask to mint a session.
+    /// request item, for the PoH Credential, and no constraints, and not ask to mint a session.
     ///
     /// # Errors
     /// Returns [`PrimitiveError::InvalidInput`] when the request has an invalid
@@ -666,6 +684,15 @@ impl ProofRequest {
                     return Err(PrimitiveError::InvalidInput {
                         attribute: "constraints".to_string(),
                         reason: "must be omitted for embedding similarity proofs".to_string(),
+                    });
+                }
+                if self.requests[0].issuer_schema_id != POH_ISSUER_SCHEMA_ID {
+                    return Err(PrimitiveError::InvalidInput {
+                        attribute: "issuer_schema_id".to_string(),
+                        reason: format!(
+                            "must be the PoH Credential's {POH_ISSUER_SCHEMA_ID} for embedding \
+                             similarity proofs"
+                        ),
                     });
                 }
                 Ok(())
@@ -950,10 +977,11 @@ impl ProofResponse {
         self.responses
             .iter()
             .map(|item| item.issuer_schema_id)
+            // A Proof of Embedding Similarity always proves the PoH Credential.
             .chain(
                 self.embedding_similarity
                     .iter()
-                    .map(|item| item.issuer_schema_id),
+                    .map(|_| POH_ISSUER_SCHEMA_ID),
             )
             .collect()
     }

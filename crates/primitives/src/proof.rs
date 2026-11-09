@@ -1,7 +1,17 @@
+//! Wire types of finished World ID proofs.
+//!
+//! Each type holds a proof and the public inputs the prover chooses, such as the
+//! `WorldIDRegistry` root it proves against. The verifier supplies every other public input
+//! from its own request, never from the proof.
+
 use ruint::aliases::U256;
 use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 
-use crate::FieldElement;
+use crate::{
+    EdDSAPublicKey, FieldElement,
+    authenticator_assertion::AatPublicValues,
+    credential::{deserialize_public_key, serialize_public_key},
+};
 
 /// Encoded World ID Proof.
 ///
@@ -106,6 +116,33 @@ pub struct OwnershipProof {
     pub proof: provekit_common::WhirR1CSProof,
     /// Merkle tree root used for inclusion within the circuit.
     pub merkle_root: FieldElement,
+}
+
+/// A WIP-202 Proof of Embedding Similarity.
+///
+/// The RP verifies it with its own `rp_id`, `nonce`, `challenge_hash`, `signal_hash`, Credential
+/// policy and session (WIP-202 §4.8).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct EmbeddingSimilarityProof {
+    /// The WHIR R1CS proof from ProveKit.
+    pub proof: provekit_common::WhirR1CSProof,
+    /// The Flamingo Verifier's time when it signed the token, in Unix seconds.
+    pub now: u32,
+    /// The Flamingo Verifier's signing key, which the RP checks against its attestation.
+    #[serde(serialize_with = "serialize_public_key")]
+    #[serde(deserialize_with = "deserialize_public_key")]
+    pub flamingo_verifier_key: EdDSAPublicKey,
+    /// The Engine configuration that ran.
+    pub engine_config_hash: FieldElement,
+    /// The AAT values, if the Flamingo Verifier verified an AAT.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aat: Option<AatPublicValues>,
+    /// The root of the `WorldIDRegistry` tree the proof's inclusion is under.
+    pub merkle_root: FieldElement,
+    /// The Issuer's key, which the RP checks it trusts for the schema and version.
+    #[serde(serialize_with = "serialize_public_key")]
+    #[serde(deserialize_with = "deserialize_public_key")]
+    pub cred_pk: EdDSAPublicKey,
 }
 
 #[cfg(test)]

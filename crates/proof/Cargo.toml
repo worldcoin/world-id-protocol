@@ -64,7 +64,6 @@ once_cell = { workspace = true }
 zeroize = { workspace = true }
 
 # Internal
-# Only the test fixtures use it so far; see the TODO in src/lib.rs.
 world-id-flamingo = { workspace = true }
 world-id-primitives = { workspace = true }
 

@@ -532,6 +532,11 @@ jobs:
         env:
           RUSTUP_TOOLCHAIN: stable
 
+      - name: Check the embedded embedding similarity prover compiles for WASM
+        run: cargo check --locked -p world-id-proof --target wasm32-unknown-unknown --features embed-embedding-similarity-prover
+        env:
+          RUSTUP_TOOLCHAIN: stable
+
   docs:
     name: Check docs
     runs-on: ubuntu-latest

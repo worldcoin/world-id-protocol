@@ -48,7 +48,7 @@ pub mod sponge;
 
 /// Base definition of a "Credential" in the World ID Protocol.
 pub mod credential;
-pub use credential::{Credential, CredentialVersion};
+pub use credential::{Credential, CredentialVersion, POH_ISSUER_SCHEMA_ID};
 
 /// Contains base types for operations with Merkle trees.
 pub mod merkle;
@@ -79,7 +79,7 @@ pub use session::{SessionId, SessionNullifier, SessionRef};
 #[cfg(feature = "protocol")]
 pub mod proof;
 #[cfg(feature = "protocol")]
-pub use proof::{OwnershipProof, ZeroKnowledgeProof};
+pub use proof::{EmbeddingSimilarityProof, OwnershipProof, ZeroKnowledgeProof};
 
 /// Contains types specifically related to relying parties.
 pub mod rp;

@@ -5,6 +5,8 @@ pub enum ZkArtifactKind {
     NullifierMaterial,
     OwnershipProver,
     OwnershipVerifier,
+    EmbeddingSimilarityProver,
+    EmbeddingSimilarityVerifier,
 }
 
 impl std::fmt::Display for ZkArtifactKind {
@@ -14,6 +16,8 @@ impl std::fmt::Display for ZkArtifactKind {
             Self::NullifierMaterial => "nullifier proof material",
             Self::OwnershipProver => "ownership prover",
             Self::OwnershipVerifier => "ownership verifier",
+            Self::EmbeddingSimilarityProver => "embedding similarity prover",
+            Self::EmbeddingSimilarityVerifier => "embedding similarity verifier",
         };
         f.write_str(name)
     }
