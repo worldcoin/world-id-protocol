@@ -9,11 +9,6 @@ use std::{collections::BTreeMap, io::Read};
 
 use ark_ff::PrimeField as _;
 use provekit_common::{InputMap, InputValue, NoirElement};
-#[cfg(not(target_arch = "wasm32"))]
-use provekit_common::{NoirProof, PublicInputs};
-use provekit_prover::Prove;
-#[cfg(not(target_arch = "wasm32"))]
-use provekit_verifier::Verify;
 use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
     Credential, CredentialVersion, EdDSAPublicKey, FieldElement, TREE_DEPTH,
@@ -28,9 +23,11 @@ use crate::{
     NoirCircuitInput, NoirRepresentable as _, ProofError,
     artifacts::ZkArtifactSource,
     circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityPublicInputs},
-    errors::ProofInputError,
-    noir_inputs::{account_inputs, check_account_input_validity, credential_inputs, public_key},
-    ownership_proof,
+    error::ProofInputError,
+    noir_components::{
+        account_inputs, check_account_input_validity, credential_inputs, public_key, signature,
+    },
+    provekit,
 };
 
 /// Shortest accepted `hashes.json` in bytes (`MIN_HASHES_JSON_BYTES` in the circuit).
@@ -56,8 +53,7 @@ const CLAIM_INDEX: usize = 0;
 pub fn load_embedding_similarity_prover_from_reader(
     reader: impl Read,
 ) -> eyre::Result<provekit_common::Prover> {
-    // The PKP format does not depend on the circuit.
-    ownership_proof::load_ownership_prover_from_reader(reader)
+    provekit::load_prover_from_reader(reader)
 }
 
 /// Loads an embedding similarity prover from a PKP file path.
@@ -68,7 +64,7 @@ pub fn load_embedding_similarity_prover_from_reader(
 pub fn load_embedding_similarity_prover_from_path(
     path: impl AsRef<Path>,
 ) -> eyre::Result<provekit_common::Prover> {
-    ownership_proof::load_ownership_prover_from_path(path)
+    provekit::load_prover_from_path(path)
 }
 
 /// Loads an embedding similarity verifier from a reader containing PKV bytes.
@@ -79,7 +75,7 @@ pub fn load_embedding_similarity_prover_from_path(
 pub fn load_embedding_similarity_verifier_from_reader(
     reader: impl Read,
 ) -> eyre::Result<provekit_common::Verifier> {
-    ownership_proof::load_ownership_verifier_from_reader(reader)
+    provekit::load_verifier_from_reader(reader)
 }
 
 /// Loads an embedding similarity verifier from a PKV file path.
@@ -90,7 +86,7 @@ pub fn load_embedding_similarity_verifier_from_reader(
 pub fn load_embedding_similarity_verifier_from_path(
     path: impl AsRef<Path>,
 ) -> eyre::Result<provekit_common::Verifier> {
-    ownership_proof::load_ownership_verifier_from_path(path)
+    provekit::load_verifier_from_path(path)
 }
 
 /// The byte offset of the thumbnail digest in `hashes.json`, and the digest `R(d)` it encodes.
@@ -407,10 +403,7 @@ impl NoirCircuitInput for EmbeddingSimilarityCircuitInput<TREE_DEPTH> {
             "billing_nullifier".into(),
             self.billing_nullifier.into_noir_value(),
         );
-        token.insert(
-            "sig".into(),
-            crate::noir_inputs::signature(&self.token_signature),
-        );
+        token.insert("sig".into(), signature(&self.token_signature));
 
         let mut inputs = BTreeMap::new();
         inputs.insert("token".into(), InputValue::Struct(token));
@@ -476,7 +469,6 @@ pub fn generate_embedding_similarity_proof_with_prover(
     prover: provekit_common::Prover,
 ) -> Result<EmbeddingSimilarityProof, ProofError> {
     check_embedding_similarity_input_validity(&input)?;
-    provekit_common::register_ntt();
 
     let merkle_root = input.inclusion_proof.root;
     let (now, flamingo_verifier_key, engine_config_hash, aat, cred_pk) = (
@@ -486,17 +478,10 @@ pub fn generate_embedding_similarity_proof_with_prover(
         input.aat.clone(),
         input.cred_pk.clone(),
     );
-    let witness = input.into_witness()?;
-    #[cfg(target_arch = "wasm32")]
-    let witness = ownership_proof::solve_witness(&prover, witness)?;
-    #[cfg(target_arch = "wasm32")]
-    let noir_proof = prover.prove_with_witness(witness);
-    #[cfg(not(target_arch = "wasm32"))]
-    let noir_proof = prover.prove(witness);
-    let noir_proof = noir_proof.map_err(|e| ProofError::GenerationError(e.to_string()))?;
+    let proof = provekit::prove(prover, input.into_witness()?)?;
 
     Ok(EmbeddingSimilarityProof {
-        proof: noir_proof.whir_r1cs_proof,
+        proof,
         now,
         flamingo_verifier_key,
         engine_config_hash,
@@ -531,31 +516,22 @@ pub fn verify_embedding_similarity_proof_with_verifier(
     public: &EmbeddingSimilarityPublicInputs,
     verifier: &mut provekit_common::Verifier,
 ) -> Result<(), ProofError> {
-    provekit_common::register_ntt();
-
     // A `PublicKey` flattens to `x, y`, its declaration order, which `BTreeMap` order matches.
-    let public_inputs = public_witness(public, &ProverChosen::of_proof(proof))
+    let public_inputs: Vec<FieldElement> = public_witness(public, &ProverChosen::of_proof(proof))
         .into_iter()
         .flat_map(|(name, value)| match value {
-            InputValue::Field(element) => vec![element.into_repr()],
+            InputValue::Field(element) => vec![FieldElement::from(element.into_repr())],
             InputValue::Struct(coordinates) => coordinates
                 .into_values()
                 .map(|coordinate| match coordinate {
-                    InputValue::Field(element) => element.into_repr(),
+                    InputValue::Field(element) => FieldElement::from(element.into_repr()),
                     _ => unreachable!("`{name}` is a public key of field coordinates"),
                 })
                 .collect(),
             _ => unreachable!("`{name}` is a field element or a public key"),
         })
         .collect();
-
-    let noir_proof = NoirProof {
-        public_inputs: PublicInputs::from_vec(public_inputs),
-        whir_r1cs_proof: proof.proof.clone(),
-    };
-    verifier
-        .verify(&noir_proof)
-        .map_err(|e| ProofError::Verification(e.to_string()))
+    provekit::verify(verifier, &public_inputs, &proof.proof)
 }
 
 #[cfg(test)]

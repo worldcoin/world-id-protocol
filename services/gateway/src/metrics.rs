@@ -20,6 +20,8 @@ pub const METRICS_BATCH_SUCCESS: &str = "batch.success";
 pub const METRICS_BATCH_FAILURE: &str = "batch.failure";
 /// Incremented when a batch transaction fails to submit to the RPC node.
 pub const METRICS_BATCH_SEND_FAILED: &str = "batch.send_failed";
+/// Requests dropped from a batch before sending, by reason (`not_queued`, `claim_error`).
+pub const METRICS_BATCH_REQUESTS_SKIPPED: &str = "batch.requests_skipped";
 pub const METRICS_BATCH_POLICY_COST_SCORE: &str = "batch.policy.cost_score";
 pub const METRICS_BATCH_POLICY_URGENCY_SCORE: &str = "batch.policy.urgency_score";
 pub const METRICS_BATCH_POLICY_DEFER: &str = "batch.policy.defer";
@@ -79,6 +81,11 @@ pub fn describe_metrics() {
         ::metrics::Unit::Count,
         "Number of batches that failed to submit to the RPC node."
     );
+    ::metrics::describe_counter!(
+        METRICS_BATCH_REQUESTS_SKIPPED,
+        ::metrics::Unit::Count,
+        "Number of requests dropped from a batch before sending, by reason."
+    );
 
     ::metrics::describe_histogram!(
         METRICS_BATCH_POLICY_COST_SCORE,
@@ -126,6 +133,11 @@ pub fn increment_root_cache_miss() {
 pub fn record_batch_submitted(batch_type: &'static str, batch_size: usize) {
     ::metrics::counter!(METRICS_BATCH_SUBMITTED, "type" => batch_type).increment(1);
     ::metrics::histogram!(METRICS_BATCH_SIZE, "type" => batch_type).record(batch_size as f64);
+}
+
+pub fn record_batch_requests_skipped(batch_type: &'static str, reason: &'static str, count: usize) {
+    ::metrics::counter!(METRICS_BATCH_REQUESTS_SKIPPED, "type" => batch_type, "reason" => reason)
+        .increment(count as u64);
 }
 
 /// Records the latency and outcome of the RPC `eth_sendRawTransaction` call.

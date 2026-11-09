@@ -248,6 +248,53 @@ impl RequestStore {
         Ok(())
     }
 
+    /// Atomically moves every `Queued` request in `ids` to `Batching` and
+    /// returns the IDs it moved, in input order.
+    ///
+    /// Requests in any other state (for example `Failed` by the orphan
+    /// sweeper) or without a record are left untouched and not returned, so a
+    /// batcher never sends a request whose outcome was already reported.
+    pub(crate) async fn claim_queued(
+        &self,
+        ids: &[String],
+        updated_at: u64,
+    ) -> GatewayResult<Vec<String>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let script = redis::Script::new(
+            r#"
+            local updated_at = tonumber(ARGV[1])
+            local claimed = {}
+            for i, request_key in ipairs(KEYS) do
+                local record = redis.call('GET', request_key)
+                if record then
+                    local decoded = cjson.decode(record)
+                    if decoded.status.state == 'queued' then
+                        decoded.status = { state = 'batching' }
+                        decoded.updated_at = updated_at
+                        redis.call('SET', request_key, cjson.encode(decoded), 'KEEPTTL')
+                        table.insert(claimed, ARGV[i + 1])
+                    end
+                end
+            end
+            return claimed
+            "#,
+        );
+        let mut invocation = script.prepare_invoke();
+        for id in ids {
+            invocation.key(Self::request_key(id));
+        }
+        invocation.arg(updated_at);
+        for id in ids {
+            invocation.arg(id);
+        }
+
+        let mut manager = self.manager.clone();
+        Ok(invocation.invoke_async(&mut manager).await?)
+    }
+
     /// Returns every request ID in the pending set.
     ///
     /// The returned order is unspecified.
@@ -624,6 +671,41 @@ mod tests {
             records[1].1.as_ref().map(|record| &record.status),
             Some(GatewayRequestState::Failed { .. })
         ));
+    }
+
+    #[tokio::test]
+    async fn claim_queued_moves_only_queued_requests() {
+        let (store, _redis) = store().await;
+
+        for id in ["queued", "failed"] {
+            store
+                .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
+                .await
+                .unwrap();
+        }
+        store
+            .update_status(
+                "failed",
+                &GatewayRequestState::failed("swept", Some(GatewayErrorCode::InternalServerError)),
+                20,
+            )
+            .await
+            .unwrap();
+
+        let ids = ["failed", "missing", "queued"].map(String::from);
+        let claimed = store.claim_queued(&ids, 30).await.unwrap();
+        assert_eq!(claimed, vec!["queued".to_string()]);
+
+        let queued = store.request("queued").await.unwrap().unwrap();
+        assert!(matches!(queued.status, GatewayRequestState::Batching));
+        assert_eq!(queued.updated_at, 30);
+        let failed = store.request("failed").await.unwrap().unwrap();
+        assert!(matches!(failed.status, GatewayRequestState::Failed { .. }));
+        assert_eq!(failed.updated_at, 20);
+        assert!(store.request("missing").await.unwrap().is_none());
+
+        // A second claim finds nothing left to move.
+        assert!(store.claim_queued(&ids, 40).await.unwrap().is_empty());
     }
 
     #[tokio::test]

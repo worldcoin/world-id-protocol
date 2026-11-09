@@ -136,6 +136,12 @@ impl RequestTracker {
         }
     }
 
+    /// Atomically moves the still-`Queued` requests among `ids` to `Batching`
+    /// and returns them; requests already in another state are skipped.
+    pub async fn claim_for_batching(&self, ids: &[String]) -> GatewayResult<Vec<String>> {
+        self.store.claim_queued(ids, now_unix_secs()).await
+    }
+
     /// Updates the status of a single request.
     pub async fn set_status(&self, id: &str, status: GatewayRequestState) {
         self.set_status_batch(&[id.to_string()], status).await;

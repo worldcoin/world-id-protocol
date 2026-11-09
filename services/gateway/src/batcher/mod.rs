@@ -11,7 +11,11 @@ pub(crate) use create::{
 };
 pub(crate) use ops::{OpsBatcherHandle, OpsBatcherRunner, OpsEnvelope, OpsStrategy};
 
-use std::{collections::VecDeque, sync::Arc, time::Duration};
+use std::{
+    collections::{HashSet, VecDeque},
+    sync::Arc,
+    time::Duration,
+};
 
 use alloy::{network::Ethereum, primitives::Bytes, providers::DynProvider};
 use tokio::{
@@ -213,13 +217,11 @@ where
         }
 
         let batch_type = self.strategy.batch_type();
-        let ids: Vec<String> = batch.iter().map(|e| e.request_id().to_owned()).collect();
+        let Some((batch, ids)) = self.claim_batch(batch).await else {
+            return;
+        };
 
         metrics::record_batch_submitted(batch_type, ids.len());
-
-        self.tracker
-            .set_status_batch(&ids, GatewayRequestState::Batching)
-            .await;
 
         let _send_guard = self.tx_send_lock.lock().await;
         let start = Instant::now();
@@ -273,6 +275,61 @@ where
                     .await;
             }
         }
+    }
+
+    /// Moves the batch's requests from `Queued` to `Batching` and keeps only
+    /// the ones that were still queued.
+    ///
+    /// The orphan sweeper may already have failed a request that is still in
+    /// the local queue; sending it would act on a request its client was told
+    /// failed (and an expired billing registration would revert the whole
+    /// batch). Returns `None` when nothing is left to send, including when
+    /// Redis is unreachable: the requests then stay `Queued` and the sweeper
+    /// fails them.
+    async fn claim_batch(&self, batch: Vec<E>) -> Option<(Vec<E>, Vec<String>)> {
+        let batch_type = self.strategy.batch_type();
+        let ids: Vec<String> = batch.iter().map(|e| e.request_id().to_owned()).collect();
+
+        let claimed = match self.tracker.claim_for_batching(&ids).await {
+            Ok(claimed) => claimed,
+            Err(error) => {
+                tracing::error!(
+                    %error,
+                    batch_type,
+                    batch_size = ids.len(),
+                    request_ids = ?ids,
+                    "failed to claim batch requests in Redis; dropping batch, the orphan sweeper will fail them"
+                );
+                metrics::record_batch_requests_skipped(batch_type, "claim_error", ids.len());
+                return None;
+            }
+        };
+
+        let claimed_set: HashSet<&str> = claimed.iter().map(String::as_str).collect();
+        if claimed.len() < ids.len() {
+            let skipped: Vec<&str> = ids
+                .iter()
+                .map(String::as_str)
+                .filter(|id| !claimed_set.contains(id))
+                .collect();
+            tracing::warn!(
+                batch_type,
+                skipped = skipped.len(),
+                request_ids = ?skipped,
+                "skipping batch requests that are no longer queued (likely failed by the orphan sweeper)"
+            );
+            metrics::record_batch_requests_skipped(batch_type, "not_queued", skipped.len());
+        }
+
+        if claimed.is_empty() {
+            return None;
+        }
+
+        let batch = batch
+            .into_iter()
+            .filter(|e| claimed_set.contains(e.request_id()))
+            .collect();
+        Some((batch, claimed))
     }
 
     fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<E>>) {
@@ -400,3 +457,128 @@ where
 }
 
 // ── Public handle & command routing ─────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex as StdMutex;
+
+    use alloy::{
+        primitives::Address,
+        providers::{Provider as _, ProviderBuilder},
+    };
+    use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind};
+
+    use super::*;
+
+    struct TestEnvelope(String);
+
+    impl BatcherEnvelope for TestEnvelope {
+        fn request_id(&self) -> &str {
+            &self.0
+        }
+    }
+
+    /// Records the request IDs of every batch it is asked to send, then fails
+    /// the send so no RPC is needed.
+    #[derive(Clone, Default)]
+    struct RecordingStrategy {
+        sent: Arc<StdMutex<Vec<Vec<String>>>>,
+    }
+
+    impl BatchSubmitStrategy<TestEnvelope> for RecordingStrategy {
+        fn batch_type(&self) -> &'static str {
+            "test"
+        }
+
+        fn backlog_scope(&self) -> BacklogScope {
+            BacklogScope::All
+        }
+
+        async fn send_batch(
+            &self,
+            _registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
+            batch: Vec<TestEnvelope>,
+        ) -> Result<PendingBatchTx, alloy::contract::Error> {
+            self.sent
+                .lock()
+                .unwrap()
+                .push(batch.into_iter().map(|e| e.0).collect());
+            Err(alloy::contract::Error::ContractNotDeployed)
+        }
+    }
+
+    /// A request the orphan sweeper fails while it is still in the local queue
+    /// is never sent, and keeps its sweeper status; the rest of its batch is sent.
+    #[tokio::test]
+    async fn swept_request_is_not_sent() {
+        let (_redis, redis_url) = world_id_test_utils::redis_testcontainer()
+            .await
+            .expect("failed to start Redis");
+        let tracker = RequestTracker::new(redis_url, None, 60).await;
+
+        let ids = ["queued-1", "swept", "queued-2"].map(String::from);
+        for id in &ids {
+            tracker
+                .new_request_with_id(id.clone(), GatewayRequestKind::InsertAuthenticator, vec![])
+                .await
+                .unwrap();
+        }
+        let swept_status = GatewayRequestState::failed(
+            "request timed out in queued state due to unexpected error",
+            Some(GatewayErrorCode::InternalServerError),
+        );
+        tracker.set_status("swept", swept_status).await;
+
+        let provider = ProviderBuilder::new()
+            .connect_http("http://127.0.0.1:1".parse().unwrap())
+            .erased();
+        let registry = Arc::new(WorldIdRegistryInstance::new(
+            Address::ZERO,
+            Arc::new(provider),
+        ));
+        let strategy = RecordingStrategy::default();
+        let (tx, rx) = mpsc::channel(8);
+        let runner = GenericBatcherRunner::new(
+            registry,
+            10,
+            100,
+            rx,
+            tracker.clone(),
+            BatchPolicyConfig {
+                reeval_ms: 10,
+                ..Default::default()
+            },
+            BaseFeeCache::default(),
+            Arc::new(Mutex::new(())),
+            strategy.clone(),
+        );
+        for id in &ids {
+            tx.send(TestEnvelope(id.clone())).await.unwrap();
+        }
+        drop(tx);
+        tokio::time::timeout(Duration::from_secs(10), runner.run())
+            .await
+            .expect("batcher did not drain its queue");
+
+        assert_eq!(
+            *strategy.sent.lock().unwrap(),
+            vec![vec!["queued-1".to_string(), "queued-2".to_string()]]
+        );
+        let swept = tracker.snapshot("swept").await.unwrap();
+        assert!(matches!(
+            swept.status,
+            GatewayRequestState::Failed {
+                error_code: Some(GatewayErrorCode::InternalServerError),
+                ..
+            }
+        ));
+        for id in ["queued-1", "queued-2"] {
+            let record = tracker.snapshot(id).await.unwrap();
+            assert!(
+                matches!(record.status, GatewayRequestState::Failed { .. }),
+                "{id} should carry the send failure, got {:?}",
+                record.status
+            );
+        }
+    }
+}

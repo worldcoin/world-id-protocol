@@ -4,12 +4,8 @@
 use spongefish as _;
 
 use eddsa_babyjubjub::EdDSAPrivateKey;
-use groth16_material::Groth16Error;
 
-use world_id_primitives::{
-    AuthenticatorPublicKeySet, PrimitiveError, TREE_DEPTH, merkle::MerkleInclusionProof,
-    oprf::WorldIdRequestAuthError,
-};
+use world_id_primitives::{AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof};
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// ZK artifact source abstractions.
@@ -17,6 +13,11 @@ pub mod artifacts;
 
 /// Circuit input types for Circom/Groth16 circuits (query, nullifier, ownership proofs).
 pub mod circuit_inputs;
+
+/// Errors of proof generation, verification and input checks.
+pub mod error;
+pub use artifacts::ZkArtifactError;
+pub use error::{ProofError, ProofInputError};
 
 /// Static circuit input fixtures shared by the tests and the generated circuit examples.
 #[cfg(test)]
@@ -28,14 +29,18 @@ mod embedding_similarity_fixtures;
 
 pub mod compress;
 pub use compress::ProofCompression;
-pub(crate) mod oprf_query;
-pub use oprf_query::{
+pub mod oprf_query_proof;
+pub use oprf_query_proof::{
     FullOprfOutput, OprfEntrypoint, QUERY_GRAPH_FINGERPRINT, QUERY_ZKEY_FINGERPRINT,
     load_query_material_from_paths, load_query_material_from_reader,
 };
 
 pub mod nullifier_proof;
-pub use nullifier_proof::*;
+pub use nullifier_proof::{
+    CircomGroth16Material, CircomGroth16MaterialBuilder, NULLIFIER_GRAPH_FINGERPRINT,
+    NULLIFIER_ZKEY_FINGERPRINT, ZkeyError, generate_nullifier_proof,
+    load_nullifier_material_from_paths, load_nullifier_material_from_reader,
+};
 
 /// Moved to [`world_id_primitives::authenticator_assertion`]; re-exported for existing imports.
 pub use world_id_primitives::authenticator_assertion;
@@ -49,44 +54,16 @@ pub mod ownership_proof;
 
 pub mod embedding_similarity_proof;
 
-mod noir_inputs;
+mod noir_components;
+
+mod provekit;
+
+mod groth16;
 
 pub use provekit_common::{
     NoirProof, Prover as OwnershipProver, Prover as EmbeddingSimilarityProver,
     Verifier as OwnershipVerifier, Verifier as EmbeddingSimilarityVerifier, WhirR1CSProof,
 };
-
-/// Error type for OPRF operations and proof generation.
-#[derive(Debug, thiserror::Error)]
-pub enum ProofError {
-    /// Authentication error returned by the OPRF nodes (e.g. unknown RP, invalid proof).
-    #[error(transparent)]
-    RequestAuthError(#[from] WorldIdRequestAuthError),
-    /// Non-auth error originating from `oprf_client`.
-    #[error(transparent)]
-    OprfError(taceo_oprf::client::Error),
-    /// Errors originating from proof inputs
-    #[error(transparent)]
-    ProofInputError(#[from] errors::ProofInputError),
-    /// Errors originating from Groth16 proof generation or verification.
-    #[error(transparent)]
-    ZkError(#[from] Groth16Error),
-    /// Error loading ZK artifacts from a [`artifacts::ZkArtifactSource`].
-    #[error(transparent)]
-    ZkArtifact(#[from] artifacts::ZkArtifactError),
-    /// Error generating a Noir Proof with ProveKit
-    #[error("proof generation error: {0}")]
-    GenerationError(String),
-    /// Error verifying a Noir Proof with ProveKit. This usually means the proof is invalid.
-    #[error("proof verification error: {0}")]
-    Verification(String),
-    /// The proof cannot be generated because the credential has an error
-    #[error(transparent)]
-    CredentialError(#[from] PrimitiveError),
-    /// Catch-all for other internal errors.
-    #[error(transparent)]
-    InternalError(#[from] eyre::Report),
-}
 
 pub trait NoirCircuitInput {
     fn into_witness(self) -> Result<InputMap, ProofError>;
@@ -109,17 +86,6 @@ pub(crate) fn to_noir_element<F: ark_ff::PrimeField>(value: F) -> NoirElement {
 impl NoirRepresentable for FieldElement {
     fn into_noir_value(self) -> InputValue {
         InputValue::Field(to_noir_element(*self))
-    }
-}
-
-impl From<taceo_oprf::client::Error> for ProofError {
-    fn from(err: taceo_oprf::client::Error) -> Self {
-        if let taceo_oprf::client::Error::ThresholdServiceError(ref svc) = err
-            && svc.kind.is_auth()
-        {
-            return Self::RequestAuthError(WorldIdRequestAuthError::from(svc.error_code));
-        }
-        Self::OprfError(err)
     }
 }
 

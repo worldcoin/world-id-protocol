@@ -1,4 +1,5 @@
-//! Witness encoders and input checks for the shared `world-id-components` Noir library.
+//! The Rust side of the shared `world-id-components` Noir library: witness encoders for its input
+//! types, and the input check of its World ID Authentication component.
 
 use std::collections::BTreeMap;
 
@@ -10,7 +11,7 @@ use world_id_primitives::{
     merkle::MerkleInclusionProof,
 };
 
-use crate::{NoirRepresentable as _, errors::ProofInputError, to_noir_element};
+use crate::{NoirRepresentable as _, error::ProofInputError, to_noir_element};
 
 /// Encodes a `PublicKey { x, y }`.
 pub(crate) fn public_key(point: &ark_babyjubjub::EdwardsAffine) -> InputValue {
