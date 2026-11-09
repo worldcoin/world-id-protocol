@@ -38,11 +38,8 @@ pub const MIN_HASHES_JSON_BYTES: usize = 3072;
 pub const MAX_HASHES_JSON_BYTES: usize = 5120;
 /// Bytes per sponge chunk: 31 bytes stay below the BN254 modulus.
 pub(crate) const CHUNK_BYTES: usize = 31;
-/// Chunks spanned by the thumbnail window.
-pub(crate) const WINDOW_CHUNKS: usize = 4;
-/// Chunk slots of the circuit's `HashesJsonInputs`.
-pub(crate) const CHUNK_SLOTS: usize =
-    MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES) + WINDOW_CHUNKS - 1;
+/// Chunk slots of the circuit's `HashesJsonInputs`: `⌈MAX_HASHES_JSON_BYTES / 31⌉` (WIP-202 §4.5).
+pub(crate) const CHUNK_SLOTS: usize = MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES);
 /// The key of the thumbnail entry; the byte before it must be `{` or `,`.
 const THUMBNAIL_KEY: &[u8] = b"\"thumbnail.png\":\"";
 const DIGEST_HEX_LEN: usize = 64;
