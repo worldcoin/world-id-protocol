@@ -35,7 +35,8 @@ use crate::{
     NoirCircuitInput as _,
     circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityPublicInputs},
     embedding_similarity_proof::{
-        CHUNK_BYTES, CHUNK_SLOTS, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES,
+        CHUNK_BYTES, CHUNK_SLOTS, CLAIM_INDEX, COMPARE_SOURCES, DIGEST_HEX_LEN,
+        MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, THUMBNAIL_KEY,
     },
     fixtures::toml_types::{PublicKey, Signature},
 };
@@ -100,8 +101,6 @@ const AUTHENTICATOR_META: u8 = 10;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
 const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
-/// Compared entry 1 is pipeline input 0; the circuit hardcodes it (WIP-202 §4.3).
-const COMPARE_SOURCES: u32 = 256;
 const DIGEST_WITH_AAT: &str = "24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f";
 const DIGEST_WITHOUT_AAT: &str = "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
 /// WIP-201 Appendix A1 "Billed RP": the AAT vector with `billing_nullifier = 7`.
@@ -662,9 +661,9 @@ fn hashes_json_bounds_match_the_spec() {
     assert_eq!(CHUNK_SLOTS, MAX_HASHES_JSON_BYTES.div_ceil(31));
 }
 
-/// Pins `CHUNK_SLOTS` to the Noir constants it is derived from.
+/// Pins every circuit constant the Rust side repeats to its Noir definition.
 #[test]
-fn chunk_slots_match_the_noir_constants() {
+fn circuit_constants_match_the_noir_constants() {
     let constants = include_str!("../noir/embedding-similarity/src/constants.nr");
     let global = |name: &str| -> usize {
         let line = constants
@@ -680,6 +679,15 @@ fn chunk_slots_match_the_noir_constants() {
     };
     assert_eq!(global("MIN_HASHES_JSON_BYTES"), MIN_HASHES_JSON_BYTES);
     assert_eq!(global("MAX_HASHES_JSON_BYTES"), MAX_HASHES_JSON_BYTES);
+    assert_eq!(global("COMPARE_SOURCES"), COMPARE_SOURCES as usize);
+    assert_eq!(global("CLAIM_INDEX"), CLAIM_INDEX);
+    assert_eq!(global("DIGEST_HEX_LEN"), DIGEST_HEX_LEN);
+    // A Noir string literal escapes quotes like Rust's `Debug` of a `str`.
+    let thumbnail_key = std::str::from_utf8(THUMBNAIL_KEY).unwrap();
+    assert!(constants.contains(&format!(
+        "pub global THUMBNAIL_KEY: [u8; {}] = {thumbnail_key:?}.as_bytes();",
+        THUMBNAIL_KEY.len()
+    )));
     let var_hash = include_str!("../noir/world-id-components/src/var_hash.nr");
     assert!(var_hash.contains(&format!("pub global CHUNK_BYTES: u32 = {CHUNK_BYTES};")));
 }

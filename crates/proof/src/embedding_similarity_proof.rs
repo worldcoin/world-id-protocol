@@ -39,12 +39,13 @@ pub(crate) const CHUNK_BYTES: usize = 31;
 /// Chunk slots of the circuit's `HashesJsonInputs`: `⌈MAX_HASHES_JSON_BYTES / 31⌉` (WIP-202 §4.5).
 pub(crate) const CHUNK_SLOTS: usize = MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES);
 /// The key of the thumbnail entry; the byte before it must be `{` or `,`.
-const THUMBNAIL_KEY: &[u8] = b"\"thumbnail.png\":\"";
-const DIGEST_HEX_LEN: usize = 64;
+pub(crate) const THUMBNAIL_KEY: &[u8] = b"\"thumbnail.png\":\"";
+/// Hex digits of a SHA-256 digest.
+pub(crate) const DIGEST_HEX_LEN: usize = 64;
 /// The `compare_sources` WIP-202 fixes: compared entry 1 is pipeline input 0.
-const COMPARE_SOURCES: u32 = 256;
+pub(crate) const COMPARE_SOURCES: u32 = 256;
 /// Credential claim holding the `hashes.json` commitment.
-const CLAIM_INDEX: usize = 0;
+pub(crate) const CLAIM_INDEX: usize = 0;
 
 /// Loads an embedding similarity prover from a reader containing PKP bytes.
 ///

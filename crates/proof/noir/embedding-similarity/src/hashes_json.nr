@@ -5,16 +5,13 @@
 // the same claim would be a Poseidon2 collision.
 use super::{
     constants::{
-        CHUNK_BYTES, CHUNK_SLOTS, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, WINDOW_CHUNKS,
+        CHUNK_BYTES, CHUNK_SLOTS, DIGEST_HEX_LEN, MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES,
+        THUMBNAIL_KEY, WINDOW_CHUNKS,
     },
     types::HashesJsonInputs,
 };
 use world_id_components::var_hash::{h_var, safe_tags};
 
-/// The `"thumbnail.png":"` key of the thumbnail entry.
-global THUMBNAIL_KEY: [u8; 17] = "\"thumbnail.png\":\"".as_bytes();
-/// Hex digits of a SHA-256 digest.
-global DIGEST_HEX_LEN: u32 = 64;
 global WINDOW_BYTES: u32 = WINDOW_CHUNKS * CHUNK_BYTES;
 
 global NUM_LENGTHS: u32 = MAX_HASHES_JSON_BYTES - MIN_HASHES_JSON_BYTES + 1;

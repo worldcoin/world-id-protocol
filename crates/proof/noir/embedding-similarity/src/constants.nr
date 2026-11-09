@@ -9,6 +9,12 @@ pub global COMPARE_SOURCES: u32 = 256;
 /// Credential claim holding the PCP `hashes.json` commitment.
 pub global CLAIM_INDEX: u32 = 0;
 
+/// The `"thumbnail.png":"` key of the thumbnail entry.
+pub global THUMBNAIL_KEY: [u8; 17] = "\"thumbnail.png\":\"".as_bytes();
+
+/// Hex digits of a SHA-256 digest.
+pub global DIGEST_HEX_LEN: u32 = 64;
+
 /// Accepted `hashes.json` lengths. A v3 PCP `hashes.json` is about 4.3 KB and a v2 one
 /// about 3.9 KB. The SAFE tag table costs about 3 R1CS constraints per accepted length.
 pub global MIN_HASHES_JSON_BYTES: u32 = 3072;
