@@ -171,6 +171,45 @@ sol!(
     )
 );
 
+pub mod world_id_billing {
+    //! The WIP-107 Billing Contract and the WLD token and price source mocks its tests use.
+    use alloy::sol;
+    sol!(
+        #[allow(clippy::too_many_arguments)]
+        #[sol(rpc, ignore_unlinked)]
+        WorldIDBilling,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/WorldIDBilling.sol/WorldIDBilling.json"
+        )
+    );
+    sol!(
+        #[sol(rpc)]
+        BillingToken,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/WorldIDBilling.t.sol/BillingToken.json"
+        )
+    );
+    sol!(
+        #[sol(rpc)]
+        MockPriceSource,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/WorldIDBilling.t.sol/MockPriceSource.json"
+        )
+    );
+}
+
+/// A WIP-107 Billing Contract deployed by [`TestAnvil::deploy_world_id_billing`].
+#[derive(Clone, Copy, Debug)]
+pub struct BillingDeployment {
+    /// The `WorldIDBilling` proxy.
+    pub billing: Address,
+    /// The WLD token capacity is paid in.
+    pub wld: Address,
+}
+
 // ── State bridge contract bindings ────────────────────────────────────────
 // Each lives in its own module to avoid name collisions on shared internal
 // types (BabyJubJub, IStateBridge, Lib, …).
@@ -484,7 +523,9 @@ impl TestAnvil {
 
         let init_data = Bytes::from(
             CredentialSchemaIssuerRegistry::initializeCall {
-                feeRecipient: signer.address(),
+                // Not the owner, who pays for capacity: a payer that is its own recipient would
+                // fail the contract's `FeeTransferMismatch` balance check.
+                feeRecipient: Address::repeat_byte(0xfe),
                 feeToken: *erc20_mock.address(),
                 registrationFee: uint!(0_U256),
                 oprfKeyRegistry: oprf_key_registry_address,
@@ -718,7 +759,9 @@ impl TestAnvil {
 
         let init_data = Bytes::from(
             RpRegistry::initializeCall {
-                feeRecipient: signer.address(),
+                // Not the owner, who pays for capacity: a payer that is its own recipient would
+                // fail the contract's `FeeTransferMismatch` balance check.
+                feeRecipient: Address::repeat_byte(0xfe),
                 feeToken: *erc20_mock.address(),
                 registrationFee: uint!(0_U256),
                 oprfKeyRegistry: oprf_key_registry_contract,
@@ -800,6 +843,121 @@ impl TestAnvil {
             .context("failed to deploy WorldIDVerifier proxy")?;
 
         Ok(*proxy.address())
+    }
+
+    /// Deploys a `WorldIDBilling` proxy owned by `signer`, with a mock WLD token, a price source
+    /// quoting 1 USD per WLD, and fees paid to `0xfefe…fe`.
+    pub async fn deploy_world_id_billing(
+        &self,
+        signer: PrivateKeySigner,
+        world_id_verifier: Address,
+        rp_registry: Address,
+    ) -> Result<BillingDeployment> {
+        use world_id_billing::{BillingToken, MockPriceSource, WorldIDBilling};
+
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+
+        let wld = BillingToken::deploy(provider.clone(), 18)
+            .await
+            .context("failed to deploy the WLD token mock")?;
+        let price_source = MockPriceSource::deploy(provider.clone())
+            .await
+            .context("failed to deploy the price source mock")?;
+        let now = provider
+            .get_block_by_number(alloy::eips::BlockNumberOrTag::Latest)
+            .await?
+            .context("missing latest block")?
+            .header
+            .timestamp;
+        price_source
+            .set(U256::from(10u64).pow(U256::from(18u64)), U256::from(now))
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+
+        let implementation =
+            WorldIDBilling::deploy(provider.clone(), world_id_verifier, rp_registry)
+                .await
+                .context("failed to deploy the WorldIDBilling implementation")?;
+        let init_data = Bytes::from(
+            WorldIDBilling::initializeCall {
+                initialPriceSource: *price_source.address(),
+                feeToken: *wld.address(),
+                // Not the owner, who pays for capacity: a payer that is its own recipient would
+                // fail the contract's `FeeTransferMismatch` balance check.
+                feeRecipient: Address::repeat_byte(0xfe),
+                // 0.01 USD per World ID per period
+                initialPricePerWorldID: U256::from(10u64).pow(U256::from(16u64)),
+                initialMaxPriceAge: 365 * 86_400,
+                initialMaxRequestAge: 3_600,
+                initialMaxRequestLifetime: 3_600,
+            }
+            .abi_encode(),
+        );
+        let proxy = ERC1967Proxy::deploy(provider, *implementation.address(), init_data)
+            .await
+            .context("failed to deploy the WorldIDBilling proxy")?;
+
+        Ok(BillingDeployment {
+            billing: *proxy.address(),
+            wld: *wld.address(),
+        })
+    }
+
+    /// Marks `scope.rpId` as billed and buys `capacity` registrations for `scope`, paying from
+    /// `signer`, who must own the Billing Contract.
+    pub async fn purchase_billing_capacity(
+        &self,
+        signer: PrivateKeySigner,
+        deployment: BillingDeployment,
+        scope: world_id_billing::IWorldIDBilling::BillingContext,
+        capacity: u64,
+    ) -> Result<()> {
+        use world_id_billing::{BillingToken, WorldIDBilling};
+
+        let provider = ProviderBuilder::new()
+            .wallet(EthereumWallet::from(signer.clone()))
+            .connect_http(self.rpc_url.parse().context("invalid anvil endpoint URL")?);
+        let billing = WorldIDBilling::new(deployment.billing, provider.clone());
+        let wld = BillingToken::new(deployment.wld, provider);
+
+        let receipt = billing
+            .setBilledRp(scope.rpId, true)
+            .send()
+            .await?
+            .get_receipt()
+            .await?;
+        eyre::ensure!(receipt.status(), "failed to mark the RP as billed");
+
+        let capacity = U256::from(capacity);
+        let cost = billing
+            .quotePurchase(scope.clone(), capacity)
+            .call()
+            .await?;
+        for receipt in [
+            wld.mint(signer.address(), cost)
+                .send()
+                .await?
+                .get_receipt()
+                .await?,
+            wld.approve(deployment.billing, cost)
+                .send()
+                .await?
+                .get_receipt()
+                .await?,
+            billing
+                .purchaseCapacity(scope, capacity, cost)
+                .send()
+                .await?
+                .get_receipt()
+                .await?,
+        ] {
+            eyre::ensure!(receipt.status(), "failed to purchase billing capacity");
+        }
+        Ok(())
     }
 
     /// Registers the oprf nodes at the `OprfKeyRegistry`.

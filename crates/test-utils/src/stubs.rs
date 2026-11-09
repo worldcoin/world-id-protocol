@@ -17,7 +17,9 @@ use testcontainers::{
 };
 use tokio::{net::TcpListener, task::JoinHandle};
 use tokio_util::sync::CancellationToken;
-use world_id_oprf_node::config::{WorldIdNodeContracts, WorldOprfNodeConfig};
+use world_id_oprf_node::config::{
+    BillingContractConfig, WorldIdNodeContracts, WorldOprfNodeConfig,
+};
 use world_id_primitives::{
     TREE_DEPTH,
     api_types::{IndexerAuthenticatorPubkeysResponse, IndexerQueryRequest},
@@ -194,27 +196,35 @@ impl MutableIndexerStub {
 }
 
 async fn spawn_orpf_node(
-    id: usize,
     anvil: &TestAnvil,
     secret_manager: taceo_oprf::service::secret_manager::SecretManagerService,
     world_id_registry_contract: Address,
     rp_registry_contract: Address,
     credential_schema_issuer_registry_contract: Address,
+    billing: Option<BillingContractConfig>,
 ) -> String {
-    let url = format!("http://localhost:1{id:04}"); // set port based on id, e.g. 10001 for id 1
-    let bind_addr = format!("0.0.0.0:1{id:04}");
+    // An OS-assigned port: tests spawning nodes run concurrently in separate processes.
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0")
+        .await
+        .expect("Can bind listener");
+    let port = listener
+        .local_addr()
+        .expect("Can read listener address")
+        .port();
+    let url = format!("http://localhost:{port}");
     let contracts = WorldIdNodeContracts {
         world_id_registry_contract,
         rp_registry_contract,
         credential_schema_issuer_registry_contract,
     };
-    let config = WorldOprfNodeConfig::with_default_values(
+    let mut config = WorldOprfNodeConfig::with_default_values(
         taceo_oprf::service::Environment::Dev,
         VersionReq::STAR,
         contracts,
         HttpRpcProviderConfig::with_default_values([anvil.endpoint()])
             .expect("Can build http provider"),
     );
+    config.billing = billing;
 
     tokio::spawn(async move {
         let cancellation_token = CancellationToken::new();
@@ -225,9 +235,6 @@ async fn spawn_orpf_node(
 
         let router = world_id_oprf_node::start(config, secret_manager, &node_information)
             .expect("Can start");
-        let listener = tokio::net::TcpListener::bind(bind_addr)
-            .await
-            .expect("Can bind listener");
         let res = axum::serve(listener, router)
             .with_graceful_shutdown(async move { cancellation_token.cancelled().await })
             .await;
@@ -249,58 +256,54 @@ async fn spawn_orpf_node(
 
 pub async fn spawn_oprf_nodes(
     anvil: &TestAnvil,
-    [
+    secret_managers: [taceo_oprf::service::secret_manager::SecretManagerService; 5],
+    world_id_registry_contract: Address,
+    rp_registry_contract: Address,
+    credential_schema_issuer_registry_contract: Address,
+) -> [String; 5] {
+    spawn_oprf_nodes_with_billing(
+        anvil,
+        secret_managers,
+        world_id_registry_contract,
+        rp_registry_contract,
+        credential_schema_issuer_registry_contract,
+        None,
+    )
+    .await
+}
+
+/// Spawns the OPRF nodes; with `billing`, they accept WIP-107 billing queries for that contract.
+pub async fn spawn_oprf_nodes_with_billing(
+    anvil: &TestAnvil,
+    secret_managers: [taceo_oprf::service::secret_manager::SecretManagerService; 5],
+    world_id_registry_contract: Address,
+    rp_registry_contract: Address,
+    credential_schema_issuer_registry_contract: Address,
+    billing: Option<BillingContractConfig>,
+) -> [String; 5] {
+    let [
         secret_manager0,
         secret_manager1,
         secret_manager2,
         secret_manager3,
         secret_manager4,
-    ]: [taceo_oprf::service::secret_manager::SecretManagerService; 5],
-    world_id_registry_contract: Address,
-    rp_registry_contract: Address,
-    credential_schema_issuer_registry_contract: Address,
-) -> [String; 5] {
+    ] = secret_managers;
+    let spawn = |secret_manager| {
+        spawn_orpf_node(
+            anvil,
+            secret_manager,
+            world_id_registry_contract,
+            rp_registry_contract,
+            credential_schema_issuer_registry_contract,
+            billing,
+        )
+    };
     tokio::join!(
-        spawn_orpf_node(
-            0,
-            anvil,
-            secret_manager0,
-            world_id_registry_contract,
-            rp_registry_contract,
-            credential_schema_issuer_registry_contract,
-        ),
-        spawn_orpf_node(
-            1,
-            anvil,
-            secret_manager1,
-            world_id_registry_contract,
-            rp_registry_contract,
-            credential_schema_issuer_registry_contract,
-        ),
-        spawn_orpf_node(
-            2,
-            anvil,
-            secret_manager2,
-            world_id_registry_contract,
-            rp_registry_contract,
-            credential_schema_issuer_registry_contract,
-        ),
-        spawn_orpf_node(
-            3,
-            anvil,
-            secret_manager3,
-            world_id_registry_contract,
-            rp_registry_contract,
-            credential_schema_issuer_registry_contract,
-        ),
-        spawn_orpf_node(
-            4,
-            anvil,
-            secret_manager4,
-            world_id_registry_contract,
-            rp_registry_contract,
-            credential_schema_issuer_registry_contract,
-        ),
+        spawn(secret_manager0),
+        spawn(secret_manager1),
+        spawn(secret_manager2),
+        spawn(secret_manager3),
+        spawn(secret_manager4),
     )
     .into()
 }
