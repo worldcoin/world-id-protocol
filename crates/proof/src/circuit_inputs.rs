@@ -254,10 +254,11 @@ pub struct OwnershipProofCircuitInput<const MAX_DEPTH: usize> {
     pub commitment_blinder: FieldElement,
 }
 
-/// Public inputs of the "Proof of Embedding Similarity" (WIP-202) circuit that the verifier
-/// supplies from its own request. The prover chooses the others, which the proof carries.
+/// The public inputs of the "Proof of Embedding Similarity" (WIP-202) circuit that the RP supplies
+/// from its own request; build them with `from_request`. The prover chooses the others, which
+/// [`EmbeddingSimilarityProof`](world_id_primitives::EmbeddingSimilarityProof) carries.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EmbeddingSimilarityPublicInputs {
+pub struct EmbeddingSimilarityRequestInputs {
     /// The RP the proof is for: the Flamingo Token's `aud`.
     pub rp_id: FieldElement,
     /// The RP request's nonce: the Flamingo Token's `nonce`.
@@ -281,8 +282,8 @@ pub struct EmbeddingSimilarityPublicInputs {
 /// Inputs for the "Proof of Embedding Similarity" (WIP-202) circuit.
 #[derive(Debug, Clone)]
 pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
-    /// **Public inputs** supplied by the verifier.
-    pub public: EmbeddingSimilarityPublicInputs,
+    /// **Public inputs** from the RP's request.
+    pub request: EmbeddingSimilarityRequestInputs,
     /// **Public input** the proof carries. The Flamingo Verifier's time: the token's `now`.
     pub now: u32,
     /// **Public input** the proof carries. The Flamingo Verifier key that signed the token.

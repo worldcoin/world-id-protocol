@@ -33,7 +33,7 @@ use world_id_test_utils::merkle::first_leaf_merkle_path;
 
 use crate::{
     NoirCircuitInput as _,
-    circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityPublicInputs},
+    circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs},
     embedding_similarity_proof::{
         CHUNK_BYTES, CHUNK_SLOTS, CLAIM_INDEX, COMPARE_SOURCES, DIGEST_HEX_LEN,
         MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, THUMBNAIL_KEY,
@@ -770,7 +770,7 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
     let session_id_r = FieldElement::from(555_u64);
 
     let mut input = EmbeddingSimilarityCircuitInput {
-        public: EmbeddingSimilarityPublicInputs {
+        request: EmbeddingSimilarityRequestInputs {
             rp_id: FieldElement::from(RP_ID),
             nonce: FieldElement::from(NONCE),
             challenge_hash: compared[2],
@@ -831,11 +831,11 @@ pub(crate) fn embedding_similarity_billed_fixture() -> EmbeddingSimilarityCircui
 
 /// Re-signs the Credential, the Flamingo Token and the authorization after a test changed them.
 pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
-    let public = &input.public;
+    let request = &input.request;
     let credential = Credential::new()
         .id(input.credential_id)
-        .issuer_version(public.issuer_version)
-        .issuer_schema_id(public.issuer_schema_id)
+        .issuer_version(request.issuer_version)
+        .issuer_schema_id(request.issuer_schema_id)
         .subject(Credential::compute_sub(
             input.inclusion_proof.leaf_index,
             input.sub_blinding_factor,
@@ -856,17 +856,17 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
     let thumbnail = std::str::from_utf8(&input.hashes_json[digest_offset..digest_offset + 64])
         .map(from_hex)
         .unwrap_or(FieldElement::ZERO);
-    let public = &input.public;
+    let request = &input.request;
     let digest = FlamingoClaims {
         now: input.now,
         compared_entry_hashes: [
             thumbnail,
             input.live_capture_hash,
-            public.challenge_hash,
+            request.challenge_hash,
             FieldElement::ZERO,
         ],
-        aud: public.rp_id,
-        nonce: public.nonce,
+        aud: request.rp_id,
+        nonce: request.nonce,
         aat: input.aat.as_ref().map(|aat| FlamingoAatClaims {
             trust_anchor_key_hash: aat.trust_anchor_key_hash,
             aat_flags: u64::from(aat.platform)
@@ -883,7 +883,7 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
     input.signature = authenticator_sk().sign(*authorization_message(
         digest,
         &input.flamingo_verifier_key,
-        public.signal_hash,
+        request.signal_hash,
     ));
 }
 

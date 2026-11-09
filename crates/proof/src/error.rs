@@ -85,6 +85,12 @@ pub enum ProofInputError {
     /// The Credential claim does not commit to the provided `hashes.json`.
     #[error("The credential claim does not match the provided hashes.json.")]
     InvalidHashesJsonClaim,
+    /// The proof request is not a valid Proof of Embedding Similarity request.
+    #[error("The proof request is not a valid embedding similarity request: {reason}.")]
+    InvalidEmbeddingSimilarityRequest {
+        /// Why it is not.
+        reason: String,
+    },
     /// The billing nullifier is neither `0` nor this World ID's WIP-107 nullifier for the RP.
     #[error("The billing nullifier is not this World ID's nullifier for the RP.")]
     InvalidBillingNullifier,

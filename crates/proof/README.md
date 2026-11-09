@@ -120,5 +120,6 @@ version's keys and proofs available for the coordinated rollout.
 `embedding_similarity_proof` proves and verifies the WIP-202 circuit the same way. Callers build
 an `EmbeddingSimilarityCircuitInput` from a verified Flamingo Token, the World ID's account and
 its PoH Credential. `check_embedding_similarity_input_validity` runs before proving and reports
-the first input that would fail the circuit. Verification takes the verifier-known
-`EmbeddingSimilarityPublicInputs`; the proof carries the `merkle_root`.
+the first input that would fail the circuit. Verification takes the RP's
+`EmbeddingSimilarityRequestInputs`, built with `from_request`; the proof carries the public inputs
+the prover chose.

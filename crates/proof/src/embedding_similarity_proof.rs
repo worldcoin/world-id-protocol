@@ -11,7 +11,8 @@ use ark_ff::PrimeField as _;
 use provekit_common::{InputMap, InputValue, NoirElement};
 use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
-    Credential, CredentialVersion, EdDSAPublicKey, FieldElement, TREE_DEPTH,
+    Credential, CredentialVersion, EdDSAPublicKey, FieldElement, ProofRequest, ProofType,
+    SessionRef, TREE_DEPTH,
     authenticator::oprf_query_digest,
     authenticator_assertion::AatPublicValues,
     poseidon::{self, ds},
@@ -22,7 +23,7 @@ use world_id_primitives::{
 use crate::{
     NoirCircuitInput, NoirRepresentable as _, ProofError,
     artifacts::ZkArtifactSource,
-    circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityPublicInputs},
+    circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs},
     error::ProofInputError,
     noir_components::{
         account_inputs, check_account_input_validity, credential_inputs, public_key, signature,
@@ -149,22 +150,62 @@ fn hashes_json_inputs(hashes_json: &[u8]) -> Result<InputValue, ProofInputError>
     Ok(InputValue::Struct(fields))
 }
 
+impl EmbeddingSimilarityRequestInputs {
+    /// The RP's public inputs of a WIP-202 request (WIP-202 §4.4), with the `issuer_version` the
+    /// RP accepts, which the request format can't express yet.
+    ///
+    /// # Errors
+    /// Returns [`ProofInputError::InvalidEmbeddingSimilarityRequest`] if `request` is not a valid
+    /// Proof of Embedding Similarity request.
+    pub fn from_request(
+        request: &ProofRequest,
+        issuer_version: u8,
+    ) -> Result<Self, ProofInputError> {
+        request.validate_proof_type().map_err(|e| {
+            ProofInputError::InvalidEmbeddingSimilarityRequest {
+                reason: e.to_string(),
+            }
+        })?;
+        let ProofType::EmbeddingSimilarity(params) = &request.proof_type else {
+            return Err(ProofInputError::InvalidEmbeddingSimilarityRequest {
+                reason: "it requests another proof type".to_string(),
+            });
+        };
+        // `validate_proof_type` guarantees exactly one request item.
+        let item = &request.requests[0];
+        Ok(Self {
+            rp_id: request.rp_id.into(),
+            nonce: request.nonce,
+            challenge_hash: params.challenge_hash,
+            signal_hash: item.signal_hash(),
+            session_id: match request.session_id {
+                SessionRef::Existing(session_id) => session_id.commitment,
+                SessionRef::Create | SessionRef::None => FieldElement::ZERO,
+            },
+            issuer_schema_id: item.issuer_schema_id,
+            issuer_version,
+            genesis_issued_at_min: item.genesis_issued_at_min.unwrap_or(0),
+            expires_at_min: item.effective_expires_at_min(request.created_at),
+        })
+    }
+}
+
 /// The WIP-201 digest of the Flamingo Token the circuit verifies.
 fn token_digest<const MAX_DEPTH: usize>(
     inputs: &EmbeddingSimilarityCircuitInput<MAX_DEPTH>,
 ) -> Result<FieldElement, ProofInputError> {
-    let public = &inputs.public;
+    let request = &inputs.request;
     let (_, credential_digest) = thumbnail_digest(&inputs.hashes_json)?;
     Ok(FlamingoClaims {
         now: inputs.now,
         compared_entry_hashes: [
             credential_digest,
             inputs.live_capture_hash,
-            public.challenge_hash,
+            request.challenge_hash,
             FieldElement::ZERO,
         ],
-        aud: public.rp_id,
-        nonce: public.nonce,
+        aud: request.rp_id,
+        nonce: request.nonce,
         // `sec_flags` layout with `min_build_version` (bits 16-47) fixed to 0 by WIP-202.
         aat: inputs.aat.as_ref().map(|aat| FlamingoAatClaims {
             trust_anchor_key_hash: aat.trust_anchor_key_hash,
@@ -189,11 +230,11 @@ fn token_digest<const MAX_DEPTH: usize>(
 pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
     inputs: &EmbeddingSimilarityCircuitInput<MAX_DEPTH>,
 ) -> Result<(), ProofInputError> {
-    let public = &inputs.public;
+    let request = &inputs.request;
     let leaf_index = inputs.inclusion_proof.leaf_index;
 
     // 1. The challenge must be present: `0` marks an unused compared entry.
-    if public.challenge_hash == FieldElement::ZERO {
+    if request.challenge_hash == FieldElement::ZERO {
         return Err(ProofInputError::ValueMustNotBeZero {
             name: "challenge_hash",
         });
@@ -217,7 +258,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
             digest,
             inputs.flamingo_verifier_key.pk.x.into(),
             inputs.flamingo_verifier_key.pk.y.into(),
-            public.signal_hash,
+            request.signal_hash,
         ],
     );
     if !key.verify(*message, &inputs.signature) {
@@ -229,7 +270,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         ds::SESSION_COMMITMENT,
         [leaf_index.into(), inputs.session_id_r],
     );
-    if public.session_id != FieldElement::ZERO && public.session_id != session_commitment {
+    if request.session_id != FieldElement::ZERO && request.session_id != session_commitment {
         return Err(ProofInputError::InvalidSessionId);
     }
 
@@ -237,8 +278,8 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
     let credential = Credential {
         id: inputs.credential_id,
         version: CredentialVersion::V1,
-        issuer_version: public.issuer_version,
-        issuer_schema_id: public.issuer_schema_id,
+        issuer_version: request.issuer_version,
+        issuer_schema_id: request.issuer_schema_id,
         sub: Credential::compute_sub(leaf_index, inputs.sub_blinding_factor),
         genesis_issued_at: inputs.genesis_issued_at,
         expires_at: inputs.expires_at,
@@ -259,23 +300,23 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
             expires_at: inputs.expires_at,
         });
     }
-    if public.genesis_issued_at_min > inputs.genesis_issued_at {
+    if request.genesis_issued_at_min > inputs.genesis_issued_at {
         return Err(ProofInputError::CredentialGenesisExpired {
-            genesis_issued_at_min: public.genesis_issued_at_min,
+            genesis_issued_at_min: request.genesis_issued_at_min,
             genesis_issued_at: inputs.genesis_issued_at,
         });
     }
     // As for Uniqueness and Session Proofs, `expires_at_min` is the time the Credential must outlive.
-    if public.expires_at_min >= inputs.expires_at {
+    if request.expires_at_min >= inputs.expires_at {
         return Err(ProofInputError::CredentialExpired {
-            current_timestamp: public.expires_at_min,
+            current_timestamp: request.expires_at_min,
             expires_at: inputs.expires_at,
         });
     }
 
     // 6. The billing nullifier is `0` or this World ID's WIP-107 nullifier for the RP.
     if inputs.billing_nullifier != FieldElement::ZERO {
-        let query = oprf_query_digest(leaf_index, inputs.billing_action, public.rp_id);
+        let query = oprf_query_digest(leaf_index, inputs.billing_action, request.rp_id);
         let own_nullifier = poseidon::hash(
             ds::OPRF_PROOF,
             [
@@ -339,7 +380,7 @@ impl<'a> ProverChosen<'a> {
 
 /// The public inputs in the order of the circuit's `main` parameters.
 fn public_witness(
-    public: &EmbeddingSimilarityPublicInputs,
+    request: &EmbeddingSimilarityRequestInputs,
     chosen: &ProverChosen<'_>,
 ) -> [(&'static str, InputValue); 20] {
     let field = |value: u64| InputValue::Field(NoirElement::from(value));
@@ -357,11 +398,11 @@ fn public_witness(
         });
     [
         ("now", field(chosen.now.into())),
-        ("rp_id", public.rp_id.into_noir_value()),
-        ("nonce", public.nonce.into_noir_value()),
-        ("challenge_hash", public.challenge_hash.into_noir_value()),
-        ("signal_hash", public.signal_hash.into_noir_value()),
-        ("session_id", public.session_id.into_noir_value()),
+        ("rp_id", request.rp_id.into_noir_value()),
+        ("nonce", request.nonce.into_noir_value()),
+        ("challenge_hash", request.challenge_hash.into_noir_value()),
+        ("signal_hash", request.signal_hash.into_noir_value()),
+        ("session_id", request.session_id.into_noir_value()),
         (
             "flamingo_verifier_key",
             public_key(&chosen.flamingo_verifier_key.pk),
@@ -380,17 +421,20 @@ fn public_witness(
         ("sec_meta", field(sec_meta.into())),
         ("authenticator_meta", field(authenticator_meta.into())),
         ("merkle_root", chosen.merkle_root.into_noir_value()),
-        ("issuer_schema_id", field(public.issuer_schema_id)),
-        ("issuer_version", field(public.issuer_version.into())),
+        ("issuer_schema_id", field(request.issuer_schema_id)),
+        ("issuer_version", field(request.issuer_version.into())),
         ("cred_pk", public_key(&chosen.cred_pk.pk)),
-        ("genesis_issued_at_min", field(public.genesis_issued_at_min)),
-        ("expires_at_min", field(public.expires_at_min)),
+        (
+            "genesis_issued_at_min",
+            field(request.genesis_issued_at_min),
+        ),
+        ("expires_at_min", field(request.expires_at_min)),
     ]
 }
 
 impl NoirCircuitInput for EmbeddingSimilarityCircuitInput<TREE_DEPTH> {
     fn into_witness(self) -> Result<InputMap, ProofError> {
-        let mut map: InputMap = public_witness(&self.public, &ProverChosen::of_input(&self))
+        let mut map: InputMap = public_witness(&self.request, &ProverChosen::of_input(&self))
             .into_iter()
             .map(|(name, value)| (name.to_owned(), value))
             .collect();
@@ -500,11 +544,11 @@ pub fn generate_embedding_similarity_proof_with_prover(
 #[cfg(not(target_arch = "wasm32"))]
 pub fn verify_embedding_similarity_proof(
     proof: &EmbeddingSimilarityProof,
-    public: &EmbeddingSimilarityPublicInputs,
+    request: &EmbeddingSimilarityRequestInputs,
     artifacts: &dyn ZkArtifactSource,
 ) -> Result<(), ProofError> {
     let mut verifier = artifacts.embedding_similarity_verifier()?;
-    verify_embedding_similarity_proof_with_verifier(proof, public, &mut verifier)
+    verify_embedding_similarity_proof_with_verifier(proof, request, &mut verifier)
 }
 
 /// Verifies an embedding similarity proof using the provided verifier.
@@ -514,11 +558,11 @@ pub fn verify_embedding_similarity_proof(
 #[cfg(not(target_arch = "wasm32"))]
 pub fn verify_embedding_similarity_proof_with_verifier(
     proof: &EmbeddingSimilarityProof,
-    public: &EmbeddingSimilarityPublicInputs,
+    request: &EmbeddingSimilarityRequestInputs,
     verifier: &mut provekit_common::Verifier,
 ) -> Result<(), ProofError> {
     // A `PublicKey` flattens to `x, y`, its declaration order, which `BTreeMap` order matches.
-    let public_inputs: Vec<FieldElement> = public_witness(public, &ProverChosen::of_proof(proof))
+    let public_inputs: Vec<FieldElement> = public_witness(request, &ProverChosen::of_proof(proof))
         .into_iter()
         .flat_map(|(name, value)| match value {
             InputValue::Field(element) => vec![FieldElement::from(element.into_repr())],
@@ -533,6 +577,139 @@ pub fn verify_embedding_similarity_proof_with_verifier(
         })
         .collect();
     provekit::verify(verifier, &public_inputs, &proof.proof)
+}
+
+#[cfg(test)]
+mod request_inputs_tests {
+    use ruint::aliases::{U160, U256};
+    use taceo_oprf::types::OprfKeyId;
+    use world_id_primitives::{
+        EmbeddingSimilarityParams, OprfPrefix, POH_ISSUER_SCHEMA_ID, RequestItem, RequestVersion,
+        SessionId, rp::RpId,
+    };
+
+    use super::*;
+
+    const CREATED_AT: u64 = 1_735_689_600;
+
+    fn prefixed(prefix: OprfPrefix, n: u64) -> FieldElement {
+        FieldElement::try_from(U256::from(n) | (U256::from(prefix as u8) << 248)).unwrap()
+    }
+
+    fn request(proof_type: ProofType, session_id: SessionRef, item: RequestItem) -> ProofRequest {
+        ProofRequest {
+            id: "req_es".into(),
+            version: RequestVersion::V1,
+            proof_type,
+            session_id,
+            created_at: CREATED_AT,
+            expires_at: CREATED_AT + 300,
+            rp_id: RpId::new(7),
+            oprf_key_id: OprfKeyId::new(U160::from(7)),
+            signature: alloy_primitives::Signature::test_signature(),
+            nonce: FieldElement::from(42_u64),
+            requests: vec![item],
+            constraints: None,
+        }
+    }
+
+    fn embedding_similarity() -> ProofType {
+        ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
+            action: prefixed(OprfPrefix::EmbeddingSimilarity, 1),
+            challenge_hash: FieldElement::from(9_u64),
+            aat: None,
+        })
+    }
+
+    #[test]
+    fn test_maps_the_request() {
+        let item = RequestItem::embedding_similarity(
+            "poh".into(),
+            Some(b"signal".to_vec()),
+            Some(1_000),
+            Some(CREATED_AT + 60),
+        );
+        let inputs = EmbeddingSimilarityRequestInputs::from_request(
+            &request(embedding_similarity(), SessionRef::None, item.clone()),
+            3,
+        )
+        .unwrap();
+        assert_eq!(
+            inputs,
+            EmbeddingSimilarityRequestInputs {
+                rp_id: FieldElement::from(7_u64),
+                nonce: FieldElement::from(42_u64),
+                challenge_hash: FieldElement::from(9_u64),
+                signal_hash: item.signal_hash(),
+                session_id: FieldElement::ZERO,
+                issuer_schema_id: POH_ISSUER_SCHEMA_ID,
+                issuer_version: 3,
+                genesis_issued_at_min: 1_000,
+                expires_at_min: CREATED_AT + 60,
+            }
+        );
+    }
+
+    #[test]
+    fn test_defaults_the_credential_policy() {
+        let item = RequestItem::embedding_similarity("poh".into(), None, None, None);
+        let inputs = EmbeddingSimilarityRequestInputs::from_request(
+            &request(embedding_similarity(), SessionRef::None, item),
+            1,
+        )
+        .unwrap();
+        assert_eq!(inputs.signal_hash, FieldElement::ZERO);
+        assert_eq!(inputs.genesis_issued_at_min, 0);
+        assert_eq!(inputs.expires_at_min, CREATED_AT);
+    }
+
+    #[test]
+    fn test_maps_an_existing_session_to_its_commitment() {
+        let session = SessionId::new(
+            FieldElement::from(5_u64),
+            prefixed(OprfPrefix::SessionOprfSeed, 6),
+        )
+        .unwrap();
+        let item = RequestItem::embedding_similarity("poh".into(), None, None, None);
+        let inputs = EmbeddingSimilarityRequestInputs::from_request(
+            &request(embedding_similarity(), SessionRef::Existing(session), item),
+            1,
+        )
+        .unwrap();
+        assert_eq!(inputs.session_id, FieldElement::from(5_u64));
+    }
+
+    #[test]
+    fn test_rejects_another_proof_type() {
+        let item = RequestItem::embedding_similarity("poh".into(), None, None, None);
+        let uniqueness = ProofType::Uniqueness {
+            action: prefixed(OprfPrefix::Uniqueness, 1),
+        };
+        let err = EmbeddingSimilarityRequestInputs::from_request(
+            &request(uniqueness, SessionRef::None, item),
+            1,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::InvalidEmbeddingSimilarityRequest { .. }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_an_invalid_embedding_similarity_request() {
+        let other_credential =
+            RequestItem::new("poh".into(), POH_ISSUER_SCHEMA_ID + 1, None, None, None);
+        let err = EmbeddingSimilarityRequestInputs::from_request(
+            &request(embedding_similarity(), SessionRef::None, other_credential),
+            1,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            err,
+            ProofInputError::InvalidEmbeddingSimilarityRequest { .. }
+        ));
+    }
 }
 
 #[cfg(test)]
@@ -558,7 +735,7 @@ mod input_validation_tests {
     #[test]
     fn test_rejects_zero_challenge_hash() {
         let mut input = embedding_similarity_fixture();
-        input.public.challenge_hash = FieldElement::ZERO;
+        input.request.challenge_hash = FieldElement::ZERO;
         resign(&mut input);
         assert!(matches!(
             check(&input),
@@ -589,7 +766,7 @@ mod input_validation_tests {
     #[test]
     fn test_rejects_an_authorization_over_another_signal() {
         let mut input = embedding_similarity_fixture();
-        input.public.signal_hash = FieldElement::from(1_u64);
+        input.request.signal_hash = FieldElement::from(1_u64);
         assert!(matches!(
             check(&input),
             ProofInputError::InvalidAuthenticatorSignature
@@ -626,7 +803,7 @@ mod input_validation_tests {
     #[test]
     fn test_accepts_no_session() {
         let mut input = embedding_similarity_fixture();
-        input.public.session_id = FieldElement::ZERO;
+        input.request.session_id = FieldElement::ZERO;
         check_embedding_similarity_input_validity(&input).expect("no session is valid");
     }
 
@@ -654,7 +831,7 @@ mod input_validation_tests {
     #[test]
     fn test_rejects_a_credential_issued_too_recently() {
         let mut input = embedding_similarity_fixture();
-        input.public.genesis_issued_at_min = input.genesis_issued_at + 1;
+        input.request.genesis_issued_at_min = input.genesis_issued_at + 1;
         assert!(matches!(
             check(&input),
             ProofInputError::CredentialGenesisExpired { .. }
@@ -664,7 +841,7 @@ mod input_validation_tests {
     #[test]
     fn test_rejects_a_credential_expiring_too_early() {
         let mut input = embedding_similarity_fixture();
-        input.public.expires_at_min = input.expires_at;
+        input.request.expires_at_min = input.expires_at;
         assert!(matches!(
             check(&input),
             ProofInputError::CredentialExpired { .. }
@@ -752,19 +929,19 @@ mod tests {
     #[ignore = "expensive: proves the full circuit; run with --release --include-ignored"]
     fn test_generate_and_verify_embedding_similarity_proof() {
         let input = embedding_similarity_fixture();
-        let public = input.public.clone();
+        let request = input.request.clone();
         let root = input.inclusion_proof.root;
 
         let artifacts = EmbeddedZkArtifacts;
         let proof = generate_embedding_similarity_proof(input, &artifacts).unwrap();
         assert_eq!(proof.merkle_root, root);
-        verify_embedding_similarity_proof(&proof, &public, &artifacts)
+        verify_embedding_similarity_proof(&proof, &request, &artifacts)
             .expect("embedding similarity proof verifies");
 
         // Every public input is bound: a different RP or signal fails.
-        let mut other_rp = public.clone();
+        let mut other_rp = request.clone();
         other_rp.rp_id = FieldElement::from(1_u64);
-        let mut other_signal = public.clone();
+        let mut other_signal = request.clone();
         other_signal.signal_hash = FieldElement::from(1_u64);
         for tampered in [other_rp, other_signal] {
             let err = verify_embedding_similarity_proof(&proof, &tampered, &artifacts).unwrap_err();
@@ -778,7 +955,7 @@ mod tests {
         other_verifier.flamingo_verifier_key = proof.cred_pk.clone();
         for tampered in [other_root, other_verifier] {
             let err =
-                verify_embedding_similarity_proof(&tampered, &public, &artifacts).unwrap_err();
+                verify_embedding_similarity_proof(&tampered, &request, &artifacts).unwrap_err();
             assert!(matches!(err, ProofError::Verification(_)));
         }
     }
@@ -787,7 +964,7 @@ mod tests {
     #[test]
     fn test_generation_rejects_invalid_inputs_before_proving() {
         let mut input = embedding_similarity_fixture();
-        input.public.challenge_hash = FieldElement::ZERO;
+        input.request.challenge_hash = FieldElement::ZERO;
         let err = generate_embedding_similarity_proof(input, &EmbeddedZkArtifacts).unwrap_err();
         assert!(matches!(
             err,
