@@ -958,6 +958,35 @@ mod input_validation_tests {
     }
 
     #[test]
+    fn test_rejects_an_uppercase_thumbnail_digest() {
+        let mut input = embedding_similarity_fixture();
+        let (offset, _) = thumbnail_digest(&input.hashes_json).unwrap();
+        let letter = (offset..offset + DIGEST_HEX_LEN)
+            .find(|&i| input.hashes_json[i].is_ascii_lowercase())
+            .expect("a SHA-256 hex digest has a letter");
+        input.hashes_json[letter].make_ascii_uppercase();
+        assert!(matches!(
+            check(&input),
+            ProofInputError::InvalidHashesJson {
+                reason: "thumbnail digest must be lowercase hex"
+            }
+        ));
+    }
+
+    #[test]
+    fn test_rejects_a_thumbnail_digest_without_its_closing_quote() {
+        let mut input = embedding_similarity_fixture();
+        let (offset, _) = thumbnail_digest(&input.hashes_json).unwrap();
+        input.hashes_json[offset + DIGEST_HEX_LEN] = b'0';
+        assert!(matches!(
+            check(&input),
+            ProofInputError::InvalidHashesJson {
+                reason: "thumbnail digest must be 64 hex digits"
+            }
+        ));
+    }
+
+    #[test]
     fn test_rejects_hashes_json_outside_the_accepted_lengths() {
         let mut input = embedding_similarity_fixture();
         input.hashes_json.resize(MAX_HASHES_JSON_BYTES + 1, b' ');
@@ -981,7 +1010,9 @@ mod tests {
 
     use crate::{
         artifacts::embedded::EmbeddedZkArtifacts,
-        embedding_similarity_fixtures::embedding_similarity_fixture,
+        embedding_similarity_fixtures::{
+            embedding_similarity_billed_fixture, embedding_similarity_fixture, resign,
+        },
     };
 
     #[test]
@@ -1032,6 +1063,24 @@ mod tests {
             let err =
                 verify_embedding_similarity_proof(&tampered, &request, &artifacts).unwrap_err();
             assert!(matches!(err, ProofError::Verification(_)));
+        }
+    }
+
+    /// The billed path (constraint 7 with a nonzero nullifier) and the no-AAT path (every AAT
+    /// public input `0`) also prove and verify.
+    #[test]
+    #[ignore = "expensive: proves the full circuit; run with --release --include-ignored"]
+    fn test_generate_and_verify_billed_and_aat_less_proofs() {
+        let mut without_aat = embedding_similarity_fixture();
+        without_aat.aat = None;
+        resign(&mut without_aat);
+
+        let artifacts = EmbeddedZkArtifacts;
+        for input in [embedding_similarity_billed_fixture(), without_aat] {
+            let request = input.request.clone();
+            let proof = generate_embedding_similarity_proof(input, &artifacts).unwrap();
+            verify_embedding_similarity_proof(&proof, &request, &artifacts)
+                .expect("embedding similarity proof verifies");
         }
     }
 
