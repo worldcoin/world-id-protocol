@@ -12,8 +12,8 @@ use secrecy::ExposeSecret as _;
 use taceo_oprf::{core::oprf::BlindingFactor, dev_client::DevClientConfig};
 use world_id_core::{
     Authenticator, AuthenticatorError, EdDSAPrivateKey, EdDSASignature, FieldElement,
-    artifacts::ZkArtifactSourceExt as _,
-    nullifier_proof::{CircomGroth16Material, errors},
+    artifacts::ZkArtifactSourceExt as _, nullifier_proof::CircomGroth16Material,
+    oprf_query_proof::check_query_input_validity,
 };
 use world_id_primitives::{AuthenticatorPublicKeySet, TREE_DEPTH, merkle::MerkleInclusionProof};
 use world_id_proof::circuit_inputs::QueryProofCircuitInput;
@@ -62,7 +62,7 @@ pub fn create_query_proof(args: CreateQueryProofArgs<'_>) -> eyre::Result<Proof<
         nonce: *nonce,
     };
 
-    let _ = errors::check_query_input_validity(&query_proof_input)?;
+    let _ = check_query_input_validity(&query_proof_input)?;
 
     let (proof, public_inputs) =
         query_material.generate_proof(&query_proof_input, &mut rand::thread_rng())?;
