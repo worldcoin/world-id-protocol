@@ -197,7 +197,7 @@ pub fn check_ownership_input_validity<const MAX_DEPTH: usize>(
         [inputs.expected_commitment, inputs.nonce, inputs.context],
     );
     if !key.verify(*message, &inputs.signature) {
-        return Err(ProofInputError::InvalidOwnershipSignature);
+        return Err(ProofInputError::InvalidAuthenticatorSignature);
     }
 
     Ok(())
@@ -525,7 +525,10 @@ mod input_validation_tests {
         input.context = FieldElement::from(43_u64);
 
         let err = check_ownership_input_validity(&input).unwrap_err();
-        assert!(matches!(err, ProofInputError::InvalidOwnershipSignature));
+        assert!(matches!(
+            err,
+            ProofInputError::InvalidAuthenticatorSignature
+        ));
     }
 
     #[test]

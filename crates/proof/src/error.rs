@@ -70,9 +70,9 @@ pub enum ProofInputError {
     /// The provided Merkle tree **inclusion proof** is invalid (the root may or may not be valid for the `WorldIDRegistry` tree)
     #[error("The provided Merkle tree inclusion proof is invalid.")]
     InvalidMerkleTreeInclusionProof,
-    /// The signature from the authenticator for the request is invalid.
-    #[error("The signature over the nonce and RP ID is invalid.")]
-    InvalidQuerySignature,
+    /// The authenticator signature over the message the circuit verifies is invalid.
+    #[error("The authenticator signature over the circuit's message is invalid.")]
+    InvalidAuthenticatorSignature,
     /// The provided blinding factor is invalid, or the sub is incorrect.
     #[error("The provided blinding factor is invalid.")]
     InvalidBlindingFactor,
@@ -156,7 +156,4 @@ pub enum ProofInputError {
         /// The selected key slot.
         index: u64,
     },
-    /// The authenticator signature over the ownership message is invalid.
-    #[error("The signature over the ownership message is invalid.")]
-    InvalidOwnershipSignature,
 }

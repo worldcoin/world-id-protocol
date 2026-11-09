@@ -116,7 +116,7 @@ pub fn check_query_input_validity<const TREE_DEPTH: usize>(
     };
 
     if !pk.verify(*query, &signature) {
-        return Err(ProofInputError::InvalidQuerySignature);
+        return Err(ProofInputError::InvalidAuthenticatorSignature);
     }
 
     let blinding_factor = BlindingFactor::from_scalar(inputs.beta)
@@ -519,7 +519,7 @@ mod tests {
             inputs.action = ark_bn254::Fr::from(12345u64);
             assert!(matches!(
                 check_query_input_validity(&inputs).unwrap_err(),
-                super::ProofInputError::InvalidQuerySignature
+                super::ProofInputError::InvalidAuthenticatorSignature
             ));
         }
     }
