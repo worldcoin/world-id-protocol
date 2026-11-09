@@ -27,6 +27,10 @@ pub enum CredentialVersion {
     V1 = 1,
 }
 
+/// The `issuer_schema_id` of the Proof of Human (PoH) Credential, the one Credential a Proof of
+/// Embedding Similarity (WIP-202) proves.
+pub const POH_ISSUER_SCHEMA_ID: u64 = 1;
+
 /// Base representation of a `Credential` in the World ID Protocol.
 ///
 /// A credential is generally a verifiable digital statement about a subject. It is

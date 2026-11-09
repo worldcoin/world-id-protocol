@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    EdDSAPrivateKey, EdDSAPublicKey, EmbeddingSimilarityProof,
+    EdDSAPrivateKey, EdDSAPublicKey, EmbeddingSimilarityProof, POH_ISSUER_SCHEMA_ID,
     authenticator_assertion::{AatPublicValues, AatRequirements},
 };
 use alloy::{
@@ -54,7 +54,7 @@ fn request(proof_type: ProofType, session_id: SessionRef) -> ProofRequest {
         nonce: field(1),
         requests: vec![RequestItem {
             identifier: "poh".into(),
-            issuer_schema_id: 1,
+            issuer_schema_id: POH_ISSUER_SCHEMA_ID,
             signal: None,
             genesis_issued_at_min: None,
             expires_at_min: None,
@@ -256,6 +256,9 @@ fn validate_proof_type_is_strict_for_embedding_similarity() {
         all: vec![ConstraintNode::Type("poh".into())],
     });
     invalid(constrained, "constraints");
+    let mut other_credential = es_request();
+    other_credential.requests[0].issuer_schema_id = POH_ISSUER_SCHEMA_ID + 1;
+    invalid(other_credential, "issuer_schema_id");
 }
 
 #[test]
@@ -303,7 +306,7 @@ fn response_wire_encoding() {
 
     let decoded: ProofResponse = serde_json::from_value(value).unwrap();
     assert_eq!(decoded.embedding_similarity, Some(es_item()));
-    assert_eq!(es_request().successful_credentials(&decoded), vec![1]);
+    assert_eq!(decoded.successful_credentials(), vec![POH_ISSUER_SCHEMA_ID]);
 
     // Without an AAT, `aat` is absent.
     let mut no_aat = es_item();

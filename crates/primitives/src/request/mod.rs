@@ -8,9 +8,9 @@ mod embedding_similarity;
 pub use embedding_similarity::{EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem};
 
 use crate::{
-    FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, PrimitiveError, SessionId,
-    SessionNullifier, SessionRef, ZeroKnowledgeProof, authenticator_assertion::AatRequirements,
-    rp::RpId,
+    FieldElement, Nullifier, OprfPrefix, OprfPrefixedFieldElement as _, POH_ISSUER_SCHEMA_ID,
+    PrimitiveError, SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
+    authenticator_assertion::AatRequirements, rp::RpId,
 };
 use serde::{Deserialize, Serialize, de::Error as _};
 use std::collections::HashSet;
@@ -528,27 +528,6 @@ impl ResponseItem {
 }
 
 impl ProofRequest {
-    /// Return the `issuer_schema_id`s of the credentials `response` proved.
-    /// Returns an empty vec if the response has an error.
-    ///
-    /// An embedding similarity response names no schema: the request's single item does.
-    #[must_use]
-    pub fn successful_credentials(&self, response: &ProofResponse) -> Vec<u64> {
-        if response.error.is_some() {
-            return vec![];
-        }
-        let embedding_similarity = response
-            .embedding_similarity
-            .iter()
-            .filter_map(|_| self.requests.first().map(|item| item.issuer_schema_id));
-        response
-            .responses
-            .iter()
-            .map(|item| item.issuer_schema_id)
-            .chain(embedding_similarity)
-            .collect()
-    }
-
     /// Determine which requested credentials to prove given available credentials.
     ///
     /// Returns `None` if constraints (or lack thereof) cannot be satisfied with the available set.
@@ -642,7 +621,7 @@ impl ProofRequest {
     /// `action` must also carry [`OprfPrefix::Uniqueness`], so that an action from another
     /// domain is rejected here rather than by the OPRF nodes after a round trip. An embedding
     /// similarity request must pass [`EmbeddingSimilarityParams::validate`], carry exactly one
-    /// request item and no constraints, and not ask to mint a session.
+    /// request item, for the PoH Credential, and no constraints, and not ask to mint a session.
     ///
     /// # Errors
     /// Returns [`PrimitiveError::InvalidInput`] when the request has an invalid
@@ -687,6 +666,15 @@ impl ProofRequest {
                     return Err(PrimitiveError::InvalidInput {
                         attribute: "constraints".to_string(),
                         reason: "must be omitted for embedding similarity proofs".to_string(),
+                    });
+                }
+                if self.requests[0].issuer_schema_id != POH_ISSUER_SCHEMA_ID {
+                    return Err(PrimitiveError::InvalidInput {
+                        attribute: "issuer_schema_id".to_string(),
+                        reason: format!(
+                            "must be the PoH Credential's {POH_ISSUER_SCHEMA_ID} for embedding \
+                             similarity proofs"
+                        ),
                     });
                 }
                 Ok(())
@@ -959,6 +947,25 @@ impl ProofResponse {
     /// Returns an error if serialization fails.
     pub fn to_json_pretty(&self) -> Result<String, serde_json::Error> {
         serde_json::to_string_pretty(self)
+    }
+
+    /// Return the list of successful `issuer_schema_id`s in the response.
+    /// Returns an empty vec if the response has an error.
+    #[must_use]
+    pub fn successful_credentials(&self) -> Vec<u64> {
+        if self.error.is_some() {
+            return vec![];
+        }
+        self.responses
+            .iter()
+            .map(|item| item.issuer_schema_id)
+            // A Proof of Embedding Similarity always proves the PoH Credential.
+            .chain(
+                self.embedding_similarity
+                    .iter()
+                    .map(|_| POH_ISSUER_SCHEMA_ID),
+            )
+            .collect()
     }
 
     /// The identifiers of every proven credential.
@@ -2155,7 +2162,7 @@ mod tests {
 }"#;
 
         let resp = ProofResponse::from_json(json).expect("unknown fields must be tolerated");
-        assert_eq!(resp.responses[0].issuer_schema_id, 100);
+        assert_eq!(resp.successful_credentials(), vec![100]);
         assert!(resp.responses[0].is_uniqueness());
     }
 
@@ -2177,7 +2184,7 @@ mod tests {
 }"#;
 
         let ok = ProofResponse::from_json(ok_json).unwrap();
-        assert_eq!(ok.responses[0].issuer_schema_id, 100);
+        assert_eq!(ok.successful_credentials(), vec![100]);
         assert!(ok.responses[0].is_uniqueness());
 
         // Canonical session nullifier representation (prefixed hex bytes).
@@ -2202,7 +2209,7 @@ mod tests {
 }}"#
         );
         let sess_canonical = ProofResponse::from_json(&sess_json_canonical).unwrap();
-        assert_eq!(sess_canonical.responses[0].issuer_schema_id, 100);
+        assert_eq!(sess_canonical.successful_credentials(), vec![100]);
         assert!(sess_canonical.responses[0].is_session());
         assert_eq!(
             sess_canonical.session_id.unwrap().oprf_seed.to_u256(),
@@ -2298,10 +2305,7 @@ mod tests {
         }
 
         // successful_credentials should return empty vec when error is present
-        assert_eq!(
-            request.successful_credentials(&error_response),
-            Vec::<u64>::new()
-        );
+        assert_eq!(error_response.successful_credentials(), Vec::<u64>::new());
 
         // constraints_satisfied should return false when error is present
         let expr = ConstraintExpr::All {
@@ -2323,7 +2327,7 @@ mod tests {
         let error_resp = ProofResponse::from_json(error_json).unwrap();
         assert_eq!(error_resp.error, Some("credential_not_available".into()));
         assert_eq!(error_resp.responses.len(), 0);
-        assert!(error_resp.error.is_some());
+        assert_eq!(error_resp.successful_credentials(), Vec::<u64>::new());
     }
 
     #[test]
