@@ -52,13 +52,12 @@ fn request(proof_type: ProofType, session_id: SessionRef) -> ProofRequest {
         oprf_key_id: OprfKeyId::new(uint!(1_U160)),
         signature: signature(),
         nonce: field(1),
-        requests: vec![RequestItem {
-            identifier: "poh".into(),
-            issuer_schema_id: POH_ISSUER_SCHEMA_ID,
-            signal: None,
-            genesis_issued_at_min: None,
-            expires_at_min: None,
-        }],
+        requests: vec![RequestItem::embedding_similarity(
+            "poh".into(),
+            None,
+            None,
+            None,
+        )],
         constraints: None,
     }
 }

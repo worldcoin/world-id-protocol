@@ -350,6 +350,24 @@ impl RequestItem {
         }
     }
 
+    /// Create the request item of a Proof of Embedding Similarity (WIP-202) request: one for the
+    /// PoH Credential, the one Credential such a proof proves.
+    #[must_use]
+    pub const fn embedding_similarity(
+        identifier: String,
+        signal: Option<Vec<u8>>,
+        genesis_issued_at_min: Option<u64>,
+        expires_at_min: Option<u64>,
+    ) -> Self {
+        Self::new(
+            identifier,
+            POH_ISSUER_SCHEMA_ID,
+            signal,
+            genesis_issued_at_min,
+            expires_at_min,
+        )
+    }
+
     /// Get the signal hash for the request item.
     #[must_use]
     pub fn signal_hash(&self) -> FieldElement {
