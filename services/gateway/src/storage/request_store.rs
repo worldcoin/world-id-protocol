@@ -355,11 +355,12 @@ impl RequestStore {
 
     /// Returns the Redis key for an in-flight request lock.
     ///
-    /// Account creation locks are scoped by authenticator address; all other
-    /// request kinds are scoped by leaf index.
+    /// Account creation locks are scoped by authenticator address, billing
+    /// registrations by billing nullifier, and all other request kinds by leaf index.
     fn inflight_key(kind: GatewayRequestKind, raw: &str) -> String {
         let tag = match kind {
             GatewayRequestKind::CreateAccount => "create",
+            GatewayRequestKind::RegisterBilling => "billing",
             _ => "leaf",
         };
         format!("gateway:inflight:{tag}:{raw}")

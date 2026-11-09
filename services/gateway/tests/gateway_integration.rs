@@ -17,7 +17,10 @@ use world_id_registries::world_id::{
     sign_remove_authenticator, sign_update_authenticator,
 };
 
-use crate::common::{authenticator_pubkey, spawn_test_gateway, wait_for_finalized};
+use crate::common::{
+    authenticator_pubkey, spawn_test_gateway, spawn_test_gateway_with_billing_stub,
+    wait_for_finalized,
+};
 
 mod common;
 
@@ -521,4 +524,140 @@ async fn test_same_authenticator_different_accounts() {
             .contains("authenticator already exists"),
         "Error should indicate 'authenticator already exists', got: {error_msg}"
     );
+}
+
+/// A `BillingRegistration` with dummy authorization and proof, which only a stub Billing
+/// Contract accepts.
+fn billing_registration(
+    chain_id: u64,
+    billing_contract: Address,
+    billing_nullifier: u64,
+    expires_at: u64,
+) -> world_id_primitives::billing::BillingRegistration {
+    use world_id_primitives::{
+        FieldElement, ZeroKnowledgeProof,
+        billing::{BillingContext, BillingRegistration, RegistrationAuthorization},
+        request::RequestVersion,
+        rp::RpId,
+    };
+    BillingRegistration {
+        scope: BillingContext {
+            chain_id: U256::from(chain_id),
+            billing_contract,
+            rp_id: RpId::new(1),
+            period_start: 1_793_534_400,
+        },
+        authorization: RegistrationAuthorization {
+            version: RequestVersion::V1,
+            oprf_key_id: world_id_primitives::OprfKeyId::new(alloy::primitives::U160::from(1u64)),
+            nonce: FieldElement::from(billing_nullifier),
+            created_at: 1,
+            expires_at,
+            signed_action: FieldElement::from(3u64),
+            signature: alloy::signers::Signature::new(U256::from(1u64), U256::from(2u64), false),
+            wip101_data: Default::default(),
+        },
+        issuer_schema_id: 1,
+        expires_at_min: 1,
+        billing_nullifier: FieldElement::from(billing_nullifier),
+        proof: ZeroKnowledgeProof::default(),
+    }
+}
+
+/// Without a Billing Contract, `/register-billing` is unavailable instead of failing on-chain.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_register_billing_without_billing_contract() {
+    use world_id_primitives::api_types::GatewayErrorCode;
+
+    let gw = spawn_test_gateway(None).await;
+    let registration = billing_registration(gw.chain_id, Address::repeat_byte(0xb1), 7, u64::MAX);
+    let resp = gw
+        .client
+        .post(format!("{}/register-billing", gw.base_url))
+        .json(&registration)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::NOT_IMPLEMENTED);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(
+        body["code"],
+        GatewayErrorCode::MethodNotAvailable.to_string(),
+        "{body}"
+    );
+}
+
+fn now_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+/// A registration whose authorization could expire while it waits for a batch is rejected, so
+/// that it cannot revert the batch at inclusion.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_register_billing_rejects_expiring_authorization() {
+    let gw = spawn_test_gateway_with_billing_stub().await;
+    let billing_contract = gw.billing_addr.expect("billing stub");
+    let resp = gw
+        .client
+        .post(format!("{}/register-billing", gw.base_url))
+        .json(&billing_registration(
+            gw.chain_id,
+            billing_contract,
+            1,
+            now_secs() + 10,
+        ))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert!(
+        body["message"].as_str().unwrap().contains("expires_at"),
+        "{body}"
+    );
+}
+
+/// A burst of registrations larger than the orphan sweeper's queued-request deadline in seconds:
+/// each one is accepted and finalized, none expires in the queue.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_register_billing_burst() {
+    const BURST: u64 = 120;
+
+    let gw = spawn_test_gateway_with_billing_stub().await;
+    let billing_contract = gw.billing_addr.expect("billing stub");
+    let expires_at = now_secs() + 3_600;
+
+    let responses = futures::future::join_all((1..=BURST).map(|nullifier| {
+        let request = gw
+            .client
+            .post(format!("{}/register-billing", gw.base_url))
+            .json(&billing_registration(
+                gw.chain_id,
+                billing_contract,
+                nullifier,
+                expires_at,
+            ));
+        async move {
+            let resp = request.send().await.unwrap();
+            let status = resp.status();
+            let body: serde_json::Value = resp.json().await.unwrap();
+            (status, body)
+        }
+    }))
+    .await;
+
+    for (status, body) in &responses {
+        assert_eq!(*status, StatusCode::OK, "{body}");
+    }
+    for (_, body) in &responses {
+        wait_for_finalized(
+            &gw.client,
+            &gw.base_url,
+            body["request_id"].as_str().unwrap(),
+        )
+        .await;
+    }
 }

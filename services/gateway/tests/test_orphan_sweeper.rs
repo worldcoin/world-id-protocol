@@ -591,6 +591,7 @@ async fn sweep_submitted_with_real_receipt() {
     let cfg = GatewayConfig {
         registry_addr,
         registry_version: RegistryVersion::V2,
+        billing_addr: None,
         provider: ProviderArgs {
             http: vec![rpc_url.parse().unwrap()],
             signer: signer_args,
