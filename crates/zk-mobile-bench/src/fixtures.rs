@@ -191,7 +191,8 @@ const GENESIS_ISSUED_AT_MIN: u64 = 1_500_000_000;
 /// The RP's minimum expiration; WIP-114 defaults it to the request's `created_at`.
 const EXPIRES_AT_MIN: u32 = NOW;
 const EXPIRES_AT: u32 = 1_900_000_000;
-const ISSUER_SCHEMA_ID: u64 = 4_242;
+/// The PoH Credential, the one a WIP-202 request can name.
+const ISSUER_SCHEMA_ID: u64 = world_id_primitives::POH_ISSUER_SCHEMA_ID;
 const ISSUER_VERSION: u8 = 1;
 const CRED_ID: u64 = 7;
 

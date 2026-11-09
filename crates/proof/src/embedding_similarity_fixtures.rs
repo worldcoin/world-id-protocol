@@ -18,16 +18,23 @@ use ark_ec::CurveGroup as _;
 use ark_ff::PrimeField;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 use provekit_common::{InputMap, InputValue};
+use ruint::aliases::{U160, U256};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use taceo_oprf::core::oprf::{BlindedOprfResponse, BlindingFactor, client};
+use taceo_oprf::{
+    core::oprf::{BlindedOprfResponse, BlindingFactor, client},
+    types::OprfKeyId,
+};
 use world_id_flamingo::{DS_SIGN, FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
-    AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
+    AuthenticatorPublicKeySet, Credential, EmbeddingSimilarityParams, FieldElement, OprfPrefix,
+    POH_ISSUER_SCHEMA_ID, ProofRequest, ProofType, RequestItem, RequestVersion, SessionId,
+    SessionRef, TREE_DEPTH,
     authenticator::oprf_query_digest,
     authenticator_assertion::AatPublicValues,
     merkle::MerkleInclusionProof,
     poseidon::{self, ds},
+    rp::RpId,
 };
 use world_id_test_utils::merkle::first_leaf_merkle_path;
 
@@ -117,7 +124,8 @@ const GENESIS_ISSUED_AT_MIN: u64 = 1_500_000_000;
 /// The RP's minimum expiration; WIP-114 defaults it to the request's `created_at`.
 const EXPIRES_AT_MIN: u32 = NOW;
 const EXPIRES_AT: u32 = 1_900_000_000;
-const ISSUER_SCHEMA_ID: u64 = 4_242;
+/// The PoH Credential, the one a WIP-202 request can name.
+const ISSUER_SCHEMA_ID: u64 = POH_ISSUER_SCHEMA_ID;
 const ISSUER_VERSION: u8 = 1;
 const CRED_ID: u64 = 7;
 /// A WIP-107 `billingAction`, and the test OPRF key and blinding factor of the billing query.
@@ -746,6 +754,47 @@ fn verifier_sk() -> EdDSAPrivateKey {
     EdDSAPrivateKey::from_bytes([0x15_u8; 32])
 }
 
+/// A field element whose most significant byte is `prefix`.
+fn prefixed(prefix: OprfPrefix, n: u64) -> FieldElement {
+    FieldElement::try_from(U256::from(n) | (U256::from(prefix as u8) << 248)).unwrap()
+}
+
+/// The RP's WIP-202 request behind the fixture, for the World ID's session with blinding factor
+/// `session_id_r`. Its signature is a placeholder: no check in this crate verifies it.
+pub(crate) fn embedding_similarity_request(session_id_r: FieldElement) -> ProofRequest {
+    let session = SessionId::new(
+        poseidon::hash(
+            ds::SESSION_COMMITMENT,
+            [FieldElement::from(LEAF_INDEX), session_id_r],
+        ),
+        prefixed(OprfPrefix::SessionOprfSeed, 1),
+    )
+    .unwrap();
+    ProofRequest {
+        id: "req_wip_202".into(),
+        version: RequestVersion::V1,
+        proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
+            action: prefixed(OprfPrefix::EmbeddingSimilarity, 1),
+            challenge_hash: sha256_field(CHALLENGE_IMAGE),
+            aat: None,
+        }),
+        session_id: SessionRef::Existing(session),
+        created_at: u64::from(NOW) - 60,
+        expires_at: u64::from(NOW) + 240,
+        rp_id: RpId::new(RP_ID),
+        oprf_key_id: OprfKeyId::new(U160::from(RP_ID)),
+        signature: alloy_primitives::Signature::test_signature(),
+        nonce: FieldElement::from(NONCE),
+        requests: vec![RequestItem::embedding_similarity(
+            "poh".into(),
+            Some(SIGNAL.to_vec()),
+            Some(GENESIS_ISSUED_AT_MIN),
+            Some(u64::from(EXPIRES_AT_MIN)),
+        )],
+        constraints: None,
+    }
+}
+
 /// The committed `Prover.toml` witness as a typed circuit input: unbilled, with an AAT.
 pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DEPTH> {
     let authenticator_sk = authenticator_sk();
@@ -770,20 +819,11 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
     let session_id_r = FieldElement::from(555_u64);
 
     let mut input = EmbeddingSimilarityCircuitInput {
-        request: EmbeddingSimilarityRequestInputs {
-            rp_id: FieldElement::from(RP_ID),
-            nonce: FieldElement::from(NONCE),
-            challenge_hash: compared[2],
-            signal_hash: FieldElement::from_arbitrary_raw_bytes(SIGNAL),
-            session_id: poseidon::hash(
-                ds::SESSION_COMMITMENT,
-                [FieldElement::from(LEAF_INDEX), session_id_r],
-            ),
-            issuer_schema_id: ISSUER_SCHEMA_ID,
-            issuer_version: ISSUER_VERSION,
-            genesis_issued_at_min: GENESIS_ISSUED_AT_MIN,
-            expires_at_min: u64::from(EXPIRES_AT_MIN),
-        },
+        request: EmbeddingSimilarityRequestInputs::from_request(
+            &embedding_similarity_request(session_id_r),
+            ISSUER_VERSION,
+        )
+        .unwrap(),
         now: NOW,
         flamingo_verifier_key: verifier_sk().public(),
         engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
