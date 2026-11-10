@@ -29,6 +29,9 @@ zstd-compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/zstd-comp
 embed-ownership-prover = ["authenticator", "world-id-proof/embed-ownership-prover"]
 embed-ownership-verifier = ["authenticator", "world-id-proof/embed-ownership-verifier"]
 embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+# UNAUDITED. The WIP-202 Proof of Embedding Similarity prover/verifier.
+embed-embedding-similarity-prover = ["authenticator", "world-id-authenticator/embed-embedding-similarity-prover"]
+embed-embedding-similarity-verifier = ["authenticator", "world-id-authenticator/embed-embedding-similarity-verifier"]
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
@@ -55,7 +58,11 @@ required-features = ["embed-zkeys"]
 
 [[test]]
 name = "billing_registration"
-required-features = ["embed-zkeys"]
+required-features = [
+    "embed-zkeys",
+    "embed-embedding-similarity-prover",
+    "embed-embedding-similarity-verifier",
+]
 
 [dev-dependencies]
 alloy = { workspace = true }
@@ -76,3 +83,6 @@ serde_json = { workspace = true }
 rand = { workspace = true }
 eyre = { workspace = true }
 rustls = { workspace = true }
+sha2 = { workspace = true }
+world-id-flamingo = { workspace = true }
+world-id-proof = { workspace = true }

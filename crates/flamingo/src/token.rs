@@ -223,6 +223,15 @@ impl FlamingoToken {
         &self.claims
     }
 
+    /// The signature over [`FlamingoClaims::digest`], unverified. Use [`Self::verify`] to check it.
+    ///
+    /// # Errors
+    /// [`TokenError::Malformed`] if the signature does not decompress, which [`Self::from_cwt`]
+    /// already rules out.
+    pub fn signature(&self) -> Result<EdDSASignature, TokenError> {
+        EdDSASignature::from_compressed_bytes(self.signature).map_err(|_| TokenError::Malformed)
+    }
+
     /// The `kid`: the compressed key that signed the token.
     #[must_use]
     pub const fn kid(&self) -> [u8; 32] {
