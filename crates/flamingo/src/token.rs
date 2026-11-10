@@ -85,7 +85,7 @@ impl FlamingoAatClaims {
     /// Unpacks [`Self::aat_flags`]. Truncation keeps each sub-field; consumers that need range
     /// checks apply WIP-201 §4.7 check 3.
     #[must_use]
-    pub fn flags(&self) -> AatFlags {
+    pub const fn flags(&self) -> AatFlags {
         let flags = self.aat_flags;
         #[expect(clippy::cast_possible_truncation)]
         AatFlags {
