@@ -43,7 +43,7 @@ pub(crate) const CHUNK_SLOTS: usize = MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES
 pub(crate) const THUMBNAIL_KEY: &[u8] = b"\"thumbnail.png\":\"";
 /// Hex digits of a SHA-256 digest.
 pub(crate) const DIGEST_HEX_LEN: usize = 64;
-/// The `compare_sources` WIP-202 fixes: compared entry 1 is pipeline input 0.
+/// The `compare_sources` WIP-202 fixes: compared entry 1 is pipeline input 0 (§4.3).
 pub const COMPARE_SOURCES: u32 = 256;
 /// Credential claim holding the `hashes.json` commitment.
 pub(crate) const CLAIM_INDEX: usize = 0;
@@ -224,6 +224,26 @@ fn token_digest<const MAX_DEPTH: usize>(
     .digest())
 }
 
+/// The message the World ID's Authenticator signs to authorize a Flamingo Token and the RP's
+/// signal: `H_8(DS_WIP_202_AUTH; digest, flamingo_verifier_key, signal_hash)` (WIP-202 §4.6
+/// constraint 4), with `flamingo_token_digest` the Flamingo Token's signed digest.
+#[must_use]
+pub fn authorization_message(
+    flamingo_token_digest: FieldElement,
+    flamingo_verifier_key: &EdDSAPublicKey,
+    signal_hash: FieldElement,
+) -> FieldElement {
+    poseidon::hash(
+        ds::EMBEDDING_SIMILARITY_AUTH,
+        [
+            flamingo_token_digest,
+            flamingo_verifier_key.pk.x.into(),
+            flamingo_verifier_key.pk.y.into(),
+            signal_hash,
+        ],
+    )
+}
+
 /// Checks the embedding similarity inputs by emulating the constraints the circuit enforces, so a
 /// caller mistake surfaces as a specific error instead of an opaque proving failure. This is only
 /// for error convenience, the actual constraints are verified in the circuit.
@@ -273,10 +293,10 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
     }
 
     // 4. The Flamingo Verifier must have signed the token.
-    let digest = token_digest(inputs)?;
+    let flamingo_token_digest = token_digest(inputs)?;
     if !inputs
         .flamingo_verifier_key
-        .verify(*digest, &inputs.token_signature)
+        .verify(*flamingo_token_digest, &inputs.token_signature)
     {
         return Err(ProofInputError::InvalidFlamingoTokenSignature);
     }
@@ -284,14 +304,10 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
     // 5. A registered key of the World ID must have authorized the token and the RP's signal.
     let key =
         check_account_input_validity(&inputs.key_set, inputs.key_index, &inputs.inclusion_proof)?;
-    let message = poseidon::hash(
-        ds::EMBEDDING_SIMILARITY_AUTH,
-        [
-            digest,
-            inputs.flamingo_verifier_key.pk.x.into(),
-            inputs.flamingo_verifier_key.pk.y.into(),
-            request.signal_hash,
-        ],
+    let message = authorization_message(
+        flamingo_token_digest,
+        &inputs.flamingo_verifier_key,
+        request.signal_hash,
     );
     if !key.verify(*message, &inputs.signature) {
         return Err(ProofInputError::InvalidAuthenticatorSignature);

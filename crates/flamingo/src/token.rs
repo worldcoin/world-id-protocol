@@ -60,12 +60,42 @@ pub struct FlamingoAatClaims {
     pub aat_flags: u64,
 }
 
+/// The sub-fields of [`FlamingoAatClaims::aat_flags`] (WIP-201 §4.5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AatFlags {
+    /// Bits 0–7.
+    pub platform: u8,
+    /// Bits 8–15.
+    pub sec_level: u8,
+    /// Bits 16–47.
+    pub min_build_version: u32,
+    /// Bits 48–51.
+    pub sec_meta: u8,
+    /// Bits 52–56.
+    pub authenticator_meta: u8,
+}
+
 impl FlamingoAatClaims {
     /// The values a token carries without an AAT.
     const ZERO: Self = Self {
         trust_anchor_key_hash: FieldElement::ZERO,
         aat_flags: 0,
     };
+
+    /// Unpacks [`Self::aat_flags`]. Truncation keeps each sub-field; consumers that need range
+    /// checks apply WIP-201 §4.7 check 3.
+    #[must_use]
+    pub fn flags(&self) -> AatFlags {
+        let flags = self.aat_flags;
+        #[expect(clippy::cast_possible_truncation)]
+        AatFlags {
+            platform: flags as u8,
+            sec_level: (flags >> 8) as u8,
+            min_build_version: (flags >> 16) as u32,
+            sec_meta: ((flags >> 48) & 0xF) as u8,
+            authenticator_meta: ((flags >> 52) & 0x1F) as u8,
+        }
+    }
 }
 
 /// The claims a Flamingo Token signs.
@@ -221,6 +251,15 @@ impl FlamingoToken {
     #[must_use]
     pub const fn claims(&self) -> &FlamingoClaims {
         &self.claims
+    }
+
+    /// The signature over [`FlamingoClaims::digest`], unverified. Use [`Self::verify`] to check it.
+    ///
+    /// # Errors
+    /// [`TokenError::Malformed`] if the signature does not decompress, which [`Self::from_cwt`]
+    /// already rules out.
+    pub fn signature(&self) -> Result<EdDSASignature, TokenError> {
+        EdDSASignature::from_compressed_bytes(self.signature).map_err(|_| TokenError::Malformed)
     }
 
     /// The `kid`: the compressed key that signed the token.
@@ -382,6 +421,24 @@ mod tests {
         FlamingoToken::from_cwt(cwt)?
             .verify(&signing_key().public())
             .copied()
+    }
+
+    #[test]
+    fn aat_flags_unpack_into_their_sub_fields() {
+        let aat = FlamingoAatClaims {
+            trust_anchor_key_hash: FieldElement::ZERO,
+            aat_flags: 0x00a3_0000_0000_0102,
+        };
+        assert_eq!(
+            aat.flags(),
+            AatFlags {
+                platform: 2,
+                sec_level: 1,
+                min_build_version: 0,
+                sec_meta: 3,
+                authenticator_meta: 0xA,
+            }
+        );
     }
 
     #[test]

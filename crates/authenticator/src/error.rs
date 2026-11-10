@@ -188,6 +188,20 @@ pub enum AuthenticatorError {
     #[error("session binding requires a cached `session_id_r_seed`")]
     SessionSeedRequired,
 
+    /// The Flamingo Token does not verify under the Flamingo Verifier's key.
+    #[error(transparent)]
+    FlamingoToken(#[from] world_id_flamingo::TokenError),
+
+    /// The Flamingo Token does not answer the Proof of Embedding Similarity request (WIP-202
+    /// §4.3): the named claim differs from what the request requires.
+    #[error("the Flamingo Token does not answer the proof request: {0}")]
+    FlamingoTokenMismatch(&'static str),
+
+    /// The Flamingo Token carries a billing nullifier, so the proof needs the billing witness the
+    /// Authenticator cached at registration (WIP-107 §4.6).
+    #[error("the Flamingo Token is billed and needs the cached billing witness")]
+    BillingWitnessRequired,
+
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
