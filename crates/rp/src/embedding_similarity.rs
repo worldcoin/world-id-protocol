@@ -112,7 +112,7 @@ pub struct EmbeddingSimilarityPolicy<A> {
     /// The Engine configurations the RP accepts (WIP-201 §4.7 check 6), e.g. from
     /// [`accepted_engine_configs`].
     pub engine_config_hashes: HashSet<FieldElement>,
-    /// The PoH Credential's `issuer_version` the RP verifies against.
+    /// The `issuer_version` of the Proof of Human Credential the RP verifies against.
     pub issuer_version: u8,
     /// The AAT policy.
     pub aat: AatPolicy,
@@ -213,7 +213,7 @@ pub enum EmbeddingSimilarityVerificationError {
 /// `WorldIDRegistry.isValidRoot` or a cache bounded by the root's expiration. An error rejects the
 /// proof, as an invalid root does.
 ///
-/// `is_trusted_issuer` checks `cred_pk` is the PoH Issuer's current key, e.g. against
+/// `is_trusted_issuer` checks `cred_pk` is the current key of the Proof of Human Issuer, e.g. against
 /// `CredentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(POH_ISSUER_SCHEMA_ID)` as
 /// `WorldIDVerifier` does. An error rejects the proof.
 ///
@@ -358,7 +358,7 @@ mod tests {
         };
         let payload = ManifestPayload {
             iss: "https://engines.example.com".into(),
-            engine_hash: [version as u8; 48],
+            engine_hash: [u8::try_from(version).unwrap(); 48],
             version,
             match_strictness_levels: vec![1, 2],
             pipelines: vec![pipeline(1), pipeline(2)],

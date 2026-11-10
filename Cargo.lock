@@ -12404,11 +12404,9 @@ version = "0.20.0"
 dependencies = [
  "alloy",
  "backon",
- "base64 0.22.1",
  "chrono",
  "eyre",
  "hex",
- "pontifex",
  "rand 0.8.6",
  "reqwest 0.13.2",
  "rustls",
@@ -12418,7 +12416,6 @@ dependencies = [
  "taceo-eddsa-babyjubjub",
  "taceo-oprf",
  "taceo-poseidon2",
- "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",
@@ -12430,6 +12427,7 @@ dependencies = [
  "world-id-primitives",
  "world-id-proof",
  "world-id-registries",
+ "world-id-rp",
  "world-id-test-utils",
 ]
 
@@ -12770,6 +12768,20 @@ dependencies = [
  "world-id-primitives",
  "world-id-relay",
  "world-id-test-utils",
+]
+
+[[package]]
+name = "world-id-rp"
+version = "0.20.0"
+dependencies = [
+ "base64 0.22.1",
+ "pontifex",
+ "serde_json",
+ "taceo-eddsa-babyjubjub",
+ "thiserror 2.0.18",
+ "world-id-flamingo",
+ "world-id-primitives",
+ "world-id-proof",
 ]
 
 [[package]]

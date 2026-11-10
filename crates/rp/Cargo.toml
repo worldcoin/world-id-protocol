@@ -1,0 +1,28 @@
+[package]
+name = "world-id-rp"
+description = "RP verification for the World ID Protocol"
+publish = true
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+include = ["src/**/*", "Cargo.toml", "README.md"]
+
+[dependencies]
+eddsa-babyjubjub = { workspace = true }
+# Nitro attestation check of the Flamingo Verifier's signing key (WIP-201 §4.7 check 1).
+pontifex = { workspace = true, features = ["attestation"] }
+thiserror = { workspace = true }
+world-id-flamingo = { workspace = true }
+world-id-primitives = { workspace = true }
+world-id-proof = { workspace = true }
+
+[dev-dependencies]
+base64 = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
