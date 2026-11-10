@@ -286,7 +286,10 @@ where
     Ok(())
 }
 
-fn check_unexpired(expires_at: u64, now: u64) -> Result<(), EmbeddingSimilarityVerificationError> {
+const fn check_unexpired(
+    expires_at: u64,
+    now: u64,
+) -> Result<(), EmbeddingSimilarityVerificationError> {
     if now > expires_at {
         return Err(EmbeddingSimilarityVerificationError::RequestExpired { expires_at });
     }
