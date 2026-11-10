@@ -58,6 +58,10 @@ required-features = ["embed-zkeys"]
 
 [[test]]
 name = "billing_registration"
+required-features = ["embed-zkeys"]
+
+[[test]]
+name = "embedding_similarity"
 required-features = [
     "embed-zkeys",
     "embed-embedding-similarity-prover",
