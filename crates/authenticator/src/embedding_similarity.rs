@@ -36,9 +36,6 @@ pub struct FlamingoResult {
     pub signing_key_attestation: Bytes,
 }
 
-/// Bits 16-47 of `aat_flags`: `min_build_version`, which WIP-202 fixes to `0` (§4.4).
-const MIN_BUILD_VERSION_MASK: u64 = 0xFFFF_FFFF << 16;
-
 /// Rejects a token that does not answer `proof_request` under the WIP-202 entry layout (§4.3), so
 /// a mismatch surfaces before proving rather than as an invalid token signature.
 fn check_token_answers_request(
@@ -69,22 +66,21 @@ fn check_token_answers_request(
     Ok(())
 }
 
-/// Unpacks the token's AAT claims into the values the proof reveals.
+/// Maps the token's AAT claims to the values the proof reveals. WIP-202 fixes
+/// `min_build_version` to `0` (§4.4).
 fn aat_public_values(aat: &FlamingoAatClaims) -> Result<AatPublicValues, AuthenticatorError> {
-    let flags = aat.aat_flags;
-    if flags & MIN_BUILD_VERSION_MASK != 0 {
+    let flags = aat.flags();
+    if flags.min_build_version != 0 {
         return Err(AuthenticatorError::FlamingoTokenMismatch(
             "min_build_version",
         ));
     }
-    // Truncation keeps each sub-field; the Verifier range-checked them (WIP-201 §4.7 check 3).
-    #[expect(clippy::cast_possible_truncation)]
     Ok(AatPublicValues {
         trust_anchor_key_hash: aat.trust_anchor_key_hash,
-        platform: flags as u8,
-        sec_level: (flags >> 8) as u8,
-        sec_meta: ((flags >> 48) & 0xF) as u8,
-        authenticator_meta: ((flags >> 52) & 0x1F) as u8,
+        platform: flags.platform,
+        sec_level: flags.sec_level,
+        sec_meta: flags.sec_meta,
+        authenticator_meta: flags.authenticator_meta,
     })
 }
 
