@@ -78,6 +78,7 @@ bhttp = "0.7"
 itertools = "0.15"
 k256 = { version = "0.13" }
 sha2 = { version = "0.11", default-features = false }
+pontifex = { version = "3.1.0", default-features = false }
 taceo-groth16-sol = { version = "0.4.3" }
 taceo-oprf = { version = "0.18.2", default-features = false }
 telemetry-batteries = "0.3"

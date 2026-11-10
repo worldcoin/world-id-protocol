@@ -39,7 +39,8 @@ issuer = [
     "dep:world-id-issuer",
 ]
 
-rp = []
+# RP-side verification of the WIP-202 Proof of Embedding Similarity (§4.8).
+rp = ["dep:world-id-proof", "dep:world-id-flamingo", "dep:pontifex", "dep:thiserror"]
 
 [dependencies]
 eddsa-babyjubjub = { workspace = true }
@@ -48,6 +49,9 @@ eddsa-babyjubjub = { workspace = true }
 world-id-issuer = { workspace = true, optional = true }
 world-id-proof = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
+world-id-flamingo = { workspace = true, optional = true }
+pontifex = { workspace = true, optional = true, features = ["attestation"] }
+thiserror = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
 world-id-registries = { workspace = true }
 
@@ -63,6 +67,7 @@ required-features = ["embed-zkeys"]
 [[test]]
 name = "embedding_similarity"
 required-features = [
+    "rp",
     "embed-zkeys",
     "embed-embedding-similarity-prover",
     "embed-embedding-similarity-verifier",
@@ -70,6 +75,7 @@ required-features = [
 
 [dev-dependencies]
 alloy = { workspace = true }
+base64 = { workspace = true }
 ark-babyjubjub = { workspace = true }
 poseidon2 = { workspace = true }
 reqwest = { workspace = true }
