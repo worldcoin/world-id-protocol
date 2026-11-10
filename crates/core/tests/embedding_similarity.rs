@@ -390,19 +390,10 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     let valid_root = move |root| async move { Ok::<_, std::io::Error>(root == merkle_root) };
     let verify = async |request: &ProofRequest,
                         response: &world_id_primitives::ProofResponse,
-                        policy: &EmbeddingSimilarityPolicy<StubAttestation>,
-                        now: u64| {
-        verify_embedding_similarity(
-            request,
-            response,
-            policy,
-            now,
-            valid_root,
-            artifacts.as_ref(),
-        )
-        .await
+                        policy: &EmbeddingSimilarityPolicy<StubAttestation>| {
+        verify_embedding_similarity(request, response, policy, valid_root, artifacts.as_ref()).await
     };
-    verify(&proof_request, &response, &policy, now_secs()).await?;
+    verify(&proof_request, &response, &policy).await?;
 
     // Each policy check rejects on its own, before the proof is verified.
     let mut other_engine = policy.clone();
@@ -411,14 +402,12 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     other_issuer.issuer_keys = vec![EdDSAPrivateKey::random(&mut rng).public()];
     let mut aat_required = policy.clone();
     aat_required.aat.required = true;
-    for (policy, now, expected) in [
-        (&other_engine, now_secs(), "EngineNotAccepted"),
-        (&other_issuer, now_secs(), "UntrustedIssuerKey"),
-        (&aat_required, now_secs(), "AatRequired"),
-        (&policy, now_secs() + 3_600, "RequestExpired"),
-        (&policy, now_secs() - 600, "Stale"),
+    for (policy, expected) in [
+        (&other_engine, "EngineNotAccepted"),
+        (&other_issuer, "UntrustedIssuerKey"),
+        (&aat_required, "AatRequired"),
     ] {
-        let err = verify(&proof_request, &response, policy, now)
+        let err = verify(&proof_request, &response, policy)
             .await
             .expect_err(expected);
         assert!(format!("{err:?}").starts_with(expected), "{err:?}");
@@ -435,7 +424,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
             .to_vec(),
     );
     assert!(matches!(
-        verify(&proof_request, &other_attestation, &policy, now_secs()).await,
+        verify(&proof_request, &other_attestation, &policy).await,
         Err(VerifyError::AttestedKeyMismatch)
     ));
     let unknown_root = |_| async { Ok::<_, std::io::Error>(false) };
@@ -444,7 +433,6 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
             &proof_request,
             &response,
             &policy,
-            now_secs(),
             unknown_root,
             artifacts.as_ref(),
         )
@@ -457,7 +445,6 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
             &proof_request,
             &response,
             &policy,
-            now_secs(),
             unreachable_registry,
             artifacts.as_ref(),
         )
@@ -473,7 +460,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         aat: None,
     });
     assert!(matches!(
-        verify(&other_challenge, &response, &policy, now_secs()).await,
+        verify(&other_challenge, &response, &policy).await,
         Err(VerifyError::Proof(_))
     ));
 

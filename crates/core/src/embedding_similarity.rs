@@ -8,7 +8,10 @@
 //! one the RP issued and has not seen used before (WIP-201 §4.7 check 4). The challenge image
 //! behind `challenge_hash` MUST be one the RP checked against the party it interacts with.
 
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    time::{SystemTime, SystemTimeError, UNIX_EPOCH},
+};
 
 use eddsa_babyjubjub::EdDSAPublicKey;
 use world_id_flamingo::{MAX_ATTESTATION_AGE, ReleaseManifest, engine_config_hash};
@@ -55,6 +58,9 @@ impl FlamingoAttestationVerifier for pontifex::attestation::Verifier {
 }
 
 /// A Nitro attestation verifier accepting `pcrs`, with WIP-201's [`MAX_ATTESTATION_AGE`].
+///
+/// pontifex checks the document's age against the system clock, as [`verify_embedding_similarity`]
+/// does its own time checks.
 #[must_use]
 pub fn nitro_attestation_verifier(
     pcrs: Vec<pontifex::attestation::PcrConfig>,
@@ -152,6 +158,9 @@ pub enum EmbeddingSimilarityVerificationError {
     /// The response does not answer the request.
     #[error(transparent)]
     Response(#[from] ValidationError),
+    /// The system clock is before the Unix epoch.
+    #[error("the system clock is before the Unix epoch: {0}")]
+    Clock(#[from] SystemTimeError),
     /// The request expired before verification.
     #[error("the request expired at {expires_at}")]
     RequestExpired {
@@ -197,6 +206,8 @@ pub enum EmbeddingSimilarityVerificationError {
 
 /// Verifies a Proof of Embedding Similarity under WIP-202 §4.8.
 ///
+/// Time checks use the system clock.
+///
 /// `is_valid_root` checks Root Freshness (WIP-202 §4.7) at verification time, e.g. through
 /// `WorldIDRegistry.isValidRoot` or a cache bounded by the root's expiration. An error rejects the
 /// proof, as an invalid root does.
@@ -207,7 +218,6 @@ pub async fn verify_embedding_similarity<A, F, Fut, E>(
     request: &ProofRequest,
     response: &ProofResponse,
     policy: &EmbeddingSimilarityPolicy<A>,
-    now: u64,
     is_valid_root: F,
     artifacts: &dyn ZkArtifactSource,
 ) -> Result<(), EmbeddingSimilarityVerificationError>
@@ -223,11 +233,8 @@ where
         return Err(Error::NotEmbeddingSimilarity);
     }
     request.validate_response(response)?;
-    if now > request.expires_at {
-        return Err(Error::RequestExpired {
-            expires_at: request.expires_at,
-        });
-    }
+    let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+    check_unexpired(request.expires_at, now)?;
     // `validate_response` guarantees the item for the request's single item.
     let item = response.embedding_similarity.as_ref().ok_or_else(|| {
         ValidationError::MissingCredential(request.requests[0].identifier.clone())
@@ -250,12 +257,7 @@ where
     }
 
     // 3. The proof is recent.
-    if now.abs_diff(u64::from(proof.now)) > MAX_CLOCK_SKEW {
-        return Err(Error::Stale {
-            now,
-            proof_now: proof.now,
-        });
-    }
+    check_recent(proof.now, now)?;
 
     // 4. The World ID and the Credential are trusted.
     if !is_valid_root(proof.merkle_root)
@@ -281,6 +283,20 @@ where
 
     // 1. The proof verifies.
     verify_embedding_similarity_proof(proof, &public, artifacts)?;
+    Ok(())
+}
+
+fn check_unexpired(expires_at: u64, now: u64) -> Result<(), EmbeddingSimilarityVerificationError> {
+    if now > expires_at {
+        return Err(EmbeddingSimilarityVerificationError::RequestExpired { expires_at });
+    }
+    Ok(())
+}
+
+fn check_recent(proof_now: u32, now: u64) -> Result<(), EmbeddingSimilarityVerificationError> {
+    if now.abs_diff(u64::from(proof_now)) > MAX_CLOCK_SKEW {
+        return Err(EmbeddingSimilarityVerificationError::Stale { now, proof_now });
+    }
     Ok(())
 }
 
@@ -357,6 +373,29 @@ mod tests {
             HashSet::from([engine_config_hash(&new.release_hash(), 1, 2)])
         );
         assert!(!accepted.contains(&engine_config_hash(&old.release_hash(), 1, 2)));
+    }
+
+    #[test]
+    fn requests_expire_after_expires_at() {
+        assert!(check_unexpired(100, 100).is_ok());
+        assert!(matches!(
+            check_unexpired(100, 101),
+            Err(EmbeddingSimilarityVerificationError::RequestExpired { expires_at: 100 })
+        ));
+    }
+
+    #[test]
+    fn proofs_must_be_within_the_clock_skew() {
+        let proof_now = 1_000_000;
+        let now = u64::from(proof_now);
+        assert!(check_recent(proof_now, now - MAX_CLOCK_SKEW).is_ok());
+        assert!(check_recent(proof_now, now + MAX_CLOCK_SKEW).is_ok());
+        for now in [now - MAX_CLOCK_SKEW - 1, now + MAX_CLOCK_SKEW + 1] {
+            assert!(matches!(
+                check_recent(proof_now, now),
+                Err(EmbeddingSimilarityVerificationError::Stale { .. })
+            ));
+        }
     }
 
     fn aat() -> AatPublicValues {
