@@ -417,10 +417,7 @@ mod tests {
 
     #[test]
     fn a_required_aat_must_be_present() {
-        let required = params(Some(AatRequirements {
-            required: true,
-            ..AatRequirements::default()
-        }));
+        let required = params(Some(AatRequirements { required: true }));
         assert_eq!(check(&claims(), &required), Err("aat"));
         let mut claims = claims();
         claims.aat = Some(FlamingoAatClaims {
