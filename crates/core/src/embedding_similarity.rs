@@ -114,8 +114,6 @@ pub struct EmbeddingSimilarityPolicy<A> {
     pub engine_config_hashes: HashSet<FieldElement>,
     /// The PoH Credential's `issuer_version` the RP verifies against.
     pub issuer_version: u8,
-    /// The Issuer keys the RP trusts for the PoH Credential at `issuer_version`.
-    pub issuer_keys: Vec<EdDSAPublicKey>,
     /// The AAT policy.
     pub aat: AatPolicy,
 }
@@ -190,6 +188,9 @@ pub enum EmbeddingSimilarityVerificationError {
     /// The root is not a valid, unexpired root of the `WorldIDRegistry`.
     #[error("merkle_root {0} is not a valid root")]
     InvalidRoot(FieldElement),
+    /// The Issuer key check itself failed, e.g. the registry was unreachable.
+    #[error("could not check cred_pk: {0}")]
+    IssuerCheck(Box<dyn std::error::Error + Send + Sync>),
     /// The Issuer key is not one the RP trusts.
     #[error("cred_pk is not a trusted PoH Issuer key")]
     UntrustedIssuerKey,
@@ -212,13 +213,18 @@ pub enum EmbeddingSimilarityVerificationError {
 /// `WorldIDRegistry.isValidRoot` or a cache bounded by the root's expiration. An error rejects the
 /// proof, as an invalid root does.
 ///
+/// `is_trusted_issuer` checks `cred_pk` is the PoH Issuer's current key, e.g. against
+/// `CredentialSchemaIssuerRegistry.issuerSchemaIdToPubkey(POH_ISSUER_SCHEMA_ID)` as
+/// `WorldIDVerifier` does. An error rejects the proof.
+///
 /// # Errors
 /// The first failing check, see [`EmbeddingSimilarityVerificationError`].
-pub async fn verify_embedding_similarity<A, F, Fut, E>(
+pub async fn verify_embedding_similarity<A, F, Fut, E, G, GFut, GE>(
     request: &ProofRequest,
     response: &ProofResponse,
     policy: &EmbeddingSimilarityPolicy<A>,
     is_valid_root: F,
+    is_trusted_issuer: G,
     artifacts: &dyn ZkArtifactSource,
 ) -> Result<(), EmbeddingSimilarityVerificationError>
 where
@@ -226,6 +232,9 @@ where
     F: FnOnce(FieldElement) -> Fut + Send,
     Fut: Future<Output = Result<bool, E>> + Send,
     E: Into<Box<dyn std::error::Error + Send + Sync>>,
+    G: FnOnce(EdDSAPublicKey) -> GFut + Send,
+    GFut: Future<Output = Result<bool, GE>> + Send,
+    GE: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     use EmbeddingSimilarityVerificationError as Error;
 
@@ -266,10 +275,9 @@ where
     {
         return Err(Error::InvalidRoot(proof.merkle_root));
     }
-    if !policy
-        .issuer_keys
-        .iter()
-        .any(|key| key.pk == proof.cred_pk.pk)
+    if !is_trusted_issuer(proof.cred_pk.clone())
+        .await
+        .map_err(|err| Error::IssuerCheck(err.into()))?
     {
         return Err(Error::UntrustedIssuerKey);
     }

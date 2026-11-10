@@ -384,27 +384,36 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         attestation: StubAttestation,
         engine_config_hashes: [engine_config_hash(&[0xE7; 32], 1, 2)].into(),
         issuer_version: credential.credential.issuer_version,
-        issuer_keys: vec![issuer_sk.public()],
         aat: AatPolicy::default(),
     };
     let valid_root = move |root| async move { Ok::<_, std::io::Error>(root == merkle_root) };
+    let issuer_pk = issuer_sk.public();
+    let trusted_issuer = |key: world_id_core::EdDSAPublicKey| {
+        let trusted = key.pk == issuer_pk.pk;
+        async move { Ok::<_, std::io::Error>(trusted) }
+    };
     let verify = async |request: &ProofRequest,
                         response: &world_id_primitives::ProofResponse,
                         policy: &EmbeddingSimilarityPolicy<StubAttestation>| {
-        verify_embedding_similarity(request, response, policy, valid_root, artifacts.as_ref()).await
+        verify_embedding_similarity(
+            request,
+            response,
+            policy,
+            valid_root,
+            trusted_issuer,
+            artifacts.as_ref(),
+        )
+        .await
     };
     verify(&proof_request, &response, &policy).await?;
 
     // Each policy check rejects on its own, before the proof is verified.
     let mut other_engine = policy.clone();
     other_engine.engine_config_hashes = [FieldElement::from(1u64)].into();
-    let mut other_issuer = policy.clone();
-    other_issuer.issuer_keys = vec![EdDSAPrivateKey::random(&mut rng).public()];
     let mut aat_required = policy.clone();
     aat_required.aat.required = true;
     for (policy, expected) in [
         (&other_engine, "EngineNotAccepted"),
-        (&other_issuer, "UntrustedIssuerKey"),
         (&aat_required, "AatRequired"),
     ] {
         let err = verify(&proof_request, &response, policy)
@@ -434,6 +443,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
             &response,
             &policy,
             unknown_root,
+            trusted_issuer,
             artifacts.as_ref(),
         )
         .await,
@@ -446,10 +456,38 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
             &response,
             &policy,
             unreachable_registry,
+            trusted_issuer,
             artifacts.as_ref(),
         )
         .await,
         Err(VerifyError::RootCheck(_))
+    ));
+    let untrusted_issuer = |_| async { Ok::<_, std::io::Error>(false) };
+    assert!(matches!(
+        verify_embedding_similarity(
+            &proof_request,
+            &response,
+            &policy,
+            valid_root,
+            untrusted_issuer,
+            artifacts.as_ref(),
+        )
+        .await,
+        Err(VerifyError::UntrustedIssuerKey)
+    ));
+    let unreachable_issuer_registry =
+        |_| async { Err::<bool, _>(std::io::Error::other("registry down")) };
+    assert!(matches!(
+        verify_embedding_similarity(
+            &proof_request,
+            &response,
+            &policy,
+            valid_root,
+            unreachable_issuer_registry,
+            artifacts.as_ref(),
+        )
+        .await,
+        Err(VerifyError::IssuerCheck(_))
     ));
 
     // The proof binds the RP's request: another challenge fails the proof itself.
