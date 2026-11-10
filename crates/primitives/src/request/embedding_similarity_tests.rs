@@ -24,13 +24,7 @@ fn params() -> EmbeddingSimilarityParams {
     EmbeddingSimilarityParams {
         action: action_with_prefix(OprfPrefix::EmbeddingSimilarity, 7),
         challenge_hash: field(0xc0ffee),
-        aat: Some(AatRequirements {
-            required: true,
-            platform: Some(2),
-            sec_level: None,
-            sec_meta: Some(15),
-            authenticator_meta: Some(31),
-        }),
+        aat: Some(AatRequirements { required: true }),
     }
 }
 
@@ -125,7 +119,7 @@ fn proof_type_wire_encoding_is_flat() {
         "proof_type": "embedding_similarity",
         "action": params().action,
         "challenge_hash": params().challenge_hash,
-        "aat": { "required": true, "platform": 2, "sec_meta": 15, "authenticator_meta": 31 },
+        "aat": { "required": true },
     });
     assert_eq!(serde_json::to_value(&proof_type).unwrap(), expected);
     assert_eq!(
@@ -230,14 +224,6 @@ fn validate_proof_type_is_strict_for_embedding_similarity() {
         "challenge_hash",
     );
     invalid(
-        with(&|p| p.aat.as_mut().unwrap().sec_meta = Some(16)),
-        "aat.sec_meta",
-    );
-    invalid(
-        with(&|p| p.aat.as_mut().unwrap().authenticator_meta = Some(32)),
-        "aat.authenticator_meta",
-    );
-    invalid(
         request(ProofType::EmbeddingSimilarity(params()), SessionRef::Create),
         "session_id",
     );
@@ -258,19 +244,6 @@ fn validate_proof_type_is_strict_for_embedding_similarity() {
     let mut other_credential = es_request();
     other_credential.requests[0].issuer_schema_id = POH_ISSUER_SCHEMA_ID + 1;
     invalid(other_credential, "issuer_schema_id");
-}
-
-#[test]
-fn validate_proof_type_accepts_the_largest_values() {
-    let mut p = params();
-    p.aat = Some(AatRequirements {
-        sec_meta: Some(15),
-        authenticator_meta: Some(31),
-        ..AatRequirements::default()
-    });
-    request(ProofType::EmbeddingSimilarity(p), SessionRef::None)
-        .validate_proof_type()
-        .unwrap();
 }
 
 #[test]

@@ -14,7 +14,7 @@ use world_id_primitives::{
     Credential, CredentialVersion, EdDSAPublicKey, FieldElement, ProofRequest, ProofType,
     SessionRef, TREE_DEPTH,
     authenticator::oprf_query_digest,
-    authenticator_assertion::{AatPublicValues, AatRequirements},
+    authenticator_assertion::AatPublicValues,
     poseidon::{self, ds},
     proof::EmbeddingSimilarityProof,
     sponge::hash_bytes_to_field_element,
@@ -269,11 +269,11 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
     // 3. The AAT values must fit their claim widths, as the token library range-checks them.
     if let Some(aat) = &inputs.aat {
         let widths = [
-            ("sec_meta", aat.sec_meta, AatRequirements::SEC_META_BITS),
+            ("sec_meta", aat.sec_meta, AatPublicValues::SEC_META_BITS),
             (
                 "authenticator_meta",
                 aat.authenticator_meta,
-                AatRequirements::AUTHENTICATOR_META_BITS,
+                AatPublicValues::AUTHENTICATOR_META_BITS,
             ),
         ];
         for (name, value, bits) in widths {
