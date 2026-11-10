@@ -137,6 +137,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         .install_default()
         .unwrap();
 
+    // Registries on Anvil (no Billing Contract; this path is unbilled).
     let RegistryTestContext {
         anvil,
         world_id_registry,
@@ -148,6 +149,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     let deployer = anvil.signer(0)?;
     let chain_id = anvil.instance.chain_id();
 
+    // Gateway for account creation.
     let (_redis, redis_url) = redis_testcontainer().await?;
     let gateway = spawn_gateway_for_tests(GatewayConfig {
         registry_addr: world_id_registry,
@@ -174,6 +176,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     .map_err(|e| eyre!("failed to spawn gateway for tests: {e}"))?;
     let gateway_url = format!("http://{}", gateway.listen_addr);
 
+    // Account, created through the gateway.
     let seed = [13u8; 32];
     let creation_config = Config::new(
         Some(anvil.endpoint().to_string()),
@@ -194,6 +197,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     .await?;
     let leaf_index = authenticator.leaf_index();
 
+    // Indexer stub serving the account's inclusion proof.
     let MerkleFixture {
         key_set,
         inclusion_proof,
@@ -205,6 +209,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     )
     .await?;
 
+    // OPRF nodes for credential blinding.
     let connection_string = world_id_test_utils::shared_postgres_testcontainer().await?;
     let secret_managers =
         world_id_test_utils::stubs::init_test_secret_managers(connection_string.to_string().into())
@@ -223,6 +228,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
     health_checks::services_health_check(&key_gens.urls, Duration::from_secs(60)).await?;
 
+    // Issuer and RP, each with an OPRF key.
     let issuer_schema_id = 1u64;
     let issuer_sk = EdDSAPrivateKey::random(&mut rng);
     anvil
@@ -258,6 +264,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         .await?;
     }
 
+    // Authenticator pointed at the indexer, gateway and OPRF nodes.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     std::env::set_current_dir(&workspace_root)?;
     let authenticator = Authenticator::init(
@@ -276,6 +283,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     )
     .await?;
 
+    // PoH Credential whose claim 0 commits to the PCP's `hashes.json`.
     let now = now_secs();
     let blinding_factor = authenticator
         .generate_credential_blinding_factor(issuer_schema_id)
@@ -297,6 +305,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         blinding_factor,
     };
 
+    // RP-signed Proof of Embedding Similarity request.
     let action = FieldElement::random_with_prefix(&mut rng, OprfPrefix::EmbeddingSimilarity);
     let nonce = FieldElement::random(&mut rng);
     let challenge_hash = image_hash(b"meeting frame");
@@ -340,7 +349,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     )?;
     let artifacts = zk_artifact_source();
 
-    // Unbilled: no billing nullifier and no witness.
+    // Unbilled Flamingo result: prove and verify.
     let unbilled = flamingo_result(
         &proof_request,
         thumbnail,

@@ -75,6 +75,7 @@ async fn e2e_billing_registration() -> Result<()> {
         .install_default()
         .unwrap();
 
+    // Registries and the Billing Contract on Anvil.
     let RegistryTestContext {
         anvil,
         world_id_registry,
@@ -90,7 +91,7 @@ async fn e2e_billing_registration() -> Result<()> {
         .await?;
     info!(billing = ?billing.billing, "billing contract deployed");
 
-    // Gateway relaying registrations to the Billing Contract.
+    // Gateway that relays registrations to the Billing Contract.
     let (_redis, redis_url) = redis_testcontainer().await?;
     let gateway = spawn_gateway_for_tests(GatewayConfig {
         registry_addr: world_id_registry,
@@ -138,6 +139,7 @@ async fn e2e_billing_registration() -> Result<()> {
     .await?;
     let leaf_index = authenticator.leaf_index();
 
+    // Indexer stub serving the account's inclusion proof.
     let MerkleFixture {
         key_set,
         inclusion_proof,
@@ -149,7 +151,7 @@ async fn e2e_billing_registration() -> Result<()> {
     )
     .await?;
 
-    // OPRF nodes accepting billing queries for this Billing Contract.
+    // OPRF nodes that accept billing queries for this Billing Contract.
     let connection_string = world_id_test_utils::shared_postgres_testcontainer().await?;
     let secret_managers =
         world_id_test_utils::stubs::init_test_secret_managers(connection_string.to_string().into())
@@ -228,6 +230,7 @@ async fn e2e_billing_registration() -> Result<()> {
         )
         .await?;
 
+    // Authenticator pointed at the indexer, gateway and OPRF nodes.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
     std::env::set_current_dir(&workspace_root)?;
     let authenticator = Authenticator::init(
@@ -246,6 +249,7 @@ async fn e2e_billing_registration() -> Result<()> {
     )
     .await?;
 
+    // Issuer-signed Credential for the registration proof.
     let blinding_factor = authenticator
         .generate_credential_blinding_factor(issuer_schema_id)
         .await?;
@@ -318,6 +322,7 @@ async fn e2e_billing_registration() -> Result<()> {
         .submit_billing_registration(&registration)
         .await?;
 
+    // Wait until the gateway finalizes the registration on-chain.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     loop {
         match authenticator.poll_status(&request_id).await? {
@@ -335,6 +340,7 @@ async fn e2e_billing_registration() -> Result<()> {
         }
     }
 
+    // The nullifier is registered and consumes one unit of period capacity.
     let contract = WorldIdBilling::new(billing.billing, anvil.provider()?);
     assert!(
         contract
