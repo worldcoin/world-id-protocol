@@ -226,17 +226,17 @@ fn token_digest<const MAX_DEPTH: usize>(
 
 /// The message the World ID's Authenticator signs to authorize a Flamingo Token and the RP's
 /// signal: `H_8(DS_WIP_202_AUTH; digest, flamingo_verifier_key, signal_hash)` (WIP-202 §4.6
-/// constraint 4), with `digest` the token's signed digest.
+/// constraint 4), with `flamingo_token_digest` the Flamingo Token's signed digest.
 #[must_use]
 pub fn authorization_message(
-    digest: FieldElement,
+    flamingo_token_digest: FieldElement,
     flamingo_verifier_key: &EdDSAPublicKey,
     signal_hash: FieldElement,
 ) -> FieldElement {
     poseidon::hash(
         ds::EMBEDDING_SIMILARITY_AUTH,
         [
-            digest,
+            flamingo_token_digest,
             flamingo_verifier_key.pk.x.into(),
             flamingo_verifier_key.pk.y.into(),
             signal_hash,
@@ -293,10 +293,10 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
     }
 
     // 4. The Flamingo Verifier must have signed the token.
-    let digest = token_digest(inputs)?;
+    let flamingo_token_digest = token_digest(inputs)?;
     if !inputs
         .flamingo_verifier_key
-        .verify(*digest, &inputs.token_signature)
+        .verify(*flamingo_token_digest, &inputs.token_signature)
     {
         return Err(ProofInputError::InvalidFlamingoTokenSignature);
     }
@@ -304,7 +304,11 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
     // 5. A registered key of the World ID must have authorized the token and the RP's signal.
     let key =
         check_account_input_validity(&inputs.key_set, inputs.key_index, &inputs.inclusion_proof)?;
-    let message = authorization_message(digest, &inputs.flamingo_verifier_key, request.signal_hash);
+    let message = authorization_message(
+        flamingo_token_digest,
+        &inputs.flamingo_verifier_key,
+        request.signal_hash,
+    );
     if !key.verify(*message, &inputs.signature) {
         return Err(ProofInputError::InvalidAuthenticatorSignature);
     }
