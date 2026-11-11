@@ -2,12 +2,15 @@
 
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
-    config::{AppState, HttpConfig, IndexerConfig, RunMode},
+    config::{AppState, BillingConfig, BillingContract, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
     rollback_executor::rollback_to_last_valid_root,
 };
-use alloy::{primitives::Address, providers::DynProvider};
+use alloy::{
+    primitives::Address,
+    providers::{DynProvider, Provider as _},
+};
 use futures_util::StreamExt;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
 use tracing::instrument;
@@ -17,6 +20,7 @@ use world_id_registries::{world_id::WorldIdRegistry, world_id_verifier::WorldIdV
 pub use config::GlobalConfig;
 pub use error::{IndexerError, IndexerResult};
 
+pub mod billing;
 pub mod blockchain;
 pub mod config;
 pub mod db;
@@ -81,19 +85,34 @@ async fn tree_sync_loop(
 }
 
 #[instrument(level = "info", skip_all, fields(%addr))]
+#[allow(clippy::too_many_arguments)]
 async fn start_http_server(
     http_provider: DynProvider,
     registry_address: Address,
     verifier_address: Address,
+    billing: Option<BillingConfig>,
     addr: SocketAddr,
     db: DB,
     tree_state: tree::TreeState,
     request_timeout_secs: u64,
 ) -> eyre::Result<()> {
+    let billing = match billing {
+        Some(billing) => Some(BillingContract {
+            address: billing.address,
+            chain_id: chain_id(&http_provider, request_timeout_secs).await?,
+        }),
+        None => None,
+    };
     let registry = WorldIdRegistry::new(registry_address, http_provider.clone());
     let verifier = WorldIdVerifier::new(verifier_address, http_provider);
     let router = routes::handler(
-        AppState::new(db, Arc::new(registry), tree_state, Arc::new(verifier)),
+        AppState::new(
+            db,
+            Arc::new(registry),
+            tree_state,
+            Arc::new(verifier),
+            billing,
+        ),
         request_timeout_secs,
     );
     tracing::info!(%addr, "HTTP server listening");
@@ -110,6 +129,31 @@ async fn start_http_server(
             backtrace: Backtrace::capture().to_string(),
         })?;
     Ok(())
+}
+
+/// The provider's chain id, for the billed-RPs response.
+async fn chain_id(provider: &DynProvider, timeout_secs: u64) -> eyre::Result<u64> {
+    tokio::time::timeout(Duration::from_secs(timeout_secs), provider.get_chain_id())
+        .await
+        .map_err(|_| eyre::eyre!("Timed out reading the chain id"))?
+        .map_err(|error| eyre::eyre!("Failed to read the chain id: {error}"))
+}
+
+/// Starts syncing `billing`, if configured, for the indexer modes.
+fn spawn_billing_sync(
+    provider: &DynProvider,
+    db: &DB,
+    billing: Option<BillingConfig>,
+    indexer_cfg: &IndexerConfig,
+) -> Option<tokio::task::JoinHandle<eyre::Result<()>>> {
+    let billing = billing?;
+    let provider = provider.clone();
+    let db = db.clone();
+    let batch_size = indexer_cfg.batch_size;
+    let poll_interval = Duration::from_millis(indexer_cfg.blockchain_poll_interval_ms);
+    Some(tokio::spawn(async move {
+        billing::billing_sync_loop(provider, db, billing, batch_size, poll_interval).await
+    }))
 }
 
 /// Validate the verifier before starting HTTP, indexing or sanity-check tasks.
@@ -164,6 +208,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
                 db,
                 http_provider,
                 cfg.registry_address,
+                cfg.billing,
                 indexer_config,
                 tree_state,
             )
@@ -179,6 +224,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
                 db,
                 http_provider,
                 cfg.registry_address,
+                cfg.billing,
                 http_config,
                 tree_state,
             )
@@ -197,6 +243,7 @@ pub async unsafe fn run_indexer(cfg: GlobalConfig) -> eyre::Result<()> {
                 db,
                 http_provider,
                 cfg.registry_address,
+                cfg.billing,
                 indexer_config,
                 http_config,
                 tree_state,
@@ -211,19 +258,28 @@ async fn run_indexer_only(
     db: DB,
     http_provider: DynProvider,
     registry_address: Address,
+    billing: Option<BillingConfig>,
     indexer_cfg: IndexerConfig,
     tree_state: tree::TreeState,
 ) -> eyre::Result<()> {
-    process_registry_events(
-        http_provider,
-        registry_address,
-        indexer_cfg,
-        &db,
-        &tree_state,
-    )
-    .await?;
+    let billing_handle = spawn_billing_sync(&http_provider, &db, billing, &indexer_cfg);
 
-    Ok(())
+    tokio::select! {
+        result = process_registry_events(
+            http_provider,
+            registry_address,
+            indexer_cfg,
+            &db,
+            &tree_state,
+        ) => {
+            result?;
+            Ok(())
+        }
+        result = async { billing_handle.unwrap().await }, if billing_handle.is_some() => {
+            result??;
+            eyre::bail!("billing sync loop exited unexpectedly");
+        }
+    }
 }
 
 #[instrument(level = "info", skip_all)]
@@ -231,6 +287,7 @@ async fn run_http_only(
     db: DB,
     http_provider: DynProvider,
     registry_address: Address,
+    billing: Option<BillingConfig>,
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
 ) -> eyre::Result<()> {
@@ -277,6 +334,7 @@ async fn run_http_only(
             http_provider,
             registry_address,
             verifier_address,
+            billing,
             http_addr,
             db,
             tree_state,
@@ -308,6 +366,7 @@ async fn run_both(
     db: DB,
     http_provider: DynProvider,
     registry_address: Address,
+    billing: Option<BillingConfig>,
     indexer_cfg: IndexerConfig,
     http_cfg: HttpConfig,
     tree_state: tree::TreeState,
@@ -336,6 +395,7 @@ async fn run_both(
             http_provider_clone,
             registry_address,
             verifier_address,
+            billing,
             http_addr,
             http_pool,
             http_tree_state,
@@ -359,6 +419,8 @@ async fn run_both(
         None
     };
 
+    let billing_handle = spawn_billing_sync(&http_provider, &db, billing, &indexer_cfg);
+
     // Stream live events; wait for the first task to complete — any failure is fatal.
     tokio::select! {
         result = process_registry_events(
@@ -378,6 +440,10 @@ async fn run_both(
         result = async { sanity_handle.unwrap().await }, if sanity_handle.is_some() => {
             result??;
             eyre::bail!("sanity check loop exited unexpectedly");
+        }
+        result = async { billing_handle.unwrap().await }, if billing_handle.is_some() => {
+            result??;
+            eyre::bail!("billing sync loop exited unexpectedly");
         }
     }
 }

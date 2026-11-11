@@ -54,6 +54,7 @@ async fn test_get_authenticator_pubkeys_returns_offchain_signer_commitment() {
             tree_depth: 30,
             http_cache_refresh_interval_secs: 30,
         },
+        billing: None,
     };
 
     let indexer_task = tokio::spawn(async move {

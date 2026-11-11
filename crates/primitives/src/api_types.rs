@@ -518,6 +518,22 @@ pub struct IndexerSignatureNonceResponse {
     pub signature_nonce: U256,
 }
 
+/// The RPs a WIP-107 Billing Contract bills, as of `block_number`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub struct IndexerBilledRpsResponse {
+    /// The chain hosting the Billing Contract.
+    pub chain_id: u64,
+    /// The Billing Contract.
+    #[cfg_attr(feature = "openapi", schema(value_type = String, format = "hex"))]
+    pub billing_contract: Address,
+    /// The last block the indexer synced the Billing Contract's events through.
+    pub block_number: u64,
+    /// The RPs `isBilledRp` reports as billed at `block_number`, in ascending order.
+    #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>))]
+    pub billed_rp_ids: Vec<crate::rp::RpId>,
+}
+
 /// Response containing the recovery agent from the indexer.
 #[derive(Debug, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -656,6 +672,8 @@ pub enum IndexerErrorCode {
     ///
     /// The account cannot produce proofs until the key is replaced.
     InvalidAuthenticatorPubkey,
+    /// The indexer has not synced the Billing Contract yet.
+    BillingNotSynced,
 }
 
 /// Gateway error codes.

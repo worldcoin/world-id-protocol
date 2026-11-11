@@ -24,6 +24,15 @@ pub struct AppState {
     pub registry: Arc<WorldIdRegistryInstance<DynProvider>>,
     pub tree_state: TreeState,
     pub verifier: Arc<WorldIdVerifierInstance<DynProvider>>,
+    /// The Billing Contract `GET /billing/billed-rps` serves, if billing is indexed.
+    pub billing: Option<BillingContract>,
+}
+
+/// The indexed Billing Contract and the chain it is on.
+#[derive(Debug, Clone, Copy)]
+pub struct BillingContract {
+    pub address: Address,
+    pub chain_id: u64,
 }
 
 impl AppState {
@@ -32,12 +41,14 @@ impl AppState {
         registry: Arc<WorldIdRegistryInstance<DynProvider>>,
         tree_state: TreeState,
         verifier: Arc<WorldIdVerifierInstance<DynProvider>>,
+        billing: Option<BillingContract>,
     ) -> Self {
         Self {
             db,
             registry,
             tree_state,
             verifier,
+            billing,
         }
     }
 }
@@ -105,6 +116,46 @@ pub struct GlobalConfig {
     pub provider: ProviderArgs,
     pub registry_address: Address,
     pub tree_cache: TreeCacheConfig,
+    /// The WIP-107 Billing Contract to index, if any.
+    pub billing: Option<BillingConfig>,
+}
+
+/// The WIP-107 Billing Contract whose `BilledRpUpdated` events the indexer syncs and serves at
+/// `GET /billing/billed-rps`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BillingConfig {
+    /// The Billing Contract's proxy address.
+    pub address: Address,
+    /// The block to sync from, e.g. the contract's deployment block.
+    pub start_block: u64,
+}
+
+impl BillingConfig {
+    /// Reads `BILLING_ADDRESS` and `BILLING_START_BLOCK`. Billing is not indexed when
+    /// `BILLING_ADDRESS` is unset.
+    pub fn from_env() -> Result<Option<Self>, ConfigError> {
+        let Ok(address) = std::env::var("BILLING_ADDRESS") else {
+            return Ok(None);
+        };
+        let address = address
+            .parse::<Address>()
+            .map_err(|e| ConfigError::InvalidBillingAddress(format!("{address}: {e}")))?;
+        if address.is_zero() {
+            return Err(ConfigError::InvalidBillingAddress(
+                "address cannot be zero".to_string(),
+            ));
+        }
+        let start_block = match std::env::var("BILLING_START_BLOCK") {
+            Ok(raw) => raw
+                .parse()
+                .map_err(|e| ConfigError::InvalidBillingStartBlock(format!("{raw}: {e}")))?,
+            Err(_) => 0,
+        };
+        Ok(Some(Self {
+            address,
+            start_block,
+        }))
+    }
 }
 
 #[derive(Debug)]
@@ -313,6 +364,10 @@ pub enum ConfigError {
     InvalidDbPollInterval(String),
     #[error("provider configuration error: {0}")]
     Provider(String),
+    #[error("invalid BILLING_ADDRESS: {0}")]
+    InvalidBillingAddress(String),
+    #[error("invalid BILLING_START_BLOCK: {0}")]
+    InvalidBillingStartBlock(String),
 }
 
 impl GlobalConfig {
@@ -346,6 +401,7 @@ impl GlobalConfig {
         }
 
         let tree_cache = TreeCacheConfig::from_env()?;
+        let billing = BillingConfig::from_env()?;
 
         Ok(Self {
             environment,
@@ -354,6 +410,7 @@ impl GlobalConfig {
             provider,
             registry_address,
             tree_cache,
+            billing,
         })
     }
 }
@@ -411,7 +468,66 @@ mod tests {
             env::remove_var("TREE_CACHE_FILE");
             env::remove_var("TREE_DEPTH");
             env::remove_var("TREE_HTTP_CACHE_REFRESH_INTERVAL_SECS");
+
+            // Billing config
+            env::remove_var("BILLING_ADDRESS");
+            env::remove_var("BILLING_START_BLOCK");
         }
+    }
+
+    #[test]
+    #[serial]
+    fn test_billing_config_is_optional() {
+        clear_all_config_env();
+        assert_eq!(BillingConfig::from_env().unwrap(), None);
+    }
+
+    #[test]
+    #[serial]
+    fn test_billing_config_from_env() {
+        clear_all_config_env();
+        set_env(
+            "BILLING_ADDRESS",
+            "0x00000000000000000000000000000000000000b1",
+        );
+        set_env("BILLING_START_BLOCK", "1234");
+
+        assert_eq!(
+            BillingConfig::from_env().unwrap(),
+            Some(BillingConfig {
+                address: "0x00000000000000000000000000000000000000b1"
+                    .parse()
+                    .unwrap(),
+                start_block: 1234,
+            })
+        );
+
+        unsafe { env::remove_var("BILLING_START_BLOCK") };
+        assert_eq!(BillingConfig::from_env().unwrap().unwrap().start_block, 0);
+    }
+
+    #[test]
+    #[serial]
+    fn test_billing_config_rejects_invalid_values() {
+        clear_all_config_env();
+        set_env(
+            "BILLING_ADDRESS",
+            "0x0000000000000000000000000000000000000000",
+        );
+        assert!(matches!(
+            BillingConfig::from_env(),
+            Err(ConfigError::InvalidBillingAddress(_))
+        ));
+
+        set_env(
+            "BILLING_ADDRESS",
+            "0x00000000000000000000000000000000000000b1",
+        );
+        set_env("BILLING_START_BLOCK", "latest");
+        assert!(matches!(
+            BillingConfig::from_env(),
+            Err(ConfigError::InvalidBillingStartBlock(_))
+        ));
     }
     #[test]
     fn test_environment_parsing() {

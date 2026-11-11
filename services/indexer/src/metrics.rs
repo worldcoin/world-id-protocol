@@ -10,6 +10,10 @@ pub const METRICS_TREE_SYNC_LATENCY_MS: &str = "tree.sync_latency_ms";
 pub const METRICS_TREE_SYNC_EVENTS: &str = "tree.sync_events";
 pub const METRICS_TREE_LAST_SYNCED_BLOCK: &str = "tree.last_synced_block";
 
+pub const METRICS_BILLING_SYNCED_BLOCK: &str = "billing.synced_block";
+pub const METRICS_BILLING_REORGS: &str = "billing.reorgs";
+pub const METRICS_BILLING_SYNC_ERRORS: &str = "billing.sync_errors";
+
 pub use world_id_services_common::METRICS_HTTP_LATENCY_MS;
 
 pub fn describe_metrics() {
@@ -50,6 +54,22 @@ pub fn describe_metrics() {
         "Block number of the last DB event synced into the tree."
     );
 
+    ::metrics::describe_gauge!(
+        METRICS_BILLING_SYNCED_BLOCK,
+        ::metrics::Unit::Count,
+        "Last block the Billing Contract's events were synced through."
+    );
+    ::metrics::describe_counter!(
+        METRICS_BILLING_REORGS,
+        ::metrics::Unit::Count,
+        "Reorganizations detected while syncing the Billing Contract."
+    );
+    ::metrics::describe_counter!(
+        METRICS_BILLING_SYNC_ERRORS,
+        ::metrics::Unit::Count,
+        "Failed Billing Contract sync iterations, by stage."
+    );
+
     world_id_services_common::describe_http_request_metrics();
     world_id_services_common::describe_deprecated_endpoint_metrics();
 
@@ -78,4 +98,16 @@ pub fn record_tree_sync(events: usize, latency_ms: f64, last_synced_block: u64) 
 
 pub fn set_tree_last_synced_block(block_number: u64) {
     ::metrics::gauge!(METRICS_TREE_LAST_SYNCED_BLOCK).set(block_number as f64);
+}
+
+pub fn set_billing_synced_block(block_number: u64) {
+    ::metrics::gauge!(METRICS_BILLING_SYNCED_BLOCK).set(block_number as f64);
+}
+
+pub fn increment_billing_reorgs() {
+    ::metrics::counter!(METRICS_BILLING_REORGS).increment(1);
+}
+
+pub fn increment_billing_sync_errors(stage: &'static str) {
+    ::metrics::counter!(METRICS_BILLING_SYNC_ERRORS, "stage" => stage).increment(1);
 }

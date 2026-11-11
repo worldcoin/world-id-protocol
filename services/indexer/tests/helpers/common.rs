@@ -77,7 +77,7 @@ impl TestSetup {
     }
 
     /// Provider that signs as the anvil deployer account.
-    fn provider(&self) -> DynProvider {
+    pub fn provider(&self) -> DynProvider {
         let deployer = self._anvil.signer(0).unwrap();
         ProviderBuilder::new()
             .wallet(EthereumWallet::from(deployer))

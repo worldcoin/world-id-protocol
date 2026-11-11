@@ -39,6 +39,18 @@ In `HttpOnly` mode the tree is not versioned; instead a background loop polls th
 
 The HTTP server serves inclusion proofs for public keys. It is backed by the shared DB and in-memory tree. An optional periodic sanity check (`SANITY_CHECK_INTERVAL_SECS`) calls `isValidRoot` on the registry contract to verify the in-memory root is still valid on-chain.
 
+### Billing Contract
+
+With `BILLING_ADDRESS` set, the indexer modes also sync the WIP-107 Billing Contract's `BilledRpUpdated` events from `BILLING_START_BLOCK`, and the HTTP modes serve the billed RPs at `GET /billing/billed-rps`:
+
+```json
+{ "chain_id": 480, "billing_contract": "0x…", "block_number": 23001234, "billed_rp_ids": ["rp_000000000000002a"] }
+```
+
+`block_number` is the last block synced. Before the first sync the endpoint answers `503` with `billing_not_synced`; without `BILLING_ADDRESS` it answers `404`.
+
+The sync runs on its own checkpoint (`billing_sync_checkpoints`), independent of the registry pipeline: billing events carry no Merkle root to commit against. Events are stored append-only in `billed_rp_events`, and an RP's status is its latest event. Each sync step first re-reads the checkpoint block's hash; if it changed, the events of the last 256 blocks are deleted and synced again, in process. RPC and database failures are retried with exponential backoff and jitter, and counted in `billing.sync_errors`; `billing.synced_block` and `billing.reorgs` track progress.
+
 ### Reorg Handling
 
 Reorgs are detected during batch commit in two ways:
@@ -79,6 +91,8 @@ This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initi
 | `REQUEST_TIMEOUT_SECS` | `10` | HTTP request timeout |
 | `SANITY_CHECK_INTERVAL_SECS` | unset | Interval for root sanity check; disabled if unset or `0` |
 | `ENVIRONMENT` | `development` | `production`, `staging`, or `development` |
+| `BILLING_ADDRESS` | unset | WIP-107 Billing Contract proxy to sync and serve at `/billing/billed-rps`; billing is not indexed if unset |
+| `BILLING_START_BLOCK` | `0` | Block to start syncing the Billing Contract from, e.g. its deployment block |
 
 ## Developing Locally
 
