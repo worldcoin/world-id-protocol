@@ -5,6 +5,9 @@
 //! query into the `billingNullifier` the Billing Contract registers. Period boundaries follow
 //! the Anywhere on Earth (AoE) calendar months of WIP-107 §4.3.
 //!
+//! [`BillingState`] holds the billed RPs and registrations a TEE Verifier checks requests
+//! against, built from [`BillingOp`]s its host derives from the Billing Contract's logs (§4.8).
+//!
 //! Everything but [`BILLED_ACTION_PREFIX`] builds without the `protocol` feature, so a TEE
 //! Verifier can check billing state without the proof and OPRF dependencies.
 
@@ -23,10 +26,12 @@ use crate::{
 
 #[cfg(feature = "protocol")]
 mod registration;
+mod state;
 #[cfg(feature = "protocol")]
 pub use registration::{
     BillingRegistration, BillingWitness, RegistrationAuthorization, registration_period_start,
 };
+pub use state::{BillingOp, BillingState, BillingStateError, Registration};
 
 /// The most significant byte an RP-signed action MUST carry to authorize a billing registration
 /// (WIP-107 §4.1). Reserved for Proofs of Embedding Similarity.
