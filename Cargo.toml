@@ -1,5 +1,6 @@
 [workspace]
 members = [
+  "crates/billing-follower",
   "crates/core",
   "crates/flamingo",
   "crates/authenticator",
@@ -181,6 +182,7 @@ world-id-issuer = { version = "0.21.0", path = "crates/issuer" }
 world-id-proof = { version = "0.21.0", path = "crates/proof" }
 world-id-rp = { version = "0.21.0", path = "crates/rp" }
 world-id-registries = { version = "0.21.0", path = "crates/registries" }
+world-id-billing-follower = { version = "0.21.0", path = "crates/billing-follower" }
 world-id-authenticator = { version = "0.21.0", path = "crates/authenticator" }
 world-id-primitives = { version = "0.21.0", path = "crates/primitives" }
 world-id-flamingo = { version = "0.21.0", path = "crates/flamingo" }

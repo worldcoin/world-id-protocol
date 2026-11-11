@@ -50,6 +50,7 @@
 ## Crates
 
 - `crates/authenticator/`: Authenticator functionality for World ID.
+- `crates/billing-follower/`: Follows the WIP-107 Billing Contract and emits the billing state a TEE Verifier's host supplies.
 - `crates/core/`: Top-level integration layer that exposes full protocol functionality.
 - `crates/flamingo/`: WIP-201 Flamingo Verifier types (Flamingo Token, Engine configuration hash).
 - `crates/issuer/`: Issuer functionality for World ID.

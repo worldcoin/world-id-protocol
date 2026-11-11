@@ -12399,6 +12399,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-billing-follower"
+version = "0.21.0"
+dependencies = [
+ "alloy",
+ "eyre",
+ "metrics",
+ "rand 0.8.6",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
+ "world-id-primitives",
+ "world-id-registries",
+ "world-id-test-utils",
+]
+
+[[package]]
 name = "world-id-core"
 version = "0.21.0"
 dependencies = [
