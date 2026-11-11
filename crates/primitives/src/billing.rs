@@ -39,7 +39,8 @@ pub const BILLING_ACTION_DOMAIN: &str = "world-id-billing-v1";
 /// Overlap between consecutive billing periods, in seconds (WIP-107 §4.1).
 pub const PERIOD_OVERLAP: u64 = 93_600;
 
-/// Maximum age of an `isBilledRp` read a TEE Verifier relies on, in seconds (WIP-107 §4.1).
+/// Maximum time since the host's last billing state update a TEE Verifier relies on, in seconds
+/// (WIP-107 §4.1).
 pub const MAX_RP_STATUS_AGE: u64 = 60;
 
 /// Offset of 00:00:00 AoE (UTC−12:00) from 00:00:00 UTC, in seconds.
