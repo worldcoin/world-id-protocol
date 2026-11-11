@@ -35,8 +35,7 @@ impl EmbeddingSimilarityParams {
     ///
     /// # Errors
     /// Returns [`PrimitiveError::InvalidInput`] if the `action` does not carry
-    /// [`OprfPrefix::EmbeddingSimilarity`], the `challenge_hash` is zero, or an AAT hint exceeds
-    /// its width.
+    /// [`OprfPrefix::EmbeddingSimilarity`] or the `challenge_hash` is zero.
     pub fn validate(&self) -> Result<(), PrimitiveError> {
         if !self.action.has_prefix(OprfPrefix::EmbeddingSimilarity) {
             return Err(PrimitiveError::InvalidInput {
@@ -53,7 +52,7 @@ impl EmbeddingSimilarityParams {
                 reason: "must not be zero".to_string(),
             });
         }
-        self.aat.as_ref().map_or(Ok(()), AatRequirements::validate)
+        Ok(())
     }
 }
 

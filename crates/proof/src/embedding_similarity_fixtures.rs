@@ -240,14 +240,14 @@ fn billing(leaf_index: u64, rp_id: u64) -> (FieldElement, [FieldElement; 2]) {
 
 /// The account's authorization message for a Flamingo Token digest and the RP's signal.
 fn authorization_message(
-    digest: FieldElement,
+    flamingo_token_digest: FieldElement,
     verifier_key: &EdDSAPublicKey,
     signal_hash: FieldElement,
 ) -> FieldElement {
     poseidon::hash(
         ds::EMBEDDING_SIMILARITY_AUTH,
         [
-            digest,
+            flamingo_token_digest,
             verifier_key.pk.x.into(),
             verifier_key.pk.y.into(),
             signal_hash,

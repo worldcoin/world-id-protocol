@@ -29,6 +29,9 @@ zstd-compress-zkeys = ["authenticator", "embed-zkeys", "world-id-proof/zstd-comp
 embed-ownership-prover = ["authenticator", "world-id-proof/embed-ownership-prover"]
 embed-ownership-verifier = ["authenticator", "world-id-proof/embed-ownership-verifier"]
 embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+# UNAUDITED. The WIP-202 Proof of Embedding Similarity prover/verifier.
+embed-embedding-similarity-prover = ["authenticator", "world-id-authenticator/embed-embedding-similarity-prover"]
+embed-embedding-similarity-verifier = ["authenticator", "world-id-authenticator/embed-embedding-similarity-verifier"]
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
@@ -36,7 +39,8 @@ issuer = [
     "dep:world-id-issuer",
 ]
 
-rp = []
+# RP-side verification of the WIP-202 Proof of Embedding Similarity (§4.8).
+rp = ["dep:world-id-proof", "dep:world-id-rp"]
 
 [dependencies]
 eddsa-babyjubjub = { workspace = true }
@@ -45,6 +49,7 @@ eddsa-babyjubjub = { workspace = true }
 world-id-issuer = { workspace = true, optional = true }
 world-id-proof = { workspace = true, optional = true }
 world-id-authenticator = { workspace = true, optional = true }
+world-id-rp = { workspace = true, optional = true }
 world-id-primitives = { workspace = true }
 world-id-registries = { workspace = true }
 
@@ -57,6 +62,15 @@ required-features = ["embed-zkeys"]
 name = "billing_registration"
 required-features = ["embed-zkeys"]
 
+[[test]]
+name = "embedding_similarity"
+required-features = [
+    "rp",
+    "embed-zkeys",
+    "embed-embedding-similarity-prover",
+    "embed-embedding-similarity-verifier",
+]
+
 [dev-dependencies]
 alloy = { workspace = true }
 ark-babyjubjub = { workspace = true }
@@ -64,7 +78,7 @@ poseidon2 = { workspace = true }
 reqwest = { workspace = true }
 world-id-test-utils = { path = "../test-utils" }
 world-id-gateway = { path = "../../services/gateway" }
-world-id-oprf-node = { workspace = true }
+world-id-oprf-node = { path = "../../services/oprf-node" }
 taceo-oprf = { workspace = true, features = ["types", "dev-client"] }
 backon = { workspace = true }
 chrono = { workspace = true }
@@ -76,3 +90,6 @@ serde_json = { workspace = true }
 rand = { workspace = true }
 eyre = { workspace = true }
 rustls = { workspace = true }
+sha2 = { workspace = true }
+world-id-flamingo = { workspace = true }
+world-id-proof = { workspace = true }

@@ -35,6 +35,14 @@ allow = [
     "Zlib",
 ]
 
+# cargo-deny cannot infer webpki's ISC license from its text. Reached via pontifex's Nitro
+# attestation check (`world-id-rp`). Same clarification as flamingo's deny.toml.
+[[licenses.clarify]]
+name = "webpki"
+version = "0.22.4"
+expression = "ISC"
+license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
+
 [advisories]
 ignore = [
     "RUSTSEC-2024-0388", # Unmaintained `derivative` (2024-11-22)

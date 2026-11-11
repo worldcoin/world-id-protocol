@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.20.0...world-id-primitives-v0.21.0) - 2026-11-11
+
+### Added
+
+- [**breaking**] drop the unused AAT flag hints from embedding similarity requests ([#1209](https://github.com/worldcoin/world-id-protocol/pull/1209))
+- [**breaking**] generate and verify WIP-202 Proof of Embedding Similarity ([#1177](https://github.com/worldcoin/world-id-protocol/pull/1177))
+- *(gateway)* relay WIP-107 billing registrations to WorldIDBilling.register ([#1197](https://github.com/worldcoin/world-id-protocol/pull/1197))
+- verify the WIP-202 Proof of Embedding Similarity as an RP ([#1202](https://github.com/worldcoin/world-id-protocol/pull/1202))
+- *(authenticator)* generate the WIP-202 Proof of Embedding Similarity ([#1201](https://github.com/worldcoin/world-id-protocol/pull/1201))
+- *(authenticator)* submit billing registrations, with an end-to-end test ([#1198](https://github.com/worldcoin/world-id-protocol/pull/1198))
+
+### Other
+
+- *(wip-107)* [**breaking**] read billing state at the latest block ([#1211](https://github.com/worldcoin/world-id-protocol/pull/1211))
+- [**breaking**] one error module, input checks in their proof modules, shared backend helpers ([#1204](https://github.com/worldcoin/world-id-protocol/pull/1204))
+- add the WorldIDBilling binding and a billing test harness ([#1196](https://github.com/worldcoin/world-id-protocol/pull/1196))
+
 ## [0.20.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.19.0...world-id-primitives-v0.20.0) - 2026-11-06
 
 ### Added

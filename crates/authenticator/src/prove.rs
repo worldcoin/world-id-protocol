@@ -103,7 +103,7 @@ impl Authenticator {
         ))
     }
 
-    async fn prepare_authenticator_input(
+    pub(crate) async fn prepare_authenticator_input(
         &self,
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
     ) -> Result<AuthenticatorProofInput, AuthenticatorError> {

@@ -4,9 +4,8 @@ use crate::{
     AppState,
     batch_policy::{BaseFeeCache, spawn_base_fee_sampler},
     batcher::{
-        BatcherHandle, BillingBatcherHandle, BillingBatcherRunner, BillingStrategy,
-        CreateBatcherHandle, CreateBatcherRunner, CreateStrategy, OpsBatcherHandle,
-        OpsBatcherRunner, OpsStrategy,
+        BatcherHandle, BillingSender, BillingSenderHandle, CreateBatcherHandle,
+        CreateBatcherRunner, CreateStrategy, OpsBatcherHandle, OpsBatcherRunner, OpsStrategy,
     },
     config::{
         BatchPolicyConfig, BatcherConfig, OrphanSweeperConfig, RateLimitConfig, RegistryVersion,
@@ -89,10 +88,15 @@ pub(crate) mod validation;
 const ROOT_CACHE_SIZE: u64 = 1024;
 const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
-/// Time for a sent billing batch to be included, on top of the longest a registration stays
-/// queued.
+/// Time for a sent billing registration to be included, on top of the longest it stays queued.
 const BILLING_INCLUSION_MARGIN_SECS: u64 = 30;
-const BILLING_BATCHER_CHANNEL_CAPACITY: usize = 2048;
+/// Registrations the billing sender holds before the gateway sheds new ones with a 503.
+///
+/// Each registration is its own RPC send under the shared send lock, so this bounds how long the
+/// last one waits: at ~200 ms per send it drains in under 30 s, within the orphan sweeper's
+/// default 60 s `Queued` threshold. A larger queue would accept registrations only for the sweeper
+/// to fail them.
+const BILLING_SENDER_CHANNEL_CAPACITY: usize = 128;
 
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
@@ -114,8 +118,8 @@ pub(crate) async fn build_app(
     )
     .await;
     let base_fee_cache = BaseFeeCache::default();
-    // A registration behind a backlog waits for more than `max_wait_secs`, but none stays queued
-    // past the orphan sweeper's deadline plus one sweep.
+    // A registration behind a burst of sends may wait, but none stays queued past the orphan
+    // sweeper's deadline plus one sweep.
     let billing_min_validity_secs = orphan_sweeper_config.stale_queued_threshold_secs
         + orphan_sweeper_config.interval_secs
         + BILLING_INCLUSION_MARGIN_SECS;
@@ -160,22 +164,18 @@ pub(crate) async fn build_app(
 
     tracing::info!("Ops batcher initialized");
 
-    // billing batcher (WIP-107 registrations), only with a Billing Contract
-    let billing_batcher = billing_addr.map(|billing_addr| {
-        let (btx, brx) = mpsc::channel(BILLING_BATCHER_CHANNEL_CAPACITY);
-        let runner = BillingBatcherRunner::new(
-            registry.clone(),
-            batcher_config.max_ops_batch_size,
-            BILLING_BATCHER_CHANNEL_CAPACITY,
+    // billing sender (WIP-107 registrations, one transaction each), only with a Billing Contract
+    let billing_sender = billing_addr.map(|billing_addr| {
+        let (btx, brx) = mpsc::channel(BILLING_SENDER_CHANNEL_CAPACITY);
+        let sender = BillingSender::new(
             brx,
+            registry.provider().clone(),
+            billing_addr,
             tracker.clone(),
-            batch_policy_config,
-            base_fee_cache,
             tx_send_lock,
-            BillingStrategy::new(billing_addr),
         );
-        tokio::spawn(runner.run());
-        BillingBatcherHandle { tx: btx }
+        tokio::spawn(sender.run());
+        BillingSenderHandle { tx: btx }
     });
     let billing = billing_addr.map(|billing_addr| {
         Arc::new(WorldIdBilling::new(
@@ -201,7 +201,7 @@ pub(crate) async fn build_app(
     let batcher_handle = BatcherHandle {
         create: batcher,
         ops: ops_batcher,
-        billing: billing_batcher,
+        billing: billing_sender,
     };
     let ctx = GatewayContext {
         registry: registry.clone(),

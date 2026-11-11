@@ -27,6 +27,9 @@ zstd-compress-zkeys = ["embed-zkeys", "world-id-proof/zstd-compress-zkeys"]
 embed-ownership-prover = ["world-id-proof/embed-ownership-prover"]
 embed-ownership-verifier = ["world-id-proof/embed-ownership-verifier"]
 embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
+# UNAUDITED. The WIP-202 Proof of Embedding Similarity prover/verifier.
+embed-embedding-similarity-prover = ["world-id-proof/embed-embedding-similarity-prover"]
+embed-embedding-similarity-verifier = ["world-id-proof/embed-embedding-similarity-verifier"]
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
 
@@ -75,6 +78,7 @@ hex = { workspace = true }
 base64 = { workspace = true }
 
 # Internal
+world-id-flamingo = { workspace = true }
 world-id-proof = { workspace = true }
 world-id-registries = { workspace = true }
 

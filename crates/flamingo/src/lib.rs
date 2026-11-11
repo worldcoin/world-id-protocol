@@ -11,7 +11,8 @@ pub use engine_provider::{EngineProviderMetadata, ReleaseStatus};
 pub use release_manifest::{MAX_PIPELINE_INPUTS, ManifestError, ReleaseManifest, ResponseSlots};
 pub use request::{AatInputs, Entry, Payload, Request, RequestError};
 pub use token::{
-    EAT_PROFILE, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_COMPARED, TokenError,
+    AatFlags, EAT_PROFILE, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_COMPARED,
+    TokenError,
 };
 
 /// Version of the request map.
