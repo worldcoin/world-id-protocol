@@ -70,7 +70,7 @@ pub fn nitro_attestation_verifier(
 
 /// The AAT flags an RP allowlists (WIP-106 §4 item 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct AatFlags {
+pub struct AcceptedAatFlags {
     /// The platform.
     pub platform: u8,
     /// The security level.
@@ -81,7 +81,7 @@ pub struct AatFlags {
     pub authenticator_meta: u8,
 }
 
-impl From<&AatPublicValues> for AatFlags {
+impl From<&AatPublicValues> for AcceptedAatFlags {
     fn from(aat: &AatPublicValues) -> Self {
         Self {
             platform: aat.platform,
@@ -101,7 +101,7 @@ pub struct AatPolicy {
     /// Authenticator Providers that are active or retired, never revoked.
     pub trust_anchor_key_hashes: HashSet<FieldElement>,
     /// The flag combinations the RP accepts.
-    pub accepted_flags: HashSet<AatFlags>,
+    pub accepted_flags: HashSet<AcceptedAatFlags>,
 }
 
 /// What an RP accepts in a Proof of Embedding Similarity, beyond its own request.
@@ -329,7 +329,7 @@ fn check_aat(
     {
         return Err(Error::AatNotAccepted("trust_anchor_key_hash"));
     }
-    if !policy.accepted_flags.contains(&AatFlags::from(aat)) {
+    if !policy.accepted_flags.contains(&AcceptedAatFlags::from(aat)) {
         return Err(Error::AatNotAccepted("flags"));
     }
     Ok(())
@@ -423,7 +423,7 @@ mod tests {
         AatPolicy {
             required: false,
             trust_anchor_key_hashes: HashSet::from([aat.trust_anchor_key_hash]),
-            accepted_flags: HashSet::from([AatFlags::from(aat)]),
+            accepted_flags: HashSet::from([AcceptedAatFlags::from(aat)]),
         }
     }
 
