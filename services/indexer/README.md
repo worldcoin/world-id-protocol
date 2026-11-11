@@ -49,7 +49,7 @@ With `BILLING_ADDRESS` set, the indexer modes also sync the WIP-107 Billing Cont
 
 `block_number` is the last block synced. Before the first sync the endpoint answers `503` with `billing_not_synced`; without `BILLING_ADDRESS` it answers `404`.
 
-The sync runs on its own checkpoint (`billing_sync_checkpoints`), independent of the registry pipeline: billing events carry no Merkle root to commit against. Events are stored append-only in `billed_rp_events`, and an RP's status is its latest event. Each sync step first re-reads the checkpoint block's hash; if it changed, the events of the last 256 blocks are deleted and synced again, in process. RPC and database failures are retried with exponential backoff and jitter, and counted in `billing.sync_errors`; `billing.synced_block` and `billing.reorgs` track progress.
+The sync runs on its own checkpoint (`billing_sync_checkpoints`), independent of the registry pipeline: billing events carry no Merkle root to commit against. Events are stored append-only in `billed_rp_events`, and an RP's status is its latest event. Each sync step first re-reads the checkpoint block's hash; if it changed, the events of the last 256 blocks (all of them, if the start block is that recent) are deleted and synced again, in process. A sync restarted from the start block answers `503` until it has caught up again. RPC and database failures are retried with exponential backoff and jitter, and counted in `billing.sync_errors`; `billing.synced_block` and `billing.reorgs` track progress.
 
 ### Reorg Handling
 

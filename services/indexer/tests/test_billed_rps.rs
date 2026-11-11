@@ -151,6 +151,64 @@ async fn test_billed_rps_follow_the_billing_contract_through_a_reorg() {
     indexer_task.abort();
 }
 
+/// A reorganization of the start block itself drops the events synced from it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_billed_rps_reorg_of_the_start_block() {
+    let setup = TestSetup::new().await;
+    let deployer = setup._anvil.signer(0).unwrap();
+    let billing = setup
+        ._anvil
+        .deploy_world_id_billing(deployer, setup.verifier_address, setup.registry_address)
+        .await
+        .expect("failed to deploy WorldIDBilling")
+        .billing;
+    let provider = setup.provider();
+
+    let snapshot: alloy::primitives::U256 = provider
+        .raw_request("evm_snapshot".into(), ())
+        .await
+        .unwrap();
+    // `setBilledRp` is mined in the next block, which the sync starts from.
+    let start_block = provider.get_block_number().await.unwrap() + 1;
+    set_billed(&provider, billing, 7, true).await;
+
+    let global_config = config(
+        &setup,
+        RunMode::Both {
+            indexer_config: IndexerConfig {
+                start_block: 0,
+                batch_size: 1000,
+                tree_max_block_age: 1000,
+                blockchain_poll_interval_ms: 200,
+                max_concurrent_log_requests: 1,
+            },
+            http_config: http_config(&setup, 8122),
+        },
+        Some(BillingConfig {
+            address: billing,
+            start_block,
+        }),
+    );
+    let indexer_task = tokio::spawn(async move {
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
+    });
+    TestSetup::wait_for_health("http://127.0.0.1:8122").await;
+    wait_for_billed_rps("http://127.0.0.1:8122", &[7]).await;
+
+    let reverted: bool = provider
+        .raw_request("evm_revert".into(), (snapshot,))
+        .await
+        .unwrap();
+    assert!(reverted);
+    let _: () = provider
+        .raw_request("anvil_mine".into(), (5u64,))
+        .await
+        .unwrap();
+    wait_for_billed_rps("http://127.0.0.1:8122", &[]).await;
+
+    indexer_task.abort();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_billed_rps_before_the_first_sync() {
     let setup = TestSetup::new().await;

@@ -110,6 +110,24 @@ impl<'a> Billing<'a> {
         Ok(deleted)
     }
 
+    /// Deletes all events and the checkpoint, atomically, so the next sync starts over from the
+    /// start block.
+    #[instrument(level = "info", skip(self))]
+    pub async fn reset(&self) -> DBResult<u64> {
+        let mut tx = self.pool.begin().await?;
+        let deleted = sqlx::query("DELETE FROM billed_rp_events WHERE billing_contract = $1")
+            .bind(self.contract.as_slice())
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        sqlx::query("DELETE FROM billing_sync_checkpoints WHERE billing_contract = $1")
+            .bind(self.contract.as_slice())
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(deleted)
+    }
+
     /// The billed RPs as of the checkpoint, or `None` before the first sync.
     ///
     /// Reads the checkpoint and the events in one snapshot, so the set matches `block_number`.

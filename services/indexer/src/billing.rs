@@ -4,7 +4,7 @@
 //! The sync runs on its own checkpoint, independent of the registry pipeline: billing events
 //! carry no Merkle root, so they cannot wait for one. A reorganization is detected by re-reading
 //! the checkpoint block's hash; on a mismatch the events of the last [`REORG_REWIND_BLOCKS`] are
-//! deleted and synced again.
+//! deleted and synced again, from the start block if it is that recent.
 
 use std::{
     hash::{BuildHasher as _, Hasher as _},
@@ -112,21 +112,27 @@ async fn sync_step(
     if let Some(checkpoint) = checkpoint {
         let current = block_hash(provider, checkpoint.block_number).await?;
         if current != checkpoint.block_hash {
-            let target = checkpoint
+            // Resync from `resume_from`, its events included: keep only the blocks before it.
+            let resume_from = checkpoint
                 .block_number
                 .saturating_sub(REORG_REWIND_BLOCKS)
                 .max(config.start_block);
-            let target = BillingCheckpoint {
-                block_number: target,
-                block_hash: block_hash(provider, target).await?,
+            let deleted = if resume_from == config.start_block {
+                billing.reset().await?
+            } else {
+                let kept_through = resume_from - 1;
+                billing
+                    .rewind(BillingCheckpoint {
+                        block_number: kept_through,
+                        block_hash: block_hash(provider, kept_through).await?,
+                    })
+                    .await?
             };
-            let deleted = billing.rewind(target).await?;
             metrics::increment_billing_reorgs();
-            metrics::set_billing_synced_block(target.block_number);
             tracing::warn!(
                 billing_contract = %config.address,
                 from_block = checkpoint.block_number,
-                to_block = target.block_number,
+                resume_from,
                 deleted,
                 "reorganization detected; rewound the Billing Contract sync"
             );
