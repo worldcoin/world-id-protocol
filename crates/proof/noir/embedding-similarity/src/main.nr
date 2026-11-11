@@ -15,7 +15,7 @@ use poseidon2::bn254::permutation;
 use types::PrivateInputs;
 use world_id_components::{
     authentication,
-    constants::{DS_OPRF_PROOF, DS_QUERY},
+    constants::{DS_NULLIFIER, DS_QUERY},
     credential::{self, CredentialPublic},
     session,
     types::PublicKey,
@@ -127,7 +127,7 @@ fn main(
     // Poseidon2 collision (WIP-202 Rationale 8).
     let billing_query = permutation::t4([DS_QUERY, leaf_index, rp_id, inputs.billing_action])[1];
     let own_nullifier = permutation::t4([
-        DS_OPRF_PROOF,
+        DS_NULLIFIER,
         billing_query,
         inputs.billing_oprf_output[0],
         inputs.billing_oprf_output[1],
