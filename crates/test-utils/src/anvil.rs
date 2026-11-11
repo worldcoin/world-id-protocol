@@ -193,6 +193,14 @@ pub mod world_id_billing {
     );
     sol!(
         #[sol(rpc)]
+        BillingEventEmitter,
+        concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../contracts/out/WorldIDBilling.t.sol/BillingEventEmitter.json"
+        )
+    );
+    sol!(
+        #[sol(rpc)]
         MockPriceSource,
         concat!(
             env!("CARGO_MANIFEST_DIR"),

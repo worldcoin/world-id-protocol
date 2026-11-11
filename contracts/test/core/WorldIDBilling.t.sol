@@ -52,6 +52,18 @@ contract FeeOnTransferToken is BillingToken {
 }
 
 /// @dev Mimics the World Chain `ChainlinkPriceFeed`: `updatedAt` is the report observation time.
+/// Emits the Billing Contract's state-changing events, so tests of off-chain log followers can
+/// register World IDs without registration proofs.
+contract BillingEventEmitter {
+    function registered(uint64 rpId, uint64 periodStart, uint256 billingNullifier) external {
+        emit IWorldIDBilling.Registered(rpId, periodStart, billingNullifier);
+    }
+
+    function billedRpUpdated(uint64 rpId, bool billed) external {
+        emit IWorldIDBilling.BilledRpUpdated(rpId, billed);
+    }
+}
+
 contract MockPriceSource {
     int256 public answer;
     uint256 public observedAt;

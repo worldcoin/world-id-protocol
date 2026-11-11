@@ -29,4 +29,5 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=../../contracts/src");
+    println!("cargo:rerun-if-changed=../../contracts/test");
 }
