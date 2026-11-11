@@ -1,11 +1,12 @@
 //! Unified batcher abstraction: generic policy-driven runner, per-batcher
-//! strategies, and the public handle/command routing layer.
+//! strategies, the unbatched billing sender, and the public handle/command
+//! routing layer.
 
 mod billing;
 mod create;
 mod ops;
 
-pub(crate) use billing::{BillingBatcherHandle, BillingBatcherRunner, BillingStrategy};
+pub(crate) use billing::{BillingSender, BillingSenderHandle};
 pub(crate) use create::{
     CreateBatcherHandle, CreateBatcherRunner, CreateReqEnvelope, CreateStrategy,
 };
@@ -43,7 +44,7 @@ pub struct BatcherHandle {
     pub create: CreateBatcherHandle,
     pub ops: OpsBatcherHandle,
     /// `None` when no Billing Contract is configured.
-    pub billing: Option<BillingBatcherHandle>,
+    pub billing: Option<BillingSenderHandle>,
 }
 
 impl BatcherHandle {
@@ -88,7 +89,7 @@ pub enum Command {
         id: Uuid,
         calldata: Bytes,
     },
-    /// A `WorldIDBilling.register` call, batched apart from registry operations.
+    /// A `WorldIDBilling.register` call, sent on its own as soon as it arrives.
     RegisterBilling {
         id: Uuid,
         calldata: Bytes,
@@ -212,124 +213,18 @@ where
     }
 
     async fn submit_common(&self, batch: Vec<E>) {
-        if batch.is_empty() {
-            return;
-        }
-
         let batch_type = self.strategy.batch_type();
-        let Some((batch, ids)) = self.claim_batch(batch).await else {
+        let Some((batch, ids)) = claim_requests(&self.tracker, batch_type, batch).await else {
             return;
         };
-
-        metrics::record_batch_submitted(batch_type, ids.len());
-
-        let _send_guard = self.tx_send_lock.lock().await;
-        let start = Instant::now();
-        match self.strategy.send_batch(&self.registry, batch).await {
-            Ok(sent) => {
-                // Record only the RPC send latency here.  The on-chain outcome
-                // (success / failure / confirmation latency) is recorded later
-                // in `spawn_receipt_tracker` once the receipt is obtained.
-                let send_latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_send_latency(batch_type, send_latency_ms);
-
-                tracing::info!(
-                    tx_hash = %sent.formatted_tx_hash,
-                    batch_type,
-                    batch_size = ids.len(),
-                    send_latency_ms,
-                    "batch transaction submitted to RPC node"
-                );
-
-                self.tracker
-                    .set_status_batch(
-                        &ids,
-                        GatewayRequestState::Submitted {
-                            tx_hash: sent.formatted_tx_hash.clone(),
-                        },
-                    )
-                    .await;
-
-                self.tracker.spawn_receipt_tracker(
-                    ids,
-                    sent.builder,
-                    sent.formatted_tx_hash,
-                    batch_type,
-                    start,
-                );
-            }
-            Err(err) => {
-                let send_latency_ms = start.elapsed().as_millis() as f64;
-                metrics::record_batch_send_failed(batch_type, send_latency_ms);
-
-                let error_str = err.to_string();
-                tracing::error!(
-                    error = %error_str,
-                    batch_type,
-                    send_latency_ms,
-                    "{batch_type} batch failed to submit to RPC node"
-                );
-                let code = parse_contract_error(&error_str);
-                self.tracker
-                    .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
-                    .await;
-            }
-        }
-    }
-
-    /// Moves the batch's requests from `Queued` to `Batching` and keeps only
-    /// the ones that were still queued.
-    ///
-    /// The orphan sweeper may already have failed a request that is still in
-    /// the local queue; sending it would act on a request its client was told
-    /// failed (and an expired billing registration would revert the whole
-    /// batch). Returns `None` when nothing is left to send, including when
-    /// Redis is unreachable: the requests then stay `Queued` and the sweeper
-    /// fails them.
-    async fn claim_batch(&self, batch: Vec<E>) -> Option<(Vec<E>, Vec<String>)> {
-        let batch_type = self.strategy.batch_type();
-        let ids: Vec<String> = batch.iter().map(|e| e.request_id().to_owned()).collect();
-
-        let claimed = match self.tracker.claim_for_batching(&ids).await {
-            Ok(claimed) => claimed,
-            Err(error) => {
-                tracing::error!(
-                    %error,
-                    batch_type,
-                    batch_size = ids.len(),
-                    request_ids = ?ids,
-                    "failed to claim batch requests in Redis; dropping batch, the orphan sweeper will fail them"
-                );
-                metrics::record_batch_requests_skipped(batch_type, "claim_error", ids.len());
-                return None;
-            }
-        };
-
-        let claimed_set: HashSet<&str> = claimed.iter().map(String::as_str).collect();
-        if claimed.len() < ids.len() {
-            let skipped: Vec<&str> = ids
-                .iter()
-                .map(String::as_str)
-                .filter(|id| !claimed_set.contains(id))
-                .collect();
-            tracing::warn!(
-                batch_type,
-                skipped = skipped.len(),
-                request_ids = ?skipped,
-                "skipping batch requests that are no longer queued (likely failed by the orphan sweeper)"
-            );
-            metrics::record_batch_requests_skipped(batch_type, "not_queued", skipped.len());
-        }
-
-        if claimed.is_empty() {
-            return None;
-        }
-
-        let batch = batch
-            .into_iter()
-            .filter(|e| claimed_set.contains(e.request_id()))
-            .collect();
-        Some((batch, claimed))
+        send_claimed(
+            &self.tracker,
+            &self.tx_send_lock,
+            batch_type,
+            ids,
+            self.strategy.send_batch(&self.registry, batch),
+        )
+        .await;
     }
 
     fn handle_no_backlog(&self, queue: &mut VecDeque<TimedEnvelope<E>>) {
@@ -452,6 +347,134 @@ where
                     }
                 },
             }
+        }
+    }
+}
+
+// ── Shared submission path ──────────────────────────────────────────────
+
+/// Moves `batch`'s requests from `Queued` to `Batching` and keeps only the ones that were still
+/// queued.
+///
+/// The orphan sweeper may already have failed a request that is still in a local queue; sending
+/// it would act on a request its client was told failed (and an expired billing registration
+/// would revert). Returns `None` when nothing is left to send, including when Redis is
+/// unreachable: the requests then stay `Queued` and the sweeper fails them.
+pub(crate) async fn claim_requests<E: BatcherEnvelope>(
+    tracker: &RequestTracker,
+    batch_type: &'static str,
+    batch: Vec<E>,
+) -> Option<(Vec<E>, Vec<String>)> {
+    if batch.is_empty() {
+        return None;
+    }
+    let ids: Vec<String> = batch.iter().map(|e| e.request_id().to_owned()).collect();
+
+    let claimed = match tracker.claim_for_batching(&ids).await {
+        Ok(claimed) => claimed,
+        Err(error) => {
+            tracing::error!(
+                %error,
+                batch_type,
+                batch_size = ids.len(),
+                request_ids = ?ids,
+                "failed to claim batch requests in Redis; dropping batch, the orphan sweeper will fail them"
+            );
+            metrics::record_batch_requests_skipped(batch_type, "claim_error", ids.len());
+            return None;
+        }
+    };
+
+    let claimed_set: HashSet<&str> = claimed.iter().map(String::as_str).collect();
+    if claimed.len() < ids.len() {
+        let skipped: Vec<&str> = ids
+            .iter()
+            .map(String::as_str)
+            .filter(|id| !claimed_set.contains(id))
+            .collect();
+        tracing::warn!(
+            batch_type,
+            skipped = skipped.len(),
+            request_ids = ?skipped,
+            "skipping batch requests that are no longer queued (likely failed by the orphan sweeper)"
+        );
+        metrics::record_batch_requests_skipped(batch_type, "not_queued", skipped.len());
+    }
+
+    if claimed.is_empty() {
+        return None;
+    }
+
+    let batch = batch
+        .into_iter()
+        .filter(|e| claimed_set.contains(e.request_id()))
+        .collect();
+    Some((batch, claimed))
+}
+
+/// Sends one transaction for the claimed requests `ids` under the gateway's send lock, marks them
+/// `Submitted` and tracks the receipt, or fails them if the RPC send fails.
+///
+/// Every sender shares one signer, so `tx_send_lock` keeps their nonces in order.
+pub(crate) async fn send_claimed(
+    tracker: &RequestTracker,
+    tx_send_lock: &Mutex<()>,
+    batch_type: &'static str,
+    ids: Vec<String>,
+    send: impl Future<Output = Result<PendingBatchTx, alloy::contract::Error>>,
+) {
+    metrics::record_batch_submitted(batch_type, ids.len());
+
+    let _send_guard = tx_send_lock.lock().await;
+    let start = Instant::now();
+    match send.await {
+        Ok(sent) => {
+            // Record only the RPC send latency here.  The on-chain outcome
+            // (success / failure / confirmation latency) is recorded later
+            // in `spawn_receipt_tracker` once the receipt is obtained.
+            let send_latency_ms = start.elapsed().as_millis() as f64;
+            metrics::record_batch_send_latency(batch_type, send_latency_ms);
+
+            tracing::info!(
+                tx_hash = %sent.formatted_tx_hash,
+                batch_type,
+                batch_size = ids.len(),
+                send_latency_ms,
+                "batch transaction submitted to RPC node"
+            );
+
+            tracker
+                .set_status_batch(
+                    &ids,
+                    GatewayRequestState::Submitted {
+                        tx_hash: sent.formatted_tx_hash.clone(),
+                    },
+                )
+                .await;
+
+            tracker.spawn_receipt_tracker(
+                ids,
+                sent.builder,
+                sent.formatted_tx_hash,
+                batch_type,
+                start,
+            );
+        }
+        Err(err) => {
+            let send_latency_ms = start.elapsed().as_millis() as f64;
+            metrics::record_batch_send_failed(batch_type, send_latency_ms);
+
+            let error_str = err.to_string();
+            tracing::error!(
+                error = %error_str,
+                batch_type,
+                send_latency_ms,
+                "{batch_type} batch failed to submit to RPC node"
+            );
+            let code = parse_contract_error(&error_str);
+            tracker
+                .set_status_batch(&ids, GatewayRequestState::failed(error_str, Some(code)))
+                .await;
         }
     }
 }
