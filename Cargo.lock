@@ -5574,7 +5574,6 @@ dependencies = [
  "once_cell",
  "serdect 0.2.0",
  "sha2 0.10.9",
- "signature 2.2.0",
 ]
 
 [[package]]
@@ -12659,7 +12658,7 @@ dependencies = [
  "eyre",
  "getrandom 0.4.1",
  "hex",
- "k256 0.13.4",
+ "k256 0.14.0",
  "p256 0.13.2",
  "percent-encoding",
  "provekit-common",
@@ -12823,7 +12822,7 @@ dependencies = [
  "axum",
  "eyre",
  "hex",
- "k256 0.13.4",
+ "k256 0.14.0",
  "rand 0.8.6",
  "reqwest 0.13.2",
  "secrecy",
