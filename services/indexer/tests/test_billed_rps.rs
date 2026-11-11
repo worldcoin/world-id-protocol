@@ -219,6 +219,62 @@ async fn test_billed_rps_reorg_of_the_start_block() {
     indexer_task.abort();
 }
 
+/// A reorganization to a chain far shorter than the synced block rewinds below the new head.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_billed_rps_reorg_to_a_much_shorter_chain() {
+    let setup = TestSetup::new().await;
+    let deployer = setup._anvil.signer(0).unwrap();
+    let billing = setup
+        ._anvil
+        .deploy_world_id_billing(deployer, setup.verifier_address, setup.registry_address)
+        .await
+        .expect("failed to deploy WorldIDBilling")
+        .billing;
+    let provider = setup.provider();
+    set_billed(&provider, billing, 7, true).await;
+
+    let global_config = config(
+        &setup,
+        RunMode::Both {
+            indexer_config: IndexerConfig {
+                start_block: 0,
+                batch_size: 1000,
+                tree_max_block_age: 1000,
+                blockchain_poll_interval_ms: 200,
+                max_concurrent_log_requests: 1,
+            },
+            http_config: http_config(&setup, 8123),
+        },
+        Some(billing_config(billing, 0, 0)),
+    );
+    let indexer_task = tokio::spawn(async move {
+        unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
+    });
+    TestSetup::wait_for_health("http://127.0.0.1:8123").await;
+    wait_for_billed_rps("http://127.0.0.1:8123", &[7]).await;
+
+    // The abandoned fork is more than `REORG_REWIND_BLOCKS` longer than the chain that replaces it.
+    let snapshot: alloy::primitives::U256 = provider
+        .raw_request("evm_snapshot".into(), ())
+        .await
+        .unwrap();
+    let _: () = provider
+        .raw_request("anvil_mine".into(), (300u64,))
+        .await
+        .unwrap();
+    set_billed(&provider, billing, 9, true).await;
+    wait_for_billed_rps("http://127.0.0.1:8123", &[7, 9]).await;
+
+    let reverted: bool = provider
+        .raw_request("evm_revert".into(), (snapshot,))
+        .await
+        .unwrap();
+    assert!(reverted);
+    wait_for_billed_rps("http://127.0.0.1:8123", &[7]).await;
+
+    indexer_task.abort();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_billed_rps_unavailable_before_a_current_sync() {
     let setup = TestSetup::new().await;

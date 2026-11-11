@@ -52,7 +52,7 @@ With `BILLING_ADDRESS` set, the indexer modes also sync the WIP-107 Billing Cont
 The sync runs on its own checkpoint (`billing_sync_checkpoints`), independent of the registry pipeline: billing events carry no Merkle root to commit against. Events are stored append-only in `billed_rp_events`, and an RP's status is its latest event.
 
 - Logs are read only `BILLING_CONFIRMATIONS` blocks below the head, so an RPC node behind the provider's fallback that lags slightly still has them.
-- Each step first re-reads the checkpoint block's hash. If it changed, or the chain is now shorter than the checkpoint, the events of the last 256 blocks (all of them, if the start block is that recent) are deleted and synced again, in process. A sync restarted from the start block answers `503` until it has caught up again.
+- Each step first re-reads the checkpoint block's hash. If it changed, or the chain no longer has that block, the events of the last 256 blocks below the lower of the checkpoint and the head (all of them, if the start block is that recent) are deleted and synced again, in process. A sync restarted from the start block answers `503` until it has caught up again.
 - A changed `BILLING_START_BLOCK`, or an RPC on another chain, restarts the sync from scratch.
 - RPC and database failures are retried with exponential backoff and jitter, and counted in `billing.sync_errors`; `billing.synced_block` and `billing.reorgs` track progress.
 

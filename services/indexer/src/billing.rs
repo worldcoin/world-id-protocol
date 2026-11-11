@@ -149,13 +149,9 @@ async fn sync_step(
 
     if let Some(checkpoint) = checkpoint {
         let synced = checkpoint.synced;
-        // A chain now shorter than the synced block was reorganized too.
-        let current = if synced.block_number > head {
-            None
-        } else {
-            Some(block_hash(provider, synced.block_number).await?)
-        };
-        if current != Some(synced.block_hash) {
+        // Looked up even when `head` is lower: a lagging node may report a stale head, while a
+        // chain that really got shorter no longer has the block at all.
+        if find_block_hash(provider, synced.block_number).await? != Some(synced.block_hash) {
             return rewind(provider, &billing, config, synced.block_number, head).await;
         }
     }
@@ -226,7 +222,9 @@ async fn rewind(
     synced_block: u64,
     head: u64,
 ) -> Result<Step, SyncError> {
+    // From the lower of the two: on a shorter chain the blocks above `head` do not exist.
     let resume_from = synced_block
+        .min(head)
         .saturating_sub(REORG_REWIND_BLOCKS)
         .max(config.start_block);
     let deleted = if resume_from == config.start_block {
@@ -253,12 +251,18 @@ async fn rewind(
 }
 
 async fn block_hash(provider: &DynProvider, number: u64) -> Result<B256, SyncError> {
-    provider
+    find_block_hash(provider, number)
+        .await?
+        .ok_or_else(|| SyncError::Rpc(format!("block {number} not found")))
+}
+
+/// The hash of block `number`, or `None` if the chain has no such block.
+async fn find_block_hash(provider: &DynProvider, number: u64) -> Result<Option<B256>, SyncError> {
+    Ok(provider
         .get_block_by_number(BlockNumberOrTag::Number(number))
         .await
         .map_err(|e| SyncError::Rpc(e.to_string()))?
-        .map(|block| block.header.hash)
-        .ok_or_else(|| SyncError::Rpc(format!("block {number} not found")))
+        .map(|block| block.header.hash))
 }
 
 fn now() -> u64 {
