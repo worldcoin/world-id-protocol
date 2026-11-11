@@ -746,8 +746,8 @@ impl RequestValidation for BillingRegistration {
                 "scope.billing_contract is not the gateway's Billing Contract".to_string(),
             ));
         }
-        // `register` checks the authorization's expiry at inclusion, and one registration
-        // expiring in a batch would revert the whole batch.
+        // `register` checks the authorization's expiry at inclusion, so a registration that
+        // expires while it waits behind other sends would revert and pay gas for nothing.
         let min_expires_at = now_unix_secs() + ctx.billing_min_validity_secs;
         if self.authorization.expires_at < min_expires_at {
             return Err(GatewayErrorResponse::bad_request_message(format!(

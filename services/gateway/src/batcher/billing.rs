@@ -1,68 +1,82 @@
-//! Batcher for WIP-107 `WorldIDBilling.register` calls.
+//! Sender for WIP-107 `WorldIDBilling.register` calls.
 //!
-//! Registrations are batched apart from registry operations, so a registration that reverts at
-//! inclusion fails only a billing batch, never an account operation. Within a batch, Multicall3
-//! calls do not allow failure. Validation simulates each registration and rejects those whose
-//! authorization could expire before the orphan sweeper would fail them as stale, so the remaining way for a batch to revert is a race
-//! on shared state, mainly an RP's last capacity: when more registrations for an RP share a batch
-//! than it has slots left, the whole batch reverts. Their retries then fit or fail simulation, so
-//! this resolves within one retry.
+//! A registration is on the critical path of a user's first Proof of Embedding Similarity for an
+//! RP in a period, so each one is sent in its own transaction as soon as it arrives: no batching
+//! policy, no deferral under high gas. Its own transaction also means a registration that reverts
+//! at inclusion, e.g. on an RP's exhausted capacity, fails only itself. Sends share the gateway's
+//! signer, so they still go out one at a time under its send lock.
 
 use std::sync::Arc;
 
-use alloy::{primitives::Address, providers::DynProvider};
-use tokio::sync::mpsc;
-use world_id_registries::world_id::WorldIdRegistry::WorldIdRegistryInstance;
-
-use crate::request_tracker::BacklogScope;
-
-use super::{
-    BatchSubmitStrategy, GenericBatcherRunner, OpsEnvelope, PendingBatchTx,
-    ops::{MULTICALL3_ADDR, Multicall3},
+use alloy::{
+    network::TransactionBuilder as _,
+    primitives::Address,
+    providers::{DynProvider, Provider as _},
+    rpc::types::TransactionRequest,
 };
+use tokio::sync::{Mutex, mpsc};
+
+use crate::RequestTracker;
+
+use super::{OpsEnvelope, PendingBatchTx, claim_requests, send_claimed};
+
+/// Label of billing transactions in metrics and logs.
+const BATCH_TYPE: &str = "billing";
 
 #[derive(Clone)]
-pub struct BillingBatcherHandle {
+pub struct BillingSenderHandle {
     pub tx: mpsc::Sender<OpsEnvelope>,
 }
 
-/// Submits each batch through Multicall3 to the Billing Contract.
-pub(crate) struct BillingStrategy {
+/// Sends each received registration to the Billing Contract in its own transaction.
+pub(crate) struct BillingSender {
+    rx: mpsc::Receiver<OpsEnvelope>,
+    provider: Arc<DynProvider>,
     billing_contract: Address,
+    tracker: RequestTracker,
+    tx_send_lock: Arc<Mutex<()>>,
 }
 
-impl BillingStrategy {
-    pub(crate) const fn new(billing_contract: Address) -> Self {
-        Self { billing_contract }
+impl BillingSender {
+    pub(crate) const fn new(
+        rx: mpsc::Receiver<OpsEnvelope>,
+        provider: Arc<DynProvider>,
+        billing_contract: Address,
+        tracker: RequestTracker,
+        tx_send_lock: Arc<Mutex<()>>,
+    ) -> Self {
+        Self {
+            rx,
+            provider,
+            billing_contract,
+            tracker,
+            tx_send_lock,
+        }
+    }
+
+    pub(crate) async fn run(mut self) {
+        while let Some(envelope) = self.rx.recv().await {
+            self.send(envelope).await;
+        }
+        tracing::info!("{BATCH_TYPE} sender channel closed");
+    }
+
+    async fn send(&self, envelope: OpsEnvelope) {
+        let Some((mut claimed, ids)) =
+            claim_requests(&self.tracker, BATCH_TYPE, vec![envelope]).await
+        else {
+            return;
+        };
+        let Some(envelope) = claimed.pop() else {
+            return;
+        };
+        let request = TransactionRequest::default()
+            .with_to(self.billing_contract)
+            .with_input(envelope.calldata);
+        let send = async {
+            let builder = self.provider.send_transaction(request).await?;
+            Ok(PendingBatchTx::new(builder))
+        };
+        send_claimed(&self.tracker, &self.tx_send_lock, BATCH_TYPE, ids, send).await;
     }
 }
-
-impl BatchSubmitStrategy<OpsEnvelope> for BillingStrategy {
-    fn batch_type(&self) -> &'static str {
-        "billing"
-    }
-
-    fn backlog_scope(&self) -> BacklogScope {
-        BacklogScope::Billing
-    }
-
-    async fn send_batch(
-        &self,
-        registry: &WorldIdRegistryInstance<Arc<DynProvider>>,
-        batch: Vec<OpsEnvelope>,
-    ) -> Result<PendingBatchTx, alloy::contract::Error> {
-        let mc = Multicall3::new(MULTICALL3_ADDR, registry.provider().clone());
-        let calls: Vec<Multicall3::Call3> = batch
-            .into_iter()
-            .map(|envelope| Multicall3::Call3 {
-                target: self.billing_contract,
-                allowFailure: false,
-                callData: envelope.calldata,
-            })
-            .collect();
-        let builder = mc.aggregate3(calls).send().await?;
-        Ok(PendingBatchTx::new(builder))
-    }
-}
-
-pub type BillingBatcherRunner = GenericBatcherRunner<OpsEnvelope, BillingStrategy>;

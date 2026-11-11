@@ -594,8 +594,8 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-/// A registration whose authorization could expire while it waits for a batch is rejected, so
-/// that it cannot revert the batch at inclusion.
+/// A registration whose authorization could expire before it is sent is rejected, so that it
+/// cannot revert at inclusion.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_register_billing_rejects_expiring_authorization() {
     let gw = spawn_test_gateway_with_billing_stub().await;
@@ -620,8 +620,8 @@ async fn test_register_billing_rejects_expiring_authorization() {
     );
 }
 
-/// A burst of registrations larger than the orphan sweeper's queued-request deadline in seconds:
-/// each one is accepted and finalized, none expires in the queue.
+/// A burst of registrations larger than the orphan sweeper's queued-request deadline in seconds,
+/// each sent in its own transaction: each one is accepted and finalized, none expires in the queue.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn test_register_billing_burst() {
     const BURST: u64 = 120;
