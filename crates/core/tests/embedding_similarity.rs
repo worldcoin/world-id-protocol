@@ -1,8 +1,8 @@
 #![cfg(feature = "authenticator")]
 #![recursion_limit = "256"]
 
-//! WIP-202 end to end: generate and verify a Proof of Embedding Similarity from a Flamingo
-//! Verifier result (unbilled), including challenge binding and the billed-token witness check.
+//! WIP-202 end to end: generate a Proof of Embedding Similarity from a Flamingo
+//! Verifier result (unbilled), verify it as an RP (§4.8), and check the billed-token witness.
 
 use std::{
     path::PathBuf,
@@ -25,6 +25,10 @@ use tracing_subscriber::EnvFilter;
 use world_id_core::{
     Authenticator, AuthenticatorError, CredentialInput, EdDSAPrivateKey, FlamingoResult,
     artifacts::{ZkArtifactSource, ZkArtifactSourceExt as _},
+    embedding_similarity::{
+        AatPolicy, EmbeddingSimilarityPolicy, EmbeddingSimilarityVerificationError as VerifyError,
+        FlamingoAttestationVerifier, verify_embedding_similarity,
+    },
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_flamingo::{FlamingoClaims, FlamingoToken, engine_config_hash};
@@ -36,10 +40,7 @@ use world_id_primitives::{
     Config, EmbeddingSimilarityParams, FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
     ServiceEndpoint, SessionRef, TREE_DEPTH, merkle::AccountInclusionProof,
 };
-use world_id_proof::{
-    circuit_inputs::EmbeddingSimilarityRequestInputs,
-    embedding_similarity_proof::{COMPARE_SOURCES, verify_embedding_similarity_proof},
-};
+use world_id_proof::embedding_similarity_proof::COMPARE_SOURCES;
 use world_id_test_utils::{
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
@@ -124,8 +125,21 @@ fn flamingo_result(
     Ok(FlamingoResult {
         token: FlamingoToken::from_cwt(&token)?,
         verifier_key: verifier_sk.public(),
-        signing_key_attestation: Bytes::from_static(b"attestation"),
+        signing_key_attestation: Bytes::from(verifier_sk.public().to_compressed_bytes()?.to_vec()),
     })
+}
+
+/// Stands in for the Nitro check: the attestation is the attested key itself.
+#[derive(Clone)]
+struct StubAttestation;
+
+impl FlamingoAttestationVerifier for StubAttestation {
+    fn attested_key(&self, attestation: &[u8]) -> Result<world_id_core::EdDSAPublicKey, String> {
+        let key: [u8; 32] = attestation
+            .try_into()
+            .map_err(|_| "not a key".to_string())?;
+        world_id_core::EdDSAPublicKey::from_compressed_bytes(key).map_err(|e| e.to_string())
+    }
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -201,6 +215,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     let MerkleFixture {
         key_set,
         inclusion_proof,
+        root: merkle_root,
         ..
     } = single_leaf_merkle_fixture(vec![authenticator.offchain_pubkey()], leaf_index)?;
     let (indexer_url, _indexer) = spawn_indexer_stub(
@@ -343,20 +358,14 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         constraints: None,
     };
 
-    let public = EmbeddingSimilarityRequestInputs::from_request(
-        &proof_request,
-        credential.credential.issuer_version,
-    )?;
-    let artifacts = zk_artifact_source();
-
-    // Unbilled Flamingo result: prove and verify.
+    // Unbilled Flamingo result: prove.
     let unbilled = flamingo_result(
         &proof_request,
         thumbnail,
         challenge_hash,
         FieldElement::ZERO,
     )?;
-    let result = authenticator
+    let response = authenticator
         .generate_embedding_similarity_proof(
             &proof_request,
             &unbilled,
@@ -366,27 +375,132 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
             None,
             None,
         )
-        .await?;
-    let item = result
-        .proof_response
-        .embedding_similarity
-        .as_ref()
-        .ok_or_else(|| eyre!("no embedding similarity item"))?;
-    assert_eq!(
-        item.signing_key_attestation,
-        unbilled.signing_key_attestation
-    );
-    verify_embedding_similarity_proof(&item.proof, &public, artifacts.as_ref())?;
+        .await?
+        .proof_response;
 
-    // The proof binds the RP's request: another challenge fails verification.
-    let other_challenge = EmbeddingSimilarityRequestInputs {
-        challenge_hash: image_hash(b"another frame"),
-        ..public.clone()
+    // The RP verifies it under WIP-202 §4.8.
+    let artifacts = zk_artifact_source();
+    let policy = EmbeddingSimilarityPolicy {
+        attestation: StubAttestation,
+        engine_config_hashes: [engine_config_hash(&[0xE7; 32], 1, 2)].into(),
+        issuer_version: credential.credential.issuer_version,
+        aat: AatPolicy::default(),
     };
-    assert!(
-        verify_embedding_similarity_proof(&item.proof, &other_challenge, artifacts.as_ref())
-            .is_err()
+    let valid_root = move |root| async move { Ok::<_, std::io::Error>(root == merkle_root) };
+    let issuer_pk = issuer_sk.public();
+    let trusted_issuer = |key: world_id_core::EdDSAPublicKey| {
+        let trusted = key.pk == issuer_pk.pk;
+        async move { Ok::<_, std::io::Error>(trusted) }
+    };
+    let verify = async |request: &ProofRequest,
+                        response: &world_id_primitives::ProofResponse,
+                        policy: &EmbeddingSimilarityPolicy<StubAttestation>| {
+        verify_embedding_similarity(
+            request,
+            response,
+            policy,
+            valid_root,
+            trusted_issuer,
+            artifacts.as_ref(),
+        )
+        .await
+    };
+    verify(&proof_request, &response, &policy).await?;
+
+    // Each policy check rejects on its own, before the proof is verified.
+    let mut other_engine = policy.clone();
+    other_engine.engine_config_hashes = [FieldElement::from(1u64)].into();
+    let mut aat_required = policy.clone();
+    aat_required.aat.required = true;
+    for (policy, expected) in [
+        (&other_engine, "EngineNotAccepted"),
+        (&aat_required, "AatRequired"),
+    ] {
+        let err = verify(&proof_request, &response, policy)
+            .await
+            .expect_err(expected);
+        assert!(format!("{err:?}").starts_with(expected), "{err:?}");
+    }
+    let mut other_attestation = response.clone();
+    other_attestation
+        .embedding_similarity
+        .as_mut()
+        .ok_or_else(|| eyre!("no embedding similarity item"))?
+        .signing_key_attestation = Bytes::from(
+        EdDSAPrivateKey::random(&mut rng)
+            .public()
+            .to_compressed_bytes()?
+            .to_vec(),
     );
+    assert!(matches!(
+        verify(&proof_request, &other_attestation, &policy).await,
+        Err(VerifyError::AttestedKeyMismatch)
+    ));
+    let unknown_root = |_| async { Ok::<_, std::io::Error>(false) };
+    assert!(matches!(
+        verify_embedding_similarity(
+            &proof_request,
+            &response,
+            &policy,
+            unknown_root,
+            trusted_issuer,
+            artifacts.as_ref(),
+        )
+        .await,
+        Err(VerifyError::InvalidRoot(_))
+    ));
+    let unreachable_registry = |_| async { Err::<bool, _>(std::io::Error::other("registry down")) };
+    assert!(matches!(
+        verify_embedding_similarity(
+            &proof_request,
+            &response,
+            &policy,
+            unreachable_registry,
+            trusted_issuer,
+            artifacts.as_ref(),
+        )
+        .await,
+        Err(VerifyError::RootCheck(_))
+    ));
+    let untrusted_issuer = |_| async { Ok::<_, std::io::Error>(false) };
+    assert!(matches!(
+        verify_embedding_similarity(
+            &proof_request,
+            &response,
+            &policy,
+            valid_root,
+            untrusted_issuer,
+            artifacts.as_ref(),
+        )
+        .await,
+        Err(VerifyError::UntrustedIssuerKey)
+    ));
+    let unreachable_issuer_registry =
+        |_| async { Err::<bool, _>(std::io::Error::other("registry down")) };
+    assert!(matches!(
+        verify_embedding_similarity(
+            &proof_request,
+            &response,
+            &policy,
+            valid_root,
+            unreachable_issuer_registry,
+            artifacts.as_ref(),
+        )
+        .await,
+        Err(VerifyError::IssuerCheck(_))
+    ));
+
+    // The proof binds the RP's request: another challenge fails the proof itself.
+    let mut other_challenge = proof_request.clone();
+    other_challenge.proof_type = ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
+        action,
+        challenge_hash: image_hash(b"another frame"),
+        aat: None,
+    });
+    assert!(matches!(
+        verify(&other_challenge, &response, &policy).await,
+        Err(VerifyError::Proof(_))
+    ));
 
     // A billed token without a witness is rejected before proving.
     let billed = flamingo_result(

@@ -5,6 +5,7 @@ members = [
   "crates/authenticator",
   "crates/issuer",
   "crates/proof",
+  "crates/rp",
   "crates/primitives",
   "crates/registries",
   "crates/test-utils",
@@ -78,6 +79,7 @@ bhttp = "0.7"
 itertools = "0.15"
 k256 = { version = "0.13" }
 sha2 = { version = "0.11", default-features = false }
+pontifex = { version = "3.1.0", default-features = false }
 taceo-groth16-sol = { version = "0.4.3" }
 taceo-oprf = { version = "0.18.2", default-features = false }
 telemetry-batteries = "0.3"
@@ -177,6 +179,7 @@ jose-jwk = { version = "0.1.2", default-features = false, features = ["p256"] }
 world-id-core = { version = "0.20.0", default-features = false, path = "crates/core" }
 world-id-issuer = { version = "0.20.0", path = "crates/issuer" }
 world-id-proof = { version = "0.20.0", path = "crates/proof" }
+world-id-rp = { version = "0.20.0", path = "crates/rp" }
 world-id-registries = { version = "0.20.0", path = "crates/registries" }
 world-id-authenticator = { version = "0.20.0", path = "crates/authenticator" }
 world-id-primitives = { version = "0.20.0", path = "crates/primitives" }
