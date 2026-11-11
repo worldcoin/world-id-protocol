@@ -73,7 +73,17 @@ impl BatcherHandle {
                     id: id.to_string(),
                     calldata,
                 };
-                billing.tx.send(envelope).await.is_ok()
+                // Shed instead of waiting for room: a registration queued behind a full channel
+                // would outlive the orphan sweeper's `Queued` threshold (see
+                // `BILLING_SENDER_CHANNEL_CAPACITY`).
+                match billing.tx.try_send(envelope) {
+                    Ok(()) => true,
+                    Err(mpsc::error::TrySendError::Full(_)) => {
+                        metrics::increment_request_rejected("billing_queue_full");
+                        false
+                    }
+                    Err(mpsc::error::TrySendError::Closed(_)) => false,
+                }
             }
         }
     }
@@ -603,5 +613,35 @@ mod tests {
                 record.status
             );
         }
+    }
+
+    /// A full billing queue rejects a registration instead of waiting for room, so none is
+    /// accepted only to outlive the orphan sweeper's `Queued` threshold.
+    #[tokio::test]
+    async fn billing_submit_sheds_when_queue_is_full() {
+        let (create_tx, _create_rx) = mpsc::channel(1);
+        let (ops_tx, _ops_rx) = mpsc::channel(1);
+        let (billing_tx, mut billing_rx) = mpsc::channel(1);
+        let handle = BatcherHandle {
+            create: CreateBatcherHandle { tx: create_tx },
+            ops: OpsBatcherHandle { tx: ops_tx },
+            billing: Some(BillingSenderHandle { tx: billing_tx }),
+        };
+        let register = || Command::register_billing(Uuid::new_v4(), Bytes::new());
+
+        assert!(handle.submit(register()).await);
+        assert!(!handle.submit(register()).await, "a full queue must shed");
+
+        billing_rx
+            .recv()
+            .await
+            .expect("the first registration is queued");
+        assert!(
+            handle.submit(register()).await,
+            "room frees once the sender takes one"
+        );
+
+        drop(billing_rx);
+        assert!(!handle.submit(register()).await, "a closed sender rejects");
     }
 }

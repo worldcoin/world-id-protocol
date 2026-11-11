@@ -90,7 +90,13 @@ const CREATE_BATCHER_CHANNEL_CAPACITY: usize = 1024;
 const OPS_BATCHER_CHANNEL_CAPACITY: usize = 2048;
 /// Time for a sent billing registration to be included, on top of the longest it stays queued.
 const BILLING_INCLUSION_MARGIN_SECS: u64 = 30;
-const BILLING_SENDER_CHANNEL_CAPACITY: usize = 2048;
+/// Registrations the billing sender holds before the gateway sheds new ones with a 503.
+///
+/// Each registration is its own RPC send under the shared send lock, so this bounds how long the
+/// last one waits: at ~200 ms per send it drains in under 30 s, within the orphan sweeper's
+/// default 60 s `Queued` threshold. A larger queue would accept registrations only for the sweeper
+/// to fail them.
+const BILLING_SENDER_CHANNEL_CAPACITY: usize = 128;
 
 #[expect(clippy::too_many_arguments)]
 pub(crate) async fn build_app(
