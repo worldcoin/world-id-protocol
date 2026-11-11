@@ -39,9 +39,6 @@ pub const BILLING_ACTION_DOMAIN: &str = "world-id-billing-v1";
 /// Overlap between consecutive billing periods, in seconds (WIP-107 §4.1).
 pub const PERIOD_OVERLAP: u64 = 93_600;
 
-/// Depth below the latest block at which billing state is read, in blocks (WIP-107 §4.1).
-pub const REGISTRATION_CONFIRMATIONS: u64 = 12;
-
 /// Maximum age of an `isBilledRp` read a TEE Verifier relies on, in seconds (WIP-107 §4.1).
 pub const MAX_RP_STATUS_AGE: u64 = 60;
 
