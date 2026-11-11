@@ -2,15 +2,12 @@
 
 use crate::{
     blockchain::{Blockchain, BlockchainEvent, RegistryEvent},
-    config::{AppState, BillingConfig, BillingContract, HttpConfig, IndexerConfig, RunMode},
+    config::{AppState, BillingConfig, HttpConfig, IndexerConfig, RunMode},
     db::DB,
     events_committer::EventsCommitter,
     rollback_executor::rollback_to_last_valid_root,
 };
-use alloy::{
-    primitives::Address,
-    providers::{DynProvider, Provider as _},
-};
+use alloy::{primitives::Address, providers::DynProvider};
 use futures_util::StreamExt;
 use std::{backtrace::Backtrace, net::SocketAddr, sync::Arc, time::Duration};
 use tracing::instrument;
@@ -96,13 +93,6 @@ async fn start_http_server(
     tree_state: tree::TreeState,
     request_timeout_secs: u64,
 ) -> eyre::Result<()> {
-    let billing = match billing {
-        Some(billing) => Some(BillingContract {
-            address: billing.address,
-            chain_id: chain_id(&http_provider, request_timeout_secs).await?,
-        }),
-        None => None,
-    };
     let registry = WorldIdRegistry::new(registry_address, http_provider.clone());
     let verifier = WorldIdVerifier::new(verifier_address, http_provider);
     let router = routes::handler(
@@ -131,14 +121,6 @@ async fn start_http_server(
     Ok(())
 }
 
-/// The provider's chain id, for the billed-RPs response.
-async fn chain_id(provider: &DynProvider, timeout_secs: u64) -> eyre::Result<u64> {
-    tokio::time::timeout(Duration::from_secs(timeout_secs), provider.get_chain_id())
-        .await
-        .map_err(|_| eyre::eyre!("Timed out reading the chain id"))?
-        .map_err(|error| eyre::eyre!("Failed to read the chain id: {error}"))
-}
-
 /// Starts syncing `billing`, if configured, for the indexer modes.
 fn spawn_billing_sync(
     provider: &DynProvider,
@@ -150,9 +132,8 @@ fn spawn_billing_sync(
     let provider = provider.clone();
     let db = db.clone();
     let batch_size = indexer_cfg.batch_size;
-    let poll_interval = Duration::from_millis(indexer_cfg.blockchain_poll_interval_ms);
     Some(tokio::spawn(async move {
-        billing::billing_sync_loop(provider, db, billing, batch_size, poll_interval).await
+        billing::billing_sync_loop(provider, db, billing, batch_size).await
     }))
 }
 

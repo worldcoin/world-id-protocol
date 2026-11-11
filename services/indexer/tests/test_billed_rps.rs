@@ -35,6 +35,16 @@ fn config(setup: &TestSetup, run_mode: RunMode, billing: Option<BillingConfig>) 
     }
 }
 
+fn billing_config(address: Address, start_block: u64, confirmations: u64) -> BillingConfig {
+    BillingConfig {
+        address,
+        start_block,
+        confirmations,
+        poll_interval: Duration::from_millis(200),
+        max_sync_age_secs: 300,
+    }
+}
+
 fn http_config(setup: &TestSetup, port: u16) -> HttpConfig {
     HttpConfig {
         verifier_address: setup.verifier_address,
@@ -109,10 +119,7 @@ async fn test_billed_rps_follow_the_billing_contract_through_a_reorg() {
             },
             http_config: http_config(&setup, 8120),
         },
-        Some(BillingConfig {
-            address: billing,
-            start_block: 0,
-        }),
+        Some(billing_config(billing, 0, 0)),
     );
     let indexer_task = tokio::spawn(async move {
         unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
@@ -122,6 +129,7 @@ async fn test_billed_rps_follow_the_billing_contract_through_a_reorg() {
     let body = wait_for_billed_rps("http://127.0.0.1:8120", &[7]).await;
     assert_eq!(body.chain_id, provider.get_chain_id().await.unwrap());
     assert_eq!(body.billing_contract, billing);
+    assert!(body.synced_at > 0);
 
     // An RP billed on a fork the chain later abandons is dropped again.
     let snapshot: alloy::primitives::U256 = provider
@@ -184,15 +192,17 @@ async fn test_billed_rps_reorg_of_the_start_block() {
             },
             http_config: http_config(&setup, 8122),
         },
-        Some(BillingConfig {
-            address: billing,
-            start_block,
-        }),
+        Some(billing_config(billing, start_block, 2)),
     );
     let indexer_task = tokio::spawn(async move {
         unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
     });
     TestSetup::wait_for_health("http://127.0.0.1:8122").await;
+    // The sync stays 2 blocks below the head.
+    let _: () = provider
+        .raw_request("anvil_mine".into(), (2u64,))
+        .await
+        .unwrap();
     wait_for_billed_rps("http://127.0.0.1:8122", &[7]).await;
 
     let reverted: bool = provider
@@ -210,7 +220,7 @@ async fn test_billed_rps_reorg_of_the_start_block() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn test_billed_rps_before_the_first_sync() {
+async fn test_billed_rps_unavailable_before_a_current_sync() {
     let setup = TestSetup::new().await;
     let unsynced = Address::repeat_byte(0xb1);
 
@@ -219,10 +229,7 @@ async fn test_billed_rps_before_the_first_sync() {
         RunMode::HttpOnly {
             http_config: http_config(&setup, 8121),
         },
-        Some(BillingConfig {
-            address: unsynced,
-            start_block: 0,
-        }),
+        Some(billing_config(unsynced, 0, 0)),
     );
     let indexer_task = tokio::spawn(async move {
         unsafe { world_id_indexer::run_indexer(global_config).await }.unwrap();
@@ -235,6 +242,24 @@ async fn test_billed_rps_before_the_first_sync() {
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
     let json: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(json["code"].as_str().unwrap(), "billing_not_synced");
+
+    // A sync last current long ago is reported as stale rather than served.
+    sqlx::query(
+        "INSERT INTO billing_sync_checkpoints
+             (billing_contract, chain_id, start_block, block_number, block_hash, synced_at)
+         VALUES ($1, 31337, 0, 1, $2, 1)",
+    )
+    .bind(unsynced.as_slice())
+    .bind([0u8; 32].as_slice())
+    .execute(&setup.pool)
+    .await
+    .unwrap();
+    let resp = reqwest::get("http://127.0.0.1:8121/billing/billed-rps")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(json["code"].as_str().unwrap(), "billing_sync_stale");
 
     indexer_task.abort();
 }

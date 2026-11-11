@@ -529,6 +529,8 @@ pub struct IndexerBilledRpsResponse {
     pub billing_contract: Address,
     /// The last block the indexer synced the Billing Contract's events through.
     pub block_number: u64,
+    /// When the indexer last confirmed this set was current, in Unix seconds.
+    pub synced_at: u64,
     /// The RPs `isBilledRp` reports as billed at `block_number`, in ascending order.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>))]
     pub billed_rp_ids: Vec<crate::rp::RpId>,
@@ -674,6 +676,9 @@ pub enum IndexerErrorCode {
     InvalidAuthenticatorPubkey,
     /// The indexer has not synced the Billing Contract yet.
     BillingNotSynced,
+    /// The indexer's Billing Contract sync has fallen behind; the billed RPs it holds may be
+    /// stale.
+    BillingSyncStale,
 }
 
 /// Gateway error codes.

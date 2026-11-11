@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, str::FromStr, sync::Arc};
+use std::{net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
 use alloy::{primitives::Address, providers::DynProvider};
 use clap::Parser;
@@ -25,14 +25,7 @@ pub struct AppState {
     pub tree_state: TreeState,
     pub verifier: Arc<WorldIdVerifierInstance<DynProvider>>,
     /// The Billing Contract `GET /billing/billed-rps` serves, if billing is indexed.
-    pub billing: Option<BillingContract>,
-}
-
-/// The indexed Billing Contract and the chain it is on.
-#[derive(Debug, Clone, Copy)]
-pub struct BillingContract {
-    pub address: Address,
-    pub chain_id: u64,
+    pub billing: Option<BillingConfig>,
 }
 
 impl AppState {
@@ -41,7 +34,7 @@ impl AppState {
         registry: Arc<WorldIdRegistryInstance<DynProvider>>,
         tree_state: TreeState,
         verifier: Arc<WorldIdVerifierInstance<DynProvider>>,
-        billing: Option<BillingContract>,
+        billing: Option<BillingConfig>,
     ) -> Self {
         Self {
             db,
@@ -128,33 +121,68 @@ pub struct BillingConfig {
     pub address: Address,
     /// The block to sync from, e.g. the contract's deployment block.
     pub start_block: u64,
+    /// How many blocks below the chain head the sync stays, so every RPC node behind the
+    /// provider's fallback has the blocks it reads logs for.
+    pub confirmations: u64,
+    /// How long the sync waits once it is current.
+    pub poll_interval: Duration,
+    /// The endpoint answers `503 billing_sync_stale` once the sync has not been current for this
+    /// long.
+    pub max_sync_age_secs: u64,
 }
 
 impl BillingConfig {
-    /// Reads `BILLING_ADDRESS` and `BILLING_START_BLOCK`. Billing is not indexed when
+    pub const DEFAULT_CONFIRMATIONS: u64 = 5;
+    pub const DEFAULT_POLL_INTERVAL_SECS: u64 = 10;
+    pub const DEFAULT_MAX_SYNC_AGE_SECS: u64 = 300;
+
+    /// Reads `BILLING_ADDRESS`, `BILLING_START_BLOCK`, `BILLING_CONFIRMATIONS`,
+    /// `BILLING_POLL_INTERVAL_SECS` and `BILLING_MAX_SYNC_AGE_SECS`. Billing is not indexed when
     /// `BILLING_ADDRESS` is unset.
     pub fn from_env() -> Result<Option<Self>, ConfigError> {
         let Ok(address) = std::env::var("BILLING_ADDRESS") else {
             return Ok(None);
         };
-        let address = address
-            .parse::<Address>()
-            .map_err(|e| ConfigError::InvalidBillingAddress(format!("{address}: {e}")))?;
+        let address = address.parse::<Address>().map_err(|e| {
+            ConfigError::InvalidBillingConfig(format!("BILLING_ADDRESS={address}: {e}"))
+        })?;
         if address.is_zero() {
-            return Err(ConfigError::InvalidBillingAddress(
-                "address cannot be zero".to_string(),
+            return Err(ConfigError::InvalidBillingConfig(
+                "BILLING_ADDRESS cannot be zero".to_string(),
             ));
         }
-        let start_block = match std::env::var("BILLING_START_BLOCK") {
-            Ok(raw) => raw
-                .parse()
-                .map_err(|e| ConfigError::InvalidBillingStartBlock(format!("{raw}: {e}")))?,
-            Err(_) => 0,
-        };
+        let poll_interval_secs = billing_u64(
+            "BILLING_POLL_INTERVAL_SECS",
+            Self::DEFAULT_POLL_INTERVAL_SECS,
+        )?;
+        if poll_interval_secs == 0 {
+            return Err(ConfigError::InvalidBillingConfig(
+                "BILLING_POLL_INTERVAL_SECS cannot be zero".to_string(),
+            ));
+        }
+        let max_sync_age_secs =
+            billing_u64("BILLING_MAX_SYNC_AGE_SECS", Self::DEFAULT_MAX_SYNC_AGE_SECS)?;
+        if max_sync_age_secs <= poll_interval_secs {
+            return Err(ConfigError::InvalidBillingConfig(format!(
+                "BILLING_MAX_SYNC_AGE_SECS ({max_sync_age_secs}) must exceed BILLING_POLL_INTERVAL_SECS ({poll_interval_secs})"
+            )));
+        }
         Ok(Some(Self {
             address,
-            start_block,
+            start_block: billing_u64("BILLING_START_BLOCK", 0)?,
+            confirmations: billing_u64("BILLING_CONFIRMATIONS", Self::DEFAULT_CONFIRMATIONS)?,
+            poll_interval: Duration::from_secs(poll_interval_secs),
+            max_sync_age_secs,
         }))
+    }
+}
+
+fn billing_u64(name: &str, default: u64) -> Result<u64, ConfigError> {
+    match std::env::var(name) {
+        Ok(raw) => raw
+            .parse()
+            .map_err(|e| ConfigError::InvalidBillingConfig(format!("{name}={raw}: {e}"))),
+        Err(_) => Ok(default),
     }
 }
 
@@ -364,10 +392,8 @@ pub enum ConfigError {
     InvalidDbPollInterval(String),
     #[error("provider configuration error: {0}")]
     Provider(String),
-    #[error("invalid BILLING_ADDRESS: {0}")]
-    InvalidBillingAddress(String),
-    #[error("invalid BILLING_START_BLOCK: {0}")]
-    InvalidBillingStartBlock(String),
+    #[error("invalid billing configuration: {0}")]
+    InvalidBillingConfig(String),
 }
 
 impl GlobalConfig {
@@ -472,6 +498,9 @@ mod tests {
             // Billing config
             env::remove_var("BILLING_ADDRESS");
             env::remove_var("BILLING_START_BLOCK");
+            env::remove_var("BILLING_CONFIRMATIONS");
+            env::remove_var("BILLING_POLL_INTERVAL_SECS");
+            env::remove_var("BILLING_MAX_SYNC_AGE_SECS");
         }
     }
 
@@ -490,45 +519,64 @@ mod tests {
             "BILLING_ADDRESS",
             "0x00000000000000000000000000000000000000b1",
         );
-        set_env("BILLING_START_BLOCK", "1234");
-
+        let address = "0x00000000000000000000000000000000000000b1"
+            .parse()
+            .unwrap();
         assert_eq!(
             BillingConfig::from_env().unwrap(),
             Some(BillingConfig {
-                address: "0x00000000000000000000000000000000000000b1"
-                    .parse()
-                    .unwrap(),
-                start_block: 1234,
+                address,
+                start_block: 0,
+                confirmations: BillingConfig::DEFAULT_CONFIRMATIONS,
+                poll_interval: Duration::from_secs(BillingConfig::DEFAULT_POLL_INTERVAL_SECS),
+                max_sync_age_secs: BillingConfig::DEFAULT_MAX_SYNC_AGE_SECS,
             })
         );
 
-        unsafe { env::remove_var("BILLING_START_BLOCK") };
-        assert_eq!(BillingConfig::from_env().unwrap().unwrap().start_block, 0);
+        set_env("BILLING_START_BLOCK", "1234");
+        set_env("BILLING_CONFIRMATIONS", "2");
+        set_env("BILLING_POLL_INTERVAL_SECS", "3");
+        set_env("BILLING_MAX_SYNC_AGE_SECS", "60");
+        assert_eq!(
+            BillingConfig::from_env().unwrap(),
+            Some(BillingConfig {
+                address,
+                start_block: 1234,
+                confirmations: 2,
+                poll_interval: Duration::from_secs(3),
+                max_sync_age_secs: 60,
+            })
+        );
     }
 
     #[test]
     #[serial]
     fn test_billing_config_rejects_invalid_values() {
-        clear_all_config_env();
-        set_env(
-            "BILLING_ADDRESS",
-            "0x0000000000000000000000000000000000000000",
-        );
-        assert!(matches!(
-            BillingConfig::from_env(),
-            Err(ConfigError::InvalidBillingAddress(_))
-        ));
-
-        set_env(
-            "BILLING_ADDRESS",
-            "0x00000000000000000000000000000000000000b1",
-        );
-        set_env("BILLING_START_BLOCK", "latest");
-        assert!(matches!(
-            BillingConfig::from_env(),
-            Err(ConfigError::InvalidBillingStartBlock(_))
-        ));
+        for (name, value) in [
+            (
+                "BILLING_ADDRESS",
+                "0x0000000000000000000000000000000000000000",
+            ),
+            ("BILLING_START_BLOCK", "latest"),
+            ("BILLING_POLL_INTERVAL_SECS", "0"),
+            ("BILLING_MAX_SYNC_AGE_SECS", "10"),
+        ] {
+            clear_all_config_env();
+            set_env(
+                "BILLING_ADDRESS",
+                "0x00000000000000000000000000000000000000b1",
+            );
+            set_env(name, value);
+            assert!(
+                matches!(
+                    BillingConfig::from_env(),
+                    Err(ConfigError::InvalidBillingConfig(_))
+                ),
+                "{name}={value} should be rejected"
+            );
+        }
     }
+
     #[test]
     fn test_environment_parsing() {
         let prod: Environment = "production".parse().unwrap();

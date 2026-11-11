@@ -3,8 +3,10 @@
 //!
 //! The sync runs on its own checkpoint, independent of the registry pipeline: billing events
 //! carry no Merkle root, so they cannot wait for one. A reorganization is detected by re-reading
-//! the checkpoint block's hash; on a mismatch the events of the last [`REORG_REWIND_BLOCKS`] are
-//! deleted and synced again, from the start block if it is that recent.
+//! the checkpoint block's hash; on a mismatch, or once the chain is shorter than the checkpoint,
+//! the events of the last [`REORG_REWIND_BLOCKS`] are deleted and synced again, from the start
+//! block if it is that recent. Logs are read only `confirmations` blocks below the head, so a node
+//! behind the provider's fallback that lags a little still has them.
 
 use std::{
     hash::{BuildHasher as _, Hasher as _},
@@ -23,7 +25,7 @@ use world_id_registries::world_id_billing::WorldIdBilling::BilledRpUpdated;
 
 use crate::{
     config::BillingConfig,
-    db::{BilledRpEvent, BillingCheckpoint, DB, DBError},
+    db::{BilledRpEvent, Billing, BillingCheckpoint, DB, DBError, SyncedBlock},
     metrics,
 };
 
@@ -72,16 +74,21 @@ pub async fn billing_sync_loop(
     db: DB,
     config: BillingConfig,
     batch_size: u64,
-    poll_interval: Duration,
 ) -> eyre::Result<()> {
-    tracing::info!(billing_contract = %config.address, start_block = config.start_block, "syncing the Billing Contract");
+    tracing::info!(
+        billing_contract = %config.address,
+        start_block = config.start_block,
+        confirmations = config.confirmations,
+        "syncing the Billing Contract"
+    );
+    let mut chain_id = None;
     let mut failures = 0u32;
     loop {
-        match sync_step(&provider, &db, config, batch_size.max(1)).await {
+        match sync_step(&provider, &db, config, batch_size.max(1), &mut chain_id).await {
             Ok(Step::Advanced) => failures = 0,
             Ok(Step::CaughtUp) => {
                 failures = 0;
-                tokio::time::sleep(poll_interval).await;
+                tokio::time::sleep(config.poll_interval).await;
             }
             Err(error) => {
                 failures = failures.saturating_add(1);
@@ -105,50 +112,64 @@ async fn sync_step(
     db: &DB,
     config: BillingConfig,
     batch_size: u64,
+    chain_id: &mut Option<u64>,
 ) -> Result<Step, SyncError> {
     let billing = db.billing(config.address);
-    let checkpoint = billing.checkpoint().await?;
+    let chain_id = match *chain_id {
+        Some(id) => id,
+        None => *chain_id.insert(
+            provider
+                .get_chain_id()
+                .await
+                .map_err(|e| SyncError::Rpc(e.to_string()))?,
+        ),
+    };
 
-    if let Some(checkpoint) = checkpoint {
-        let current = block_hash(provider, checkpoint.block_number).await?;
-        if current != checkpoint.block_hash {
-            // Resync from `resume_from`, its events included: keep only the blocks before it.
-            let resume_from = checkpoint
-                .block_number
-                .saturating_sub(REORG_REWIND_BLOCKS)
-                .max(config.start_block);
-            let deleted = if resume_from == config.start_block {
-                billing.reset().await?
-            } else {
-                let kept_through = resume_from - 1;
-                billing
-                    .rewind(BillingCheckpoint {
-                        block_number: kept_through,
-                        block_hash: block_hash(provider, kept_through).await?,
-                    })
-                    .await?
-            };
-            metrics::increment_billing_reorgs();
-            tracing::warn!(
-                billing_contract = %config.address,
-                from_block = checkpoint.block_number,
-                resume_from,
-                deleted,
-                "reorganization detected; rewound the Billing Contract sync"
-            );
-            return Ok(Step::Advanced);
-        }
+    let checkpoint = billing.checkpoint().await?;
+    if let Some(checkpoint) = checkpoint
+        && (checkpoint.start_block != config.start_block || checkpoint.chain_id != chain_id)
+    {
+        let deleted = billing.reset().await?;
+        tracing::warn!(
+            billing_contract = %config.address,
+            synced_start_block = checkpoint.start_block,
+            start_block = config.start_block,
+            synced_chain_id = checkpoint.chain_id,
+            chain_id,
+            deleted,
+            "the start block or chain changed; restarting the Billing Contract sync"
+        );
+        return Ok(Step::Advanced);
     }
 
-    let from = checkpoint.map_or(config.start_block, |c| c.block_number + 1);
     let head = provider
         .get_block_number()
         .await
         .map_err(|e| SyncError::Rpc(e.to_string()))?;
-    if from > head {
+
+    if let Some(checkpoint) = checkpoint {
+        let synced = checkpoint.synced;
+        // A chain now shorter than the synced block was reorganized too.
+        let current = if synced.block_number > head {
+            None
+        } else {
+            Some(block_hash(provider, synced.block_number).await?)
+        };
+        if current != Some(synced.block_hash) {
+            return rewind(provider, &billing, config, synced.block_number, head).await;
+        }
+    }
+
+    // Logs are read only this far below the head, so every node behind the fallback has them.
+    let safe_head = head.saturating_sub(config.confirmations);
+    let from = checkpoint.map_or(config.start_block, |c| c.synced.block_number + 1);
+    if from > safe_head {
+        if checkpoint.is_some() {
+            billing.touch(now()).await?;
+        }
         return Ok(Step::CaughtUp);
     }
-    let to = from.saturating_add(batch_size - 1).min(head);
+    let to = from.saturating_add(batch_size - 1).min(safe_head);
 
     let to_hash = block_hash(provider, to).await?;
     let filter = Filter::new()
@@ -169,21 +190,66 @@ async fn sync_step(
         return Err(SyncError::BlockChanged(to));
     }
 
+    let caught_up = to == safe_head;
     billing
         .commit(
             &events,
             BillingCheckpoint {
-                block_number: to,
-                block_hash: to_hash,
+                chain_id,
+                start_block: config.start_block,
+                synced: SyncedBlock {
+                    block_number: to,
+                    block_hash: to_hash,
+                },
+                // Mid-backfill the stored set is not current yet.
+                synced_at: if caught_up {
+                    now()
+                } else {
+                    checkpoint.map_or(0, |c| c.synced_at)
+                },
             },
         )
         .await?;
     metrics::set_billing_synced_block(to);
-    Ok(if to == head {
+    Ok(if caught_up {
         Step::CaughtUp
     } else {
         Step::Advanced
     })
+}
+
+/// Deletes the events from `REORG_REWIND_BLOCKS` below `synced_block` on, and resyncs them.
+async fn rewind(
+    provider: &DynProvider,
+    billing: &Billing<'_>,
+    config: BillingConfig,
+    synced_block: u64,
+    head: u64,
+) -> Result<Step, SyncError> {
+    let resume_from = synced_block
+        .saturating_sub(REORG_REWIND_BLOCKS)
+        .max(config.start_block);
+    let deleted = if resume_from == config.start_block {
+        billing.reset().await?
+    } else {
+        let kept_through = resume_from - 1;
+        billing
+            .rewind(SyncedBlock {
+                block_number: kept_through,
+                block_hash: block_hash(provider, kept_through).await?,
+            })
+            .await?
+    };
+    metrics::increment_billing_reorgs();
+    tracing::warn!(
+        billing_contract = %config.address,
+        synced_block,
+        head,
+        resume_from,
+        deleted,
+        "reorganization detected; rewound the Billing Contract sync"
+    );
+    Ok(Step::Advanced)
 }
 
 async fn block_hash(provider: &DynProvider, number: u64) -> Result<B256, SyncError> {
@@ -193,6 +259,12 @@ async fn block_hash(provider: &DynProvider, number: u64) -> Result<B256, SyncErr
         .map_err(|e| SyncError::Rpc(e.to_string()))?
         .map(|block| block.header.hash)
         .ok_or_else(|| SyncError::Rpc(format!("block {number} not found")))
+}
+
+fn now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
 }
 
 fn decode(log: &Log) -> Result<BilledRpEvent, SyncError> {

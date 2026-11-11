@@ -19,9 +19,16 @@ create table if not exists billed_rp_events (
 create index if not exists idx_billed_rp_events_latest
     on billed_rp_events (billing_contract, rp_id, block_number desc, log_index desc);
 
--- The last block synced per Billing Contract, with its hash to detect reorganizations.
+-- Sync progress per Billing Contract.
 create table if not exists billing_sync_checkpoints (
     billing_contract bytea primary key,
+    -- The chain the contract is on, as the RPC reported it.
+    chain_id bigint not null,
+    -- The `BILLING_START_BLOCK` the events were synced from; a different one restarts the sync.
+    start_block bigint not null,
+    -- The last block synced, with its hash to detect reorganizations.
     block_number bigint not null,
-    block_hash bytea not null
+    block_hash bytea not null,
+    -- When the sync last confirmed it was current, in Unix seconds.
+    synced_at bigint not null
 );

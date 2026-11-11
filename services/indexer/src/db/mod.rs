@@ -6,7 +6,7 @@ mod billing;
 mod world_id_registry_events;
 
 pub use accounts::Accounts;
-pub use billing::{BilledRpEvent, BilledRps, Billing, BillingCheckpoint};
+pub use billing::{BilledRpEvent, BilledRps, Billing, BillingCheckpoint, SyncedBlock};
 pub use world_id_registry_events::{
     BlockWithConflictingHashes, WorldIdRegistryEvent, WorldIdRegistryEventId,
     WorldIdRegistryEventType, WorldIdRegistryEvents,

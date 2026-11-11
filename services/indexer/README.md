@@ -44,12 +44,17 @@ The HTTP server serves inclusion proofs for public keys. It is backed by the sha
 With `BILLING_ADDRESS` set, the indexer modes also sync the WIP-107 Billing Contract's `BilledRpUpdated` events from `BILLING_START_BLOCK`, and the HTTP modes serve the billed RPs at `GET /billing/billed-rps`:
 
 ```json
-{ "chain_id": 480, "billing_contract": "0x…", "block_number": 23001234, "billed_rp_ids": ["rp_000000000000002a"] }
+{ "chain_id": 480, "billing_contract": "0x…", "block_number": 23001234, "synced_at": 1794412358, "billed_rp_ids": ["rp_000000000000002a"] }
 ```
 
-`block_number` is the last block synced. Before the first sync the endpoint answers `503` with `billing_not_synced`; without `BILLING_ADDRESS` it answers `404`.
+`block_number` is the last block synced and `synced_at` when the sync last confirmed it was current. The endpoint answers `503 billing_not_synced` before the first sync and `503 billing_sync_stale` once `synced_at` is older than `BILLING_MAX_SYNC_AGE_SECS`; this is an explicit degraded mode of this endpoint only, so `/health` and the rest of the API are unaffected. Without `BILLING_ADDRESS` it answers `404`.
 
-The sync runs on its own checkpoint (`billing_sync_checkpoints`), independent of the registry pipeline: billing events carry no Merkle root to commit against. Events are stored append-only in `billed_rp_events`, and an RP's status is its latest event. Each sync step first re-reads the checkpoint block's hash; if it changed, the events of the last 256 blocks (all of them, if the start block is that recent) are deleted and synced again, in process. A sync restarted from the start block answers `503` until it has caught up again. RPC and database failures are retried with exponential backoff and jitter, and counted in `billing.sync_errors`; `billing.synced_block` and `billing.reorgs` track progress.
+The sync runs on its own checkpoint (`billing_sync_checkpoints`), independent of the registry pipeline: billing events carry no Merkle root to commit against. Events are stored append-only in `billed_rp_events`, and an RP's status is its latest event.
+
+- Logs are read only `BILLING_CONFIRMATIONS` blocks below the head, so an RPC node behind the provider's fallback that lags slightly still has them.
+- Each step first re-reads the checkpoint block's hash. If it changed, or the chain is now shorter than the checkpoint, the events of the last 256 blocks (all of them, if the start block is that recent) are deleted and synced again, in process. A sync restarted from the start block answers `503` until it has caught up again.
+- A changed `BILLING_START_BLOCK`, or an RPC on another chain, restarts the sync from scratch.
+- RPC and database failures are retried with exponential backoff and jitter, and counted in `billing.sync_errors`; `billing.synced_block` and `billing.reorgs` track progress.
 
 ### Reorg Handling
 
@@ -93,6 +98,9 @@ This restart-on-reorg pattern — detect, rollback state, exit cleanly, re-initi
 | `ENVIRONMENT` | `development` | `production`, `staging`, or `development` |
 | `BILLING_ADDRESS` | unset | WIP-107 Billing Contract proxy to sync and serve at `/billing/billed-rps`; billing is not indexed if unset |
 | `BILLING_START_BLOCK` | `0` | Block to start syncing the Billing Contract from, e.g. its deployment block |
+| `BILLING_CONFIRMATIONS` | `5` | Blocks below the head the billing sync stays |
+| `BILLING_POLL_INTERVAL_SECS` | `10` | Seconds between billing syncs once current |
+| `BILLING_MAX_SYNC_AGE_SECS` | `300` | Age of the last current billing sync after which `/billing/billed-rps` answers `503`; must exceed the poll interval |
 
 ## Developing Locally
 
