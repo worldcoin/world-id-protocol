@@ -12,9 +12,9 @@ use crate::{
     account::AccountAuthenticators,
     api_types::{
         AccountInclusionProof, GatewayRequestState, IndexerAuthenticatorPubkeysResponse,
-        IndexerAuthenticatorsResponse, IndexerErrorCode, IndexerPackedAccountRequest,
-        IndexerPackedAccountResponse, IndexerQueryRequest, IndexerSignatureNonceResponse,
-        ServiceApiError,
+        IndexerAuthenticatorsResponse, IndexerBilledRpsResponse, IndexerErrorCode,
+        IndexerPackedAccountRequest, IndexerPackedAccountResponse, IndexerQueryRequest,
+        IndexerSignatureNonceResponse, ServiceApiError,
     },
     service_client::{ServiceClient, ServiceKind, default_http_client},
 };
@@ -553,6 +553,67 @@ impl Authenticator {
             .post_json(self.config.indexer_url(), "/inclusion-proof", &req)
             .await?;
 
+        Ok(response)
+    }
+
+    /// Fetches the RPs the WIP-107 Billing Contract at `billing_contract` bills, from the indexer.
+    ///
+    /// The response is checked to be for `billing_contract` on the configured chain.
+    ///
+    /// # Errors
+    /// - [`AuthenticatorError::BillingNotIndexed`] if the indexer does not index a Billing
+    ///   Contract.
+    /// - [`AuthenticatorError::BillingNotSynced`] or [`AuthenticatorError::BillingSyncStale`] if
+    ///   the indexer's sync is not current; a caller may fall back to billed RPs it fetched before.
+    /// - [`AuthenticatorError::InvalidServiceResponse`] if the indexer serves another chain or
+    ///   contract.
+    /// - Other errors if the network call fails.
+    pub async fn fetch_billed_rps(
+        &self,
+        billing_contract: Address,
+    ) -> Result<IndexerBilledRpsResponse, AuthenticatorError> {
+        Self::fetch_billed_rps_for(&self.config, &self.indexer_client, billing_contract).await
+    }
+
+    pub(crate) async fn fetch_billed_rps_for(
+        config: &Config,
+        indexer_client: &ServiceClient,
+        billing_contract: Address,
+    ) -> Result<IndexerBilledRpsResponse, AuthenticatorError> {
+        let response: IndexerBilledRpsResponse = match indexer_client
+            .get_json(config.indexer_url(), "/billing/billed-rps")
+            .await
+        {
+            Err(AuthenticatorError::IndexerError { status, body }) => {
+                let Ok(error) = serde_json::from_str::<ServiceApiError<IndexerErrorCode>>(&body)
+                else {
+                    return Err(AuthenticatorError::IndexerError { status, body });
+                };
+                return Err(match error.code {
+                    // Only the indexer's own `not_found`: any other 404, e.g. from an indexer
+                    // without this endpoint or from a proxy, stays an indexer error.
+                    IndexerErrorCode::NotFound if status == reqwest::StatusCode::NOT_FOUND => {
+                        AuthenticatorError::BillingNotIndexed
+                    }
+                    IndexerErrorCode::BillingNotSynced => {
+                        AuthenticatorError::BillingNotSynced(error.message)
+                    }
+                    IndexerErrorCode::BillingSyncStale => {
+                        AuthenticatorError::BillingSyncStale(error.message)
+                    }
+                    _ => AuthenticatorError::IndexerError { status, body },
+                });
+            }
+            result => result?,
+        };
+        if response.chain_id != config.chain_id() || response.billing_contract != billing_contract {
+            return Err(AuthenticatorError::InvalidServiceResponse(format!(
+                "the indexer serves the billed RPs of Billing Contract {} on chain {}, not {billing_contract} on chain {}",
+                response.billing_contract,
+                response.chain_id,
+                config.chain_id()
+            )));
+        }
         Ok(response)
     }
 
@@ -1369,6 +1430,100 @@ mod tests {
         });
         let mut authenticator = proving_authenticator(config);
         assert_send_static(&async move { authenticator.refresh_packed_account_data().await });
+    }
+
+    const BILLING_CONTRACT: Address = address!("0x00000000000000000000000000000000000000b1");
+
+    /// Fetches the billed RPs from an indexer answering `status` with `body`.
+    async fn fetch_billed_rps_answered(
+        status: usize,
+        body: serde_json::Value,
+    ) -> Result<IndexerBilledRpsResponse, AuthenticatorError> {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/billing/billed-rps")
+            .with_status(status)
+            .with_header("content-type", "application/json")
+            .with_body(body.to_string())
+            .create_async()
+            .await;
+        let config = config_with_indexer(server.url());
+        let indexer_client = ServiceClient::new(
+            reqwest::Client::new(),
+            ServiceKind::Indexer,
+            config.indexer(),
+        )
+        .unwrap();
+        let result =
+            Authenticator::fetch_billed_rps_for(&config, &indexer_client, BILLING_CONTRACT).await;
+        mock.assert_async().await;
+        result
+    }
+
+    fn billed_rps_body(chain_id: u64, billing_contract: Address) -> serde_json::Value {
+        serde_json::json!({
+            "chain_id": chain_id,
+            "billing_contract": billing_contract,
+            "block_number": 1234,
+            "synced_at": 1_794_412_358,
+            "billed_rp_ids": ["rp_000000000000002a"],
+        })
+    }
+
+    #[tokio::test]
+    async fn test_fetch_billed_rps() {
+        let response = fetch_billed_rps_answered(200, billed_rps_body(1, BILLING_CONTRACT))
+            .await
+            .unwrap();
+        assert_eq!(
+            response,
+            IndexerBilledRpsResponse {
+                chain_id: 1,
+                billing_contract: BILLING_CONTRACT,
+                block_number: 1234,
+                synced_at: 1_794_412_358,
+                billed_rp_ids: vec![world_id_primitives::rp::RpId::new(42)],
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn test_fetch_billed_rps_rejects_another_chain_or_contract() {
+        for body in [
+            billed_rps_body(480, BILLING_CONTRACT),
+            billed_rps_body(1, address!("0x00000000000000000000000000000000000000b2")),
+        ] {
+            assert!(matches!(
+                fetch_billed_rps_answered(200, body).await,
+                Err(AuthenticatorError::InvalidServiceResponse(_))
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_fetch_billed_rps_maps_indexer_errors() {
+        let error = |code: &str| serde_json::json!({ "code": code, "message": "msg" });
+        assert!(matches!(
+            fetch_billed_rps_answered(503, error("billing_not_synced")).await,
+            Err(AuthenticatorError::BillingNotSynced(message)) if message == "msg"
+        ));
+        assert!(matches!(
+            fetch_billed_rps_answered(503, error("billing_sync_stale")).await,
+            Err(AuthenticatorError::BillingSyncStale(message)) if message == "msg"
+        ));
+        assert!(matches!(
+            fetch_billed_rps_answered(404, error("not_found")).await,
+            Err(AuthenticatorError::BillingNotIndexed)
+        ));
+        // A 404 that is not the indexer's own, e.g. from an indexer without the endpoint.
+        assert!(matches!(
+            fetch_billed_rps_answered(404, serde_json::json!("Not Found")).await,
+            Err(AuthenticatorError::IndexerError { status, .. }) if status == reqwest::StatusCode::NOT_FOUND
+        ));
+        assert!(matches!(
+            fetch_billed_rps_answered(500, error("internal_server_error")).await,
+            Err(AuthenticatorError::IndexerError { .. })
+        ));
     }
 
     #[tokio::test]
