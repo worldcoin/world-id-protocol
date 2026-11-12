@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.21.0...world-id-primitives-v0.22.0) - 2026-11-12
+
+### Added
+
+- *(indexer)* serve the WIP-107 billed RPs ([#1220](https://github.com/worldcoin/world-id-protocol/pull/1220))
+- *(authenticator)* fetch the WIP-107 billed RPs from the indexer ([#1222](https://github.com/worldcoin/world-id-protocol/pull/1222))
+
+### Other
+
+- [**breaking**] let the host supply WIP-107 billing state ([#1212](https://github.com/worldcoin/world-id-protocol/pull/1212))
+- rename the RP's AatFlags to AcceptedAatFlags ([#1218](https://github.com/worldcoin/world-id-protocol/pull/1218))
+
 ## [0.21.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.20.0...world-id-primitives-v0.21.0) - 2026-11-11
 
 ### Added
