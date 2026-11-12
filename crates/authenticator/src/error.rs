@@ -202,6 +202,19 @@ pub enum AuthenticatorError {
     #[error("the Flamingo Token is billed and needs the cached billing witness")]
     BillingWitnessRequired,
 
+    /// The indexer does not index a WIP-107 Billing Contract.
+    #[error("the indexer does not index a Billing Contract")]
+    BillingNotIndexed,
+
+    /// The indexer's Billing Contract sync has not caught up yet, during its initial backfill or
+    /// while resyncing after a reorganization, so it serves no billed RPs.
+    #[error("the indexer's Billing Contract sync has not caught up: {0}")]
+    BillingNotSynced(String),
+
+    /// The indexer's Billing Contract sync has fallen behind, so it serves no billed RPs.
+    #[error("the indexer's Billing Contract sync is stale: {0}")]
+    BillingSyncStale(String),
+
     /// Generic error for other unexpected issues.
     #[error("{0}")]
     Generic(String),
