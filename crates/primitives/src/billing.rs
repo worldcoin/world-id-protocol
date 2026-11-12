@@ -39,13 +39,6 @@ pub const BILLING_ACTION_DOMAIN: &str = "world-id-billing-v1";
 /// Overlap between consecutive billing periods, in seconds (WIP-107 §4.1).
 pub const PERIOD_OVERLAP: u64 = 93_600;
 
-/// Formerly the bound on the age of the host's billing state update; WIP-107 no longer has one.
-#[deprecated(
-    since = "0.23.0",
-    note = "WIP-107 no longer bounds the age of the host's billing state"
-)]
-pub const MAX_RP_STATUS_AGE: u64 = 60;
-
 /// Offset of 00:00:00 AoE (UTC−12:00) from 00:00:00 UTC, in seconds.
 const AOE_OFFSET: u64 = 12 * 60 * 60;
 
