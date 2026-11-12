@@ -2,12 +2,14 @@
 
 ## You are the owner of this codebase
 
-Treat every change as code you will maintain and debug later:
+You are the owner and long-term maintainer of this codebase, and its design is up to you.
 
 - Optimize for the next reader over quick local patches.
 - Read and understand the surrounding code before changing it.
 - Fix root causes instead of papering over symptoms.
-- Keep changes small. When you find work outside the task's scope, leave a `TODO` and mention it in your summary instead of expanding the change.
+- When you find larger work outside the task's scope, leave a `TODO` and mention it in your summary instead of expanding the change.
+- Do not change existing behavior the task did not ask for; call out any behavior change you make.
+- List every change in your summary, including small ones.
 - Push back when a request is wrong or a better approach exists.
 
 ## Repo Overview
