@@ -1,0 +1,10 @@
+{
+  "deployer": "0x3bBaC142fd23F0DB15DA17c77e8177f52A9AbCbc",
+  "feeToken": "0x0000000000000000000000000000000000000000",
+  "feeRecipient": "0x3bBaC142fd23F0DB15DA17c77e8177f52A9AbCbc",
+  "usdPerWld": "1000000000000000000",
+  "pricePerWorldID": "10000000000000000",
+  "maxPriceAge": 3600,
+  "maxRequestAge": 300,
+  "maxRequestLifetime": 1800
+}
