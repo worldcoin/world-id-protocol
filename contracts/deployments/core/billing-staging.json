@@ -1,0 +1,15 @@
+{
+  "chainId": 480,
+  "commitSha": "028cc05520595d8f6ee128ea5d3aae7dc9e3cd7c",
+  "deployer": "0x3bBaC142fd23F0DB15DA17c77e8177f52A9AbCbc",
+  "feeToken": "0xe5b25698FD5844329e8601154fEde8B0707aBae7",
+  "priceSource": "0x0492B262eB374D414150b94bfd0cd3F9927DA6d0",
+  "rpRegistry": "0x37d2462fE7B4a07987263AAd062C6593C4f567b9",
+  "startBlock": 37579117,
+  "timestamp": 1794493873,
+  "worldIDBilling": {
+    "implementation": "0xE60c379eA75924fD7b1C8e24eeeaF35C6FB73639",
+    "proxy": "0xCd63C5c054f1B71Ef9eB1604bFefB001FBD00D63"
+  },
+  "worldIDVerifier": "0x703a6316c975DEabF30b637c155edD53e24657DB"
+}
