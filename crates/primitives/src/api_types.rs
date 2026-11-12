@@ -529,7 +529,7 @@ pub struct IndexerBilledRpsResponse {
     pub billing_contract: Address,
     /// The last block the indexer synced the Billing Contract's events through.
     pub block_number: u64,
-    /// When the indexer last confirmed this set was current, in Unix seconds.
+    /// The timestamp of `block_number`, in Unix seconds.
     pub synced_at: u64,
     /// The RPs `isBilledRp` reports as billed at `block_number`, in ascending order.
     #[cfg_attr(feature = "openapi", schema(value_type = Vec<String>))]

@@ -29,6 +29,7 @@ create table if not exists billing_sync_checkpoints (
     -- The last block synced, with its hash to detect reorganizations.
     block_number bigint not null,
     block_hash bytea not null,
-    -- When the sync last confirmed it was current, in Unix seconds.
-    synced_at bigint not null
+    -- The timestamp of `block_number`, in Unix seconds, once the sync has caught up through it;
+    -- null during the initial backfill and while resyncing after a reorganization.
+    synced_at bigint
 );

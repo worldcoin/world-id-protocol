@@ -119,15 +119,15 @@ pub struct GlobalConfig {
 pub struct BillingConfig {
     /// The Billing Contract's proxy address.
     pub address: Address,
-    /// The block to sync from, e.g. the contract's deployment block.
+    /// The block to sync from, e.g. the contract's deployment block. Required, so a missing value
+    /// does not backfill from genesis.
     pub start_block: u64,
     /// How many blocks below the chain head the sync stays, so every RPC node behind the
     /// provider's fallback has the blocks it reads logs for.
     pub confirmations: u64,
     /// How long the sync waits once it is current.
     pub poll_interval: Duration,
-    /// The endpoint answers `503 billing_sync_stale` once the sync has not been current for this
-    /// long.
+    /// The endpoint answers `503 billing_sync_stale` once the synced block is older than this.
     pub max_sync_age_secs: u64,
 }
 
@@ -138,7 +138,7 @@ impl BillingConfig {
 
     /// Reads `BILLING_ADDRESS`, `BILLING_START_BLOCK`, `BILLING_CONFIRMATIONS`,
     /// `BILLING_POLL_INTERVAL_SECS` and `BILLING_MAX_SYNC_AGE_SECS`. Billing is not indexed when
-    /// `BILLING_ADDRESS` is unset.
+    /// `BILLING_ADDRESS` is unset; when it is set, `BILLING_START_BLOCK` is required.
     pub fn from_env() -> Result<Option<Self>, ConfigError> {
         let Ok(address) = std::env::var("BILLING_ADDRESS") else {
             return Ok(None);
@@ -151,6 +151,14 @@ impl BillingConfig {
                 "BILLING_ADDRESS cannot be zero".to_string(),
             ));
         }
+        let start_block = std::env::var("BILLING_START_BLOCK")
+            .map_err(|_| {
+                ConfigError::InvalidBillingConfig(
+                    "BILLING_START_BLOCK is required with BILLING_ADDRESS".to_string(),
+                )
+            })?
+            .parse()
+            .map_err(|e| ConfigError::InvalidBillingConfig(format!("BILLING_START_BLOCK: {e}")))?;
         let poll_interval_secs = billing_u64(
             "BILLING_POLL_INTERVAL_SECS",
             Self::DEFAULT_POLL_INTERVAL_SECS,
@@ -169,7 +177,7 @@ impl BillingConfig {
         }
         Ok(Some(Self {
             address,
-            start_block: billing_u64("BILLING_START_BLOCK", 0)?,
+            start_block,
             confirmations: billing_u64("BILLING_CONFIRMATIONS", Self::DEFAULT_CONFIRMATIONS)?,
             poll_interval: Duration::from_secs(poll_interval_secs),
             max_sync_age_secs,
@@ -519,6 +527,7 @@ mod tests {
             "BILLING_ADDRESS",
             "0x00000000000000000000000000000000000000b1",
         );
+        set_env("BILLING_START_BLOCK", "1234");
         let address = "0x00000000000000000000000000000000000000b1"
             .parse()
             .unwrap();
@@ -526,14 +535,13 @@ mod tests {
             BillingConfig::from_env().unwrap(),
             Some(BillingConfig {
                 address,
-                start_block: 0,
+                start_block: 1234,
                 confirmations: BillingConfig::DEFAULT_CONFIRMATIONS,
                 poll_interval: Duration::from_secs(BillingConfig::DEFAULT_POLL_INTERVAL_SECS),
                 max_sync_age_secs: BillingConfig::DEFAULT_MAX_SYNC_AGE_SECS,
             })
         );
 
-        set_env("BILLING_START_BLOCK", "1234");
         set_env("BILLING_CONFIRMATIONS", "2");
         set_env("BILLING_POLL_INTERVAL_SECS", "3");
         set_env("BILLING_MAX_SYNC_AGE_SECS", "60");
@@ -566,6 +574,7 @@ mod tests {
                 "BILLING_ADDRESS",
                 "0x00000000000000000000000000000000000000b1",
             );
+            set_env("BILLING_START_BLOCK", "0");
             set_env(name, value);
             assert!(
                 matches!(
@@ -575,6 +584,19 @@ mod tests {
                 "{name}={value} should be rejected"
             );
         }
+
+        clear_all_config_env();
+        set_env(
+            "BILLING_ADDRESS",
+            "0x00000000000000000000000000000000000000b1",
+        );
+        assert!(
+            matches!(
+                BillingConfig::from_env(),
+                Err(ConfigError::InvalidBillingConfig(_))
+            ),
+            "BILLING_START_BLOCK should be required"
+        );
     }
 
     #[test]

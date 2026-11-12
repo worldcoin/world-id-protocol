@@ -3,10 +3,17 @@
 //!
 //! The sync runs on its own checkpoint, independent of the registry pipeline: billing events
 //! carry no Merkle root, so they cannot wait for one. A reorganization is detected by re-reading
-//! the checkpoint block's hash; on a mismatch, or once the chain is shorter than the checkpoint,
-//! the events of the last [`REORG_REWIND_BLOCKS`] are deleted and synced again, from the start
-//! block if it is that recent. Logs are read only `confirmations` blocks below the head, so a node
-//! behind the provider's fallback that lags a little still has them.
+//! the checkpoint block's hash; on a mismatch the events of the last [`REORG_REWIND_BLOCKS`] are
+//! deleted and synced again, from the start block if it is that recent. A checkpoint block the RPC
+//! does not have is retried, not rewound: the node may lag, and a chain that really got shorter
+//! shows a different hash once it grows past it. Logs are read only `confirmations` blocks below
+//! the head, so a node behind the provider's fallback that lags a little still has them, and every
+//! log's block hash is checked against the canonical one, since the provider's fallback may answer
+//! the log and block calls from different nodes. A node on another fork that leaves a log out goes
+//! unnoticed; `confirmations` keeps that unlikely.
+//!
+//! Freshness is the timestamp of the synced block, so a stuck RPC or chain makes the endpoint
+//! report the set as stale rather than serve it as current.
 
 use std::{
     hash::{BuildHasher as _, Hasher as _},
@@ -45,6 +52,8 @@ enum SyncError {
     InvalidLog(String),
     #[error("block {0} changed while syncing it")]
     BlockChanged(u64),
+    #[error("block {0} not found")]
+    BlockMissing(u64),
 }
 
 impl SyncError {
@@ -54,6 +63,7 @@ impl SyncError {
             Self::Db(_) => "db",
             Self::InvalidLog(_) => "decode",
             Self::BlockChanged(_) => "block_changed",
+            Self::BlockMissing(_) => "block_missing",
         }
     }
 }
@@ -149,9 +159,7 @@ async fn sync_step(
 
     if let Some(checkpoint) = checkpoint {
         let synced = checkpoint.synced;
-        // Looked up even when `head` is lower: a lagging node may report a stale head, while a
-        // chain that really got shorter no longer has the block at all.
-        if find_block_hash(provider, synced.block_number).await? != Some(synced.block_hash) {
+        if block(provider, synced.block_number).await?.hash != synced.block_hash {
             return rewind(provider, &billing, config, synced.block_number, head).await;
         }
     }
@@ -160,14 +168,11 @@ async fn sync_step(
     let safe_head = head.saturating_sub(config.confirmations);
     let from = checkpoint.map_or(config.start_block, |c| c.synced.block_number + 1);
     if from > safe_head {
-        if checkpoint.is_some() {
-            billing.touch(now()).await?;
-        }
         return Ok(Step::CaughtUp);
     }
     let to = from.saturating_add(batch_size - 1).min(safe_head);
 
-    let to_hash = block_hash(provider, to).await?;
+    let to_block = block(provider, to).await?;
     let filter = Filter::new()
         .address(config.address)
         .event_signature(BilledRpUpdated::SIGNATURE_HASH)
@@ -178,13 +183,7 @@ async fn sync_step(
         .await
         .map_err(|e| SyncError::Rpc(e.to_string()))?;
     let events = logs.iter().map(decode).collect::<Result<Vec<_>, _>>()?;
-    // Logs of the checkpoint block must come from the block whose hash is stored with it.
-    if events
-        .iter()
-        .any(|event| event.block_number == to && event.block_hash != to_hash)
-    {
-        return Err(SyncError::BlockChanged(to));
-    }
+    check_canonical(provider, &events, to, to_block.hash).await?;
 
     let caught_up = to == safe_head;
     billing
@@ -195,13 +194,13 @@ async fn sync_step(
                 start_block: config.start_block,
                 synced: SyncedBlock {
                     block_number: to,
-                    block_hash: to_hash,
+                    block_hash: to_block.hash,
                 },
-                // Mid-backfill the stored set is not current yet.
+                // Mid-backfill the set is no more current than before.
                 synced_at: if caught_up {
-                    now()
+                    Some(to_block.timestamp)
                 } else {
-                    checkpoint.map_or(0, |c| c.synced_at)
+                    checkpoint.and_then(|c| c.synced_at)
                 },
             },
         )
@@ -234,7 +233,7 @@ async fn rewind(
         billing
             .rewind(SyncedBlock {
                 block_number: kept_through,
-                block_hash: block_hash(provider, kept_through).await?,
+                block_hash: block(provider, kept_through).await?.hash,
             })
             .await?
     };
@@ -250,25 +249,47 @@ async fn rewind(
     Ok(Step::Advanced)
 }
 
-async fn block_hash(provider: &DynProvider, number: u64) -> Result<B256, SyncError> {
-    find_block_hash(provider, number)
-        .await?
-        .ok_or_else(|| SyncError::Rpc(format!("block {number} not found")))
+/// Fails unless every event comes from the canonical block of its number. `to_hash` is the
+/// canonical hash of block `to`, already read.
+async fn check_canonical(
+    provider: &DynProvider,
+    events: &[BilledRpEvent],
+    to: u64,
+    to_hash: B256,
+) -> Result<(), SyncError> {
+    // Events are sorted by block, so each block is looked up once.
+    let mut checked: Option<(u64, B256)> = None;
+    for event in events {
+        let canonical = match checked {
+            Some((number, hash)) if number == event.block_number => hash,
+            _ if event.block_number == to => to_hash,
+            _ => block(provider, event.block_number).await?.hash,
+        };
+        if event.block_hash != canonical {
+            return Err(SyncError::BlockChanged(event.block_number));
+        }
+        checked = Some((event.block_number, canonical));
+    }
+    Ok(())
 }
 
-/// The hash of block `number`, or `None` if the chain has no such block.
-async fn find_block_hash(provider: &DynProvider, number: u64) -> Result<Option<B256>, SyncError> {
-    Ok(provider
+struct BlockRef {
+    hash: B256,
+    timestamp: u64,
+}
+
+/// Block `number`'s hash and timestamp. A block the RPC does not have is an error to retry: the
+/// node answering may lag behind the one that reported the head.
+async fn block(provider: &DynProvider, number: u64) -> Result<BlockRef, SyncError> {
+    provider
         .get_block_by_number(BlockNumberOrTag::Number(number))
         .await
         .map_err(|e| SyncError::Rpc(e.to_string()))?
-        .map(|block| block.header.hash))
-}
-
-fn now() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_secs())
+        .map(|block| BlockRef {
+            hash: block.header.hash,
+            timestamp: block.header.timestamp,
+        })
+        .ok_or(SyncError::BlockMissing(number))
 }
 
 fn decode(log: &Log) -> Result<BilledRpEvent, SyncError> {

@@ -270,6 +270,12 @@ async fn test_billed_rps_reorg_to_a_much_shorter_chain() {
         .await
         .unwrap();
     assert!(reverted);
+    // A missing checkpoint block is retried, not rewound: the reorganization is detected once the
+    // new chain grows past the checkpoint with a different hash.
+    let _: () = provider
+        .raw_request("anvil_mine".into(), (310u64,))
+        .await
+        .unwrap();
     wait_for_billed_rps("http://127.0.0.1:8123", &[7]).await;
 
     indexer_task.abort();
@@ -299,17 +305,30 @@ async fn test_billed_rps_unavailable_before_a_current_sync() {
     let json: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(json["code"].as_str().unwrap(), "billing_not_synced");
 
-    // A sync last current long ago is reported as stale rather than served.
+    // A sync that has not caught up yet, e.g. mid-backfill or after a rewind, is not served.
     sqlx::query(
         "INSERT INTO billing_sync_checkpoints
              (billing_contract, chain_id, start_block, block_number, block_hash, synced_at)
-         VALUES ($1, 31337, 0, 1, $2, 1)",
+         VALUES ($1, 31337, 0, 1, $2, NULL)",
     )
     .bind(unsynced.as_slice())
     .bind([0u8; 32].as_slice())
     .execute(&setup.pool)
     .await
     .unwrap();
+    let resp = reqwest::get("http://127.0.0.1:8121/billing/billed-rps")
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+    let json: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(json["code"].as_str().unwrap(), "billing_not_synced");
+
+    // A synced block long ago is reported as stale rather than served.
+    sqlx::query("UPDATE billing_sync_checkpoints SET synced_at = 1 WHERE billing_contract = $1")
+        .bind(unsynced.as_slice())
+        .execute(&setup.pool)
+        .await
+        .unwrap();
     let resp = reqwest::get("http://127.0.0.1:8121/billing/billed-rps")
         .await
         .unwrap();

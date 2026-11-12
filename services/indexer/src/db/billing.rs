@@ -31,8 +31,9 @@ pub struct BillingCheckpoint {
     /// The start block the stored events were synced from.
     pub start_block: u64,
     pub synced: SyncedBlock,
-    /// When the sync last confirmed it was current, in Unix seconds.
-    pub synced_at: u64,
+    /// The timestamp of the last block the sync caught up through, in Unix seconds; `None` during
+    /// the initial backfill and while resyncing after a reorganization.
+    pub synced_at: Option<u64>,
 }
 
 /// The RPs a Billing Contract bills, as of `block_number`.
@@ -40,7 +41,8 @@ pub struct BillingCheckpoint {
 pub struct BilledRps {
     pub chain_id: u64,
     pub block_number: u64,
-    pub synced_at: u64,
+    /// See [`BillingCheckpoint::synced_at`].
+    pub synced_at: Option<u64>,
     /// Ascending.
     pub rp_ids: Vec<u64>,
 }
@@ -73,7 +75,7 @@ impl<'a> Billing<'a> {
                     block_number: to_u64(&row, "block_number")?,
                     block_hash: b256(&row, "block_hash")?,
                 },
-                synced_at: to_u64(&row, "synced_at")?,
+                synced_at: to_opt_u64(&row, "synced_at")?,
             })
         })
         .transpose()
@@ -121,28 +123,20 @@ impl<'a> Billing<'a> {
         .bind(to_i64(checkpoint.start_block, "start_block")?)
         .bind(to_i64(checkpoint.synced.block_number, "block_number")?)
         .bind(checkpoint.synced.block_hash.as_slice())
-        .bind(to_i64(checkpoint.synced_at, "synced_at")?)
+        .bind(
+            checkpoint
+                .synced_at
+                .map(|synced_at| to_i64(synced_at, "synced_at"))
+                .transpose()?,
+        )
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
         Ok(())
     }
 
-    /// Records that the sync confirmed it was current at `synced_at`.
-    #[instrument(level = "debug", skip(self))]
-    pub async fn touch(&self, synced_at: u64) -> DBResult<()> {
-        sqlx::query(
-            "UPDATE billing_sync_checkpoints SET synced_at = $2 WHERE billing_contract = $1",
-        )
-        .bind(self.contract.as_slice())
-        .bind(to_i64(synced_at, "synced_at")?)
-        .execute(self.pool)
-        .await?;
-        Ok(())
-    }
-
     /// Deletes the events after `kept.block_number` and moves the checkpoint back to it,
-    /// atomically. `synced_at` is left as is: the sync is no further along than before.
+    /// atomically. `synced_at` is cleared, so the set is not served until the resync catches up.
     #[instrument(level = "info", skip(self))]
     pub async fn rewind(&self, kept: SyncedBlock) -> DBResult<u64> {
         let mut tx = self.pool.begin().await?;
@@ -155,7 +149,7 @@ impl<'a> Billing<'a> {
         .await?
         .rows_affected();
         sqlx::query(
-            "UPDATE billing_sync_checkpoints SET block_number = $2, block_hash = $3
+            "UPDATE billing_sync_checkpoints SET block_number = $2, block_hash = $3, synced_at = NULL
              WHERE billing_contract = $1",
         )
         .bind(self.contract.as_slice())
@@ -232,7 +226,7 @@ impl<'a> Billing<'a> {
         Ok(Some(BilledRps {
             chain_id: to_u64(&checkpoint, "chain_id")?,
             block_number: to_u64(&checkpoint, "block_number")?,
-            synced_at: to_u64(&checkpoint, "synced_at")?,
+            synced_at: to_opt_u64(&checkpoint, "synced_at")?,
             rp_ids,
         }))
     }
@@ -251,6 +245,18 @@ fn to_u64(row: &sqlx::postgres::PgRow, column: &str) -> DBResult<u64> {
         field: column.to_string(),
         reason: format!("{value} is negative"),
     })
+}
+
+fn to_opt_u64(row: &sqlx::postgres::PgRow, column: &str) -> DBResult<Option<u64>> {
+    let value: Option<i64> = row.try_get(column)?;
+    value
+        .map(|value| {
+            u64::try_from(value).map_err(|_| DBError::InvalidEventField {
+                field: column.to_string(),
+                reason: format!("{value} is negative"),
+            })
+        })
+        .transpose()
 }
 
 fn b256(row: &sqlx::postgres::PgRow, column: &str) -> DBResult<B256> {
