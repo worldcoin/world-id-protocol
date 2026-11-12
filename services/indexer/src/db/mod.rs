@@ -2,9 +2,11 @@ use sqlx::{Acquire, PgConnection, PgPool, Postgres, Transaction, postgres::PgPoo
 use thiserror::Error;
 
 mod accounts;
+mod billing;
 mod world_id_registry_events;
 
 pub use accounts::Accounts;
+pub use billing::{BilledRpEvent, BilledRps, Billing, BillingCheckpoint, SyncedBlock};
 pub use world_id_registry_events::{
     BlockWithConflictingHashes, WorldIdRegistryEvent, WorldIdRegistryEventId,
     WorldIdRegistryEventType, WorldIdRegistryEvents,
@@ -91,6 +93,11 @@ impl PostgresDB {
 
     pub fn world_id_registry_events(&self) -> WorldIdRegistryEvents<'_, &PgPool> {
         WorldIdRegistryEvents::with_executor(&self.pool)
+    }
+
+    /// The `BilledRpUpdated` events of the Billing Contract at `contract`.
+    pub const fn billing(&self, contract: alloy::primitives::Address) -> Billing<'_> {
+        Billing::new(&self.pool, contract)
     }
 
     pub async fn ping(&self) -> DBResult<()> {
