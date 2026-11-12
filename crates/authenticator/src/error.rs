@@ -188,6 +188,19 @@ pub enum AuthenticatorError {
     #[error("session binding requires a cached `session_id_r_seed`")]
     SessionSeedRequired,
 
+    /// The attested Flamingo release has no pipeline WIP-202 can use: one with a single
+    /// `live_frame` input and at most 8 response slots (§4.3).
+    #[error("the Flamingo release has no pipeline for a single live frame")]
+    NoFlamingoPipeline,
+
+    /// The attested Flamingo release does not list the requested `match_strictness`.
+    #[error("the Flamingo release does not offer match strictness {0}")]
+    MatchStrictnessNotOffered(u8),
+
+    /// The Flamingo request is out of the bounds of WIP-201 §4.4.1, e.g. already expired.
+    #[error(transparent)]
+    FlamingoRequest(#[from] world_id_flamingo::RequestError),
+
     /// The Flamingo Token does not verify under the Flamingo Verifier's key.
     #[error(transparent)]
     FlamingoToken(#[from] world_id_flamingo::TokenError),
