@@ -67,22 +67,29 @@ const LIVE_FRAME: &str = "live_frame";
 /// 3 bits (WIP-201 §4.6).
 const MAX_RESPONSE_SLOTS: usize = 8;
 
+/// How long after the device's `now` a request may expire. The Verifier rejects one expiring more
+/// than `MAX_REQUEST_LIFETIME` after its own clock, so the other half absorbs a device clock that
+/// runs ahead of it.
+const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
+
 /// Builds the Flamingo request (WIP-201 §4.4.1) for a Proof of Embedding Similarity request, under
 /// the WIP-202 entry layout (§4.3).
 ///
-/// The pipeline is the first in `release` with a single `live_frame` input, so only the attested
-/// release, not the Verifier, picks it. The result carries no `aat_inputs`: an AAT signs the
-/// request's [`Request::cdh`], so the caller obtains one for this request and sets it afterwards.
+/// The pipeline is the first in `release` with a single `live_frame` input, so only the release,
+/// not the Verifier, picks it. The result carries no `aat_inputs`: an AAT signs the request's
+/// [`Request::cdh`], so the caller obtains one for this request and sets it afterwards.
 ///
 /// # Arguments
 /// - `proof_request`: the RP's [`ProofType::EmbeddingSimilarity`] request.
-/// - `release`: the release manifest the Verifier's attestation binds (WIP-201 §4.6).
+/// - `release`: the release manifest the Verifier's attestation binds (WIP-201 §4.6). The
+///   attestation binds the manifest but does not vouch for it, so it MUST also verify under a
+///   release key of an Engine Provider the caller trusts (§4.3.4).
 /// - `match_strictness`: the Authenticator Provider's level; WIP-202 requests set none.
 /// - `images`: the entries to compare; the challenge must hash to the request's `challenge_hash`.
 /// - `billing_nullifier`: the WIP-107 `billingNullifier` registered for the RP, or `0`.
-/// - `now`: the device's time, in Unix seconds. The Verifier rejects a request expiring more than
-///   `MAX_REQUEST_LIFETIME` after its own time, so `expires_at` is the request's expiry capped at
-///   `now + MAX_REQUEST_LIFETIME`.
+/// - `now`: the device's time, in Unix seconds. `expires_at` is the request's expiry capped at
+///   `now + MAX_REQUEST_LIFETIME / 2`, so a device clock up to `MAX_REQUEST_LIFETIME / 2` ahead of
+///   the Verifier's does not get the request rejected.
 ///
 /// # Errors
 /// - [`AuthenticatorError::PrimitiveError`] if the request is not a valid Proof of Embedding
@@ -122,7 +129,7 @@ pub fn flamingo_request(
     }
     let expires_at = proof_request
         .expires_at
-        .min(now.saturating_add(MAX_REQUEST_LIFETIME));
+        .min(now.saturating_add(REQUEST_LIFETIME));
     if expires_at <= now {
         return Err(RequestError::OutOfBounds("expires_at").into());
     }
@@ -691,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    fn the_expiry_is_capped_at_the_verifier_maximum() {
+    fn the_expiry_leaves_room_for_a_device_clock_ahead_of_the_verifier() {
         let release = release(vec![pipeline(1, &["live_frame"])]);
         let mut proof_request = proof_request();
         proof_request.expires_at = NOW + 3600;
@@ -704,7 +711,10 @@ mod tests {
             NOW,
         )
         .unwrap();
-        assert_eq!(request.expires_at, NOW + MAX_REQUEST_LIFETIME);
+        assert_eq!(request.expires_at, NOW + REQUEST_LIFETIME);
+        let verifier_behind = NOW - (MAX_REQUEST_LIFETIME - REQUEST_LIFETIME);
+        assert_eq!(request.check_expiry(verifier_behind), Ok(()));
+        assert!(request.check_expiry(verifier_behind - 1).is_err());
 
         proof_request.expires_at = NOW;
         assert!(matches!(
