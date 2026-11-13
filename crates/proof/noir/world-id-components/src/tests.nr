@@ -250,5 +250,5 @@ fn label<let N: u32>(bytes: [u8; N]) -> Field {
 #[test]
 fn test_nullifier_domain_separators_match_their_labels() {
     assert_eq(super::constants::DS_QUERY, label("World ID Query".as_bytes()));
-    assert_eq(super::constants::DS_OPRF_PROOF, label("World ID Proof".as_bytes()));
+    assert_eq(super::constants::DS_NULLIFIER, label("World ID Proof".as_bytes()));
 }
