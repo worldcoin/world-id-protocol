@@ -35,5 +35,6 @@ This folder includes supporting documentation for World ID, particularly point-i
 | [WIP-111: Passkey Ownership Proof](https://github.com/worldcoin/world-id-protocol/pull/872) | 🟡 Draft | Prove control of a World ID using a WebAuthn ES256 passkey registered as a proving authenticator, without a PRF-derived BabyJubJub secret. |
 | [WIP-112: Authenticator Registration over iroh](https://github.com/worldcoin/world-id-protocol/pull/985) | 🗑️ Cancelled | Secure bidirectional transport for WIP-109 authenticator registration using iroh. |
 | [WIP-113: Uniqueness Identifiers](WIPs/wip-113.md) | 🟡 Draft | Let RPs whitelisted by the Authenticator Provider receive the same nullifier more than once and use it as a stable per-user identifier. |
+| [WIP-114: Proof Request Format](WIPs/wip-114.md) | 🚧 Draft | An extensible proof request and response format, in which each proof type defines only its own parameters and result. |
 | [WIP-201: Flamingo Verifier](https://github.com/worldcoin/world-id-protocol/pull/979) | 🟡 Draft | A TEE-backed service that compares images or embeddings under a requested match strictness and signs a Flamingo Token committing to its inputs. |
 | [WIP-202: Proof of Embedding Similarity](https://github.com/worldcoin/world-id-protocol/pull/979) | 🟡 Draft | Mechanism to prove similarity between vector embeddings based on a World ID credential. |
