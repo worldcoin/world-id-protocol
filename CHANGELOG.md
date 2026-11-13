@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.22.0...world-id-primitives-v0.23.0) - 2026-11-13
+
+### Added
+
+- *(gateway)* report an exhausted billing period with its own code ([#1229](https://github.com/worldcoin/world-id-protocol/pull/1229))
+- build the WIP-202 Flamingo request in world-id-core ([#1225](https://github.com/worldcoin/world-id-protocol/pull/1225))
+
+### Other
+
+- [**breaking**] drop the WIP-107 bound on the billing state's age ([#1223](https://github.com/worldcoin/world-id-protocol/pull/1223))
+
 ## [0.22.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.21.0...world-id-primitives-v0.22.0) - 2026-11-12
 
 ### Added
