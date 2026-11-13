@@ -723,6 +723,10 @@ pub enum GatewayErrorCode {
     MethodNotAvailable,
     /// The billing nullifier is already registered, so `WorldIDBilling.register` would be a no-op.
     BillingNullifierAlreadyRegistered,
+    /// The billing period has no capacity left for a new registration (`CapacityExhausted`). An
+    /// Authenticator registering for the next period may register for the current one instead
+    /// (WIP-107 §4.6).
+    BillingCapacityExhausted,
 }
 
 /// Error object returned by the services APIs (indexer, gateway).
