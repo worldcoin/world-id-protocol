@@ -1,6 +1,9 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
+#![recursion_limit = "256"]
 
 pub mod anvil;
+#[cfg(feature = "embedding-similarity")]
+pub mod embedding_similarity;
 pub mod fixtures;
 pub mod merkle;
 pub mod stubs;
