@@ -1,5 +1,6 @@
 //! The WIP-202 end-to-end setup: an account with a Proof of Human Credential and an RP's Proof of
-//! Embedding Similarity request, on local registries, gateway, indexer stub and OPRF nodes.
+//! Embedding Similarity request, on local registries, gateway, indexer stub and OPRF nodes, and
+//! optionally a WIP-107 Billing Contract that bills the RP.
 
 use std::{
     collections::{BTreeMap, HashSet},
@@ -9,10 +10,11 @@ use std::{
 };
 
 use alloy::{
-    primitives::U160,
+    primitives::{Address, U160, U256},
+    providers::Provider as _,
     signers::{SignerSync as _, local::LocalSigner},
 };
-use eyre::{Result, eyre};
+use eyre::{Result, bail, eyre};
 use sha2::{Digest as _, Sha256};
 use taceo_oprf::{
     dev_client::health_checks,
@@ -33,19 +35,23 @@ use world_id_gateway::{
     BatchPolicyConfig, GatewayConfig, GatewayHandle, RegistryVersion, SignerArgs, defaults,
     spawn_gateway_for_tests,
 };
+use world_id_oprf_node::config::BillingContractConfig;
 use world_id_primitives::{
     Config, EmbeddingSimilarityParams, FieldElement, OprfPrefix, OprfPrefixedFieldElement as _,
-    ProofResponse, ServiceEndpoint, SessionRef, TREE_DEPTH, merkle::AccountInclusionProof,
+    ProofResponse, ServiceEndpoint, SessionRef, TREE_DEPTH,
+    api_types::GatewayRequestState,
+    billing::{BillingContext, BillingWitness, active_periods, registration_period_start},
+    merkle::AccountInclusionProof,
 };
 
 use crate::{
-    anvil::TestAnvil,
+    anvil::{TestAnvil, world_id_billing::IWorldIDBilling},
     fixtures::{
         MerkleFixture, RegistryTestContext, build_base_credential, generate_rp_fixture,
         single_leaf_merkle_fixture,
     },
     redis_testcontainer,
-    stubs::{SpawnedKeyGens, spawn_indexer_stub, spawn_oprf_nodes},
+    stubs::{SpawnedKeyGens, spawn_indexer_stub, spawn_oprf_nodes_with_billing},
 };
 
 const ISSUER_SCHEMA_ID: u64 = 1;
@@ -69,7 +75,23 @@ pub struct EmbeddingSimilarityFixture {
     /// The Credential issuer's key.
     pub issuer_key: EdDSAPublicKey,
     pub artifacts: Arc<dyn ZkArtifactSource>,
+    /// The Billing Contract that bills the RP, if the fixture was spawned billed.
+    pub billing: Option<FixtureBilling>,
     _services: Services,
+}
+
+/// A Billing Contract that bills the fixture's RP, with capacity for one registration in
+/// `scope`.
+pub struct FixtureBilling {
+    /// The chain's JSON-RPC endpoint.
+    pub rpc_url: String,
+    pub chain_id: u64,
+    /// The `WorldIDBilling` proxy.
+    pub contract: Address,
+    /// The block the proxy was deployed in.
+    pub deploy_block: u64,
+    /// The context the account registers in, active now.
+    pub scope: BillingContext,
 }
 
 struct Services {
@@ -86,27 +108,47 @@ impl EmbeddingSimilarityFixture {
     /// Needs Docker, and anvil and forge on `PATH`. `artifacts` must serve the embedding
     /// similarity prover, and its verifier for [`Self::verify`].
     pub async fn spawn(artifacts: Arc<dyn ZkArtifactSource>) -> Result<Self> {
+        Self::spawn_with(artifacts, false).await
+    }
+
+    /// [`Self::spawn`], with a Billing Contract that bills the RP and has capacity for the
+    /// account's registration ([`Self::register_billing`]).
+    pub async fn spawn_billed(artifacts: Arc<dyn ZkArtifactSource>) -> Result<Self> {
+        Self::spawn_with(artifacts, true).await
+    }
+
+    async fn spawn_with(artifacts: Arc<dyn ZkArtifactSource>, billed: bool) -> Result<Self> {
         // Another provider may already be installed, which works as well.
         let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-        // Registries on Anvil (no Billing Contract; this path is unbilled).
+        // Registries on Anvil, and the Billing Contract if billed.
         let RegistryTestContext {
             anvil,
             world_id_registry,
             rp_registry,
             oprf_key_registry,
-            world_id_verifier: _,
+            world_id_verifier,
             credential_registry,
         } = RegistryTestContext::new().await?;
         let deployer = anvil.signer(0)?;
         let chain_id = anvil.instance.chain_id();
+        let deployment = if billed {
+            let deployment = anvil
+                .deploy_world_id_billing(deployer.clone(), world_id_verifier, rp_registry)
+                .await?;
+            // Anvil mines each transaction in its own block, the proxy's last.
+            let deploy_block = anvil.provider()?.get_block_number().await?;
+            Some((deployment, deploy_block))
+        } else {
+            None
+        };
 
         // Gateway for account creation.
         let (redis, redis_url) = redis_testcontainer().await?;
         let gateway = spawn_gateway_for_tests(GatewayConfig {
             registry_addr: world_id_registry,
             registry_version: RegistryVersion::V2,
-            billing_addr: None,
+            billing_addr: deployment.map(|(deployment, _)| deployment.billing),
             provider: world_id_gateway::ProviderArgs {
                 http: vec![anvil.endpoint().parse()?],
                 signer: SignerArgs::from_wallet(hex::encode(deployer.to_bytes())),
@@ -161,18 +203,20 @@ impl EmbeddingSimilarityFixture {
         )
         .await?;
 
-        // OPRF nodes for credential blinding.
+        // OPRF nodes for credential blinding, and billing queries if billed.
         let connection_string = crate::shared_postgres_testcontainer().await?;
         let secret_managers =
             crate::stubs::init_test_secret_managers(connection_string.to_string().into()).await?;
         let key_gens =
             crate::stubs::spawn_key_gens(&anvil, connection_string, oprf_key_registry).await?;
-        let nodes = spawn_oprf_nodes(
+        let nodes = spawn_oprf_nodes_with_billing(
             &anvil,
             secret_managers,
             world_id_registry,
             rp_registry,
             credential_registry,
+            deployment
+                .map(|(deployment, _)| BillingContractConfig::new(chain_id, deployment.billing)),
         )
         .await;
         health_checks::services_health_check(&nodes, Duration::from_secs(60)).await?;
@@ -193,7 +237,7 @@ impl EmbeddingSimilarityFixture {
         anvil
             .register_rp(
                 rp_registry,
-                deployer,
+                deployer.clone(),
                 rp_fixture.world_rp_id,
                 rp_signer.address(),
                 rp_signer.address(),
@@ -212,6 +256,39 @@ impl EmbeddingSimilarityFixture {
             )
             .await?;
         }
+
+        // The RP is billed, with capacity for one registration in the current period.
+        let billing = match deployment {
+            Some((deployment, deploy_block)) => {
+                let scope = BillingContext {
+                    chain_id: U256::from(chain_id),
+                    billing_contract: deployment.billing,
+                    rp_id: rp_fixture.world_rp_id,
+                    period_start: registration_period_start(active_periods(now_secs())?, false),
+                };
+                anvil
+                    .purchase_billing_capacity(
+                        deployer,
+                        deployment,
+                        IWorldIDBilling::BillingContext {
+                            chainId: scope.chain_id,
+                            billingContract: scope.billing_contract,
+                            rpId: scope.rp_id.into_inner(),
+                            periodStart: scope.period_start,
+                        },
+                        1,
+                    )
+                    .await?;
+                Some(FixtureBilling {
+                    rpc_url: anvil.endpoint().to_string(),
+                    chain_id,
+                    contract: deployment.billing,
+                    deploy_block,
+                    scope,
+                })
+            }
+            None => None,
+        };
 
         // Authenticator pointed at the indexer, gateway and OPRF nodes.
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -304,6 +381,7 @@ impl EmbeddingSimilarityFixture {
             merkle_root,
             issuer_key: issuer_sk.public(),
             artifacts,
+            billing,
             _services: Services {
                 _anvil: anvil,
                 _redis: redis,
@@ -314,10 +392,51 @@ impl EmbeddingSimilarityFixture {
         })
     }
 
-    /// Proves the fixture's request from an unbilled `flamingo` result.
+    /// Registers the account in the fixture's billing context through the gateway, as WIP-107
+    /// §4.6 has the Authenticator do before its first proof, and waits until it is mined.
+    ///
+    /// Returns the witness [`Self::prove`] needs for a token carrying its `billing_nullifier`.
+    pub async fn register_billing(&self) -> Result<BillingWitness> {
+        let billing = self
+            .billing
+            .as_ref()
+            .ok_or_else(|| eyre!("the fixture was spawned without billing"))?;
+        let query = self
+            .authenticator
+            .generate_billing_nullifier(&self.proof_request, &billing.scope, now_secs(), None)
+            .await?;
+        let witness = query.billing_witness();
+        let registration = self.authenticator.generate_billing_registration(
+            &self.proof_request,
+            &billing.scope,
+            query,
+            &self.credential,
+        )?;
+        let request_id = self
+            .authenticator
+            .submit_billing_registration(&registration)
+            .await?;
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+        loop {
+            match self.authenticator.poll_status(&request_id).await? {
+                GatewayRequestState::Finalized { .. } => return Ok(witness),
+                GatewayRequestState::Failed { error, error_code } => {
+                    bail!("billing registration failed ({error_code:?}): {error}")
+                }
+                _ if tokio::time::Instant::now() > deadline => {
+                    bail!("billing registration was not mined within 60 s")
+                }
+                _ => tokio::time::sleep(Duration::from_millis(250)).await,
+            }
+        }
+    }
+
+    /// Proves the fixture's request from a `flamingo` result, with the `billing` witness of its
+    /// token's nonzero `billing_nullifier`.
     pub async fn prove(
         &self,
         flamingo: &FlamingoResult,
+        billing: Option<&BillingWitness>,
     ) -> Result<ProofResponse, AuthenticatorError> {
         let result = self
             .authenticator
@@ -326,7 +445,7 @@ impl EmbeddingSimilarityFixture {
                 flamingo,
                 &self.credential,
                 &self.hashes_json,
-                None,
+                billing,
                 None,
                 None,
             )
