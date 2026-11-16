@@ -5,6 +5,15 @@ edition.workspace = true
 license.workspace = true
 publish = false
 
+[features]
+# The WIP-202 end-to-end setup, `embedding_similarity::EmbeddingSimilarityFixture`.
+embedding-similarity = [
+    "dep:rustls",
+    "dep:sha2",
+    "dep:world-id-core",
+    "dep:world-id-gateway",
+]
+
 [dependencies]
 alloy = { workspace = true, default-features = false, features = [
     "contract",
@@ -39,6 +48,10 @@ testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 tracing = { workspace = true }
 world-id-primitives = { workspace = true }
+rustls = { workspace = true, optional = true }
+sha2 = { workspace = true, optional = true }
+world-id-core = { workspace = true, optional = true, features = ["authenticator", "rp"] }
+world-id-gateway = { path = "../../services/gateway", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
