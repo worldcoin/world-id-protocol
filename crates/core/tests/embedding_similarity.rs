@@ -1,8 +1,8 @@
 #![cfg(feature = "authenticator")]
 #![recursion_limit = "256"]
 
-//! WIP-202 end to end: generate a Proof of Embedding Similarity from a Flamingo
-//! Verifier result (unbilled), verify it as an RP (§4.8), and check the billed-token witness.
+//! WIP-202 end to end: generate a Proof of Embedding Similarity from a Flamingo Verifier result,
+//! unbilled and after a WIP-107 registration for a billed RP, and verify it as an RP (§4.8).
 
 use std::{
     sync::Arc,
@@ -96,7 +96,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     init_test_tracing();
     info!("starting e2e_embedding_similarity_proof");
     let mut rng = rand::thread_rng();
-    let fixture = EmbeddingSimilarityFixture::spawn(zk_artifact_source()).await?;
+    let fixture = EmbeddingSimilarityFixture::spawn_billed(zk_artifact_source()).await?;
     let EmbeddingSimilarityFixture {
         proof_request,
         credential_image,
@@ -113,7 +113,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         challenge_hash,
         FieldElement::ZERO,
     )?;
-    let response = fixture.prove(&unbilled).await?;
+    let response = fixture.prove(&unbilled, None).await?;
 
     // The RP verifies it under WIP-202 §4.8.
     let policy = fixture.policy(
@@ -228,21 +228,25 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         Err(VerifyError::Proof(_))
     ));
 
-    // A billed token without a witness is rejected before proving.
+    // After registering, a token carrying the registered `billing_nullifier` proves with the
+    // registration's witness (constraint 7).
+    let witness = fixture.register_billing().await?;
     let billed = flamingo_result(
         proof_request,
         credential_image,
         challenge_hash,
-        FieldElement::from(7u64),
+        witness.billing_nullifier,
     )?;
     let err = fixture
-        .prove(&billed)
+        .prove(&billed, None)
         .await
         .expect_err("a billed token needs the billing witness");
     assert!(
         matches!(err, AuthenticatorError::BillingWitnessRequired),
         "{err}"
     );
+    let response = fixture.prove(&billed, Some(&witness)).await?;
+    fixture.verify(proof_request, &response, &policy).await?;
 
     info!("e2e_embedding_similarity_proof finished successfully");
     Ok(())
