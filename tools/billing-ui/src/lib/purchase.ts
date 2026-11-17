@@ -1,4 +1,4 @@
-import { parseEventLogs, type Address, type Hash } from "viem";
+import { isAddressEqual, parseEventLogs, type Address, type Hash } from "viem";
 import { billingAbi, tokenAbi } from "../abi";
 import { config, SAFETY_MARGIN_BPS } from "../config";
 import { withSafetyMargin } from "./amounts";
@@ -58,8 +58,14 @@ export async function purchaseSeats(request: PurchaseRequest): Promise<PurchaseR
     const hash = await request.signer.writeContract(call);
     const receipt = await reader.waitForTransactionReceipt({ hash });
     if (receipt.status !== "success") throw new Error("The transaction reverted on-chain.");
-    const [event] = parseEventLogs({ abi: billingAbi, logs: receipt.logs, eventName: "CapacityPurchased" });
-    return { hash, tokensPaid: event?.args.wldPaid ?? request.quotedTokens, maxTokens };
+    const [event] = parseEventLogs({
+      abi: billingAbi,
+      eventName: "CapacityPurchased",
+      args: { rpId: request.rpId, periodStart: request.periodStart, payer: account },
+      logs: receipt.logs.filter((log) => isAddressEqual(log.address, config.billing)),
+    });
+    if (!event) throw new Error("The purchase was cancelled or replaced in the wallet, so no seats were bought.");
+    return { hash: receipt.transactionHash, tokensPaid: event.args.wldPaid, maxTokens };
   });
 }
 
