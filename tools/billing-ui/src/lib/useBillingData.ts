@@ -72,7 +72,6 @@ export function useBillingData(
   const [inputData, setInputData] = useState<InputData>();
   const latestRun = useRef(0);
   const immutables = useRef<Immutables | undefined>(undefined);
-  const key = inputKey(inputs);
 
   const refresh = useCallback(async () => {
     const run = ++latestRun.current;
@@ -98,11 +97,16 @@ export function useBillingData(
       ]);
       if (isStale()) return;
       setWalletData(account && wallet ? { account, ...wallet } : undefined);
-      setInputData({ key, rpStatus: rp ?? IDLE, capacities: capacity ?? {}, quote: price ?? IDLE });
+      setInputData({
+        key: inputKey(inputs, period?.start),
+        rpStatus: rp ?? IDLE,
+        capacities: capacity ?? {},
+        quote: price ?? IDLE,
+      });
     } catch (error) {
       if (!isStale()) setLoadError(explainError(error));
     }
-  }, [reader, account, key, inputs.rpId, inputs.seats, inputs.periodKind]);
+  }, [reader, account, inputs.rpId, inputs.seats, inputs.periodKind]);
 
   useEffect(() => {
     void refresh();
@@ -113,7 +117,8 @@ export function useBillingData(
   // Results are only shown for the inputs they were loaded for, so a stale quote or RP check never
   // describes a different purchase than the one the button would send.
   const wallet = account !== undefined && walletData?.account === account ? walletData : undefined;
-  const current = inputData?.key === key ? inputData : undefined;
+  const selectedPeriodStart = periods.find((p) => p.kind === inputs.periodKind)?.start;
+  const current = inputData?.key === inputKey(inputs, selectedPeriodStart) ? inputData : undefined;
   return {
     statics,
     loadError,
@@ -128,8 +133,8 @@ export function useBillingData(
   };
 }
 
-function inputKey(inputs: BillingInputs): string {
-  return `${inputs.rpId}|${inputs.seats}|${inputs.periodKind}`;
+export function inputKey(inputs: BillingInputs, periodStart: bigint | undefined): string {
+  return `${inputs.rpId}|${inputs.seats}|${inputs.periodKind}|${periodStart}`;
 }
 
 type Immutables = Pick<StaticData, "symbol" | "decimals" | "rpRegistry"> & { verifier: Address };
