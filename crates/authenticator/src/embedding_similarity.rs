@@ -18,7 +18,7 @@ use world_id_proof::{
     ProofError,
     circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs},
     embedding_similarity_proof::{
-        COMPARE_SOURCES, authorization_message, generate_embedding_similarity_proof,
+        COMPARE_SOURCES, authorization_message, flamingo_nonce, generate_embedding_similarity_proof,
     },
 };
 
@@ -38,6 +38,8 @@ pub struct FlamingoResult {
     pub verifier_key: EdDSAPublicKey,
     /// The attestation of `verifier_key`, forwarded to the RP (WIP-201 §4.7 check 1).
     pub signing_key_attestation: Bytes,
+    /// The salt the request's `nonce` was derived with, as passed to [`flamingo_request`].
+    pub nonce_salt: FieldElement,
 }
 
 /// The images a Proof of Embedding Similarity compares, in the order of the WIP-202 entry layout
@@ -87,6 +89,9 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 /// - `match_strictness`: the Authenticator Provider's level; WIP-202 requests set none.
 /// - `images`: the entries to compare; the challenge must hash to the request's `challenge_hash`.
 /// - `billing_nullifier`: the WIP-107 `billingNullifier` registered for the RP, or `0`.
+/// - `nonce_salt`: sampled fresh with a CSPRNG for every Flamingo request, so a retry after a failed
+///   capture or a billing rejection is a new request within the same RP request (WIP-201 §4.6). The
+///   request's `nonce` is [`flamingo_nonce`]`(proof_request.nonce, nonce_salt)`.
 /// - `now`: the device's time, in Unix seconds. `expires_at` is the request's expiry capped at
 ///   `now + MAX_REQUEST_LIFETIME / 2`, so a device clock up to `MAX_REQUEST_LIFETIME / 2` ahead of
 ///   the Verifier's does not get the request rejected.
@@ -105,6 +110,7 @@ pub fn flamingo_request(
     match_strictness: u8,
     images: EmbeddingSimilarityImages,
     billing_nullifier: FieldElement,
+    nonce_salt: FieldElement,
     now: u64,
 ) -> Result<Request, AuthenticatorError> {
     let params = embedding_similarity_params(proof_request)?;
@@ -150,7 +156,7 @@ pub fn flamingo_request(
     };
     Ok(Request::new(
         proof_request.rp_id.into(),
-        proof_request.nonce,
+        flamingo_nonce(proof_request.nonce, nonce_salt),
         expires_at,
         billing_nullifier,
         &payload,
@@ -185,14 +191,15 @@ fn embedding_similarity_params(
 fn check_token_answers_request(
     claims: &FlamingoClaims,
     rp_id: FieldElement,
-    nonce: FieldElement,
+    rp_nonce: FieldElement,
+    nonce_salt: FieldElement,
     params: &EmbeddingSimilarityParams,
 ) -> Result<(), AuthenticatorError> {
     let mismatch = |attribute| Err(AuthenticatorError::FlamingoTokenMismatch(attribute));
     if claims.aud != rp_id {
         return mismatch("aud");
     }
-    if claims.nonce != nonce {
+    if claims.nonce != flamingo_nonce(rp_nonce, nonce_salt) {
         return mismatch("nonce");
     }
     if claims.compare_sources != COMPARE_SOURCES {
@@ -312,6 +319,7 @@ impl Authenticator {
             &claims,
             proof_request.rp_id.into(),
             proof_request.nonce,
+            flamingo.nonce_salt,
             params,
         )?;
         let aat = claims.aat.as_ref().map(aat_public_values).transpose()?;
@@ -357,6 +365,7 @@ impl Authenticator {
             cred_pk: cred.issuer.clone(),
             live_capture_hash: claims.compared_entry_hashes[1],
             billing_nullifier: claims.billing_nullifier,
+            nonce_salt: flamingo.nonce_salt,
             token_signature: flamingo.token.signature()?,
             key_index: account.key_index,
             key_set: account.key_set.clone(),
@@ -431,7 +440,7 @@ mod tests {
                 FieldElement::ZERO,
             ],
             aud: FieldElement::from(9u64),
-            nonce: FieldElement::from(5u64),
+            nonce: flamingo_nonce(FieldElement::from(5u64), FieldElement::from(NONCE_SALT)),
             aat: None,
             compare_sources: COMPARE_SOURCES,
             engine_config_hash: FieldElement::from(4u64),
@@ -524,6 +533,7 @@ mod tests {
             claims,
             FieldElement::from(9u64),
             FieldElement::from(5u64),
+            FieldElement::from(NONCE_SALT),
             params,
         )
         .map_err(|err| match err {
@@ -542,7 +552,8 @@ mod tests {
         type Tamper = fn(&mut FlamingoClaims);
         let cases: [(&str, Tamper); 5] = [
             ("aud", |c| c.aud = FieldElement::from(10u64)),
-            ("nonce", |c| c.nonce = FieldElement::from(6u64)),
+            // A token over the RP's own nonce rather than the derived one.
+            ("nonce", |c| c.nonce = FieldElement::from(5u64)),
             ("compare_sources", |c| c.compare_sources = 0),
             ("compared_entry_hash_2", |c| {
                 c.compared_entry_hashes[2] = FieldElement::from(8u64);
@@ -571,6 +582,7 @@ mod tests {
     }
 
     const NOW: u64 = 1_783_446_000;
+    const NONCE_SALT: u64 = 13;
 
     fn image_hash(bytes: &[u8]) -> FieldElement {
         FieldElement::from_digest(&Sha256::digest(bytes).into())
@@ -656,6 +668,7 @@ mod tests {
             match_strictness,
             images(),
             FieldElement::from(11u64),
+            FieldElement::from(NONCE_SALT),
             NOW,
         )
     }
@@ -692,9 +705,28 @@ mod tests {
     fn aud_nonce_and_expiry_come_from_the_proof_request() {
         let request = build(&release(vec![pipeline(1, &["live_frame"])]), 1).unwrap();
         assert_eq!(request.aud, FieldElement::from(1_928_118u64));
-        assert_eq!(request.nonce, FieldElement::from(42u64));
+        assert_eq!(
+            request.nonce,
+            flamingo_nonce(FieldElement::from(42u64), FieldElement::from(NONCE_SALT))
+        );
         assert_eq!(request.expires_at, NOW + 240);
         assert_eq!(request.check_expiry(NOW), Ok(()));
+    }
+
+    #[test]
+    fn a_retry_with_another_salt_is_a_new_request() {
+        let release = release(vec![pipeline(1, &["live_frame"])]);
+        let retry = flamingo_request(
+            &proof_request(),
+            &release,
+            1,
+            images(),
+            FieldElement::from(11u64),
+            FieldElement::from(NONCE_SALT + 1),
+            NOW,
+        )
+        .unwrap();
+        assert_ne!(retry.nonce, build(&release, 1).unwrap().nonce);
     }
 
     #[test]
@@ -708,6 +740,7 @@ mod tests {
             1,
             images(),
             FieldElement::ZERO,
+            FieldElement::from(NONCE_SALT),
             NOW,
         )
         .unwrap();
@@ -724,6 +757,7 @@ mod tests {
                 1,
                 images(),
                 FieldElement::ZERO,
+                FieldElement::from(NONCE_SALT),
                 NOW
             ),
             Err(AuthenticatorError::FlamingoRequest(
@@ -766,6 +800,7 @@ mod tests {
                 1,
                 images,
                 FieldElement::ZERO,
+                FieldElement::from(NONCE_SALT),
                 NOW,
             ),
             Err(AuthenticatorError::PrimitiveError(PrimitiveError::InvalidInput { attribute, .. }))

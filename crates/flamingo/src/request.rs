@@ -39,7 +39,7 @@ pub enum RequestError {
 pub struct Request {
     /// The `rpId` of the request.
     pub aud: FieldElement,
-    /// The RP's single-use nonce; nonzero.
+    /// Nonzero, fresh per request and bound to the RP's request as the consuming protocol defines.
     pub nonce: FieldElement,
     /// Unix seconds after which the Verifier rejects the request.
     pub expires_at: u64,

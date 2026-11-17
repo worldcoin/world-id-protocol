@@ -4,15 +4,16 @@ use crate::{
     main,
     test_fixtures::{
         AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_BILLED, AUTH_SIG_BILLED_OTHER_LEAF,
-        AUTH_SIG_BILLED_OTHER_RP, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTHENTICATOR_META,
-        BILLING_ACTION, BILLING_NULLIFIER, BILLING_NULLIFIER_OTHER_LEAF, BILLING_NULLIFIER_OTHER_RP,
-        BILLING_OPRF_OUTPUT, CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK, CRED_SIG, DIGEST_OFFSET,
-        ENGINE_CONFIG_HASH, EXPIRES_AT, EXPIRES_AT_MIN, FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT,
-        GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN, ISSUER_SCHEMA_ID,
-        ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NOW, PLATFORM, RP_ID,
-        SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR,
-        TOKEN_SIG, TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_BILLED, TOKEN_SIG_BILLED_OTHER_LEAF,
-        TOKEN_SIG_BILLED_OTHER_RP, TOKEN_SIG_NO_AAT, TRUST_ANCHOR_KEY_HASH, USER_PK,
+        AUTH_SIG_BILLED_OTHER_RP, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTH_SIG_RP_NONCE,
+        AUTHENTICATOR_META, BILLING_ACTION, BILLING_NULLIFIER, BILLING_NULLIFIER_OTHER_LEAF,
+        BILLING_NULLIFIER_OTHER_RP, BILLING_OPRF_OUTPUT, CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK,
+        CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH, EXPIRES_AT, EXPIRES_AT_MIN,
+        FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS,
+        HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH,
+        MERKLE_ROOT, NONCE, NONCE_SALT, NOW, PLATFORM, RP_ID, SEC_LEVEL, SEC_META, SESSION_ID,
+        SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY,
+        TOKEN_SIG_BILLED, TOKEN_SIG_BILLED_OTHER_LEAF, TOKEN_SIG_BILLED_OTHER_RP, TOKEN_SIG_NO_AAT,
+        TOKEN_SIG_RP_NONCE, TRUST_ANCHOR_KEY_HASH, USER_PK,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
@@ -68,6 +69,7 @@ fn inputs() -> PrivateInputs {
         token: FlamingoTokenInputs {
             live_capture_hash: LIVE_CAPTURE_HASH,
             billing_nullifier: 0,
+            nonce_salt: NONCE_SALT,
             sig: TOKEN_SIG,
         },
         account: AccountInputs {
@@ -229,6 +231,22 @@ fn test_rejects_another_nonce() {
     let mut p = public();
     p.nonce += 1;
     prove(p, inputs());
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_nonce_salt() {
+    let mut i = inputs();
+    i.token.nonce_salt += 1;
+    prove(public(), i);
+}
+
+/// The token must carry the derived nonce, not the RP's, even when the account authorized it.
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_a_token_over_the_rp_nonce() {
+    let mut i = inputs();
+    i.token.sig = TOKEN_SIG_RP_NONCE;
+    i.account.sig = AUTH_SIG_RP_NONCE;
+    prove(public(), i);
 }
 
 #[test(should_fail_with = "invalid flamingo token signature")]

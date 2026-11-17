@@ -7,6 +7,8 @@ pub struct FlamingoTokenInputs {
     pub live_capture_hash: Field,
     /// The WIP-107 billing nullifier the Verifier checked, or `0` for an RP that is not billed.
     pub billing_nullifier: Field,
+    /// The Authenticator's salt for this Flamingo request's `nonce`; any field element.
+    pub nonce_salt: Field,
     pub sig: Signature,
 }
 

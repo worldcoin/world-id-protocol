@@ -298,6 +298,8 @@ pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
     pub live_capture_hash: FieldElement,
     /// Private input. The Flamingo Token's WIP-107 billing nullifier, or `0` for an RP that is not billed.
     pub billing_nullifier: FieldElement,
+    /// Private input. The salt the Flamingo request's `nonce` was derived with (WIP-202 §4.6 constraint 1.1).
+    pub nonce_salt: FieldElement,
     /// Private input. The Flamingo Verifier's signature over the token digest.
     pub token_signature: EdDSASignature,
     /// Private input. The index of the authenticator key that signed the authorization message.
