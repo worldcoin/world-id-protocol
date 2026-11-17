@@ -1,7 +1,8 @@
 use secrecy::ExposeSecret;
 use world_id_primitives::{
-    Credential, FieldElement, PrimitiveError, ProofRequest, ProofResponse, ProofType, RequestItem,
-    ResponseItem, SessionId, SessionNullifier, SessionRef, ZeroKnowledgeProof,
+    Credential, FieldElement, POH_ISSUER_SCHEMA_ID, PrimitiveError, ProofRequest, ProofResponse,
+    ProofType, RequestItem, ResponseItem, SessionId, SessionNullifier, SessionRef,
+    ZeroKnowledgeProof,
     billing::{BillingContext, BillingRegistration, RegistrationAuthorization},
 };
 use world_id_proof::{
@@ -229,9 +230,8 @@ impl Authenticator {
     /// Generates the registration of this World ID for `scope` (WIP-107 §4.4): the arguments of
     /// `WorldIDBilling.register`, with a Uniqueness Proof for `billingAction`.
     ///
-    /// Any valid credential proves registration, so `credential` need not match the request's
-    /// item; its `issuer_schema_id` is the one registered. Submitting the registration is up to the
-    /// caller.
+    /// The Billing Contract verifies the proof against the Proof of Human Credential, so
+    /// `credential` must be it. Submitting the registration is up to the caller.
     ///
     /// # Arguments
     /// - `proof_request`: the Proof of Embedding Similarity request the billing query was for.
@@ -240,8 +240,9 @@ impl Authenticator {
     /// - `credential`: the credential the registration proof uses.
     ///
     /// # Errors
-    /// - [`AuthenticatorError::PrimitiveError`] if the request cannot authorize registration, or
-    ///   `billing_query` is not the billing query of `scope`.
+    /// - [`AuthenticatorError::PrimitiveError`] if the request cannot authorize registration,
+    ///   `billing_query` is not the billing query of `scope`, or `credential` is not the Proof of
+    ///   Human Credential.
     /// - Other `AuthenticatorError` variants on proof circuit failures.
     pub fn generate_billing_registration(
         &self,
@@ -267,8 +268,15 @@ impl Authenticator {
             .into());
         }
 
+        if credential.credential.issuer_schema_id != POH_ISSUER_SCHEMA_ID {
+            return Err(PrimitiveError::InvalidInput {
+                attribute: "credential".to_string(),
+                reason: "must be the Proof of Human Credential".to_string(),
+            }
+            .into());
+        }
         let request_item = RequestItem {
-            issuer_schema_id: credential.credential.issuer_schema_id,
+            issuer_schema_id: POH_ISSUER_SCHEMA_ID,
             ..registration_request_item(proof_request)?
         };
         let expires_at_min = request_item.effective_expires_at_min(proof_request.created_at);
@@ -293,7 +301,6 @@ impl Authenticator {
         Ok(BillingRegistration {
             scope: *scope,
             authorization,
-            issuer_schema_id: request_item.issuer_schema_id,
             expires_at_min,
             billing_nullifier: billing_nullifier.into(),
             proof: ZeroKnowledgeProof::from_groth16_proof(&proof, merkle_root),

@@ -35,7 +35,6 @@ interface IWorldIDBilling {
     /// @notice One entry of `registerMany`; fields match the `register` arguments.
     struct Registration {
         RegistrationAuthorization authorization;
-        uint64 issuerSchemaId;
         uint64 expiresAtMin;
         uint256 billingNullifier;
         uint256[5] proof;
@@ -144,7 +143,6 @@ interface IWorldIDBilling {
     function register(
         BillingContext calldata scope,
         RegistrationAuthorization calldata authorization,
-        uint64 issuerSchemaId,
         uint64 expiresAtMin,
         uint256 billingNullifier,
         uint256[5] calldata proof
