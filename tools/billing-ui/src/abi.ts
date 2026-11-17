@@ -6,6 +6,7 @@ export const billingAbi = parseAbi([
   `function purchaseCapacity(${scope} scope, uint256 capacityAmount, uint256 maxWldAmount)`,
   `function quotePurchase(${scope} scope, uint256 capacityAmount) view returns (uint256 wldAmount)`,
   "function getBillingPeriod(uint64 timestamp) pure returns (uint64 periodStart, uint64 periodEnd)",
+  "function getPinnedOprfKey(uint64 rpId, uint64 periodStart) view returns (uint160 oprfKeyId, uint256[2] oprfPublicKey)",
   "function getPeriodCapacity(uint64 rpId, uint64 periodStart) view returns (uint256 capacity, uint256 registeredCount)",
   "function pricePerWorldID() view returns (uint256)",
   "function priceSource() view returns (address)",

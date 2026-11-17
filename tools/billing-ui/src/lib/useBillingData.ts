@@ -90,7 +90,7 @@ export function useBillingData(
       const period = clock.periods.find((p) => p.kind === inputs.periodKind);
       const [wallet, rp, capacity, price] = await Promise.all([
         account ? loadWalletState(reader, account) : undefined,
-        inputs.rpId !== null ? loadRpStatus(reader, currentStatics, inputs.rpId) : undefined,
+        inputs.rpId !== null ? loadRpStatus(reader, currentStatics, inputs.rpId, period?.start) : undefined,
         inputs.rpId !== null ? loadCapacities(reader, inputs.rpId, clock.periods) : undefined,
         inputs.rpId !== null && inputs.seats !== null && period
           ? loadQuote(reader, inputs.rpId, period.start, inputs.seats)
@@ -187,10 +187,22 @@ async function loadWalletState(reader: Reader, account: Address) {
   return { balance, allowance };
 }
 
+export interface OprfKey {
+  id: bigint;
+  x: bigint;
+  y: bigint;
+}
+
+export function pinnedKeyChanged(pinned: OprfKey, current: OprfKey): boolean {
+  const isPinned = pinned.x !== 0n || pinned.y !== 0n;
+  return isPinned && (pinned.id !== current.id || pinned.x !== current.x || pinned.y !== current.y);
+}
+
 export async function loadRpStatus(
   reader: Reader,
   statics: Pick<StaticData, "rpRegistry" | "oprfKeyRegistry">,
   rpId: bigint,
+  periodStart: bigint | undefined,
 ): Promise<Loadable<null>> {
   try {
     const [oprfKeyId] = await reader.readContract({
@@ -200,16 +212,29 @@ export async function loadRpStatus(
       args: [rpId],
     });
     if (oprfKeyId !== rpId) return { status: "error", message: messageForRevert("OprfKeyMismatch") };
-    await reader.readContract({
+    const key = await reader.readContract({
       address: statics.oprfKeyRegistry,
       abi: oprfKeyRegistryAbi,
       functionName: "getOprfPublicKey",
       args: [oprfKeyId],
     });
+    if (periodStart !== undefined && (await isPeriodFrozen(reader, rpId, periodStart, { id: oprfKeyId, ...key }))) {
+      return { status: "error", message: messageForRevert("PinnedOprfKeyChanged") };
+    }
     return { status: "ok", value: null };
   } catch (error) {
     return { status: "error", message: explainError(error) };
   }
+}
+
+async function isPeriodFrozen(reader: Reader, rpId: bigint, periodStart: bigint, current: OprfKey): Promise<boolean> {
+  const [id, [x, y]] = await reader.readContract({
+    address: config.billing,
+    abi: billingAbi,
+    functionName: "getPinnedOprfKey",
+    args: [rpId, periodStart],
+  });
+  return pinnedKeyChanged({ id: BigInt(id), x, y }, current);
 }
 
 export async function loadCapacities(reader: Reader, rpId: bigint, periods: Period[]): Promise<Capacities> {

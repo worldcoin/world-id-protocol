@@ -117,13 +117,14 @@ describe("staging flow on a World Chain fork", () => {
 describe("RP status", () => {
   it("reports unusable RPs before any transaction", async () => {
     const statics = await loadStatics(reader);
+    const periodStart = await nextPeriodStart();
 
-    expect(await loadRpStatus(reader, statics, KNOWN_RP)).toEqual({ status: "ok", value: null });
-    expect(await loadRpStatus(reader, statics, UNKNOWN_RP)).toEqual({
+    expect(await loadRpStatus(reader, statics, KNOWN_RP, periodStart)).toEqual({ status: "ok", value: null });
+    expect(await loadRpStatus(reader, statics, UNKNOWN_RP, periodStart)).toEqual({
       status: "error",
       message: "This RP id does not exist.",
     });
-    expect(await loadRpStatus(reader, statics, DELETED_KEY_RP)).toEqual({
+    expect(await loadRpStatus(reader, statics, DELETED_KEY_RP, periodStart)).toEqual({
       status: "error",
       message: "This RP's key was deleted, so seats can't be bought for it.",
     });
