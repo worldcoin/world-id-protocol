@@ -7,7 +7,9 @@ pub use error::AuthenticatorError;
 mod account;
 pub use account::AccountAuthenticators;
 mod embedding_similarity;
-pub use embedding_similarity::{EmbeddingSimilarityImages, FlamingoResult, flamingo_request};
+pub use embedding_similarity::{
+    EmbeddingSimilarityImages, FlamingoAttempt, FlamingoResult, flamingo_request,
+};
 mod init;
 mod prove;
 mod recovery;

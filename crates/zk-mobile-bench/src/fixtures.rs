@@ -24,7 +24,7 @@ use world_id_proof::{
         EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs,
         OwnershipProofCircuitInput,
     },
-    embedding_similarity_proof::COMPARE_SOURCES,
+    embedding_similarity_proof::{COMPARE_SOURCES, flamingo_nonce},
 };
 
 /// RP fixture data for benchmarks
@@ -184,6 +184,8 @@ const LIVE_IMAGE: &[u8] = b"live image";
 const CHALLENGE_IMAGE: &[u8] = b"challenge image";
 /// The RP's signal, hashed as for Uniqueness Proofs.
 const SIGNAL: &[u8] = b"rp signal";
+/// The Authenticator's salt for the Flamingo request's nonce.
+const NONCE_SALT: u64 = 0x5a17;
 
 const LEAF_INDEX: u64 = 1;
 const GENESIS_ISSUED_AT: u64 = 1_600_000_000;
@@ -276,7 +278,7 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
             FieldElement::ZERO,
         ],
         aud: FieldElement::from(RP_ID),
-        nonce: FieldElement::from(NONCE),
+        nonce: flamingo_nonce(FieldElement::from(NONCE), FieldElement::from(NONCE_SALT)),
         aat: Some(FlamingoAatClaims {
             trust_anchor_key_hash: aat.trust_anchor_key_hash,
             // `min_build_version` (bits 16-47) is 0, since WIP-202 fixes it to 0.
@@ -325,6 +327,7 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
         cred_pk: credential.issuer.clone(),
         live_capture_hash,
         billing_nullifier: FieldElement::ZERO,
+        nonce_salt: FieldElement::from(NONCE_SALT),
         token_signature: verifier_sk.sign(*digest),
         key_index: 0,
         key_set,

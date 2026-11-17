@@ -24,7 +24,7 @@ use world_id_core::{
 };
 use world_id_flamingo::{FlamingoClaims, FlamingoToken, engine_config_hash};
 use world_id_primitives::{EmbeddingSimilarityParams, FieldElement};
-use world_id_proof::embedding_similarity_proof::COMPARE_SOURCES;
+use world_id_proof::embedding_similarity_proof::{COMPARE_SOURCES, flamingo_nonce};
 use world_id_test_utils::embedding_similarity::{EmbeddingSimilarityFixture, image_hash};
 
 fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
@@ -45,8 +45,8 @@ fn now_secs() -> u64 {
         .as_secs()
 }
 
-/// The Flamingo Verifier's result for `proof_request`, comparing the thumbnail, a live capture
-/// and the challenge under the WIP-202 entry layout (§4.3).
+/// The Flamingo Verifier's result for one attempt at `proof_request`, comparing the thumbnail, a
+/// live capture and the challenge under the WIP-202 entry layout (§4.3).
 fn flamingo_result(
     proof_request: &ProofRequest,
     thumbnail: &[u8],
@@ -54,6 +54,7 @@ fn flamingo_result(
     billing_nullifier: FieldElement,
 ) -> Result<FlamingoResult> {
     let verifier_sk = EdDSAPrivateKey::random(&mut rand::thread_rng());
+    let nonce_salt = FieldElement::random(&mut rand::thread_rng());
     let claims = FlamingoClaims {
         now: u32::try_from(now_secs())?,
         compared_entry_hashes: [
@@ -63,7 +64,7 @@ fn flamingo_result(
             FieldElement::ZERO,
         ],
         aud: proof_request.rp_id.into(),
-        nonce: proof_request.nonce,
+        nonce: flamingo_nonce(proof_request.nonce, nonce_salt),
         aat: None,
         compare_sources: COMPARE_SOURCES,
         engine_config_hash: engine_config_hash(&[0xE7; 32], 1, 2),
@@ -75,6 +76,7 @@ fn flamingo_result(
         token: FlamingoToken::from_cwt(&token)?,
         verifier_key: verifier_sk.public(),
         signing_key_attestation: Bytes::from(verifier_sk.public().to_compressed_bytes()?.to_vec()),
+        nonce_salt,
     })
 }
 

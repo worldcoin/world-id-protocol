@@ -57,6 +57,9 @@ pub mod ds {
     /// Separates the message an authenticator signs for a Proof of Embedding Similarity (WIP-202).
     pub const EMBEDDING_SIMILARITY_AUTH: DomainSeparator<4> =
         DomainSeparator::new(b"WORLD-ID/WIP-202/AUTH");
+    /// Separates the nonce of each Flamingo request for a Proof of Embedding Similarity (WIP-202).
+    pub const EMBEDDING_SIMILARITY_NONCE: DomainSeparator<2> =
+        DomainSeparator::new(b"WORLD-ID/WIP-202/NONCE");
     /// Separates the message signed for a trust anchor key token (WIP-106).
     pub const TRUST_ANCHOR_KEY_TOKEN: DomainSeparator<6> =
         DomainSeparator::new(b"WORLD-ID/WIP-106/TAKT");
@@ -243,7 +246,7 @@ mod tests {
 
     /// The raw tag of every constant in [`ds`], across both separator types, to keep
     /// the collision and length checks exhaustive.
-    const ALL_TAGS: [&[u8]; 12] = [
+    const ALL_TAGS: [&[u8]; 14] = [
         ds::CREDENTIAL_V1.as_bytes(),
         ds::CREDENTIAL_SUB.as_bytes(),
         ds::SESSION_COMMITMENT.as_bytes(),
@@ -251,6 +254,8 @@ mod tests {
         ds::OPRF_QUERY.as_bytes(),
         ds::OPRF_PROOF.as_bytes(),
         ds::OWNERSHIP_PROOF.as_bytes(),
+        ds::EMBEDDING_SIMILARITY_AUTH.as_bytes(),
+        ds::EMBEDDING_SIMILARITY_NONCE.as_bytes(),
         ds::TRUST_ANCHOR_KEY_TOKEN.as_bytes(),
         ds::TRUST_ANCHOR_KEY.as_bytes(),
         ds::AUTHENTICATOR_REGISTRATION.as_bytes(),

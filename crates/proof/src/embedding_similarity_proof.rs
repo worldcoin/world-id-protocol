@@ -208,7 +208,7 @@ fn token_digest<const MAX_DEPTH: usize>(
             FieldElement::ZERO,
         ],
         aud: request.rp_id,
-        nonce: request.nonce,
+        nonce: flamingo_nonce(request.nonce, inputs.nonce_salt),
         // `sec_flags` layout with `min_build_version` (bits 16-47) fixed to 0 by WIP-202.
         aat: inputs.aat.as_ref().map(|aat| FlamingoAatClaims {
             trust_anchor_key_hash: aat.trust_anchor_key_hash,
@@ -242,6 +242,12 @@ pub fn authorization_message(
             signal_hash,
         ],
     )
+}
+
+/// The Flamingo request's `nonce`, `H_3(DS_WIP_202_NONCE; rp_nonce, nonce_salt)` (WIP-202 §4.6 constraint 1.1).
+#[must_use]
+pub fn flamingo_nonce(rp_nonce: FieldElement, nonce_salt: FieldElement) -> FieldElement {
+    poseidon::hash(ds::EMBEDDING_SIMILARITY_NONCE, [rp_nonce, nonce_salt])
 }
 
 /// Checks the embedding similarity inputs by emulating the constraints the circuit enforces, so a
@@ -495,6 +501,7 @@ impl NoirCircuitInput for EmbeddingSimilarityCircuitInput<TREE_DEPTH> {
             "billing_nullifier".into(),
             self.billing_nullifier.into_noir_value(),
         );
+        token.insert("nonce_salt".into(), self.nonce_salt.into_noir_value());
         token.insert("sig".into(), signature(&self.token_signature));
 
         let mut inputs = BTreeMap::new();

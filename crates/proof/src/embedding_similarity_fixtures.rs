@@ -43,7 +43,7 @@ use crate::{
     circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs},
     embedding_similarity_proof::{
         CHUNK_BYTES, CHUNK_SLOTS, CLAIM_INDEX, COMPARE_SOURCES, DIGEST_HEX_LEN,
-        MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, THUMBNAIL_KEY,
+        MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, THUMBNAIL_KEY, flamingo_nonce,
     },
     fixtures::toml_types::{PublicKey, Signature},
 };
@@ -117,6 +117,8 @@ const LIVE_IMAGE: &[u8] = b"live image";
 const CHALLENGE_IMAGE: &[u8] = b"challenge image";
 /// The RP's signal, hashed as for Uniqueness Proofs.
 const SIGNAL: &[u8] = b"rp signal";
+/// The Authenticator's salt for the Flamingo request's nonce.
+const NONCE_SALT: u64 = 0x5a17;
 
 const LEAF_INDEX: u64 = 1;
 const GENESIS_ISSUED_AT: u64 = 1_600_000_000;
@@ -189,18 +191,24 @@ fn aat_flags() -> u64 {
         + (u64::from(AUTHENTICATOR_META) << 52)
 }
 
+/// The fixture request's Flamingo `nonce`.
+fn token_nonce() -> FieldElement {
+    flamingo_nonce(NONCE.into(), NONCE_SALT.into())
+}
+
 /// The WIP-201 signed digest of a Flamingo Token over the fixture request, signed at `now`.
 fn token_digest(
     has_aat: bool,
     now: u32,
     compared: [FieldElement; 4],
+    nonce: FieldElement,
     billing_nullifier: FieldElement,
 ) -> FieldElement {
     FlamingoClaims {
         now,
         compared_entry_hashes: compared,
         aud: FieldElement::from(RP_ID),
-        nonce: FieldElement::from(NONCE),
+        nonce,
         aat: has_aat.then(|| FlamingoAatClaims {
             trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
             aat_flags: aat_flags(),
@@ -337,6 +345,7 @@ struct PrivateInputs {
 struct TokenInputs {
     live_capture_hash: String,
     billing_nullifier: String,
+    nonce_salt: String,
     sig: Signature,
 }
 
@@ -392,24 +401,29 @@ fn render() -> Rendered {
     let (hashes_json, digest_offset) = hashes_json();
 
     let zero = FieldElement::ZERO;
-    let digest = token_digest(true, NOW, compared, zero);
-    let digest_no_aat = token_digest(false, NOW, compared, zero);
+    let nonce = token_nonce();
+    let digest = token_digest(true, NOW, compared, nonce, zero);
+    let digest_no_aat = token_digest(false, NOW, compared, nonce, zero);
     // Signed when the Credential expires, so only the validity check rejects it.
-    let digest_at_expiry = token_digest(true, EXPIRES_AT, compared, zero);
+    let digest_at_expiry = token_digest(true, EXPIRES_AT, compared, nonce, zero);
+    // Signed over the RP's nonce instead of the derived one.
+    let digest_rp_nonce = token_digest(true, NOW, compared, NONCE.into(), zero);
     // Billed: this World ID's nullifier, and ones of another World ID and of another RP that
     // the Verifier also signed.
     let (billing_nullifier_own, billing_oprf_output) = billing(LEAF_INDEX, RP_ID);
     let (billing_nullifier_other, _) = billing(LEAF_INDEX + 1, RP_ID);
     let (billing_nullifier_other_rp, _) = billing(LEAF_INDEX, RP_ID + 1);
-    let digest_billed = token_digest(true, NOW, compared, billing_nullifier_own);
-    let digest_billed_other = token_digest(true, NOW, compared, billing_nullifier_other);
-    let digest_billed_other_rp = token_digest(true, NOW, compared, billing_nullifier_other_rp);
+    let digest_billed = token_digest(true, NOW, compared, nonce, billing_nullifier_own);
+    let digest_billed_other = token_digest(true, NOW, compared, nonce, billing_nullifier_other);
+    let digest_billed_other_rp =
+        token_digest(true, NOW, compared, nonce, billing_nullifier_other_rp);
     let token_billed = verifier_sk.sign(*digest_billed);
     let token_billed_other = verifier_sk.sign(*digest_billed_other);
     let token_billed_other_rp = verifier_sk.sign(*digest_billed_other_rp);
     let token = verifier_sk.sign(*digest);
     let token_no_aat = verifier_sk.sign(*digest_no_aat);
     let token_at_expiry = verifier_sk.sign(*digest_at_expiry);
+    let token_rp_nonce = verifier_sk.sign(*digest_rp_nonce);
     let signal_hash = FieldElement::from_arbitrary_raw_bytes(SIGNAL);
     let auth = authenticator_sk.sign(*authorization_message(digest, &verifier_key, signal_hash));
     let auth_no_aat = authenticator_sk.sign(*authorization_message(
@@ -424,6 +438,11 @@ fn render() -> Rendered {
     ));
     let auth_at_expiry = authenticator_sk.sign(*authorization_message(
         digest_at_expiry,
+        &verifier_key,
+        signal_hash,
+    ));
+    let auth_rp_nonce = authenticator_sk.sign(*authorization_message(
+        digest_rp_nonce,
         &verifier_key,
         signal_hash,
     ));
@@ -494,6 +513,7 @@ fn render() -> Rendered {
         ("SESSION_ID", "Field", dec(*session_id)),
         // Flamingo Token witness
         ("LIVE_CAPTURE_HASH", "Field", dec(*compared[1])),
+        ("NONCE_SALT", "Field", NONCE_SALT.to_string()),
         ("TOKEN_SIG", "Signature", noir_sig(&token)),
         // Account witness
         ("USER_PK", "PublicKey", noir_point(&authenticator_sk.public())),
@@ -518,6 +538,8 @@ fn render() -> Rendered {
         ("AUTH_SIG_NO_SIGNAL", "Signature", noir_sig(&auth_no_signal)),
         ("TOKEN_SIG_AT_EXPIRY", "Signature", noir_sig(&token_at_expiry)),
         ("AUTH_SIG_AT_EXPIRY", "Signature", noir_sig(&auth_at_expiry)),
+        ("TOKEN_SIG_RP_NONCE", "Signature", noir_sig(&token_rp_nonce)),
+        ("AUTH_SIG_RP_NONCE", "Signature", noir_sig(&auth_rp_nonce)),
         ("BILLING_NULLIFIER", "Field", dec(*billing_nullifier_own)),
         ("BILLING_ACTION", "Field", BILLING_ACTION.to_string()),
         ("BILLING_OPRF_OUTPUT", "[Field; 2]", list(billing_oprf_output.map(|v| dec(*v)))),
@@ -577,6 +599,7 @@ fn render() -> Rendered {
             token: TokenInputs {
                 live_capture_hash: dec(*compared[1]),
                 billing_nullifier: "0".into(),
+                nonce_salt: NONCE_SALT.to_string(),
                 sig: (&token).into(),
             },
             account: AccountInputs {
@@ -700,20 +723,20 @@ fn circuit_constants_match_the_noir_constants() {
     assert!(var_hash.contains(&format!("pub global CHUNK_BYTES: u32 = {CHUNK_BYTES};")));
 }
 
-/// The fixture's Flamingo Tokens are the WIP-201 Appendix A1 test vectors.
+/// Over the RP's nonce, the fixture's token digests are the WIP-201 Appendix A1 test vectors.
 #[test]
 fn token_digests_match_the_wip_201_vectors() {
-    let zero = FieldElement::ZERO;
+    let (zero, nonce) = (FieldElement::ZERO, FieldElement::from(NONCE));
     assert_eq!(
-        token_digest(true, NOW, compared(), zero),
+        token_digest(true, NOW, compared(), nonce, zero),
         from_hex(DIGEST_WITH_AAT)
     );
     assert_eq!(
-        token_digest(false, NOW, compared(), zero),
+        token_digest(false, NOW, compared(), nonce, zero),
         from_hex(DIGEST_WITHOUT_AAT)
     );
     assert_eq!(
-        token_digest(true, NOW, compared(), FieldElement::from(7_u64)),
+        token_digest(true, NOW, compared(), nonce, FieldElement::from(7_u64)),
         from_hex(DIGEST_BILLED_7)
     );
     assert_eq!(aat_flags(), 0x00a3_0000_0000_0102);
@@ -728,10 +751,6 @@ fn domain_separators_match_the_noir_constants() {
         "127603488023523044162070750169730750022280897185614"
     );
     assert_eq!(
-        as_int(b"WORLD-ID/WIP-202/AUTH"),
-        "127603488023523044162070750169730750023380107613256"
-    );
-    assert_eq!(
         as_int(b"World ID Query"),
         "1773399373884719043551600379785849"
     );
@@ -739,6 +758,56 @@ fn domain_separators_match_the_noir_constants() {
         as_int(b"World ID Proof"),
         "1773399373884719043551596035141478"
     );
+}
+
+/// Pins the WIP-202 domain separators of the Rust crate and the circuit to the spec's table.
+#[test]
+fn wip_202_domain_separators_match_the_spec() {
+    let spec = include_str!("../../../docs/WIPs/wip-202.md");
+    let constants = include_str!("../noir/embedding-similarity/src/constants.nr");
+    for (name, tag, value) in [
+        (
+            "DS_WIP_202_AUTH",
+            ds::EMBEDDING_SIMILARITY_AUTH.as_bytes(),
+            ds::EMBEDDING_SIMILARITY_AUTH.as_field_element(),
+        ),
+        (
+            "DS_WIP_202_NONCE",
+            ds::EMBEDDING_SIMILARITY_NONCE.as_bytes(),
+            ds::EMBEDDING_SIMILARITY_NONCE.as_field_element(),
+        ),
+    ] {
+        let value = dec(*value);
+        let tag = std::str::from_utf8(tag).unwrap();
+        let row = spec
+            .lines()
+            .find(|line| line.starts_with(&format!("| `{name}` ")))
+            .unwrap_or_else(|| panic!("WIP-202 defines {name}"));
+        assert!(
+            row.contains(&format!("`{value}` (`b\"{tag}\"`)")),
+            "WIP-202 must define {name} as {value}"
+        );
+        assert!(
+            constants.contains(&format!("pub global {name}: Field = {value};")),
+            "constants.nr must define {name} as {value}"
+        );
+    }
+}
+
+/// Pins [`flamingo_nonce`] to the WIP-202 Appendix A1 test vector.
+#[test]
+fn flamingo_nonce_matches_the_wip_202_vector() {
+    let spec = include_str!("../../../docs/WIPs/wip-202.md");
+    let vector = |key: &str| -> String {
+        spec.lines()
+            .find_map(|line| line.strip_prefix(&format!("{key} = ")))
+            .unwrap_or_else(|| panic!("WIP-202 Appendix A1 lists {key}"))
+            .trim()
+            .to_string()
+    };
+    assert_eq!(vector("nonce"), NONCE.to_string());
+    assert_eq!(vector("nonce_salt"), NONCE_SALT.to_string());
+    assert_eq!(vector("flamingo_nonce"), dec(*token_nonce()));
 }
 
 // Deterministic test keys, not real key material. The Verifier key is WIP-201's.
@@ -837,6 +906,7 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
         cred_pk: credential.issuer.clone(),
         live_capture_hash: compared[1],
         billing_nullifier: FieldElement::ZERO,
+        nonce_salt: NONCE_SALT.into(),
         token_signature: credential.signature.clone().unwrap(),
         key_index: 0,
         key_set,
@@ -906,7 +976,7 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
             FieldElement::ZERO,
         ],
         aud: request.rp_id,
-        nonce: request.nonce,
+        nonce: flamingo_nonce(request.nonce, input.nonce_salt),
         aat: input.aat.as_ref().map(|aat| FlamingoAatClaims {
             trust_anchor_key_hash: aat.trust_anchor_key_hash,
             aat_flags: u64::from(aat.platform)
