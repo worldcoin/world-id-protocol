@@ -45,6 +45,7 @@ describe("staging flow on a World Chain fork", () => {
       rpId: KNOWN_RP,
       periodStart,
       seats: 1000n,
+      quotedTokens: 10n * E18,
       onStep: (step) => steps.push(step),
     });
 
@@ -71,10 +72,28 @@ describe("staging flow on a World Chain fork", () => {
       rpId: KNOWN_RP,
       periodStart,
       seats: 1000n,
+      quotedTokens: 10n * E18,
       onStep: (step) => steps.push(step),
     });
 
     expect(steps).toEqual(["buying"]);
+  }, 120_000);
+
+  it("caps the purchase at the quote the page displayed", async () => {
+    const periodStart = await nextPeriodStart();
+    const failure = await purchaseSeats({
+      reader,
+      signer,
+      account: ANVIL_ACCOUNT,
+      rpId: KNOWN_RP,
+      periodStart,
+      seats: 1000n,
+      quotedTokens: E18,
+      onStep: () => {},
+    }).catch((e: unknown) => e);
+
+    expect(failure).toBeInstanceOf(PurchaseError);
+    expect(explainError((failure as PurchaseError).original)).toMatch(/price moved above your cap/);
   }, 120_000);
 
   it("fails with a readable reason for an unknown RP", async () => {
@@ -86,6 +105,7 @@ describe("staging flow on a World Chain fork", () => {
       rpId: UNKNOWN_RP,
       periodStart,
       seats: 10n,
+      quotedTokens: E18 / 10n,
       onStep: () => {},
     }).catch((e: unknown) => e);
 
@@ -118,6 +138,7 @@ describe("RP status", () => {
       rpId: DELETED_KEY_RP,
       periodStart,
       seats: 10n,
+      quotedTokens: E18 / 10n,
       onStep: () => {},
     }).catch((e: unknown) => e);
 

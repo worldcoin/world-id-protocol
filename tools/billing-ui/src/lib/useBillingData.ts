@@ -44,6 +44,21 @@ export interface BillingData {
   refresh: () => Promise<void>;
 }
 
+interface WalletData {
+  account: Address;
+  balance: bigint;
+  allowance: bigint;
+}
+
+interface InputData {
+  key: string;
+  rpStatus: Loadable<null>;
+  capacities: Capacities;
+  quote: Loadable<bigint>;
+}
+
+const IDLE: Loadable<never> = { status: "idle" };
+
 export function useBillingData(
   reader: Reader,
   account: Address | undefined,
@@ -53,13 +68,11 @@ export function useBillingData(
   const [loadError, setLoadError] = useState<string>();
   const [now, setNow] = useState<bigint>();
   const [periods, setPeriods] = useState<Period[]>([]);
-  const [balance, setBalance] = useState<bigint>();
-  const [allowance, setAllowance] = useState<bigint>();
-  const [rpStatus, setRpStatus] = useState<Loadable<null>>({ status: "idle" });
-  const [capacities, setCapacities] = useState<Capacities>({});
-  const [quote, setQuote] = useState<Loadable<bigint>>({ status: "idle" });
+  const [walletData, setWalletData] = useState<WalletData>();
+  const [inputData, setInputData] = useState<InputData>();
   const latestRun = useRef(0);
   const loadedStatics = useRef<Omit<StaticData, "paused"> | undefined>(undefined);
+  const key = inputKey(inputs);
 
   const refresh = useCallback(async () => {
     const run = ++latestRun.current;
@@ -85,15 +98,12 @@ export function useBillingData(
           : undefined,
       ]);
       if (isStale()) return;
-      setBalance(wallet?.balance);
-      setAllowance(wallet?.allowance);
-      setRpStatus(rp ?? { status: "idle" });
-      setCapacities(capacity ?? {});
-      setQuote(price ?? { status: "idle" });
+      setWalletData(account && wallet ? { account, ...wallet } : undefined);
+      setInputData({ key, rpStatus: rp ?? IDLE, capacities: capacity ?? {}, quote: price ?? IDLE });
     } catch (error) {
       if (!isStale()) setLoadError(explainError(error));
     }
-  }, [reader, account, inputs.rpId, inputs.seats, inputs.periodKind]);
+  }, [reader, account, key, inputs.rpId, inputs.seats, inputs.periodKind]);
 
   useEffect(() => {
     void refresh();
@@ -101,7 +111,26 @@ export function useBillingData(
     return () => clearInterval(timer);
   }, [refresh]);
 
-  return { statics, loadError, now, periods, balance, allowance, rpStatus, capacities, quote, refresh };
+  // Results are only shown for the inputs they were loaded for, so a stale quote or RP check never
+  // describes a different purchase than the one the button would send.
+  const wallet = account !== undefined && walletData?.account === account ? walletData : undefined;
+  const current = inputData?.key === key ? inputData : undefined;
+  return {
+    statics,
+    loadError,
+    now,
+    periods,
+    balance: wallet?.balance,
+    allowance: wallet?.allowance,
+    rpStatus: current?.rpStatus ?? IDLE,
+    capacities: current?.capacities ?? {},
+    quote: current?.quote ?? IDLE,
+    refresh,
+  };
+}
+
+function inputKey(inputs: BillingInputs): string {
+  return `${inputs.rpId}|${inputs.seats}|${inputs.periodKind}`;
 }
 
 export async function loadStatics(reader: Reader): Promise<Omit<StaticData, "paused">> {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { formatUnits } from "viem";
 import { config, SAFETY_MARGIN_BPS } from "./config";
 import { formatAmountCeil, formatAmountFloor, parseRpId, parseWholeNumber, withSafetyMargin } from "./lib/amounts";
@@ -9,7 +9,7 @@ import { mintTestTokens, PurchaseError, purchaseSeats, type PurchaseResult, type
 import { useBillingData, type BillingData, type StaticData } from "./lib/useBillingData";
 import { useWallet, type WalletState } from "./lib/wallet";
 
-type Busy = PurchaseStep | "minting" | undefined;
+type Busy = PurchaseStep | "starting" | "minting" | undefined;
 
 interface Receipt extends PurchaseResult {
   seats: bigint;
@@ -24,6 +24,7 @@ export function App() {
   const [rpInput, setRpInput] = useState("");
   const [seatsInput, setSeatsInput] = useState("");
   const [busy, setBusy] = useState<Busy>();
+  const inFlight = useRef(false);
   const [failedAfterApproval, setFailedAfterApproval] = useState(false);
   const [error, setError] = useState<string>();
   const [receipt, setReceipt] = useState<Receipt>();
@@ -39,45 +40,56 @@ export function App() {
     setFailedAfterApproval(false);
   };
 
-  const buy = async () => {
-    if (!wallet.provider || !wallet.account || rpId === null || seats === null || !period) return;
-    resetOutcome();
-    const approvalNeeded = (data.allowance ?? 0n) < withSafetyMargin(requiredAmount(data) ?? 0n, SAFETY_MARGIN_BPS);
+  const runExclusive = async (start: Busy, task: () => Promise<void>) => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(start);
     try {
-      const result = await purchaseSeats({
-        reader,
-        signer: createSigner(wallet.provider),
-        account: wallet.account,
-        rpId,
-        periodStart: period.start,
-        seats,
-        onStep: setBusy,
-      });
-      setReceipt({ ...result, seats, rpId, periodStart: period.start });
-    } catch (e) {
-      const failure = e instanceof PurchaseError ? e : undefined;
-      setFailedAfterApproval(failure?.step === "buying" && approvalNeeded);
-      setError(explainError(failure ? failure.original : e));
+      await task();
     } finally {
+      inFlight.current = false;
       setBusy(undefined);
       await data.refresh();
     }
   };
 
-  const mint = async () => {
-    if (!wallet.provider || !wallet.account || !data.statics) return;
-    resetOutcome();
-    setBusy("minting");
-    try {
-      const amount = config.mintAmountTokens * 10n ** BigInt(data.statics.decimals);
-      await mintTestTokens(reader, createSigner(wallet.provider), wallet.account, amount);
-    } catch (e) {
-      setError(explainError(e));
-    } finally {
-      setBusy(undefined);
-      await data.refresh();
-    }
-  };
+  const buy = () =>
+    runExclusive("starting", async () => {
+      const quotedTokens = requiredAmount(data);
+      if (!wallet.provider || !wallet.account || rpId === null || seats === null || !period) return;
+      if (quotedTokens === undefined) return;
+      resetOutcome();
+      const approvalNeeded = (data.allowance ?? 0n) < withSafetyMargin(quotedTokens, SAFETY_MARGIN_BPS);
+      try {
+        const result = await purchaseSeats({
+          reader,
+          signer: createSigner(wallet.provider),
+          account: wallet.account,
+          rpId,
+          periodStart: period.start,
+          seats,
+          quotedTokens,
+          onStep: setBusy,
+        });
+        setReceipt({ ...result, seats, rpId, periodStart: period.start });
+      } catch (e) {
+        const failure = e instanceof PurchaseError ? e : undefined;
+        setFailedAfterApproval(failure?.step === "buying" && approvalNeeded);
+        setError(explainError(failure ? failure.original : e));
+      }
+    });
+
+  const mint = () =>
+    runExclusive("minting", async () => {
+      if (!wallet.provider || !wallet.account || !data.statics) return;
+      resetOutcome();
+      try {
+        const amount = config.mintAmountTokens * 10n ** BigInt(data.statics.decimals);
+        await mintTestTokens(reader, createSigner(wallet.provider), wallet.account, amount);
+      } catch (e) {
+        setError(explainError(e));
+      }
+    });
 
   return (
     <main>
@@ -361,6 +373,7 @@ function blockedReason(props: ActionProps, required: bigint | undefined): string
 }
 
 function busyLabel(busy: Busy): string | undefined {
+  if (busy === "starting") return "Preparing…";
   if (busy === "approving") return "Step 1 of 2: approving…";
   if (busy === "buying") return "Buying seats…";
   if (busy === "minting") return "Minting…";

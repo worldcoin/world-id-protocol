@@ -13,6 +13,8 @@ export interface PurchaseRequest {
   rpId: bigint;
   periodStart: bigint;
   seats: bigint;
+  /** The tokens the page quoted for these exact inputs; the purchase is capped at this plus the safety margin. */
+  quotedTokens: bigint;
   onStep: (step: PurchaseStep) => void;
 }
 
@@ -40,13 +42,7 @@ export async function purchaseSeats(request: PurchaseRequest): Promise<PurchaseR
     periodStart: request.periodStart,
   };
 
-  const quote = await reader.readContract({
-    address: config.billing,
-    abi: billingAbi,
-    functionName: "quotePurchase",
-    args: [scope, request.seats],
-  });
-  const maxTokens = withSafetyMargin(quote, SAFETY_MARGIN_BPS);
+  const maxTokens = withSafetyMargin(request.quotedTokens, SAFETY_MARGIN_BPS);
 
   await runStep("approving", () => approveIfNeeded(request, maxTokens));
 
@@ -63,7 +59,7 @@ export async function purchaseSeats(request: PurchaseRequest): Promise<PurchaseR
     const receipt = await reader.waitForTransactionReceipt({ hash });
     if (receipt.status !== "success") throw new Error("The transaction reverted on-chain.");
     const [event] = parseEventLogs({ abi: billingAbi, logs: receipt.logs, eventName: "CapacityPurchased" });
-    return { hash, tokensPaid: event?.args.wldPaid ?? quote, maxTokens };
+    return { hash, tokensPaid: event?.args.wldPaid ?? request.quotedTokens, maxTokens };
   });
 }
 
