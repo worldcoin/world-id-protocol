@@ -71,18 +71,17 @@ export function useBillingData(
   const [walletData, setWalletData] = useState<WalletData>();
   const [inputData, setInputData] = useState<InputData>();
   const latestRun = useRef(0);
-  const loadedStatics = useRef<Omit<StaticData, "paused"> | undefined>(undefined);
+  const immutables = useRef<Immutables | undefined>(undefined);
   const key = inputKey(inputs);
 
   const refresh = useCallback(async () => {
     const run = ++latestRun.current;
     const isStale = () => run !== latestRun.current;
     try {
-      loadedStatics.current ??= await loadStatics(reader);
-      const paused = await reader.readContract({ address: config.billing, abi: billingAbi, functionName: "paused" });
+      immutables.current ??= await loadImmutables(reader);
+      const currentStatics = await loadStatics(reader, immutables.current);
       const clock = await loadPeriods(reader);
       if (isStale()) return;
-      const currentStatics = { ...loadedStatics.current, paused };
       setStatics(currentStatics);
       setNow(clock.now);
       setPeriods(clock.periods);
@@ -133,28 +132,35 @@ function inputKey(inputs: BillingInputs): string {
   return `${inputs.rpId}|${inputs.seats}|${inputs.periodKind}`;
 }
 
-export async function loadStatics(reader: Reader): Promise<Omit<StaticData, "paused">> {
+type Immutables = Pick<StaticData, "symbol" | "decimals" | "rpRegistry"> & { verifier: Address };
+
+async function loadImmutables(reader: Reader): Promise<Immutables> {
   const billing = { address: config.billing, abi: billingAbi } as const;
   const token = { address: config.token, abi: tokenAbi } as const;
-  const [symbol, decimals, rpRegistry, verifier, pricePerSeatUsd, priceSource] = await Promise.all([
+  const [symbol, decimals, rpRegistry, verifier] = await Promise.all([
     reader.readContract({ ...token, functionName: "symbol" }),
     reader.readContract({ ...token, functionName: "decimals" }),
     reader.readContract({ ...billing, functionName: "RP_REGISTRY" }),
     reader.readContract({ ...billing, functionName: "WORLD_ID_VERIFIER" }),
+  ]);
+  return { symbol, decimals, rpRegistry, verifier };
+}
+
+export async function loadStatics(reader: Reader, known?: Immutables): Promise<StaticData> {
+  const { verifier, ...fixed } = known ?? (await loadImmutables(reader));
+  const billing = { address: config.billing, abi: billingAbi } as const;
+  const [pricePerSeatUsd, paused, priceSource, oprfKeyRegistry] = await Promise.all([
     reader.readContract({ ...billing, functionName: "pricePerWorldID" }),
+    reader.readContract({ ...billing, functionName: "paused" }),
     reader.readContract({ ...billing, functionName: "priceSource" }),
+    reader.readContract({ address: verifier, abi: verifierAbi, functionName: "getOprfKeyRegistry" }),
   ]);
   const [, tokenPriceUsd] = await reader.readContract({
     address: priceSource,
     abi: priceSourceAbi,
     functionName: "latestRoundData",
   });
-  const oprfKeyRegistry = await reader.readContract({
-    address: verifier,
-    abi: verifierAbi,
-    functionName: "getOprfKeyRegistry",
-  });
-  return { symbol, decimals, rpRegistry, oprfKeyRegistry, pricePerSeatUsd, tokenPriceUsd: BigInt(tokenPriceUsd) };
+  return { ...fixed, oprfKeyRegistry, pricePerSeatUsd, tokenPriceUsd: BigInt(tokenPriceUsd), paused };
 }
 
 export async function loadPeriods(reader: Reader): Promise<{ now: bigint; periods: Period[] }> {

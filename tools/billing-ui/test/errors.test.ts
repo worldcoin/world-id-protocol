@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { billingAbi, rpRegistryAbi } from "../src/abi";
 import { explainError } from "../src/lib/errors";
 
-function reverted(abi: typeof billingAbi | typeof rpRegistryAbi, errorName: string): BaseError {
-  const data = encodeErrorResult({ abi, errorName } as never);
+function reverted(abi: typeof billingAbi | typeof rpRegistryAbi, errorName: string, args?: unknown[]): BaseError {
+  const data = encodeErrorResult({ abi, errorName, args } as never);
   const cause = new ContractFunctionRevertedError({ abi, data, functionName: "purchaseCapacity" });
   return new BaseError("call failed", { cause });
 }
@@ -12,7 +12,9 @@ function reverted(abi: typeof billingAbi | typeof rpRegistryAbi, errorName: stri
 describe("explainError", () => {
   it("maps billing reverts to plain sentences", () => {
     expect(explainError(reverted(billingAbi, "EnforcedPause"))).toMatch(/paused/);
-    expect(explainError(reverted(billingAbi, "StalePrice") as never)).toBeTypeOf("string");
+    expect(explainError(reverted(billingAbi, "StalePrice", [1_700_000_000n]))).toMatch(/out of date/);
+    expect(explainError(reverted(billingAbi, "MaxWldAmountExceeded", [2n, 1n]))).toMatch(/above your cap/);
+    expect(explainError(reverted(billingAbi, "DeletedId", [44n]))).toMatch(/key was deleted/);
   });
 
   it("maps RP registry reverts", () => {
