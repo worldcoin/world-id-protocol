@@ -3,6 +3,7 @@
 
 use alloy::primitives::Bytes;
 use eddsa_babyjubjub::EdDSAPublicKey;
+use rand::rngs::OsRng;
 use secrecy::ExposeSecret as _;
 use sha2::{Digest as _, Sha256};
 use world_id_flamingo::{
@@ -38,7 +39,7 @@ pub struct FlamingoResult {
     pub verifier_key: EdDSAPublicKey,
     /// The attestation of `verifier_key`, forwarded to the RP (WIP-201 §4.7 check 1).
     pub signing_key_attestation: Bytes,
-    /// The salt the request's `nonce` was derived with, as passed to [`flamingo_request`].
+    /// The salt the request's `nonce` was derived with, from [`FlamingoAttempt::nonce_salt`].
     pub nonce_salt: FieldElement,
 }
 
@@ -74,8 +75,13 @@ const MAX_RESPONSE_SLOTS: usize = 8;
 /// runs ahead of it.
 const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 
-/// Builds the Flamingo request (WIP-201 §4.4.1) for a Proof of Embedding Similarity request, under
-/// the WIP-202 entry layout (§4.3).
+/// Builds a Flamingo request (WIP-201 §4.4.1) for a Proof of Embedding Similarity request, under
+/// the WIP-202 entry layout (§4.3), with a `nonce` derived from a fresh salt.
+///
+/// Each call samples a new `nonce_salt` with a CSPRNG and sets the request's `nonce` to
+/// [`flamingo_nonce`]`(proof_request.nonce, nonce_salt)` (WIP-202 constraint 1.1), so a retry after
+/// a failed capture or a billing rejection is a new request within the same RP request (WIP-201
+/// §4.6). Keep the returned salt for the [`FlamingoResult`].
 ///
 /// The pipeline is the first in `release` with a single `live_frame` input, so only the release,
 /// not the Verifier, picks it. The result carries no `aat_inputs`: an AAT signs the request's
@@ -89,9 +95,6 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 /// - `match_strictness`: the Authenticator Provider's level; WIP-202 requests set none.
 /// - `images`: the entries to compare; the challenge must hash to the request's `challenge_hash`.
 /// - `billing_nullifier`: the WIP-107 `billingNullifier` registered for the RP, or `0`.
-/// - `nonce_salt`: sampled fresh with a CSPRNG for every Flamingo request, so a retry after a failed
-///   capture or a billing rejection is a new request within the same RP request (WIP-201 §4.6). The
-///   request's `nonce` is [`flamingo_nonce`]`(proof_request.nonce, nonce_salt)`.
 /// - `now`: the device's time, in Unix seconds. `expires_at` is the request's expiry capped at
 ///   `now + MAX_REQUEST_LIFETIME / 2`, so a device clock up to `MAX_REQUEST_LIFETIME / 2` ahead of
 ///   the Verifier's does not get the request rejected.
@@ -105,6 +108,47 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 /// - [`AuthenticatorError::FlamingoRequest`] if the request has expired at `now`, or an entry is
 ///   out of bounds.
 pub fn flamingo_request(
+    proof_request: &ProofRequest,
+    release: &ReleaseManifest,
+    match_strictness: u8,
+    images: EmbeddingSimilarityImages,
+    billing_nullifier: FieldElement,
+    now: u64,
+) -> Result<FlamingoAttempt, AuthenticatorError> {
+    let nonce_salt = FieldElement::random(&mut OsRng);
+    let request = flamingo_request_with_salt(
+        proof_request,
+        release,
+        match_strictness,
+        images,
+        billing_nullifier,
+        nonce_salt,
+        now,
+    )?;
+    Ok(FlamingoAttempt {
+        request,
+        nonce_salt,
+    })
+}
+
+/// A Flamingo request and the salt its `nonce` was derived with.
+#[derive(Clone)]
+pub struct FlamingoAttempt {
+    /// The request to seal to the Flamingo Verifier.
+    pub request: Request,
+    /// The salt of the request's `nonce`, for [`FlamingoResult::nonce_salt`].
+    pub nonce_salt: FieldElement,
+}
+
+/// Omits the request, which carries biometric data.
+impl std::fmt::Debug for FlamingoAttempt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FlamingoAttempt").finish_non_exhaustive()
+    }
+}
+
+/// [`flamingo_request`] with a given `nonce_salt`.
+fn flamingo_request_with_salt(
     proof_request: &ProofRequest,
     release: &ReleaseManifest,
     match_strictness: u8,
@@ -662,7 +706,7 @@ mod tests {
         release: &ReleaseManifest,
         match_strictness: u8,
     ) -> Result<Request, AuthenticatorError> {
-        flamingo_request(
+        flamingo_request_with_salt(
             &proof_request(),
             release,
             match_strictness,
@@ -714,19 +758,27 @@ mod tests {
     }
 
     #[test]
-    fn a_retry_with_another_salt_is_a_new_request() {
+    fn each_attempt_derives_its_nonce_from_a_fresh_salt() {
         let release = release(vec![pipeline(1, &["live_frame"])]);
-        let retry = flamingo_request(
-            &proof_request(),
-            &release,
-            1,
-            images(),
-            FieldElement::from(11u64),
-            FieldElement::from(NONCE_SALT + 1),
-            NOW,
-        )
-        .unwrap();
-        assert_ne!(retry.nonce, build(&release, 1).unwrap().nonce);
+        let attempt = || {
+            flamingo_request(
+                &proof_request(),
+                &release,
+                1,
+                images(),
+                FieldElement::from(11u64),
+                NOW,
+            )
+            .unwrap()
+        };
+        let (first, retry) = (attempt(), attempt());
+        assert_ne!(first.nonce_salt, retry.nonce_salt);
+        for attempt in [&first, &retry] {
+            assert_eq!(
+                attempt.request.nonce,
+                flamingo_nonce(FieldElement::from(42u64), attempt.nonce_salt)
+            );
+        }
     }
 
     #[test]
@@ -734,7 +786,7 @@ mod tests {
         let release = release(vec![pipeline(1, &["live_frame"])]);
         let mut proof_request = proof_request();
         proof_request.expires_at = NOW + 3600;
-        let request = flamingo_request(
+        let request = flamingo_request_with_salt(
             &proof_request,
             &release,
             1,
@@ -751,7 +803,7 @@ mod tests {
 
         proof_request.expires_at = NOW;
         assert!(matches!(
-            flamingo_request(
+            flamingo_request_with_salt(
                 &proof_request,
                 &release,
                 1,
@@ -794,7 +846,7 @@ mod tests {
         let mut images = images();
         images.challenge = b"other image".to_vec();
         assert!(matches!(
-            flamingo_request(
+            flamingo_request_with_salt(
                 &proof_request(),
                 &release(vec![pipeline(1, &["live_frame"])]),
                 1,
