@@ -211,7 +211,7 @@ contract WorldIDBillingTest is Test {
 
     uint64 constant RP_ID = 42;
     uint160 constant OPRF_KEY_ID = 42;
-    uint64 constant ISSUER_SCHEMA_ID = 7;
+    uint64 constant ISSUER_SCHEMA_ID = 1;
     uint256 constant ROOT = 0x1234;
     uint256 constant NULLIFIER = 0xabcdef;
     /// @dev The RP's own `ProofRequest` action, with the billed `0x03` prefix; unrelated to the derived billing action.
@@ -342,7 +342,7 @@ contract WorldIDBillingTest is Test {
         returns (bool)
     {
         vm.prank(user);
-        return billing.register(_scope(OCT_2026), auth, ISSUER_SCHEMA_ID, NOW, nullifier, _proof());
+        return billing.register(_scope(OCT_2026), auth, NOW, nullifier, _proof());
     }
 
     ////////////////////////////////////////////////////////////
@@ -413,19 +413,15 @@ contract WorldIDBillingTest is Test {
         vm.warp(NOV_2026 - 26 hours - 1);
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(november);
         vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
-        billing.register(november, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof());
+        billing.register(november, auth, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof());
 
         vm.warp(NOV_2026 - 26 hours);
         auth = _authorize(november);
-        assertTrue(
-            billing.register(november, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof())
-        );
+        assertTrue(billing.register(november, auth, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof()));
 
         vm.warp(NOV_2026 - 1);
         auth = _authorize(october);
-        assertTrue(
-            billing.register(october, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER + 2, _proof())
-        );
+        assertTrue(billing.register(october, auth, uint64(vm.getBlockTimestamp()), NULLIFIER + 2, _proof()));
         assertTrue(billing.isRegistered(NULLIFIER + 2));
         assertTrue(billing.isRegistered(NULLIFIER));
         // NULLIFIER registered for November during the overlap, while October was still the current month.
@@ -446,11 +442,9 @@ contract WorldIDBillingTest is Test {
         vm.warp(NOV_2026);
         auth = _authorize(october);
         vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
-        billing.register(october, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof());
+        billing.register(october, auth, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof());
         auth = _authorize(november);
-        assertTrue(
-            billing.register(november, auth, ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER + 1, _proof())
-        );
+        assertTrue(billing.register(november, auth, uint64(vm.getBlockTimestamp()), NULLIFIER + 1, _proof()));
     }
 
     function test_RegisterMany_OverlapAcrossYearBoundary() public {
@@ -490,17 +484,9 @@ contract WorldIDBillingTest is Test {
         vm.warp(march - 26 hours);
 
         IWorldIDBilling.BillingContext memory scope = _scope(february);
-        assertTrue(
-            billing.register(
-                scope, _authorize(scope), ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER, _proof()
-            )
-        );
+        assertTrue(billing.register(scope, _authorize(scope), uint64(vm.getBlockTimestamp()), NULLIFIER, _proof()));
         scope = _scope(march);
-        assertTrue(
-            billing.register(
-                scope, _authorize(scope), ISSUER_SCHEMA_ID, uint64(vm.getBlockTimestamp()), NULLIFIER + 1, _proof()
-            )
-        );
+        assertTrue(billing.register(scope, _authorize(scope), uint64(vm.getBlockTimestamp()), NULLIFIER + 1, _proof()));
     }
 
     ////////////////////////////////////////////////////////////
@@ -874,7 +860,7 @@ contract WorldIDBillingTest is Test {
         internal
         returns (IWorldIDBilling.Registration memory)
     {
-        return IWorldIDBilling.Registration(_authorize(scope), ISSUER_SCHEMA_ID, NOW, nullifier, _proof());
+        return IWorldIDBilling.Registration(_authorize(scope), NOW, nullifier, _proof());
     }
 
     function test_RegisterMany_NewAndDuplicate() public {
@@ -1094,7 +1080,7 @@ contract WorldIDBillingTest is Test {
         IWorldIDBilling.RegistrationAuthorization memory auth = _authorize(scope);
         vm.prank(user);
         vm.expectRevert(IWorldIDBilling.PeriodNotCurrent.selector);
-        billing.register(scope, auth, ISSUER_SCHEMA_ID, NOW, NULLIFIER, _proof());
+        billing.register(scope, auth, NOW, NULLIFIER, _proof());
     }
 
     function test_Register_RejectsBadAuthorizationFields() public {
@@ -1215,14 +1201,7 @@ contract WorldIDBillingTest is Test {
         vm.warp(NOV_2026 - 26 hours);
         IWorldIDBilling.BillingContext memory november = _scope(NOV_2026);
         assertTrue(
-            billing.register(
-                november,
-                _authorize(november),
-                ISSUER_SCHEMA_ID,
-                uint64(vm.getBlockTimestamp()),
-                NULLIFIER + 2,
-                _proof()
-            )
+            billing.register(november, _authorize(november), uint64(vm.getBlockTimestamp()), NULLIFIER + 2, _proof())
         );
         (keyId, key) = billing.getPinnedOprfKey(RP_ID, NOV_2026);
         assertEq(key[0], 31);
@@ -1436,16 +1415,19 @@ contract WorldIDBillingTest is Test {
         proof[4] = ROOT + 1;
         vm.prank(user);
         vm.expectRevert(IWorldIDVerifier.InvalidMerkleRoot.selector);
-        billing.register(scope, auth, ISSUER_SCHEMA_ID, NOW, NULLIFIER, proof);
+        billing.register(scope, auth, NOW, NULLIFIER, proof);
 
+        issuerRegistry.set(ISSUER_SCHEMA_ID, 0, 0);
+        issuerRegistry.set(ISSUER_SCHEMA_ID + 1, 11, 12);
         vm.prank(user);
         vm.expectRevert(IWorldIDVerifier.UnregisteredIssuerSchemaId.selector);
-        billing.register(scope, auth, ISSUER_SCHEMA_ID + 1, NOW, NULLIFIER, _proof());
+        billing.register(scope, auth, NOW, NULLIFIER, _proof());
+        issuerRegistry.set(ISSUER_SCHEMA_ID, 11, 12);
 
         uint64 tooOld = uint64(NOW - EXPIRATION_THRESHOLD - 1);
         vm.prank(user);
         vm.expectRevert(IWorldIDVerifier.ExpirationTooOld.selector);
-        billing.register(scope, auth, ISSUER_SCHEMA_ID, tooOld, NULLIFIER, _proof());
+        billing.register(scope, auth, tooOld, NULLIFIER, _proof());
     }
 
     ////////////////////////////////////////////////////////////

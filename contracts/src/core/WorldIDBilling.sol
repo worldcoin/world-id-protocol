@@ -93,6 +93,11 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     ///  (`0x00`), from consuming capacity.
     uint8 public constant BILLED_ACTION_PREFIX = 0x03;
 
+    /// @notice `issuerSchemaId` of the Proof of Human Credential, the only Credential a registration may prove. A
+    ///  Proof of Embedding Similarity proves this Credential, so a registration with another one could only spend
+    ///  the RP's capacity.
+    uint64 public constant POH_ISSUER_SCHEMA_ID = 1;
+
     /// @notice Decimals of the WLD/USD price source; WIP-107 §4.9 requires USD scaled by 1e18.
     uint8 public constant PRICE_DECIMALS = 18;
 
@@ -197,13 +202,12 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
     function register(
         BillingContext calldata scope,
         RegistrationAuthorization calldata authorization,
-        uint64 issuerSchemaId,
         uint64 expiresAtMin,
         uint256 billingNullifier,
         uint256[5] calldata proof
     ) external virtual onlyProxy onlyInitialized nonReentrant returns (bool success) {
         uint256 billingAction = _validateRegistrationContext(scope);
-        return _register(scope, billingAction, authorization, issuerSchemaId, expiresAtMin, billingNullifier, proof);
+        return _register(scope, billingAction, authorization, expiresAtMin, billingNullifier, proof);
     }
 
     /// @inheritdoc IWorldIDBilling
@@ -224,7 +228,6 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
                 scope,
                 billingAction,
                 registration.authorization,
-                registration.issuerSchemaId,
                 registration.expiresAtMin,
                 registration.billingNullifier,
                 registration.proof
@@ -519,7 +522,6 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
         BillingContext calldata scope,
         uint256 billingAction,
         RegistrationAuthorization calldata authorization,
-        uint64 issuerSchemaId,
         uint64 expiresAtMin,
         uint256 billingNullifier,
         uint256[5] calldata proof
@@ -548,7 +550,7 @@ contract WorldIDBilling is WorldIDBase, PausableUpgradeable, ReentrancyGuardTran
             authorization.nonce,
             0,
             expiresAtMin,
-            issuerSchemaId,
+            POH_ISSUER_SCHEMA_ID,
             0,
             0,
             proof

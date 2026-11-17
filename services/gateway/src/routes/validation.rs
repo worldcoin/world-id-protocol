@@ -677,7 +677,6 @@ fn billing_register_calldata(registration: &BillingRegistration) -> Bytes {
     let BillingRegistration {
         scope,
         authorization,
-        issuer_schema_id,
         expires_at_min,
         billing_nullifier,
         proof,
@@ -699,7 +698,6 @@ fn billing_register_calldata(registration: &BillingRegistration) -> Bytes {
             signature: authorization.signature.as_bytes().into(),
             wip101Data: authorization.wip101_data.clone(),
         },
-        issuerSchemaId: *issuer_schema_id,
         expiresAtMin: *expires_at_min,
         billingNullifier: (*billing_nullifier).into(),
         proof: proof.as_ethereum_representation(),

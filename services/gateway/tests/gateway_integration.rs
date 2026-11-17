@@ -557,7 +557,6 @@ fn billing_registration(
             signature: alloy::signers::Signature::new(U256::from(1u64), U256::from(2u64), false),
             wip101_data: Default::default(),
         },
-        issuer_schema_id: 1,
         expires_at_min: 1,
         billing_nullifier: FieldElement::from(billing_nullifier),
         proof: ZeroKnowledgeProof::default(),

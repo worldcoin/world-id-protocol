@@ -110,8 +110,6 @@ pub struct BillingRegistration {
     pub scope: BillingContext,
     /// The RP's authorization.
     pub authorization: RegistrationAuthorization,
-    /// The schema of the credential the proof uses, which need not match the RP's request.
-    pub issuer_schema_id: u64,
     /// The credential expiry lower bound the proof attests.
     pub expires_at_min: u64,
     /// The `billingNullifier` to register.
@@ -227,7 +225,6 @@ mod tests {
                 period_start: 1_793_534_400,
             },
             authorization: RegistrationAuthorization::from_request(&request).expect("valid"),
-            issuer_schema_id: 1,
             expires_at_min: request.created_at,
             billing_nullifier: FieldElement::from(77u64),
             proof: ZeroKnowledgeProof::default(),
