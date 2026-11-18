@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.23.0...world-id-primitives-v0.24.0) - 2026-11-18
+
+### Added
+
+- derive the Flamingo nonce from the RP nonce and a salt in the WIP-202 circuit ([#1238](https://github.com/worldcoin/world-id-protocol/pull/1238))
+
+### Fixed
+
+- *(billing)* register only with the PoH Credential ([#1234](https://github.com/worldcoin/world-id-protocol/pull/1234))
+
+### Other
+
+- add a billed WIP-202 fixture with a WIP-107 registration ([#1232](https://github.com/worldcoin/world-id-protocol/pull/1232))
+- share the WIP-202 end-to-end setup through world-id-test-utils ([#1228](https://github.com/worldcoin/world-id-protocol/pull/1228))
+
 ## [0.23.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.22.0...world-id-primitives-v0.23.0) - 2026-11-13
 
 ### Added
