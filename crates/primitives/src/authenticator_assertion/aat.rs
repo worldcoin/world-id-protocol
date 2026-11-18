@@ -31,49 +31,10 @@ const CLAIM_NONCE: i64 = 10;
 const CLAIM_CDH: i64 = -80_000;
 const CLAIM_AUTHENTICATOR_META: i64 = -80_001;
 
-/// User presence the Authenticator reports in an AAT (`authenticator_meta` bits 0-2); values are
-/// identifiers, not an order.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(u8)]
-pub enum UserPresence {
-    /// Undetermined.
-    Undetermined = 0,
-    /// User is not present.
-    NotPresent = 1,
-    /// User is present, verified by a biometric check during this request.
-    PresentVerified = 2,
-    /// User was present within the last 30 days.
-    PresentWithin30Days = 3,
-    /// User was present within the last 7 days.
-    PresentWithin7Days = 4,
-}
-
-impl From<UserPresence> for u8 {
-    fn from(presence: UserPresence) -> Self {
-        presence as Self
-    }
-}
-
-impl TryFrom<u8> for UserPresence {
-    type Error = AuthenticatorAssertionError;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            0 => Ok(Self::Undetermined),
-            1 => Ok(Self::NotPresent),
-            2 => Ok(Self::PresentVerified),
-            3 => Ok(Self::PresentWithin30Days),
-            4 => Ok(Self::PresentWithin7Days),
-            _ => Err(AuthenticatorAssertionError::InvalidField("user_presence")),
-        }
-    }
-}
-
-/// The AAT's `authenticator_meta`: user presence (bits 0-2) and two provider-defined bits
-/// (3-4). Fields are private so every value packs into its own bit range.
+/// The AAT's `authenticator_meta`: two provider-defined bits (0-1). The field is private so
+/// every value fits its bit range.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AuthenticatorMeta {
-    user_presence: UserPresence,
     provider_bits: u8,
 }
 
@@ -82,23 +43,11 @@ impl AuthenticatorMeta {
     ///
     /// # Errors
     /// [`AuthenticatorAssertionError::InvalidField`] if `provider_bits` carries more than 2 bits.
-    pub const fn new(
-        user_presence: UserPresence,
-        provider_bits: u8,
-    ) -> Result<Self, AuthenticatorAssertionError> {
+    pub const fn new(provider_bits: u8) -> Result<Self, AuthenticatorAssertionError> {
         if provider_bits > MAX_PROVIDER_BITS {
             return Err(AuthenticatorAssertionError::InvalidField("provider_bits"));
         }
-        Ok(Self {
-            user_presence,
-            provider_bits,
-        })
-    }
-
-    /// User presence the Authenticator reports.
-    #[must_use]
-    pub const fn user_presence(&self) -> UserPresence {
-        self.user_presence
+        Ok(Self { provider_bits })
     }
 
     /// Provider-defined bits; `0` is the nil value.
@@ -107,25 +56,24 @@ impl AuthenticatorMeta {
         self.provider_bits
     }
 
-    /// Packs the sub-fields LSB-first: `user_presence` (bits 0-2), provider bits (3-4).
+    /// Packs the sub-fields LSB-first: provider bits (0-1).
     #[must_use]
-    pub fn pack(&self) -> u8 {
-        u8::from(self.user_presence) | (self.provider_bits << 3)
+    pub const fn pack(&self) -> u8 {
+        self.provider_bits
     }
 
     /// Unpacks `authenticator_meta`.
     ///
     /// # Errors
-    /// [`AuthenticatorAssertionError::InvalidField`] if bits 5 and above are set or `user_presence` is reserved.
-    pub fn unpack(packed: u8) -> Result<Self, AuthenticatorAssertionError> {
-        if packed >> 5 != 0 {
+    /// [`AuthenticatorAssertionError::InvalidField`] if bits 2 and above are set.
+    pub const fn unpack(packed: u8) -> Result<Self, AuthenticatorAssertionError> {
+        if packed > MAX_PROVIDER_BITS {
             return Err(AuthenticatorAssertionError::InvalidField(
                 "authenticator_meta",
             ));
         }
         Ok(Self {
-            user_presence: UserPresence::try_from(packed & 0x7)?,
-            provider_bits: packed >> 3,
+            provider_bits: packed,
         })
     }
 }
@@ -189,7 +137,7 @@ impl AatClaims {
         self.cdh
     }
 
-    /// User presence and provider-defined bits.
+    /// Provider-defined bits the Authenticator reports.
     #[must_use]
     pub const fn authenticator_meta(&self) -> AuthenticatorMeta {
         self.authenticator_meta
@@ -240,7 +188,7 @@ impl AatClaims {
         claims.text(CLAIM_EAT_PROFILE, EAT_PROFILE_AAT)?;
         let cdh = claims.field_element(CLAIM_CDH)?;
         let meta: [u8; 32] = claims.bytes(CLAIM_AUTHENTICATOR_META)?;
-        // A field element with bits 5 and above zero.
+        // A field element with bits 2 and above zero.
         if meta[..31].iter().any(|b| *b != 0) {
             return Err(AuthenticatorAssertionError::InvalidField(
                 "authenticator_meta",

@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, io::Read};
 
 use ark_ff::PrimeField as _;
 use provekit_common::{InputMap, InputValue, NoirElement};
-use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims};
+use world_id_flamingo::{AatFlags, FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
     Credential, CredentialVersion, EdDSAPublicKey, FieldElement, ProofRequest, ProofType,
     SessionRef, TREE_DEPTH,
@@ -209,19 +209,29 @@ fn token_digest<const MAX_DEPTH: usize>(
         ],
         aud: request.rp_id,
         nonce: flamingo_nonce(request.nonce, inputs.nonce_salt),
-        // `sec_flags` layout with `min_build_version` (bits 16-47) fixed to 0 by WIP-202.
-        aat: inputs.aat.as_ref().map(|aat| FlamingoAatClaims {
-            trust_anchor_key_hash: aat.trust_anchor_key_hash,
-            aat_flags: u64::from(aat.platform)
-                | (u64::from(aat.sec_level) << 8)
-                | (u64::from(aat.sec_meta) << 48)
-                | (u64::from(aat.authenticator_meta) << 52),
-        }),
+        aat: inputs.aat.as_ref().map(flamingo_aat_claims),
         compare_sources: COMPARE_SOURCES,
         engine_config_hash: inputs.engine_config_hash,
         billing_nullifier: inputs.billing_nullifier,
     }
     .digest())
+}
+
+/// The Flamingo Token's AAT claims behind the values a proof reveals, with `min_build_version`
+/// fixed to 0 by WIP-202.
+pub(crate) fn flamingo_aat_claims(aat: &AatPublicValues) -> FlamingoAatClaims {
+    FlamingoAatClaims {
+        trust_anchor_key_hash: aat.trust_anchor_key_hash,
+        aat_flags: AatFlags {
+            platform: aat.platform,
+            integrity_level: aat.integrity_level,
+            min_build_version: 0,
+            sec_meta: aat.sec_meta,
+            key_protection: aat.key_protection,
+            authenticator_meta: aat.authenticator_meta,
+        }
+        .pack(),
+    }
 }
 
 /// The message the World ID's Authenticator signs to authorize a Flamingo Token and the RP's
@@ -290,11 +300,6 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
                     limit: (1u64 << bits).into(),
                 });
             }
-        }
-        // WIP-106 reserves `user_presence` (bits 0-2 of `authenticator_meta`) values 5 to 7.
-        let user_presence = aat.authenticator_meta & 7;
-        if user_presence >= 5 {
-            return Err(ProofInputError::ReservedUserPresence { user_presence });
         }
     }
 
@@ -435,20 +440,27 @@ impl<'a> ProverChosen<'a> {
 fn public_witness(
     request: &EmbeddingSimilarityRequestInputs,
     chosen: &ProverChosen<'_>,
-) -> [(&'static str, InputValue); 20] {
+) -> [(&'static str, InputValue); 21] {
     let field = |value: u64| InputValue::Field(NoirElement::from(value));
     // Without an AAT, the circuit takes every AAT value as `0`.
     let zero = FieldElement::ZERO;
-    let (trust_anchor_key_hash, platform, sec_level, sec_meta, authenticator_meta) =
-        chosen.aat.map_or((zero, 0, 0, 0, 0), |aat| {
-            (
-                aat.trust_anchor_key_hash,
-                aat.platform,
-                aat.sec_level,
-                aat.sec_meta,
-                aat.authenticator_meta,
-            )
-        });
+    let (
+        trust_anchor_key_hash,
+        platform,
+        integrity_level,
+        key_protection,
+        sec_meta,
+        authenticator_meta,
+    ) = chosen.aat.map_or((zero, 0, 0, 0, 0, 0), |aat| {
+        (
+            aat.trust_anchor_key_hash,
+            aat.platform,
+            aat.integrity_level,
+            aat.key_protection,
+            aat.sec_meta,
+            aat.authenticator_meta,
+        )
+    });
     [
         ("now", field(chosen.now.into())),
         ("rp_id", request.rp_id.into_noir_value()),
@@ -470,7 +482,8 @@ fn public_witness(
             trust_anchor_key_hash.into_noir_value(),
         ),
         ("platform", field(platform.into())),
-        ("sec_level", field(sec_level.into())),
+        ("integrity_level", field(integrity_level.into())),
+        ("key_protection", field(key_protection.into())),
         ("sec_meta", field(sec_meta.into())),
         ("authenticator_meta", field(authenticator_meta.into())),
         ("merkle_root", chosen.merkle_root.into_noir_value()),
@@ -815,7 +828,7 @@ mod input_validation_tests {
 
     #[test]
     fn test_rejects_aat_values_wider_than_their_claims() {
-        // `sec_meta = 19` packs like `sec_meta = 3` with `authenticator_meta` bit 0 set, so the
+        // `sec_meta = 19` packs like `sec_meta = 3` with `key_protection` bit 0 set, so the
         // token signature alone would not catch it.
         let mut input = embedding_similarity_fixture();
         input.aat.as_mut().unwrap().sec_meta = 16;
@@ -828,24 +841,13 @@ mod input_validation_tests {
         ));
 
         let mut input = embedding_similarity_fixture();
-        input.aat.as_mut().unwrap().authenticator_meta = 32;
+        input.aat.as_mut().unwrap().authenticator_meta = 4;
         assert!(matches!(
             check(&input),
             ProofInputError::ValueOutOfBounds {
                 name: "authenticator_meta",
                 ..
             }
-        ));
-    }
-
-    #[test]
-    fn test_rejects_a_reserved_user_presence() {
-        let mut input = embedding_similarity_fixture();
-        input.aat.as_mut().unwrap().authenticator_meta = 0b01_101;
-        resign(&mut input);
-        assert!(matches!(
-            check(&input),
-            ProofInputError::ReservedUserPresence { user_presence: 5 }
         ));
     }
 
@@ -1048,9 +1050,9 @@ mod tests {
             .embedding_similarity_verifier()
             .expect("embedded verifier loads");
 
-        // 20 public parameters, two of which are public keys.
-        assert_eq!(prover.r1cs.num_public_inputs, 22);
-        assert_eq!(verifier.r1cs.num_public_inputs, 22);
+        // 21 public parameters, two of which are public keys.
+        assert_eq!(prover.r1cs.num_public_inputs, 23);
+        assert_eq!(verifier.r1cs.num_public_inputs, 23);
         assert_eq!(verifier.r1cs.hash(), prover.r1cs.hash());
     }
 

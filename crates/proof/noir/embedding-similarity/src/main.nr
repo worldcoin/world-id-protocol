@@ -38,7 +38,8 @@ fn main(
     has_aat: pub bool,
     trust_anchor_key_hash: pub Field,
     platform: pub u8,
-    sec_level: pub u8,
+    integrity_level: pub u8,
+    key_protection: pub u8,
     sec_meta: pub u8,
     authenticator_meta: pub u8,
     // World ID and Credential
@@ -68,7 +69,8 @@ fn main(
         has_aat: has_aat as Field,
         trust_anchor_key_hash,
         platform: platform as Field,
-        sec_level: sec_level as Field,
+        integrity_level: integrity_level as Field,
+        key_protection: key_protection as Field,
         sec_meta: sec_meta as Field,
         authenticator_meta: authenticator_meta as Field,
         // WIP-202 checks no Authenticator build version for now.

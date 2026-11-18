@@ -15,10 +15,10 @@ global ASSERTION_KEY_Y: [u8; 32] = [
     0xc6, 0x6c, 0x11, 0xf2, 0x20, 0x96, 0x0d, 0xe5, 0x94, 0x33, 0x4d, 0xf5, 0x88, 0x77, 0x67, 0x24,
 ];
 global AAT_SIGNATURE: [u8; 64] = [
-    0xc9, 0xde, 0xdd, 0xf6, 0x65, 0x7d, 0x8d, 0x62, 0x4f, 0xc9, 0x0f, 0x03, 0x5c, 0xa1, 0x81, 0x8d,
-    0xe2, 0x6d, 0x24, 0xae, 0xb9, 0xbe, 0xcd, 0x94, 0x68, 0x77, 0xd7, 0xa9, 0xf3, 0x75, 0x20, 0xad,
-    0x60, 0x5b, 0x17, 0x3c, 0x60, 0x66, 0x01, 0x79, 0x22, 0x7e, 0x01, 0x93, 0x70, 0xae, 0x9e, 0xa8,
-    0x24, 0xb3, 0x5f, 0x26, 0xfe, 0xfb, 0x5b, 0x75, 0x92, 0xb2, 0xab, 0x18, 0x65, 0x26, 0x3d, 0x27,
+    0x5f, 0xd3, 0x2b, 0x98, 0xbf, 0x3e, 0xcb, 0x65, 0x4c, 0xc0, 0xa2, 0xde, 0xed, 0x30, 0x28, 0x3b,
+    0xc4, 0x39, 0x00, 0x88, 0x6e, 0x5f, 0xcc, 0x50, 0x34, 0xa0, 0x2e, 0x94, 0xc8, 0xb5, 0x79, 0x6e,
+    0xb1, 0x36, 0xbe, 0xed, 0xee, 0xe9, 0xc6, 0x01, 0xf3, 0x12, 0x60, 0x4a, 0xe6, 0x4b, 0xf7, 0x3a,
+    0x5d, 0xeb, 0x79, 0x42, 0x17, 0x9e, 0x2d, 0xf0, 0xcc, 0x43, 0xdf, 0x90, 0x49, 0xf3, 0xbc, 0xdd,
 ];
 global TRUST_ANCHOR_KEY: [Field; 2] = [
     19037598474602150174935475944965340829216795940473064039209388058233204431288,
@@ -26,7 +26,7 @@ global TRUST_ANCHOR_KEY: [Field; 2] = [
 ];
 global TRUST_ANCHOR_KEY_HASH: Field =
     0x14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8;
-global TAKT_MESSAGE: Field = 0x17a7e201265aef7edbe89f804b16ff8c98a7f87e1da7ed566bcaa91340053879;
+global TAKT_MESSAGE: Field = 0x287479947525d64bb041dbbbc36462f46ccb75d3be505ab83e69a38ca3299cea;
 // The BabyJubJub subgroup generator: a valid key that did not sign the fixture TAKT.
 global OTHER_KEY: [Field; 2] = [
     5299619240641551281634865583518297030282874472190772894086521144482721001553,
@@ -44,10 +44,11 @@ fn public() -> AuthenticatorAssertionPublicInputs {
         aud: 1928118,
         nonce: 42,
         platform: 2,
-        sec_level: 1,
+        integrity_level: 1,
+        key_protection: 3,
         sec_meta: 3,
-        // user_presence 2 | provider bits 0b01 << 3
-        authenticator_meta: 10,
+        // provider bits 0b01
+        authenticator_meta: 1,
         min_build_version: 2006,
     }
 }
@@ -58,12 +59,13 @@ fn private() -> AuthenticatorAssertionPrivateInputs {
         takt_exp: TAKT_EXP,
         assertion_key_x: ASSERTION_KEY_X,
         assertion_key_y: ASSERTION_KEY_Y,
-        // platform 2 | sec_level 1 << 8 | build_version 2006 << 16 | sec_meta 3 << 48
-        sec_flags: 0x0003000007D60102,
-        takt_sig_s: 2397240400038770518390470117102122304061354532851818695499495078413578208938,
+        // platform 2 | integrity_level 1 << 8 | build_version 2006 << 16 | sec_meta 3 << 48
+        // | key_protection 3 << 52
+        sec_flags: 0x0033000007D60102,
+        takt_sig_s: 2358271662210144119452071820160048538741534859901531750634697046917306896412,
         takt_sig_r: [
-            15307277759014775981403811608064749853061020498219662916284177626515398769025,
-            2390252300984025142885518919517646868494177410033079022009450775404847994778,
+            20421980338803122010777117778973137794948709268084389261502187299763870483274,
+            21517044705661979807367039403922915424567391340559514125034686868758403919915,
         ],
         aat_exp: AAT_EXP,
         aat_signature: AAT_SIGNATURE,
@@ -105,17 +107,10 @@ fn test_zero_nonce_rejected() {
     verify_assertion(public, private());
 }
 
-#[test(should_fail_with = "user_presence values 5 and above are reserved")]
-fn test_reserved_user_presence_rejected() {
-    let mut public = public();
-    public.authenticator_meta = 5;
-    verify_assertion(public, private());
-}
-
-#[test(should_fail_with = "authenticator_meta bits 5 and above are reserved")]
+#[test(should_fail_with = "authenticator_meta bits 2 and above are reserved")]
 fn test_reserved_authenticator_meta_bits_rejected() {
     let mut public = public();
-    public.authenticator_meta = 32;
+    public.authenticator_meta = 4;
     verify_assertion(public, private());
 }
 
@@ -159,7 +154,7 @@ fn test_non_canonical_takt_sig_s_rejected() {
 #[test(should_fail_with = "invalid TAKT signature")]
 fn test_tampered_sec_flags_rejected() {
     let mut private = private();
-    private.sec_flags = 0x0003000007D70102;
+    private.sec_flags = 0x0033000007D70102;
     verify_assertion(public(), private);
 }
 
@@ -249,10 +244,23 @@ fn test_wrong_platform_rejected() {
 }
 
 #[test(should_fail_with = "sec_flags do not match the public security flags")]
-fn test_wrong_sec_level_rejected() {
+fn test_wrong_integrity_level_rejected() {
     let mut public = public();
-    public.sec_level = 3;
+    public.integrity_level = 3;
     verify_assertion(public, private());
+}
+
+#[test(should_fail_with = "sec_flags do not match the public security flags")]
+fn test_wrong_key_protection_rejected() {
+    let mut public = public();
+    public.key_protection = 2;
+    verify_assertion(public, private());
+}
+
+#[test(should_fail_with = "sec_flags do not match the public security flags")]
+fn test_wide_sec_meta_rejected() {
+    // `sec_meta` 0x13 must not alias `sec_meta` 3 with `key_protection` bit 0 set.
+    let _ = super::assert_sec_flags(0x0013000007D60102, 2, 1, 0, 0x13);
 }
 
 #[test(should_fail_with = "sec_flags do not match the public security flags")]
@@ -276,10 +284,15 @@ fn test_build_version_below_minimum_rejected() {
     verify_assertion(public, private());
 }
 
-#[test(should_fail_with = "sec_flags bits 52 and above are reserved and must be 0")]
+#[test]
+fn test_full_width_key_protection_accepted() {
+    let _ = super::assert_sec_flags(0x0FF3000007D60102, 2, 1, 0xff, 3);
+}
+
+#[test(should_fail_with = "sec_flags bits 60 and above are reserved and must be 0")]
 fn test_reserved_sec_flags_bits_rejected() {
     // Exercised directly: a signed TAKT with reserved bits would need the trust anchor's key.
-    let _ = super::assert_sec_flags(0x0013000007D60102, 2, 1, 3);
+    let _ = super::assert_sec_flags(0x1033000007D60102, 2, 1, 3, 3);
 }
 
 #[test(should_fail_with = "exp must take a 4-byte CBOR uint")]

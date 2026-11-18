@@ -38,11 +38,13 @@ pub struct AuthenticatorAssertionPublicInputs {
     pub nonce: FieldElement,
     /// Platform of the Authenticator (see [`Platform`]).
     pub platform: u8,
-    /// Class of integrity evidence verified at TAKT issuance (see [`SecLevel`]).
-    pub sec_level: u8,
+    /// Class of integrity evidence verified at TAKT issuance (see [`IntegrityLevel`]).
+    pub integrity_level: u8,
+    /// How the `assertion_key` is protected (see [`KeyProtection`]).
+    pub key_protection: u8,
     /// Provider-defined 4-bit bitmask.
     pub sec_meta: u8,
-    /// User presence and provider-defined bits the Authenticator reports.
+    /// Provider-defined bits the Authenticator reports.
     pub authenticator_meta: AuthenticatorMeta,
     /// Minimum `build_version` the RP accepts.
     pub min_build_version: u32,
@@ -88,7 +90,8 @@ impl AuthenticatorAssertionPrivateInputs {
             aud,
             nonce,
             platform: flags.platform,
-            sec_level: flags.sec_level,
+            integrity_level: flags.integrity_level,
+            key_protection: flags.key_protection,
             sec_meta: flags.sec_meta,
             authenticator_meta: self.aat.claims().authenticator_meta,
             min_build_version,
@@ -119,9 +122,17 @@ pub fn verify(
         return Err(AuthenticatorAssertionError::Mismatch("request"));
     }
     let flags = takt.sec_flags;
-    if (flags.platform, flags.sec_level, flags.sec_meta)
-        != (public.platform, public.sec_level, public.sec_meta)
-    {
+    if (
+        flags.platform,
+        flags.integrity_level,
+        flags.key_protection,
+        flags.sec_meta,
+    ) != (
+        public.platform,
+        public.integrity_level,
+        public.key_protection,
+        public.sec_meta,
+    ) {
         return Err(AuthenticatorAssertionError::Mismatch("sec_flags"));
     }
     if aat.authenticator_meta != public.authenticator_meta {

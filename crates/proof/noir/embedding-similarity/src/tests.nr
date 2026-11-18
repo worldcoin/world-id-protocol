@@ -9,11 +9,12 @@ use crate::{
         BILLING_NULLIFIER_OTHER_RP, BILLING_OPRF_OUTPUT, CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK,
         CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH, EXPIRES_AT, EXPIRES_AT_MIN,
         FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS,
-        HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH,
-        MERKLE_ROOT, NONCE, NONCE_SALT, NOW, PLATFORM, RP_ID, SEC_LEVEL, SEC_META, SESSION_ID,
-        SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY,
-        TOKEN_SIG_BILLED, TOKEN_SIG_BILLED_OTHER_LEAF, TOKEN_SIG_BILLED_OTHER_RP, TOKEN_SIG_NO_AAT,
-        TOKEN_SIG_RP_NONCE, TRUST_ANCHOR_KEY_HASH, USER_PK,
+        HASHES_JSON_LEN, INTEGRITY_LEVEL, ISSUER_SCHEMA_ID, ISSUER_VERSION, KEY_PROTECTION,
+        LEAF_INDEX, LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NONCE_SALT, NOW, PLATFORM, RP_ID,
+        SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG,
+        TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_BILLED, TOKEN_SIG_BILLED_OTHER_LEAF,
+        TOKEN_SIG_BILLED_OTHER_RP, TOKEN_SIG_NO_AAT, TOKEN_SIG_RP_NONCE, TRUST_ANCHOR_KEY_HASH,
+        USER_PK,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
@@ -29,7 +30,8 @@ struct Public {
     has_aat: bool,
     trust_anchor_key_hash: Field,
     platform: u8,
-    sec_level: u8,
+    integrity_level: u8,
+    key_protection: u8,
     sec_meta: u8,
     authenticator_meta: u8,
     engine_config_hash: Field,
@@ -48,7 +50,8 @@ fn public() -> Public {
         has_aat: true,
         trust_anchor_key_hash: TRUST_ANCHOR_KEY_HASH,
         platform: PLATFORM,
-        sec_level: SEC_LEVEL,
+        integrity_level: INTEGRITY_LEVEL,
+        key_protection: KEY_PROTECTION,
         sec_meta: SEC_META,
         authenticator_meta: AUTHENTICATOR_META,
         engine_config_hash: ENGINE_CONFIG_HASH,
@@ -112,7 +115,8 @@ fn prove(p: Public, inputs: PrivateInputs) {
         p.has_aat,
         p.trust_anchor_key_hash,
         p.platform,
-        p.sec_level,
+        p.integrity_level,
+        p.key_protection,
         p.sec_meta,
         p.authenticator_meta,
         MERKLE_ROOT,
@@ -131,7 +135,8 @@ fn public_without_aat() -> Public {
     p.has_aat = false;
     p.trust_anchor_key_hash = 0;
     p.platform = 0;
-    p.sec_level = 0;
+    p.integrity_level = 0;
+    p.key_protection = 0;
     p.sec_meta = 0;
     p.authenticator_meta = 0;
     p
@@ -140,22 +145,14 @@ fn public_without_aat() -> Public {
 #[test(should_fail_with = "AAT values must be zero without an AAT")]
 fn test_rejects_aat_values_without_an_aat() {
     let mut p = public_without_aat();
-    p.sec_level = 1;
+    p.key_protection = 1;
     prove(p, inputs_without_aat());
-}
-
-#[test(should_fail_with = "user_presence values 5 to 7 are reserved")]
-fn test_rejects_a_reserved_user_presence() {
-    let mut p = public();
-    // Provider bits 0b01 with user_presence 5.
-    p.authenticator_meta = 13;
-    prove(p, inputs());
 }
 
 #[test(should_fail_with = "call to assert_max_bit_size")]
 fn test_rejects_a_wide_authenticator_meta() {
     let mut p = public();
-    p.authenticator_meta = 32;
+    p.authenticator_meta = 4;
     prove(p, inputs());
 }
 

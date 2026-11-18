@@ -52,28 +52,56 @@ impl From<Platform> for u8 {
     }
 }
 
-/// Class of integrity evidence the Authenticator Provider verified when issuing the TAKT.
+/// Class of evidence the Authenticator Provider verified, when issuing the TAKT, that the
+/// Authenticator is a genuine app on a genuine device.
 ///
 /// The known identifiers, not a trust ranking; `sec_flags` carries the raw byte so unknown
 /// values pass through to the RP's allowlist.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
-pub enum SecLevel {
+pub enum IntegrityLevel {
     /// Unspecified, cannot be determined.
     Unspecified = 0,
-    /// Hardware-bound key attested by the platform manufacturer (e.g. App Attest).
-    HardwareKey = 1,
-    /// Platform integrity verdict without a hardware-bound key (e.g. Play Integrity).
-    PlatformKey = 3,
+    /// Genuine app on a genuine device, attested by the platform manufacturer (e.g. App Attest).
+    PlatformAttested = 1,
+    /// Platform integrity verdict (e.g. Play Integrity).
+    PlatformVerdict = 3,
     /// Integrity implied by the Authenticator Provider's internal controls.
     InternallyVerified = 5,
     /// No environment integrity could be verified.
-    Software = 10,
+    Unverified = 10,
 }
 
-impl From<SecLevel> for u8 {
-    fn from(sec_level: SecLevel) -> Self {
-        sec_level as Self
+impl From<IntegrityLevel> for u8 {
+    fn from(integrity_level: IntegrityLevel) -> Self {
+        integrity_level as Self
+    }
+}
+
+/// How the `assertion_key` is protected, as the Authenticator Provider verified when issuing
+/// the TAKT.
+///
+/// The known identifiers, not a trust ranking; `sec_flags` carries the raw byte so unknown
+/// values pass through to the RP's allowlist.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum KeyProtection {
+    /// Unspecified, cannot be determined.
+    Unspecified = 0,
+    /// Non-exportable key in a secure element, attested (e.g. Android `StrongBox`).
+    SecureElement = 1,
+    /// Non-exportable key in a TEE, attested (e.g. Android `TrustedEnvironment`).
+    Tee = 2,
+    /// Hardware-bound key reported by the Authenticator; the evidence binds the key but does not
+    /// attest its storage (e.g. an iOS Secure Enclave key bound by App Attest).
+    HardwareReported = 3,
+    /// Software key, or no evidence.
+    Software = 4,
+}
+
+impl From<KeyProtection> for u8 {
+    fn from(key_protection: KeyProtection) -> Self {
+        key_protection as Self
     }
 }
 
@@ -82,31 +110,34 @@ impl From<SecLevel> for u8 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SecFlags {
     pub(super) platform: u8,
-    pub(super) sec_level: u8,
+    pub(super) integrity_level: u8,
     pub(super) build_version: u32,
     pub(super) sec_meta: u8,
+    pub(super) key_protection: u8,
 }
 
 impl SecFlags {
-    /// Creates security flags. Unknown `platform` and `sec_level` identifiers are kept for the RP
-    /// to allowlist.
+    /// Creates security flags, with arguments in bit order. Unknown `platform`,
+    /// `integrity_level` and `key_protection` identifiers are kept for the RP to allowlist.
     ///
     /// # Errors
     /// [`AuthenticatorAssertionError::InvalidField`] if `sec_meta` carries more than 4 bits.
     pub const fn new(
         platform: u8,
-        sec_level: u8,
+        integrity_level: u8,
         build_version: u32,
         sec_meta: u8,
+        key_protection: u8,
     ) -> Result<Self, AuthenticatorAssertionError> {
         if sec_meta > MAX_SEC_META {
             return Err(AuthenticatorAssertionError::InvalidField("sec_meta"));
         }
         Ok(Self {
             platform,
-            sec_level,
+            integrity_level,
             build_version,
             sec_meta,
+            key_protection,
         })
     }
 
@@ -116,10 +147,10 @@ impl SecFlags {
         self.platform
     }
 
-    /// Class of integrity evidence verified at TAKT issuance (see [`SecLevel`]).
+    /// Class of integrity evidence verified at TAKT issuance (see [`IntegrityLevel`]).
     #[must_use]
-    pub const fn sec_level(&self) -> u8 {
-        self.sec_level
+    pub const fn integrity_level(&self) -> u8 {
+        self.integrity_level
     }
 
     /// Monotonic version of the Authenticator build that requested the TAKT.
@@ -134,31 +165,39 @@ impl SecFlags {
         self.sec_meta
     }
 
+    /// How the `assertion_key` is protected (see [`KeyProtection`]).
+    #[must_use]
+    pub const fn key_protection(&self) -> u8 {
+        self.key_protection
+    }
+
     /// Unpacks `sec_flags`.
     ///
     /// # Errors
-    /// [`AuthenticatorAssertionError::InvalidField`] if bits 52 and above are set.
+    /// [`AuthenticatorAssertionError::InvalidField`] if bits 60 and above are set.
     pub const fn unpack(packed: u64) -> Result<Self, AuthenticatorAssertionError> {
-        if packed >> 52 != 0 {
+        if packed >> 60 != 0 {
             return Err(AuthenticatorAssertionError::InvalidField("sec_flags"));
         }
-        let [_, top, v3, v2, v1, v0, sec_level, platform] = packed.to_be_bytes();
+        let [top, meta, v3, v2, v1, v0, integrity_level, platform] = packed.to_be_bytes();
         Ok(Self {
             platform,
-            sec_level,
+            integrity_level,
             build_version: u32::from_be_bytes([v3, v2, v1, v0]),
-            sec_meta: top,
+            sec_meta: meta & 0xF,
+            key_protection: (top << 4) | (meta >> 4),
         })
     }
 
-    /// Packs the sub-fields LSB-first: `platform` (bits 0-7), `sec_level` (8-15),
-    /// `build_version` (16-47), `sec_meta` (48-51).
+    /// Packs the sub-fields LSB-first: `platform` (bits 0-7), `integrity_level` (8-15),
+    /// `build_version` (16-47), `sec_meta` (48-51), `key_protection` (52-59).
     #[must_use]
     pub fn pack(&self) -> u64 {
         u64::from(self.platform)
-            | (u64::from(self.sec_level) << 8)
+            | (u64::from(self.integrity_level) << 8)
             | (u64::from(self.build_version) << 16)
             | (u64::from(self.sec_meta) << 48)
+            | (u64::from(self.key_protection) << 52)
     }
 }
 
@@ -183,8 +222,8 @@ pub struct TaktClaims {
 
 impl TaktClaims {
     /// Creates TAKT claims for issuance at `now` by a `trust_anchor_key` valid until `not_after`.
-    /// The caller MUST NOT attest the same `assertion_key` with differing `sec_flags` (WIP-106
-    /// §3.4).
+    /// The caller MUST NOT attest the same `assertion_key` with differing `platform`,
+    /// `integrity_level`, `key_protection` or `sec_meta` (WIP-106 §3.4).
     ///
     /// # Errors
     /// [`AuthenticatorAssertionError::Expired`] if `exp <= now`, [`AuthenticatorAssertionError::LifetimeExceeded`] if
