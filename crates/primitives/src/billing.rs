@@ -158,7 +158,7 @@ pub fn billing_query(leaf_index: u64, rp_id: RpId, billing_action: FieldElement)
     oprf_query_digest(leaf_index, billing_action, rp_id.into())
 }
 
-/// The billing nullifier `H_4(DS_OPRF_PROOF; billing_query, R.x, R.y)`.
+/// The billing nullifier `H_4(DS_NULLIFIER; billing_query, R.x, R.y)`.
 ///
 /// `R` is the unblinded OPRF output of the billing query. The result is the `UniquenessNullifier`
 /// of WIP-107 §4.3, and what WIP-202 constraint 7 recomputes.
