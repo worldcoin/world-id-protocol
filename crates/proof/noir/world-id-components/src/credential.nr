@@ -5,11 +5,10 @@ use super::{
 };
 use poseidon2::bn254::permutation;
 
-/// The public values a Credential is verified against.
+/// The values a Credential is verified against, which the consuming circuit makes public.
 pub struct CredentialPublic {
     pub cred_pk: PublicKey,
     pub issuer_schema_id: Field,
-    pub issuer_version: Field,
     pub genesis_issued_at_min: Field,
 }
 
@@ -38,18 +37,19 @@ fn checked_u64(value: Field) -> u64 {
 }
 
 /// Proves that the Issuer issued the Credential to the World ID at `leaf_index` and that it
-/// is valid at `now`, and returns its claims. Range-checks `now` itself, so callers may pass any
-/// field element.
+/// is valid at `now`, and returns its claims. Range-checks `issuer_version` and `now` itself, so
+/// callers may pass any field element. The consuming circuit decides whether `issuer_version` is public.
 pub fn verify(
     public: CredentialPublic,
+    issuer_version: Field,
     now: Field,
     leaf_index: Field,
     credential: CredentialInputs,
 ) -> [Field; MAX_CLAIMS] {
     // The Issuer signature covers `issuer_version` through the packed identifier.
     credential.id.assert_max_bit_size::<64>();
-    public.issuer_version.assert_max_bit_size::<8>();
-    let id_packed = credential.id + public.issuer_version * 0x10000000000000000;
+    issuer_version.assert_max_bit_size::<8>();
+    let id_packed = credential.id + issuer_version * 0x10000000000000000;
 
     let message = permutation::t8([
         DS_CREDENTIAL_V1,

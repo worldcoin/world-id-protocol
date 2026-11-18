@@ -88,6 +88,7 @@ fn inputs() -> PrivateInputs {
             id: CRED_ID,
             sig: CRED_SIG,
         },
+        issuer_version: ISSUER_VERSION,
         hashes_json: HashesJsonInputs {
             chunks: HASHES_JSON_CHUNKS,
             len: HASHES_JSON_LEN,
@@ -117,7 +118,6 @@ fn prove(p: Public, inputs: PrivateInputs) {
         p.authenticator_meta,
         MERKLE_ROOT,
         ISSUER_SCHEMA_ID,
-        ISSUER_VERSION,
         CRED_PK,
         p.genesis_issued_at_min,
         p.expires_at_min,
@@ -382,6 +382,20 @@ fn test_rejects_a_credential_expiring_before_the_minimum() {
     let mut p = public();
     p.expires_at_min = EXPIRES_AT;
     prove(p, inputs());
+}
+
+#[test(should_fail_with = "unsupported issuer_version")]
+fn test_rejects_an_issuer_version_above_1() {
+    let mut inputs = inputs();
+    inputs.issuer_version = 2;
+    prove(public(), inputs);
+}
+
+#[test(should_fail_with = "invalid credential signature")]
+fn test_rejects_an_issuer_version_the_issuer_did_not_sign() {
+    let mut inputs = inputs();
+    inputs.issuer_version = 0;
+    prove(public(), inputs);
 }
 
 #[test]

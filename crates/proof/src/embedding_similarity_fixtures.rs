@@ -321,7 +321,6 @@ struct ProverToml {
     signal_hash: String,
     merkle_root: String,
     issuer_schema_id: String,
-    issuer_version: String,
     genesis_issued_at_min: String,
     expires_at_min: String,
     session_id: String,
@@ -332,6 +331,7 @@ struct ProverToml {
 
 #[derive(Serialize)]
 struct PrivateInputs {
+    issuer_version: String,
     session_id_r: String,
     billing_action: String,
     billing_oprf_output: Vec<String>,
@@ -586,13 +586,13 @@ fn render() -> Rendered {
         signal_hash: dec(*signal_hash),
         merkle_root: dec(*merkle_root),
         issuer_schema_id: ISSUER_SCHEMA_ID.to_string(),
-        issuer_version: ISSUER_VERSION.to_string(),
         genesis_issued_at_min: GENESIS_ISSUED_AT_MIN.to_string(),
         expires_at_min: EXPIRES_AT_MIN.to_string(),
         session_id: dec(*session_id),
         flamingo_verifier_key: (&verifier_key).into(),
         cred_pk: (&credential.issuer).into(),
         inputs: PrivateInputs {
+            issuer_version: ISSUER_VERSION.to_string(),
             session_id_r: dec(*session_id_r),
             billing_action: "0".into(),
             billing_oprf_output: vec!["0".into(), "0".into()],
@@ -888,10 +888,9 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
     let session_id_r = FieldElement::from(555_u64);
 
     let mut input = EmbeddingSimilarityCircuitInput {
-        request: EmbeddingSimilarityRequestInputs::from_request(
-            &embedding_similarity_request(session_id_r),
-            ISSUER_VERSION,
-        )
+        request: EmbeddingSimilarityRequestInputs::from_request(&embedding_similarity_request(
+            session_id_r,
+        ))
         .unwrap(),
         now: NOW,
         flamingo_verifier_key: verifier_sk().public(),
@@ -918,6 +917,7 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
         expires_at: u64::from(EXPIRES_AT),
         sub_blinding_factor,
         credential_id: CRED_ID,
+        issuer_version: ISSUER_VERSION,
         credential_signature: credential.signature.clone().unwrap(),
         hashes_json,
         session_id_r,
@@ -944,7 +944,7 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
     let request = &input.request;
     let credential = Credential::new()
         .id(input.credential_id)
-        .issuer_version(request.issuer_version)
+        .issuer_version(input.issuer_version)
         .issuer_schema_id(request.issuer_schema_id)
         .subject(Credential::compute_sub(
             input.inclusion_proof.leaf_index,

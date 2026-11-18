@@ -397,11 +397,8 @@ impl Authenticator {
             .sign(*message);
 
         let input = EmbeddingSimilarityCircuitInput {
-            request: EmbeddingSimilarityRequestInputs::from_request(
-                proof_request,
-                cred.issuer_version,
-            )
-            .map_err(ProofError::from)?,
+            request: EmbeddingSimilarityRequestInputs::from_request(proof_request)
+                .map_err(ProofError::from)?,
             now: claims.now,
             flamingo_verifier_key: flamingo.verifier_key.clone(),
             engine_config_hash: claims.engine_config_hash,
@@ -421,6 +418,7 @@ impl Authenticator {
             expires_at: cred.expires_at,
             sub_blinding_factor: credential.blinding_factor,
             credential_id: cred.id,
+            issuer_version: cred.issuer_version,
             credential_signature: cred
                 .signature
                 .clone()
