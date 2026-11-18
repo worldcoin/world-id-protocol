@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.24.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.23.0...world-id-primitives-v0.24.0) - 2026-11-18
+
+### Added
+
+- derive the Flamingo nonce from the RP nonce and a salt in the WIP-202 circuit ([#1238](https://github.com/worldcoin/world-id-protocol/pull/1238))
+
+### Fixed
+
+- *(billing)* register only with the PoH Credential ([#1234](https://github.com/worldcoin/world-id-protocol/pull/1234))
+
+### Other
+
+- add a billed WIP-202 fixture with a WIP-107 registration ([#1232](https://github.com/worldcoin/world-id-protocol/pull/1232))
+- share the WIP-202 end-to-end setup through world-id-test-utils ([#1228](https://github.com/worldcoin/world-id-protocol/pull/1228))
+
+## [0.23.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.22.0...world-id-primitives-v0.23.0) - 2026-11-13
+
+### Added
+
+- *(gateway)* report an exhausted billing period with its own code ([#1229](https://github.com/worldcoin/world-id-protocol/pull/1229))
+- build the WIP-202 Flamingo request in world-id-core ([#1225](https://github.com/worldcoin/world-id-protocol/pull/1225))
+
+### Other
+
+- [**breaking**] drop the WIP-107 bound on the billing state's age ([#1223](https://github.com/worldcoin/world-id-protocol/pull/1223))
+
+## [0.22.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.21.0...world-id-primitives-v0.22.0) - 2026-11-12
+
+### Added
+
+- *(indexer)* serve the WIP-107 billed RPs ([#1220](https://github.com/worldcoin/world-id-protocol/pull/1220))
+- *(authenticator)* fetch the WIP-107 billed RPs from the indexer ([#1222](https://github.com/worldcoin/world-id-protocol/pull/1222))
+
+### Other
+
+- [**breaking**] let the host supply WIP-107 billing state ([#1212](https://github.com/worldcoin/world-id-protocol/pull/1212))
+- rename the RP's AatFlags to AcceptedAatFlags ([#1218](https://github.com/worldcoin/world-id-protocol/pull/1218))
+
 ## [0.21.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.20.0...world-id-primitives-v0.21.0) - 2026-11-11
 
 ### Added

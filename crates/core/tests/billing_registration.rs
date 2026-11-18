@@ -207,7 +207,7 @@ async fn e2e_billing_registration() -> Result<()> {
         .await?;
     }
 
-    // The RP buys capacity for the current period only.
+    // The RP has bought no capacity for the period yet.
     let now = now_secs();
     let active = active_periods(now)?;
     let scope = BillingContext {
@@ -216,19 +216,6 @@ async fn e2e_billing_registration() -> Result<()> {
         rp_id: rp_fixture.world_rp_id,
         period_start: registration_period_start(active, false),
     };
-    anvil
-        .purchase_billing_capacity(
-            deployer.clone(),
-            billing,
-            IWorldIDBilling::BillingContext {
-                chainId: scope.chain_id,
-                billingContract: scope.billing_contract,
-                rpId: scope.rp_id.into_inner(),
-                periodStart: scope.period_start,
-            },
-            1,
-        )
-        .await?;
 
     // Authenticator pointed at the indexer, gateway and OPRF nodes.
     let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -318,6 +305,35 @@ async fn e2e_billing_registration() -> Result<()> {
         &credential,
     )?;
     assert_eq!(registration.billing_nullifier, witness.billing_nullifier);
+
+    // Without capacity the gateway's simulation rejects it, before it costs gas or its nonce.
+    let err = authenticator
+        .submit_billing_registration(&registration)
+        .await
+        .expect_err("a period without capacity rejects the registration");
+    let AuthenticatorError::GatewayError { status, body } = err else {
+        bail!("unexpected error: {err}");
+    };
+    assert_eq!(status.as_u16(), 400);
+    assert!(
+        body.contains(&GatewayErrorCode::BillingCapacityExhausted.to_string()),
+        "{body}"
+    );
+
+    // The RP buys capacity for the period, and the same registration goes through.
+    anvil
+        .purchase_billing_capacity(
+            deployer.clone(),
+            billing,
+            IWorldIDBilling::BillingContext {
+                chainId: scope.chain_id,
+                billingContract: scope.billing_contract,
+                rpId: scope.rp_id.into_inner(),
+                periodStart: scope.period_start,
+            },
+            1,
+        )
+        .await?;
     let request_id = authenticator
         .submit_billing_registration(&registration)
         .await?;

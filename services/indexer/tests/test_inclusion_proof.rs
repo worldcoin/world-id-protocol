@@ -69,6 +69,7 @@ async fn test_backfill_and_live_sync() {
             tree_depth: 6,
             http_cache_refresh_interval_secs: 30,
         },
+        billing: None,
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -201,6 +202,7 @@ async fn test_insertion_cycle_and_avoids_race_condition() {
             tree_depth: 6,
             http_cache_refresh_interval_secs: 1,
         },
+        billing: None,
     };
 
     let http_task = tokio::spawn(async move {
@@ -281,6 +283,7 @@ async fn test_inclusion_proof_rejects_invalid_stored_pubkey() {
             tree_depth: 6,
             http_cache_refresh_interval_secs: 1,
         },
+        billing: None,
     };
 
     let indexer_task = tokio::spawn(async move {

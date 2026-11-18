@@ -3,16 +3,17 @@ use axum::{Json, Router, middleware::from_fn, response::IntoResponse};
 use utoipa::OpenApi;
 use world_id_primitives::api_types::{
     AccountInclusionProofSchema, IndexerAuthenticatorPubkeysResponse,
-    IndexerAuthenticatorsResponse, IndexerPackedAccountRequest, IndexerPackedAccountResponse,
-    IndexerPendingRecoveryAgentResponse, IndexerQueryRequest, IndexerRecoveryAgentResponse,
-    IndexerSignatureNonceResponse, IndexerVerifyInputs, IndexerVerifyRequest,
-    IndexerVerifyResponse,
+    IndexerAuthenticatorsResponse, IndexerBilledRpsResponse, IndexerPackedAccountRequest,
+    IndexerPackedAccountResponse, IndexerPendingRecoveryAgentResponse, IndexerQueryRequest,
+    IndexerRecoveryAgentResponse, IndexerSignatureNonceResponse, IndexerVerifyInputs,
+    IndexerVerifyRequest, IndexerVerifyResponse,
 };
 use world_id_services_common::V1RecoveryAgentMethodsDeprecationLayer;
 
 use crate::config::AppState;
 mod get_authenticator_pubkeys;
 mod get_authenticators;
+mod get_billed_rps;
 mod get_packed_account;
 mod get_pending_recovery_agent;
 mod get_recovery_agent;
@@ -26,6 +27,7 @@ mod verify;
     paths(
         get_authenticator_pubkeys::handler,
         get_authenticators::handler,
+        get_billed_rps::handler,
         get_packed_account::handler,
         get_signature_nonce::handler,
         get_recovery_agent::handler,
@@ -36,6 +38,7 @@ mod verify;
     components(schemas(
         IndexerAuthenticatorPubkeysResponse,
         IndexerAuthenticatorsResponse,
+        IndexerBilledRpsResponse,
         IndexerPackedAccountRequest,
         IndexerPackedAccountResponse,
         IndexerQueryRequest,
@@ -89,6 +92,10 @@ pub(crate) fn handler(state: AppState, request_timeout_secs: u64) -> Router {
             "/pending-recovery-agent",
             axum::routing::post(get_pending_recovery_agent::handler)
                 .route_layer(V1RecoveryAgentMethodsDeprecationLayer::new()),
+        )
+        .route(
+            "/billing/billed-rps",
+            axum::routing::get(get_billed_rps::handler),
         )
         .route("/health", axum::routing::get(health::handler))
         .route("/openapi.json", axum::routing::get(openapi))

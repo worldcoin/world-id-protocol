@@ -49,6 +49,7 @@ fn indexer_config(setup: &TestSetup, http_addr: &str) -> GlobalConfig {
             tree_depth: 30,
             http_cache_refresh_interval_secs: 30,
         },
+        billing: None,
     }
 }
 

@@ -81,6 +81,7 @@ async fn test_cache_creation_and_restoration() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -157,6 +158,7 @@ async fn test_incremental_replay() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -217,6 +219,7 @@ async fn test_incremental_replay() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task2 = tokio::spawn(async move {
@@ -292,6 +295,7 @@ async fn test_missing_cache_creates_new() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -359,6 +363,7 @@ async fn test_http_only_cache_refresh() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let both_task = tokio::spawn(async move {
@@ -396,6 +401,7 @@ async fn test_http_only_cache_refresh() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let http_task = tokio::spawn(async move {
@@ -483,6 +489,7 @@ async fn test_authenticator_removed_replay() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -580,6 +587,7 @@ async fn test_authenticator_removed_replay() {
         provider: ProviderArgs::new().with_http_urls([rpc_url.clone()]),
         registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task2 = tokio::spawn(async move {
@@ -613,6 +621,7 @@ async fn test_authenticator_removed_replay() {
         provider: ProviderArgs::new().with_http_urls([rpc_url.clone()]),
         registry_address,
         tree_cache: tree_cache_config_fresh.clone(),
+        billing: None,
     };
 
     let indexer_task3 = tokio::spawn(async move {
@@ -685,6 +694,7 @@ async fn test_init_root_matches_contract() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task = tokio::spawn(async move {
@@ -771,6 +781,7 @@ async fn test_replay_root_matches_contract() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task1 = tokio::spawn(async move {
@@ -836,6 +847,7 @@ async fn test_replay_root_matches_contract() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task2 = tokio::spawn(async move {
@@ -930,6 +942,7 @@ async fn test_corrupted_cache_returns_error() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let indexer_task1 = tokio::spawn(async move {
@@ -973,6 +986,7 @@ async fn test_corrupted_cache_returns_error() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let result = unsafe { world_id_indexer::run_indexer(cfg2).await };
@@ -1031,6 +1045,7 @@ async fn test_sanity_check_exits_on_root_mismatch() {
         provider: ProviderArgs::new().with_http_urls([setup.rpc_url()]),
         registry_address: setup.registry_address,
         tree_cache: tree_cache_config.clone(),
+        billing: None,
     };
 
     let result = tokio::time::timeout(

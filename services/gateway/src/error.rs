@@ -1,9 +1,12 @@
 use std::backtrace::Backtrace;
 use thiserror::Error;
 use world_id_primitives::api_types::{GatewayErrorCode, ServiceApiError};
-use world_id_registries::world_id::WorldIdRegistry::{
-    AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
-    AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
+use world_id_registries::{
+    world_id::WorldIdRegistry::{
+        AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
+        AuthenticatorDoesNotExist, MismatchedSignatureNonce, PubkeyIdInUse, PubkeyIdOutOfBounds,
+    },
+    world_id_billing::WorldIdBilling::CapacityExhausted,
 };
 use world_id_services_common::ProviderError;
 
@@ -234,6 +237,56 @@ pub fn parse_contract_error(error: &str) -> GatewayErrorCode {
     if error.contains(&selector_hex(AuthenticatorDoesNotBelongToAccount::SELECTOR)) {
         return GatewayErrorCode::AuthenticatorDoesNotBelongToAccount;
     }
+    if error.contains(&selector_hex(CapacityExhausted::SELECTOR)) {
+        return GatewayErrorCode::BillingCapacityExhausted;
+    }
 
     GatewayErrorCode::BadRequest
+}
+
+#[cfg(test)]
+mod tests {
+    use alloy::sol_types::SolError;
+    use axum::http::StatusCode;
+    use world_id_primitives::api_types::GatewayErrorCode;
+    use world_id_registries::world_id_billing::WorldIdBilling::CapacityExhausted;
+
+    use super::{GatewayErrorResponse, parse_contract_error, selector_hex};
+
+    /// An RPC error as alloy reports a reverted `eth_call` with `data`.
+    fn reverted(data: &str) -> String {
+        format!(
+            "server returned an error response: error code 3: execution reverted, data: \"{data}\""
+        )
+    }
+
+    #[test]
+    fn parses_a_billing_capacity_revert() {
+        let error = reverted(&selector_hex(CapacityExhausted::SELECTOR));
+        assert!(matches!(
+            parse_contract_error(&error),
+            GatewayErrorCode::BillingCapacityExhausted
+        ));
+    }
+
+    #[test]
+    fn an_unknown_revert_is_a_bad_request() {
+        assert!(matches!(
+            parse_contract_error(&reverted("0xdeadbeef")),
+            GatewayErrorCode::BadRequest
+        ));
+    }
+
+    #[test]
+    fn a_known_simulation_revert_answers_its_code() {
+        let response = GatewayErrorResponse::from_simulation_error(reverted(&selector_hex(
+            CapacityExhausted::SELECTOR,
+        )));
+        assert_eq!(response.status, StatusCode::BAD_REQUEST);
+        assert!(matches!(
+            response.error.code,
+            GatewayErrorCode::BillingCapacityExhausted
+        ));
+        assert_eq!(response.error.message, "billing_capacity_exhausted");
+    }
 }

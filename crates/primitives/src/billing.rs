@@ -39,10 +39,6 @@ pub const BILLING_ACTION_DOMAIN: &str = "world-id-billing-v1";
 /// Overlap between consecutive billing periods, in seconds (WIP-107 §4.1).
 pub const PERIOD_OVERLAP: u64 = 93_600;
 
-/// Maximum time since the host's last billing state update a TEE Verifier relies on, in seconds
-/// (WIP-107 §4.1).
-pub const MAX_RP_STATUS_AGE: u64 = 60;
-
 /// Offset of 00:00:00 AoE (UTC−12:00) from 00:00:00 UTC, in seconds.
 const AOE_OFFSET: u64 = 12 * 60 * 60;
 
@@ -162,7 +158,7 @@ pub fn billing_query(leaf_index: u64, rp_id: RpId, billing_action: FieldElement)
     oprf_query_digest(leaf_index, billing_action, rp_id.into())
 }
 
-/// The billing nullifier `H_4(DS_OPRF_PROOF; billing_query, R.x, R.y)`.
+/// The billing nullifier `H_4(DS_NULLIFIER; billing_query, R.x, R.y)`.
 ///
 /// `R` is the unblinded OPRF output of the billing query. The result is the `UniquenessNullifier`
 /// of WIP-107 §4.3, and what WIP-202 constraint 7 recomputes.

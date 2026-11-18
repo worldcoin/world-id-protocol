@@ -55,6 +55,7 @@ async fn test_signature_nonce_endpoint() {
             tree_depth: 30,
             http_cache_refresh_interval_secs: 30,
         },
+        billing: None,
     };
 
     let indexer_task = tokio::spawn(async move {

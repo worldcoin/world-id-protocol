@@ -188,6 +188,19 @@ pub enum AuthenticatorError {
     #[error("session binding requires a cached `session_id_r_seed`")]
     SessionSeedRequired,
 
+    /// The attested Flamingo release has no pipeline WIP-202 can use: one with a single
+    /// `live_frame` input and at most 8 response slots (§4.3).
+    #[error("the Flamingo release has no pipeline for a single live frame")]
+    NoFlamingoPipeline,
+
+    /// The attested Flamingo release does not list the requested `match_strictness`.
+    #[error("the Flamingo release does not offer match strictness {0}")]
+    MatchStrictnessNotOffered(u8),
+
+    /// The Flamingo request is out of the bounds of WIP-201 §4.4.1, e.g. already expired.
+    #[error(transparent)]
+    FlamingoRequest(#[from] world_id_flamingo::RequestError),
+
     /// The Flamingo Token does not verify under the Flamingo Verifier's key.
     #[error(transparent)]
     FlamingoToken(#[from] world_id_flamingo::TokenError),
@@ -201,6 +214,19 @@ pub enum AuthenticatorError {
     /// Authenticator cached at registration (WIP-107 §4.6).
     #[error("the Flamingo Token is billed and needs the cached billing witness")]
     BillingWitnessRequired,
+
+    /// The indexer does not index a WIP-107 Billing Contract.
+    #[error("the indexer does not index a Billing Contract")]
+    BillingNotIndexed,
+
+    /// The indexer's Billing Contract sync has not caught up yet, during its initial backfill or
+    /// while resyncing after a reorganization, so it serves no billed RPs.
+    #[error("the indexer's Billing Contract sync has not caught up: {0}")]
+    BillingNotSynced(String),
+
+    /// The indexer's Billing Contract sync has fallen behind, so it serves no billed RPs.
+    #[error("the indexer's Billing Contract sync is stale: {0}")]
+    BillingSyncStale(String),
 
     /// Generic error for other unexpected issues.
     #[error("{0}")]

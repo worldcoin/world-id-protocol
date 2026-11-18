@@ -95,6 +95,19 @@
   },
   {
     "type": "function",
+    "name": "POH_ISSUER_SCHEMA_ID",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "PRICE_DECIMALS",
     "inputs": [],
     "outputs": [
@@ -762,11 +775,6 @@
         ]
       },
       {
-        "name": "issuerSchemaId",
-        "type": "uint64",
-        "internalType": "uint64"
-      },
-      {
         "name": "expiresAtMin",
         "type": "uint64",
         "internalType": "uint64"
@@ -873,11 +881,6 @@
                 "internalType": "bytes"
               }
             ]
-          },
-          {
-            "name": "issuerSchemaId",
-            "type": "uint64",
-            "internalType": "uint64"
           },
           {
             "name": "expiresAtMin",

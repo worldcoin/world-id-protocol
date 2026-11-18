@@ -1,10 +1,15 @@
-//! The Authenticator's side of the WIP-202 Proof of Embedding Similarity: from the Flamingo
-//! Verifier's result to the [`ProofResponse`] for the RP.
+//! The Authenticator's side of the WIP-202 Proof of Embedding Similarity: from the request it
+//! sends the Flamingo Verifier to the [`ProofResponse`] for the RP.
 
 use alloy::primitives::Bytes;
 use eddsa_babyjubjub::EdDSAPublicKey;
+use rand::rngs::OsRng;
 use secrecy::ExposeSecret as _;
-use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims, FlamingoToken};
+use sha2::{Digest as _, Sha256};
+use world_id_flamingo::{
+    Entry, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_REQUEST_LIFETIME, Payload,
+    ReleaseManifest, Request, RequestError, release_manifest::Pipeline,
+};
 use world_id_primitives::{
     Credential, EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem, FieldElement,
     PrimitiveError, ProofRequest, ProofResponse, ProofType, SessionRef, TREE_DEPTH,
@@ -14,7 +19,7 @@ use world_id_proof::{
     ProofError,
     circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs},
     embedding_similarity_proof::{
-        COMPARE_SOURCES, authorization_message, generate_embedding_similarity_proof,
+        COMPARE_SOURCES, authorization_message, flamingo_nonce, generate_embedding_similarity_proof,
     },
 };
 
@@ -34,6 +39,195 @@ pub struct FlamingoResult {
     pub verifier_key: EdDSAPublicKey,
     /// The attestation of `verifier_key`, forwarded to the RP (WIP-201 §4.7 check 1).
     pub signing_key_attestation: Bytes,
+    /// The salt the request's `nonce` was derived with, from [`FlamingoAttempt::nonce_salt`].
+    pub nonce_salt: FieldElement,
+}
+
+/// The images a Proof of Embedding Similarity compares, in the order of the WIP-202 entry layout
+/// (§4.3).
+#[derive(Clone)]
+pub struct EmbeddingSimilarityImages {
+    /// The PCP thumbnail that the Credential's `hashes.json` lists.
+    pub credential_image: Vec<u8>,
+    /// The live capture, the pipeline's only input.
+    pub live_capture: Vec<u8>,
+    /// The RP's challenge image, whose `R(SHA-256)` is the request's `challenge_hash`.
+    pub challenge: Vec<u8>,
+}
+
+/// Omits the images, which are biometric data.
+impl std::fmt::Debug for EmbeddingSimilarityImages {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmbeddingSimilarityImages")
+            .finish_non_exhaustive()
+    }
+}
+
+/// The role WIP-202 requires of the pipeline's only input (§4.3).
+const LIVE_FRAME: &str = "live_frame";
+
+/// Most response release times a chosen pipeline may list, so a response's timing reveals at most
+/// 3 bits (WIP-201 §4.6).
+const MAX_RESPONSE_SLOTS: usize = 8;
+
+/// How long after the device's `now` a request may expire. The Verifier rejects one expiring more
+/// than `MAX_REQUEST_LIFETIME` after its own clock, so the other half absorbs a device clock that
+/// runs ahead of it.
+const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
+
+/// Builds a Flamingo request (WIP-201 §4.4.1) for a Proof of Embedding Similarity request, under
+/// the WIP-202 entry layout (§4.3), with a `nonce` derived from a fresh salt.
+///
+/// Each call samples a new `nonce_salt` with a CSPRNG and sets the request's `nonce` to
+/// [`flamingo_nonce`]`(proof_request.nonce, nonce_salt)` (WIP-202 constraint 1.1), so a retry after
+/// a failed capture or a billing rejection is a new request within the same RP request (WIP-201
+/// §4.6). Keep the returned salt for the [`FlamingoResult`].
+///
+/// The pipeline is the first in `release` with a single `live_frame` input, so only the release,
+/// not the Verifier, picks it. The result carries no `aat_inputs`: an AAT signs the request's
+/// [`Request::cdh`], so the caller obtains one for this request and sets it afterwards.
+///
+/// # Arguments
+/// - `proof_request`: the RP's [`ProofType::EmbeddingSimilarity`] request.
+/// - `release`: the release manifest the Verifier's attestation binds (WIP-201 §4.6). The
+///   attestation binds the manifest but does not vouch for it, so it MUST also verify under a
+///   release key of an Engine Provider the caller trusts (§4.3.4).
+/// - `match_strictness`: the Authenticator Provider's level; WIP-202 requests set none.
+/// - `images`: the entries to compare; the challenge must hash to the request's `challenge_hash`.
+/// - `billing_nullifier`: the WIP-107 `billingNullifier` registered for the RP, or `0`.
+/// - `now`: the device's time, in Unix seconds. `expires_at` is the request's expiry capped at
+///   `now + MAX_REQUEST_LIFETIME / 2`, so a device clock up to `MAX_REQUEST_LIFETIME / 2` ahead of
+///   the Verifier's does not get the request rejected.
+///
+/// # Errors
+/// - [`AuthenticatorError::PrimitiveError`] if the request is not a valid Proof of Embedding
+///   Similarity request, or the challenge does not hash to its `challenge_hash`.
+/// - [`AuthenticatorError::NoFlamingoPipeline`] if `release` has no usable pipeline.
+/// - [`AuthenticatorError::MatchStrictnessNotOffered`] if `release` does not list
+///   `match_strictness`.
+/// - [`AuthenticatorError::FlamingoRequest`] if the request has expired at `now`, or an entry is
+///   out of bounds.
+pub fn flamingo_request(
+    proof_request: &ProofRequest,
+    release: &ReleaseManifest,
+    match_strictness: u8,
+    images: EmbeddingSimilarityImages,
+    billing_nullifier: FieldElement,
+    now: u64,
+) -> Result<FlamingoAttempt, AuthenticatorError> {
+    let nonce_salt = FieldElement::random(&mut OsRng);
+    let request = flamingo_request_with_salt(
+        proof_request,
+        release,
+        match_strictness,
+        images,
+        billing_nullifier,
+        nonce_salt,
+        now,
+    )?;
+    Ok(FlamingoAttempt {
+        request,
+        nonce_salt,
+    })
+}
+
+/// A Flamingo request and the salt its `nonce` was derived with.
+#[derive(Clone)]
+pub struct FlamingoAttempt {
+    /// The request to seal to the Flamingo Verifier.
+    pub request: Request,
+    /// The salt of the request's `nonce`, for [`FlamingoResult::nonce_salt`].
+    pub nonce_salt: FieldElement,
+}
+
+/// Omits the request, which carries biometric data.
+impl std::fmt::Debug for FlamingoAttempt {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FlamingoAttempt").finish_non_exhaustive()
+    }
+}
+
+/// [`flamingo_request`] with a given `nonce_salt`.
+fn flamingo_request_with_salt(
+    proof_request: &ProofRequest,
+    release: &ReleaseManifest,
+    match_strictness: u8,
+    images: EmbeddingSimilarityImages,
+    billing_nullifier: FieldElement,
+    nonce_salt: FieldElement,
+    now: u64,
+) -> Result<Request, AuthenticatorError> {
+    let params = embedding_similarity_params(proof_request)?;
+    if FieldElement::from_digest(&Sha256::digest(&images.challenge).into()) != params.challenge_hash
+    {
+        return Err(PrimitiveError::InvalidInput {
+            attribute: "challenge".to_string(),
+            reason: "must hash to the request's challenge_hash".to_string(),
+        }
+        .into());
+    }
+    let pipeline = release
+        .payload()
+        .pipelines
+        .iter()
+        .find(|pipeline| is_live_frame_pipeline(pipeline))
+        .ok_or(AuthenticatorError::NoFlamingoPipeline)?;
+    if !release.has_match_strictness(match_strictness) {
+        return Err(AuthenticatorError::MatchStrictnessNotOffered(
+            match_strictness,
+        ));
+    }
+    let expires_at = proof_request
+        .expires_at
+        .min(now.saturating_add(REQUEST_LIFETIME));
+    if expires_at <= now {
+        return Err(RequestError::OutOfBounds("expires_at").into());
+    }
+
+    let entries = [
+        images.credential_image,
+        images.live_capture,
+        images.challenge,
+    ]
+    .map(|data| Entry { data, meta: vec![] });
+    let payload = Payload {
+        pipeline_id: pipeline.pipeline_id,
+        match_strictness,
+        hints: vec![],
+        entries: entries.into(),
+        pipeline_inputs: vec![1],
+        compare: vec![0, 1, 2],
+    };
+    Ok(Request::new(
+        proof_request.rp_id.into(),
+        flamingo_nonce(proof_request.nonce, nonce_salt),
+        expires_at,
+        billing_nullifier,
+        &payload,
+        None,
+    )?)
+}
+
+/// Whether WIP-202 can use `pipeline`: its only input is a live frame, and its response timing
+/// stays within [`MAX_RESPONSE_SLOTS`].
+fn is_live_frame_pipeline(pipeline: &Pipeline) -> bool {
+    matches!(pipeline.inputs.as_slice(), [input] if input.role == LIVE_FRAME)
+        && pipeline.response_slots.0.len() <= MAX_RESPONSE_SLOTS
+}
+
+/// The parameters of a valid Proof of Embedding Similarity request.
+fn embedding_similarity_params(
+    proof_request: &ProofRequest,
+) -> Result<&EmbeddingSimilarityParams, AuthenticatorError> {
+    proof_request.validate_proof_type()?;
+    let ProofType::EmbeddingSimilarity(params) = &proof_request.proof_type else {
+        return Err(PrimitiveError::InvalidInput {
+            attribute: "proof_type".to_string(),
+            reason: "must be embedding_similarity".to_string(),
+        }
+        .into());
+    };
+    Ok(params)
 }
 
 /// Rejects a token that does not answer `proof_request` under the WIP-202 entry layout (§4.3), so
@@ -41,14 +235,15 @@ pub struct FlamingoResult {
 fn check_token_answers_request(
     claims: &FlamingoClaims,
     rp_id: FieldElement,
-    nonce: FieldElement,
+    rp_nonce: FieldElement,
+    nonce_salt: FieldElement,
     params: &EmbeddingSimilarityParams,
 ) -> Result<(), AuthenticatorError> {
     let mismatch = |attribute| Err(AuthenticatorError::FlamingoTokenMismatch(attribute));
     if claims.aud != rp_id {
         return mismatch("aud");
     }
-    if claims.nonce != nonce {
+    if claims.nonce != flamingo_nonce(rp_nonce, nonce_salt) {
         return mismatch("nonce");
     }
     if claims.compare_sources != COMPARE_SOURCES {
@@ -155,14 +350,7 @@ impl Authenticator {
         account_inclusion_proof: Option<AccountInclusionProof<TREE_DEPTH>>,
         session_id_r_seed: Option<FieldElement>,
     ) -> Result<ProofResult, AuthenticatorError> {
-        proof_request.validate_proof_type()?;
-        let ProofType::EmbeddingSimilarity(params) = &proof_request.proof_type else {
-            return Err(PrimitiveError::InvalidInput {
-                attribute: "proof_type".to_string(),
-                reason: "must be embedding_similarity".to_string(),
-            }
-            .into());
-        };
+        let params = embedding_similarity_params(proof_request)?;
         // `validate_proof_type` guarantees exactly one request item.
         let item = &proof_request.requests[0];
         let cred = &credential.credential;
@@ -175,6 +363,7 @@ impl Authenticator {
             &claims,
             proof_request.rp_id.into(),
             proof_request.nonce,
+            flamingo.nonce_salt,
             params,
         )?;
         let aat = claims.aat.as_ref().map(aat_public_values).transpose()?;
@@ -220,6 +409,7 @@ impl Authenticator {
             cred_pk: cred.issuer.clone(),
             live_capture_hash: claims.compared_entry_hashes[1],
             billing_nullifier: claims.billing_nullifier,
+            nonce_salt: flamingo.nonce_salt,
             token_signature: flamingo.token.signature()?,
             key_index: account.key_index,
             key_set: account.key_set.clone(),
@@ -276,7 +466,13 @@ fn credential_claims(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use world_id_primitives::authenticator_assertion::AatRequirements;
+    use alloy::primitives::{Signature, U160, U256};
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+    use world_id_flamingo::release_manifest::{Input, ManifestPayload, ResponseSlots};
+    use world_id_primitives::{
+        OprfKeyId, RequestItem, RequestVersion, authenticator_assertion::AatRequirements,
+        oprf::OprfPrefix, rp::RpId,
+    };
 
     fn claims() -> FlamingoClaims {
         FlamingoClaims {
@@ -288,7 +484,7 @@ mod tests {
                 FieldElement::ZERO,
             ],
             aud: FieldElement::from(9u64),
-            nonce: FieldElement::from(5u64),
+            nonce: flamingo_nonce(FieldElement::from(5u64), FieldElement::from(NONCE_SALT)),
             aat: None,
             compare_sources: COMPARE_SOURCES,
             engine_config_hash: FieldElement::from(4u64),
@@ -381,6 +577,7 @@ mod tests {
             claims,
             FieldElement::from(9u64),
             FieldElement::from(5u64),
+            FieldElement::from(NONCE_SALT),
             params,
         )
         .map_err(|err| match err {
@@ -399,7 +596,8 @@ mod tests {
         type Tamper = fn(&mut FlamingoClaims);
         let cases: [(&str, Tamper); 5] = [
             ("aud", |c| c.aud = FieldElement::from(10u64)),
-            ("nonce", |c| c.nonce = FieldElement::from(6u64)),
+            // A token over the RP's own nonce rather than the derived one.
+            ("nonce", |c| c.nonce = FieldElement::from(5u64)),
             ("compare_sources", |c| c.compare_sources = 0),
             ("compared_entry_hash_2", |c| {
                 c.compared_entry_hashes[2] = FieldElement::from(8u64);
@@ -425,5 +623,240 @@ mod tests {
             aat_flags: 0,
         });
         assert_eq!(check(&claims, &required), Ok(()));
+    }
+
+    const NOW: u64 = 1_783_446_000;
+    const NONCE_SALT: u64 = 13;
+
+    fn image_hash(bytes: &[u8]) -> FieldElement {
+        FieldElement::from_digest(&Sha256::digest(bytes).into())
+    }
+
+    fn images() -> EmbeddingSimilarityImages {
+        EmbeddingSimilarityImages {
+            credential_image: b"credential image".to_vec(),
+            live_capture: b"live image".to_vec(),
+            challenge: b"challenge image".to_vec(),
+        }
+    }
+
+    fn proof_request() -> ProofRequest {
+        let action = FieldElement::try_from(
+            U256::from(7u64) | (U256::from(OprfPrefix::EmbeddingSimilarity as u8) << 248),
+        )
+        .unwrap();
+        ProofRequest {
+            id: "req_es".into(),
+            version: RequestVersion::V1,
+            proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
+                action,
+                challenge_hash: image_hash(b"challenge image"),
+                aat: None,
+            }),
+            created_at: NOW - 60,
+            expires_at: NOW + 240,
+            rp_id: RpId::new(1_928_118),
+            oprf_key_id: OprfKeyId::new(U160::from(1u64)),
+            session_id: SessionRef::None,
+            signature: Signature::new(U256::ZERO, U256::ZERO, false),
+            nonce: FieldElement::from(42u64),
+            requests: vec![RequestItem::embedding_similarity(
+                "poh".into(),
+                None,
+                None,
+                None,
+            )],
+            constraints: None,
+        }
+    }
+
+    fn pipeline(pipeline_id: u16, roles: &[&str]) -> Pipeline {
+        Pipeline {
+            pipeline_id,
+            inputs: roles
+                .iter()
+                .map(|role| Input {
+                    role: (*role).into(),
+                    media_types: vec!["image/jpeg".into()],
+                })
+                .collect(),
+            response_slots: ResponseSlots(vec![500, 1587, 5039, 16_000]),
+        }
+    }
+
+    /// A manifest with `pipelines`. Authenticators do not verify its signature, so it has none.
+    fn release(pipelines: Vec<Pipeline>) -> ReleaseManifest {
+        let payload = ManifestPayload {
+            iss: "https://engines.example.com".into(),
+            engine_hash: [0x2a; 48],
+            version: 1,
+            match_strictness_levels: vec![1, 2],
+            pipelines,
+        };
+        let header = r#"{"alg":"ES256","kid":"release-1","typ":"world-id-engine-manifest"}"#;
+        let jws = format!(
+            "{}.{}.",
+            URL_SAFE_NO_PAD.encode(header),
+            URL_SAFE_NO_PAD.encode(serde_json::to_vec(&payload).unwrap())
+        );
+        ReleaseManifest::from_jws(&jws).unwrap()
+    }
+
+    fn build(
+        release: &ReleaseManifest,
+        match_strictness: u8,
+    ) -> Result<Request, AuthenticatorError> {
+        flamingo_request_with_salt(
+            &proof_request(),
+            release,
+            match_strictness,
+            images(),
+            FieldElement::from(11u64),
+            FieldElement::from(NONCE_SALT),
+            NOW,
+        )
+    }
+
+    #[test]
+    fn the_request_follows_the_entry_layout() {
+        // Only the second pipeline has a single live frame input.
+        let release = release(vec![
+            pipeline(1, &["live_frame", "live_frame"]),
+            pipeline(2, &["live_frame"]),
+        ]);
+        let request = build(&release, 2).unwrap();
+        let payload = request.payload().unwrap();
+        assert_eq!((payload.pipeline_id, payload.match_strictness), (2, 2));
+        assert_eq!(
+            payload.compare_sources(release.pipeline(2).unwrap()),
+            Ok(COMPARE_SOURCES)
+        );
+        assert_eq!(
+            payload.compared_entry_hashes(),
+            [
+                image_hash(b"credential image"),
+                image_hash(b"live image"),
+                image_hash(b"challenge image"),
+                FieldElement::ZERO,
+            ]
+        );
+        assert!(payload.entries.iter().all(|entry| entry.meta.is_empty()));
+        assert_eq!(request.billing_nullifier, FieldElement::from(11u64));
+        assert!(request.aat_inputs.is_none());
+    }
+
+    #[test]
+    fn aud_nonce_and_expiry_come_from_the_proof_request() {
+        let request = build(&release(vec![pipeline(1, &["live_frame"])]), 1).unwrap();
+        assert_eq!(request.aud, FieldElement::from(1_928_118u64));
+        assert_eq!(
+            request.nonce,
+            flamingo_nonce(FieldElement::from(42u64), FieldElement::from(NONCE_SALT))
+        );
+        assert_eq!(request.expires_at, NOW + 240);
+        assert_eq!(request.check_expiry(NOW), Ok(()));
+    }
+
+    #[test]
+    fn each_attempt_derives_its_nonce_from_a_fresh_salt() {
+        let release = release(vec![pipeline(1, &["live_frame"])]);
+        let attempt = || {
+            flamingo_request(
+                &proof_request(),
+                &release,
+                1,
+                images(),
+                FieldElement::from(11u64),
+                NOW,
+            )
+            .unwrap()
+        };
+        let (first, retry) = (attempt(), attempt());
+        assert_ne!(first.nonce_salt, retry.nonce_salt);
+        for attempt in [&first, &retry] {
+            assert_eq!(
+                attempt.request.nonce,
+                flamingo_nonce(FieldElement::from(42u64), attempt.nonce_salt)
+            );
+        }
+    }
+
+    #[test]
+    fn the_expiry_leaves_room_for_a_device_clock_ahead_of_the_verifier() {
+        let release = release(vec![pipeline(1, &["live_frame"])]);
+        let mut proof_request = proof_request();
+        proof_request.expires_at = NOW + 3600;
+        let request = flamingo_request_with_salt(
+            &proof_request,
+            &release,
+            1,
+            images(),
+            FieldElement::ZERO,
+            FieldElement::from(NONCE_SALT),
+            NOW,
+        )
+        .unwrap();
+        assert_eq!(request.expires_at, NOW + REQUEST_LIFETIME);
+        let verifier_behind = NOW - (MAX_REQUEST_LIFETIME - REQUEST_LIFETIME);
+        assert_eq!(request.check_expiry(verifier_behind), Ok(()));
+        assert!(request.check_expiry(verifier_behind - 1).is_err());
+
+        proof_request.expires_at = NOW;
+        assert!(matches!(
+            flamingo_request_with_salt(
+                &proof_request,
+                &release,
+                1,
+                images(),
+                FieldElement::ZERO,
+                FieldElement::from(NONCE_SALT),
+                NOW
+            ),
+            Err(AuthenticatorError::FlamingoRequest(
+                RequestError::OutOfBounds("expires_at")
+            ))
+        ));
+    }
+
+    #[test]
+    fn a_release_without_a_live_frame_pipeline_is_rejected() {
+        let mut slow = pipeline(3, &["live_frame"]);
+        slow.response_slots = ResponseSlots((1..=9).map(|i| i * 1000).collect());
+        let release = release(vec![
+            pipeline(1, &["document"]),
+            pipeline(2, &["live_frame", "live_frame"]),
+            slow,
+        ]);
+        assert!(matches!(
+            build(&release, 1),
+            Err(AuthenticatorError::NoFlamingoPipeline)
+        ));
+    }
+
+    #[test]
+    fn an_unlisted_match_strictness_is_rejected() {
+        assert!(matches!(
+            build(&release(vec![pipeline(1, &["live_frame"])]), 3),
+            Err(AuthenticatorError::MatchStrictnessNotOffered(3))
+        ));
+    }
+
+    #[test]
+    fn another_challenge_is_rejected() {
+        let mut images = images();
+        images.challenge = b"other image".to_vec();
+        assert!(matches!(
+            flamingo_request_with_salt(
+                &proof_request(),
+                &release(vec![pipeline(1, &["live_frame"])]),
+                1,
+                images,
+                FieldElement::ZERO,
+                FieldElement::from(NONCE_SALT),
+                NOW,
+            ),
+            Err(AuthenticatorError::PrimitiveError(PrimitiveError::InvalidInput { attribute, .. }))
+                if attribute == "challenge"
+        ));
     }
 }

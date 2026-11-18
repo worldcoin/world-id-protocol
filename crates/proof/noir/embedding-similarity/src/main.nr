@@ -9,13 +9,13 @@ pub(crate) mod types;
 mod test_fixtures;
 mod tests;
 
-use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_WIP_202_AUTH};
+use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_WIP_202_AUTH, DS_WIP_202_NONCE};
 use flamingo_token::{FlamingoTokenClaims, FlamingoTokenPublic};
 use poseidon2::bn254::permutation;
 use types::PrivateInputs;
 use world_id_components::{
     authentication,
-    constants::{DS_OPRF_PROOF, DS_QUERY},
+    constants::{DS_NULLIFIER, DS_QUERY},
     credential::{self, CredentialPublic},
     session,
     types::PublicKey,
@@ -56,12 +56,15 @@ fn main(
     // 3.2 The thumbnail digest is the Credential image the token must have compared.
     let credential_digest = hashes_json::thumbnail_digest(inputs.hashes_json);
 
-    // 1. Flamingo Token verification; fixing the entries binds the Credential image and challenge.
+    // 1.1 The token's nonce is fresh per Flamingo request and bound to the RP's `nonce`.
+    let flamingo_nonce = permutation::t3([DS_WIP_202_NONCE, nonce, inputs.token.nonce_salt])[1];
+
+    // 1.2 Flamingo Token verification; fixing the entries binds the Credential image and challenge.
     let flamingo_public = FlamingoTokenPublic {
         verifier_key: flamingo_verifier_key,
         now: now as Field,
         aud: rp_id,
-        nonce,
+        nonce: flamingo_nonce,
         has_aat: has_aat as Field,
         trust_anchor_key_hash,
         platform: platform as Field,
@@ -127,7 +130,7 @@ fn main(
     // Poseidon2 collision (WIP-202 Rationale 8).
     let billing_query = permutation::t4([DS_QUERY, leaf_index, rp_id, inputs.billing_action])[1];
     let own_nullifier = permutation::t4([
-        DS_OPRF_PROOF,
+        DS_NULLIFIER,
         billing_query,
         inputs.billing_oprf_output[0],
         inputs.billing_oprf_output[1],

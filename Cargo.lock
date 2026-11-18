@@ -4389,7 +4389,7 @@ checksum = "42012b0f064e01aa58b545fe3727f90f7dd4020f4a3ea735b50344965f5a57e9"
 
 [[package]]
 name = "generate-solidity-fixtures"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "alloy",
  "eyre",
@@ -5663,7 +5663,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "legacy-recovery-migration"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "alloy",
  "clap",
@@ -12351,7 +12351,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-authenticator"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "aes-gcm",
  "alloy",
@@ -12400,7 +12400,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-core"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "alloy",
  "backon",
@@ -12411,7 +12411,6 @@ dependencies = [
  "reqwest 0.13.2",
  "rustls",
  "serde_json",
- "sha2 0.11.0",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
  "taceo-oprf",
@@ -12452,7 +12451,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-flamingo"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "base64 0.22.1",
  "coset",
@@ -12557,7 +12556,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-issuer"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "alloy",
  "ark-ff 0.6.0",
@@ -12642,7 +12641,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-primitives"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "alloy",
  "alloy-primitives",
@@ -12686,7 +12685,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-proof"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "alloy-primitives",
  "ark-bn254 0.6.0",
@@ -12732,7 +12731,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-registries"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "alloy",
  "anyhow",
@@ -12772,7 +12771,7 @@ dependencies = [
 
 [[package]]
 name = "world-id-rp"
-version = "0.21.0"
+version = "0.24.0"
 dependencies = [
  "base64 0.22.1",
  "pontifex",
@@ -12826,9 +12825,11 @@ dependencies = [
  "k256 0.13.4",
  "rand 0.8.6",
  "reqwest 0.13.2",
+ "rustls",
  "secrecy",
  "semver 1.0.27",
  "serde_json",
+ "sha2 0.11.0",
  "taceo-ark-babyjubjub",
  "taceo-eddsa-babyjubjub",
  "taceo-nodes-common",
@@ -12838,6 +12839,8 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+ "world-id-core",
+ "world-id-gateway",
  "world-id-oprf-node",
  "world-id-primitives",
 ]
