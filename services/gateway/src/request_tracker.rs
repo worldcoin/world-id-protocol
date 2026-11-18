@@ -1,8 +1,12 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use alloy::{network::Ethereum, providers::PendingTransactionBuilder};
+use alloy::{network::Ethereum, primitives::B256, providers::PendingTransactionBuilder};
+use axum::http::StatusCode;
 use tokio::time::Instant;
-use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestKind, GatewayRequestState};
+use world_id_primitives::api_types::{
+    GatewayErrorCode, GatewayRequestId, GatewayRequestKind, GatewayRequestState,
+    GatewayStatusResponse,
+};
 
 pub use crate::storage::request_store::RequestRecord;
 use crate::{
@@ -10,7 +14,10 @@ use crate::{
     config::RateLimitConfig,
     error::{GatewayErrorResponse, GatewayResult},
     metrics,
-    storage::request_store::{CreateRequestOutcome, RateLimitOutcome, RequestStore},
+    storage::request_store::{
+        CreateAccountIdempotency, CreateRequestOutcome, IdempotencyRecord, RateLimitOutcome,
+        RequestStore,
+    },
 };
 
 /// Scope used to compute queued backlog stats for a specific batcher.
@@ -105,12 +112,46 @@ impl RequestTracker {
         kind: GatewayRequestKind,
         inflight_keys: Vec<String>,
     ) -> Result<(), GatewayErrorResponse> {
+        self.admit_request(id, kind, inflight_keys, None).await?;
+        Ok(())
+    }
+
+    /// Returns the original request for a replay of an accepted create-account request.
+    pub(crate) async fn replay_create_account(
+        &self,
+        idempotency: &CreateAccountIdempotency,
+    ) -> Result<Option<GatewayStatusResponse>, GatewayErrorResponse> {
+        let record = self
+            .store
+            .create_account_idempotency_record(idempotency)
+            .await
+            .map_err(|error| {
+                tracing::error!(%error, "Error reading create-account idempotency record");
+                GatewayErrorResponse::internal_server_error()
+            })?;
+        match record {
+            Some(record) => self
+                .replay_status(record, idempotency.payload_digest)
+                .await
+                .map(Some),
+            None => Ok(None),
+        }
+    }
+
+    /// Registers a new request or returns the status associated with its existing idempotency key.
+    pub(crate) async fn admit_request(
+        &self,
+        id: String,
+        kind: GatewayRequestKind,
+        inflight_keys: Vec<String>,
+        idempotency: Option<&CreateAccountIdempotency>,
+    ) -> Result<Option<GatewayStatusResponse>, GatewayErrorResponse> {
         match self
             .store
-            .create_request(&id, kind, &inflight_keys, now_unix_secs())
+            .create_request(&id, kind, &inflight_keys, now_unix_secs(), idempotency)
             .await
         {
-            Ok(CreateRequestOutcome::Created) => Ok(()),
+            Ok(CreateRequestOutcome::Created) => Ok(None),
             Ok(CreateRequestOutcome::DuplicateInflight(key)) => {
                 tracing::info!(%key, "Duplicate in-flight request detected");
                 metrics::increment_request_rejected("duplicate_inflight");
@@ -118,11 +159,42 @@ impl RequestTracker {
                     GatewayErrorCode::DuplicateRequestInFlight,
                 ))
             }
+            Ok(CreateRequestOutcome::Existing(record)) => {
+                let idempotency =
+                    idempotency.ok_or_else(GatewayErrorResponse::internal_server_error)?;
+                self.replay_status(record, idempotency.payload_digest)
+                    .await
+                    .map(Some)
+            }
             Err(error) => {
                 tracing::error!(%error, request_id = id, "Error creating request");
                 Err(GatewayErrorResponse::internal_server_error())
             }
         }
+    }
+
+    async fn replay_status(
+        &self,
+        record: IdempotencyRecord,
+        payload_digest: B256,
+    ) -> Result<GatewayStatusResponse, GatewayErrorResponse> {
+        if record.payload_digest != payload_digest {
+            return Err(GatewayErrorResponse::new(
+                GatewayErrorCode::BadRequest,
+                "Idempotency key is already bound to a different create-account payload."
+                    .to_owned(),
+                StatusCode::CONFLICT,
+            ));
+        }
+        let request = self.snapshot(&record.request_id).await.ok_or_else(|| {
+            tracing::warn!(request_id = %record.request_id, "Missing request for create-account idempotency record");
+            GatewayErrorResponse::internal_server_error()
+        })?;
+        Ok(GatewayStatusResponse {
+            request_id: GatewayRequestId::new(record.request_id),
+            kind: request.kind,
+            status: request.status,
+        })
     }
 
     /// Updates the status of multiple requests in a batch.

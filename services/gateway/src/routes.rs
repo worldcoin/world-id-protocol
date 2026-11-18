@@ -16,7 +16,7 @@ use crate::{
     request_tracker::RequestTracker,
     routes::{
         cancel_recovery_agent_update::cancel_recovery_agent_update,
-        create_account::create_account,
+        create_account::{IDEMPOTENCY_KEY, create_account},
         execute_recovery_agent_update::execute_recovery_agent_update,
         health::{__path_health, health},
         initiate_recovery_agent_update::initiate_recovery_agent_update,
@@ -36,6 +36,7 @@ use alloy::{primitives::Address, providers::DynProvider};
 use axum::{
     Json, Router,
     extract::{Path, State},
+    http::header::CONTENT_TYPE,
     middleware::from_fn,
     response::IntoResponse,
     routing::{get, post},
@@ -261,16 +262,23 @@ pub(crate) async fn build_app(
             GatewayErrorResponse::request_timeout(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer())
-        .layer(world_id_services_common::cors_layer()))
+        .layer(
+            world_id_services_common::cors_layer().allow_headers([CONTENT_TYPE, IDEMPOTENCY_KEY]),
+        ))
 }
 
 #[utoipa::path(
     post,
     path = "/create-account",
     request_body = CreateAccountRequest,
+    params(
+        ("Idempotency-Key" = Option<String>, Header, description = "A client-generated random key for one create attempt. Use a single value with 1–128 visible ASCII characters and no commas. Reuse it to recover an accepted request for up to 24 hours, including when the POST response is lost. Use a new key for a new attempt after a known failure. A confirmation timeout may leave the transaction outcome unknown.")
+    ),
     responses(
-        (status = 202, description = "TODO", body = GatewayStatusResponse),
-        (status = 500, description = "TODO", body = GatewayErrorBody)
+        (status = 200, description = "New request queued or current status of the original request. The request body must match the original on replay.", body = GatewayStatusResponse),
+        (status = 400, description = "Invalid request or idempotency key", body = GatewayErrorBody),
+        (status = 409, description = "Idempotency key already bound to a different payload", body = GatewayErrorBody),
+        (status = 500, description = "Internal server error", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]

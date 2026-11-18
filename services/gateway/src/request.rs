@@ -6,9 +6,10 @@ use crate::{
     error::GatewayErrorResponse,
     request_tracker::RequestTracker,
     routes::validation::RequestValidation,
+    storage::request_store::CreateAccountIdempotency,
 };
 use alloy::{
-    primitives::{Bytes, U256},
+    primitives::{Bytes, U256, keccak256},
     providers::DynProvider,
 };
 use moka::future::Cache;
@@ -174,6 +175,56 @@ impl Request<CreateAccountRequest> {
     ) -> Result<SubmittedRequest, GatewayErrorResponse> {
         submit_request(self, ctx).await
     }
+}
+
+/// Validates and submits a create-account request, or returns an existing keyed request.
+pub(crate) async fn submit_create_account(
+    id: Uuid,
+    payload: CreateAccountRequest,
+    ctx: &GatewayContext,
+    idempotency_key: Option<&[u8]>,
+) -> Result<GatewayStatusResponse, GatewayErrorResponse> {
+    let Some(key) = idempotency_key else {
+        return payload
+            .into_request(id, ctx)
+            .await?
+            .submit(ctx)
+            .await
+            .map(SubmittedRequest::into_response);
+    };
+    let idempotency = CreateAccountIdempotency {
+        key_digest: keccak256(key),
+        payload_digest: keccak256(payload.calldata(&ctx.registry)),
+    };
+    if let Some(replay) = ctx.tracker.replay_create_account(&idempotency).await? {
+        return Ok(replay);
+    }
+    let request = match payload.into_request(id, ctx).await {
+        Ok(request) => request,
+        Err(error) => {
+            // Another replica may have admitted and finalized the request during simulation.
+            return ctx
+                .tracker
+                .replay_create_account(&idempotency)
+                .await?
+                .ok_or(error);
+        }
+    };
+    if let Some(replay) = ctx
+        .tracker
+        .admit_request(
+            id.to_string(),
+            request.kind,
+            request.payload.inflight_keys(),
+            Some(&idempotency),
+        )
+        .await?
+    {
+        return Ok(replay);
+    }
+    enqueue_request(request, ctx)
+        .await
+        .map(SubmittedRequest::into_response)
 }
 
 // =============================================================================
@@ -500,18 +551,27 @@ async fn submit_request<T>(
 where
     T: IntoCommand,
 {
+    ctx.tracker
+        .new_request_with_id(
+            request.id.to_string(),
+            request.kind,
+            request.payload.inflight_keys(),
+        )
+        .await?;
+    enqueue_request(request, ctx).await
+}
+
+async fn enqueue_request<T: IntoCommand>(
+    request: Request<T>,
+    ctx: &GatewayContext,
+) -> Result<SubmittedRequest, GatewayErrorResponse> {
     let Request {
         id,
         kind,
         payload,
         calldata,
     } = request;
-    let inflight_keys = payload.inflight_keys();
     let cmd = T::into_command(id, payload, calldata);
-
-    ctx.tracker
-        .new_request_with_id(id.to_string(), kind, inflight_keys)
-        .await?;
 
     if !ctx.batcher.submit(cmd).await {
         ctx.tracker

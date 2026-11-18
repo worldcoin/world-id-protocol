@@ -9,7 +9,7 @@ use alloy::{
 };
 use reqwest::StatusCode;
 use world_id_primitives::api_types::{
-    GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
+    GatewayRequestState, GatewayStatusResponse, InsertAuthenticatorRequest, RecoverAccountRequest,
     RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
 };
 use world_id_registries::world_id::{
@@ -23,6 +23,104 @@ use crate::common::{
 };
 
 mod common;
+
+#[tokio::test]
+async fn create_account_replays_concurrent_and_finalized_requests() {
+    let gw = spawn_test_gateway(Some(1000)).await;
+    let url = format!("{}/create-account", gw.base_url);
+    let key = uuid::Uuid::new_v4().to_string();
+    let mut payload = serde_json::json!({
+        "authenticator_addresses": ["0x1111111111111111111111111111111111111111"],
+        "authenticator_pubkeys": [authenticator_pubkey(100).to_string()],
+        "offchain_signer_commitment": "0x1",
+    });
+    let post = || {
+        gw.client
+            .post(&url)
+            .header("Idempotency-Key", &key)
+            .json(&payload)
+    };
+    let (first, second) = tokio::join!(post().send(), post().send());
+    let first: GatewayStatusResponse = first
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    let second: GatewayStatusResponse = second
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(first.request_id, second.request_id);
+
+    let tx_hash = wait_for_finalized(&gw.client, &gw.base_url, &first.request_id).await;
+
+    // The equivalent spelling of the recovery address and commitment is a replay.
+    payload["recovery_address"] = serde_json::json!(Address::ZERO);
+    payload["offchain_signer_commitment"] = serde_json::json!("1");
+    let replay: GatewayStatusResponse = gw
+        .client
+        .post(&url)
+        .header("Idempotency-Key", &key)
+        .json(&payload)
+        .send()
+        .await
+        .unwrap()
+        .error_for_status()
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(replay.request_id, first.request_id);
+    assert!(
+        matches!(replay.status, GatewayRequestState::Finalized { tx_hash: hash } if hash == tx_hash)
+    );
+
+    // With no header, an address already present on-chain still fails validation.
+    let legacy = gw.client.post(&url).json(&payload).send().await.unwrap();
+    assert_eq!(legacy.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(
+        legacy.json::<serde_json::Value>().await.unwrap()["code"],
+        "authenticator_already_exists"
+    );
+
+    payload["offchain_signer_commitment"] = serde_json::json!("0x2");
+    let conflict = gw
+        .client
+        .post(&url)
+        .header("Idempotency-Key", key)
+        .json(&payload)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(conflict.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        conflict.json::<serde_json::Value>().await.unwrap()["code"],
+        "bad_request"
+    );
+
+    let mut redis = redis::Client::open(gw.redis_url.as_str())
+        .unwrap()
+        .get_connection_manager()
+        .await
+        .unwrap();
+    let tracked_requests: Vec<String> = redis::cmd("KEYS")
+        .arg("gateway:request:*")
+        .query_async(&mut redis)
+        .await
+        .unwrap();
+    assert_eq!(
+        tracked_requests,
+        [format!(
+            "gateway:request:{}",
+            first.request_id.as_str_without_prefix()
+        )]
+    );
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn e2e_gateway_full_flow() {

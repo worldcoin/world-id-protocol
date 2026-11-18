@@ -1,6 +1,7 @@
 use std::{collections::HashSet, time::Duration};
 
-use redis::{AsyncTypedCommands, Client, aio::ConnectionManager};
+use alloy::primitives::B256;
+use redis::{AsyncTypedCommands, Client, ErrorKind, RedisError, aio::ConnectionManager};
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use world_id_primitives::api_types::{GatewayRequestKind, GatewayRequestState};
@@ -20,6 +21,23 @@ const REQUESTS_TTL: Duration = Duration::from_secs(86_400);
 const INFLIGHT_TTL: Duration = Duration::from_secs(300);
 const PENDING_SET_KEY: &str = "gateway:pending_requests";
 
+pub(crate) struct CreateAccountIdempotency {
+    pub(crate) key_digest: B256,
+    pub(crate) payload_digest: B256,
+}
+
+impl CreateAccountIdempotency {
+    fn redis_key(&self) -> String {
+        format!("gateway:idempotency:create-account:{}", self.key_digest)
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct IdempotencyRecord {
+    pub(crate) request_id: String,
+    pub(crate) payload_digest: B256,
+}
+
 /// Result of atomically creating a tracked request and acquiring its locks.
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum CreateRequestOutcome {
@@ -27,6 +45,8 @@ pub(crate) enum CreateRequestOutcome {
     Created,
     /// An in-flight lock already existed, so nothing was created.
     DuplicateInflight(String),
+    /// The idempotency key was already used, so nothing was created.
+    Existing(IdempotencyRecord),
 }
 
 /// Result of checking and recording a request against a rate-limit window.
@@ -99,14 +119,15 @@ impl RequestStore {
     ///
     /// Returns [`CreateRequestOutcome::DuplicateInflight`] without changing
     /// storage when any requested lock already exists. Each lock stores the
-    /// owning request ID. The request record uses [`REQUESTS_TTL`], while lock
-    /// entries use [`INFLIGHT_TTL`].
+    /// owning request ID. The request record and optional idempotency record use
+    /// [`REQUESTS_TTL`], while lock entries use [`INFLIGHT_TTL`].
     pub(crate) async fn create_request(
         &self,
         id: &str,
         kind: GatewayRequestKind,
         inflight_keys: &[String],
         updated_at: u64,
+        idempotency: Option<&CreateAccountIdempotency>,
     ) -> GatewayResult<CreateRequestOutcome> {
         let redis_inflight_keys: Vec<String> = inflight_keys
             .iter()
@@ -127,16 +148,25 @@ impl RequestStore {
             r#"
             local request_key = KEYS[1]
             local pending_set_key = KEYS[2]
-            local inflight_keys = { unpack(KEYS, 3) }
-
             local payload = ARGV[1]
             local requests_ttl = tonumber(ARGV[2])
             local request_id = ARGV[3]
             local inflight_ttl = tonumber(ARGV[4])
+            local idempotency_record = ARGV[5]
+            local first_inflight_key = 3
 
+            if idempotency_record ~= '' then
+                local existing = redis.call('GET', KEYS[3])
+                if existing then
+                    return {'existing', existing}
+                end
+                first_inflight_key = 4
+            end
+
+            local inflight_keys = { unpack(KEYS, first_inflight_key) }
             for _, inflight_key in ipairs(inflight_keys) do
                 if redis.call('EXISTS', inflight_key) == 1 then
-                    return inflight_key
+                    return {'inflight', inflight_key}
                 end
             end
 
@@ -155,12 +185,24 @@ impl RequestStore {
             end
 
             redis.call('SADD', pending_set_key, request_id)
+            if idempotency_record ~= '' then
+                redis.call('SET', KEYS[3], idempotency_record, 'EX', requests_ttl)
+            end
             return nil
             "#,
         );
         let mut invocation = script.prepare_invoke();
         invocation.key(Self::request_key(id));
         invocation.key(PENDING_SET_KEY);
+        let idempotency_record = if let Some(idempotency) = idempotency {
+            invocation.key(idempotency.redis_key());
+            serde_json::to_string(&IdempotencyRecord {
+                request_id: id.to_owned(),
+                payload_digest: idempotency.payload_digest,
+            })?
+        } else {
+            String::new()
+        };
         for key in &redis_inflight_keys {
             invocation.key(key);
         }
@@ -168,12 +210,34 @@ impl RequestStore {
         invocation.arg(REQUESTS_TTL.as_secs());
         invocation.arg(id);
         invocation.arg(INFLIGHT_TTL.as_secs());
+        invocation.arg(idempotency_record);
 
-        let duplicate: Option<String> = invocation.invoke_async(&mut manager).await?;
-        Ok(match duplicate {
-            Some(key) => CreateRequestOutcome::DuplicateInflight(key),
-            None => CreateRequestOutcome::Created,
-        })
+        let result: Option<(String, String)> = invocation.invoke_async(&mut manager).await?;
+        match result {
+            None => Ok(CreateRequestOutcome::Created),
+            Some((tag, key)) if tag == "inflight" => {
+                Ok(CreateRequestOutcome::DuplicateInflight(key))
+            }
+            Some((tag, record)) if tag == "existing" => Ok(CreateRequestOutcome::Existing(
+                serde_json::from_str(&record)?,
+            )),
+            Some(_) => Err(RedisError::from((
+                ErrorKind::UnexpectedReturnType,
+                "Unexpected request creation result",
+            ))
+            .into()),
+        }
+    }
+
+    pub(crate) async fn create_account_idempotency_record(
+        &self,
+        idempotency: &CreateAccountIdempotency,
+    ) -> GatewayResult<Option<IdempotencyRecord>> {
+        let mut manager = self.manager.clone();
+        let record: Option<String> = manager.get(idempotency.redis_key()).await?;
+        record
+            .map(|record| serde_json::from_str(&record).map_err(Into::into))
+            .transpose()
     }
 
     /// Loads and deserializes one request record by ID.
@@ -487,6 +551,7 @@ mod tests {
                     GatewayRequestKind::CreateAccount,
                     std::slice::from_ref(&lock),
                     10,
+                    None,
                 )
                 .await
                 .unwrap(),
@@ -532,6 +597,78 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_create_remains_replayable_without_blocking_a_new_attempt() {
+        let (store, _redis) = store().await;
+        let kind = GatewayRequestKind::CreateAccount;
+        let locks = ["0x1234".to_owned()];
+        let first = CreateAccountIdempotency {
+            key_digest: B256::repeat_byte(1),
+            payload_digest: B256::repeat_byte(2),
+        };
+        assert_eq!(
+            store
+                .create_request("original", kind, &locks, 10, Some(&first))
+                .await
+                .unwrap(),
+            CreateRequestOutcome::Created
+        );
+        store
+            .update_status(
+                "original",
+                &GatewayRequestState::failed_from_code(GatewayErrorCode::TransactionReverted),
+                11,
+            )
+            .await
+            .unwrap();
+
+        let expected_record = IdempotencyRecord {
+            request_id: "original".to_owned(),
+            payload_digest: first.payload_digest,
+        };
+        assert_eq!(
+            store
+                .create_request("replay", kind, &locks, 12, Some(&first))
+                .await
+                .unwrap(),
+            CreateRequestOutcome::Existing(expected_record)
+        );
+        assert!(store.request("replay").await.unwrap().is_none());
+        assert!(matches!(
+            store.request("original").await.unwrap().unwrap().status,
+            GatewayRequestState::Failed {
+                error_code: Some(GatewayErrorCode::TransactionReverted),
+                ..
+            }
+        ));
+
+        let fresh = CreateAccountIdempotency {
+            key_digest: B256::repeat_byte(3),
+            payload_digest: first.payload_digest,
+        };
+        assert_eq!(
+            store
+                .create_request("fresh", kind, &locks, 12, Some(&fresh))
+                .await
+                .unwrap(),
+            CreateRequestOutcome::Created
+        );
+        assert_eq!(store.pending_request_ids().await.unwrap(), ["fresh"]);
+        let mut manager = store.manager.clone();
+        let key_ttl_ms: i64 = redis::cmd("PTTL")
+            .arg(first.redis_key())
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        let request_ttl_ms: i64 = redis::cmd("PTTL")
+            .arg(RequestStore::request_key("original"))
+            .query_async(&mut manager)
+            .await
+            .unwrap();
+        assert!(key_ttl_ms > 0);
+        assert!((key_ttl_ms - request_ttl_ms).abs() < 1000);
+    }
+
+    #[tokio::test]
     async fn duplicate_lock_does_not_partially_create_request() {
         let (store, _redis) = store().await;
         let shared_lock = "7".to_string();
@@ -542,6 +679,7 @@ mod tests {
                 GatewayRequestKind::UpdateAuthenticator,
                 std::slice::from_ref(&shared_lock),
                 10,
+                None,
             )
             .await
             .unwrap();
@@ -551,6 +689,7 @@ mod tests {
                 GatewayRequestKind::RemoveAuthenticator,
                 std::slice::from_ref(&shared_lock),
                 11,
+                None,
             )
             .await
             .unwrap();
@@ -578,6 +717,7 @@ mod tests {
                 GatewayRequestKind::UpdateAuthenticator,
                 &[lock],
                 10,
+                None,
             )
             .await
             .unwrap();
@@ -613,6 +753,7 @@ mod tests {
                 GatewayRequestKind::UpdateAuthenticator,
                 std::slice::from_ref(&shared_lock),
                 10,
+                None,
             )
             .await
             .unwrap();
@@ -627,6 +768,7 @@ mod tests {
                 GatewayRequestKind::UpdateAuthenticator,
                 &[shared_lock],
                 311,
+                None,
             )
             .await
             .unwrap();
@@ -679,7 +821,7 @@ mod tests {
 
         for id in ["queued", "failed"] {
             store
-                .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
+                .create_request(id, GatewayRequestKind::CreateAccount, &[], 10, None)
                 .await
                 .unwrap();
         }
