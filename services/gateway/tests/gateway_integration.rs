@@ -499,31 +499,19 @@ async fn test_same_authenticator_different_accounts() {
         "authenticator_pubkeys": [authenticator_pubkey(200).to_string()],
         "offchain_signer_commitment": "2",
     });
-    let resp = gw
-        .client
-        .post(format!("{}/create-account", gw.base_url))
-        .json(&body_create2)
-        .send()
-        .await
-        .unwrap();
-
-    // Simulation should fail synchronously and return 400 immediately
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-
-    let error_body: serde_json::Value = resp.json().await.unwrap();
-    // Check string response, or message/code field for the error
-    let error_msg = error_body
-        .as_str()
-        .or_else(|| error_body.get("message").and_then(|e| e.as_str()))
-        .or_else(|| error_body.get("code").and_then(|e| e.as_str()))
-        .unwrap_or("");
-    assert!(
-        error_msg
-            .to_lowercase()
-            .replace('_', " ")
-            .contains("authenticator already exists"),
-        "Error should indicate 'authenticator already exists', got: {error_msg}"
-    );
+    // Repeating the rejected request checks that simulation releases its lock.
+    for _ in 0..2 {
+        let resp = gw
+            .client
+            .post(format!("{}/create-account", gw.base_url))
+            .json(&body_create2)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let error_body: serde_json::Value = resp.json().await.unwrap();
+        assert_eq!(error_body["code"], "authenticator_already_exists");
+    }
 }
 
 /// A `BillingRegistration` with dummy authorization and proof, which only a stub Billing

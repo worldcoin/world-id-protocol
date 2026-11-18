@@ -105,9 +105,37 @@ impl RequestTracker {
         kind: GatewayRequestKind,
         inflight_keys: Vec<String>,
     ) -> Result<(), GatewayErrorResponse> {
+        self.create_request(&id, kind, &inflight_keys).await
+    }
+
+    /// Reserves the authenticator addresses before reading their confirmed blocks.
+    pub(crate) async fn reserve_create(
+        &self,
+        id: &str,
+        addresses: &[String],
+    ) -> Result<Option<u64>, GatewayErrorResponse> {
+        self.create_request(id, GatewayRequestKind::CreateAccount, addresses)
+            .await?;
+        match self.store.create_simulation_floor(addresses).await {
+            Ok(block) => Ok(block),
+            Err(error) => {
+                tracing::error!(%error, request_id = id, "Error reading confirmed create blocks");
+                let response = GatewayErrorResponse::internal_server_error();
+                self.set_status(id, response.failed_request_status()).await;
+                Err(response)
+            }
+        }
+    }
+
+    async fn create_request(
+        &self,
+        id: &str,
+        kind: GatewayRequestKind,
+        inflight_keys: &[String],
+    ) -> Result<(), GatewayErrorResponse> {
         match self
             .store
-            .create_request(&id, kind, &inflight_keys, now_unix_secs())
+            .create_request(id, kind, inflight_keys, now_unix_secs())
             .await
         {
             Ok(CreateRequestOutcome::Created) => Ok(()),
@@ -127,11 +155,7 @@ impl RequestTracker {
 
     /// Updates the status of multiple requests in a batch.
     pub async fn set_status_batch(&self, ids: &[String], status: GatewayRequestState) {
-        for id in ids {
-            if let Err(e) = self.update_stored_status(id, &status).await {
-                tracing::error!("Error updating status for request {id}: {e}");
-            }
-        }
+        self.set_status_batch_with_block(ids, status, None).await;
     }
 
     /// Atomically moves the still-`Queued` requests among `ids` to `Batching`
@@ -154,6 +178,7 @@ impl RequestTracker {
         ids: &[String],
         receipt_succeeded: bool,
         tx_hash: &str,
+        block_number: Option<u64>,
     ) {
         let status = if receipt_succeeded {
             GatewayRequestState::Finalized {
@@ -165,7 +190,25 @@ impl RequestTracker {
                 Some(GatewayErrorCode::TransactionReverted),
             )
         };
-        self.set_status_batch(ids, status).await;
+        self.set_status_batch_with_block(ids, status, block_number)
+            .await;
+    }
+
+    async fn set_status_batch_with_block(
+        &self,
+        ids: &[String],
+        status: GatewayRequestState,
+        block_number: Option<u64>,
+    ) {
+        for id in ids {
+            if let Err(error) = self
+                .store
+                .update_status(id, &status, now_unix_secs(), block_number)
+                .await
+            {
+                tracing::error!(%error, request_id = id, "Error updating request status");
+            }
+        }
     }
 
     /// Spawns a background task that awaits a pending transaction receipt and
@@ -210,7 +253,7 @@ impl RequestTracker {
                     }
 
                     tracker
-                        .finalize_from_receipt(&ids, confirmed, &tx_hash)
+                        .finalize_from_receipt(&ids, confirmed, &tx_hash, receipt.block_number)
                         .await;
                 }
                 Ok(Err(err)) => {
@@ -254,15 +297,6 @@ impl RequestTracker {
                 None
             }
         }
-    }
-
-    /// Atomically updates a request's status and timestamp.
-    async fn update_stored_status(
-        &self,
-        id: &str,
-        status: &GatewayRequestState,
-    ) -> GatewayResult<()> {
-        self.store.update_status(id, status, now_unix_secs()).await
     }
 
     // =========================================================================

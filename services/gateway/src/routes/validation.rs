@@ -6,6 +6,7 @@ use alloy::{
     providers::Provider,
     rpc::types::{BlockId, TransactionRequest},
     sol_types::{Eip712Domain, SolCall, SolStruct, eip712_domain},
+    transports::TransportResult,
 };
 use axum::http::StatusCode;
 use world_id_primitives::{
@@ -80,20 +81,24 @@ pub(crate) trait RequestValidation: Sized + Sync {
         ctx: &GatewayContext,
     ) -> impl Future<Output = Result<Bytes, GatewayErrorResponse>> + Send {
         async move {
-            let registry = ctx.registry.as_ref();
-            let chain_id = chain_id(registry.provider()).await?;
-            let pre_flight_ctx = PreFlightContext {
-                chain_id,
-                verifying_contract: *registry.address(),
-                registry_version: ctx.registry_version,
-            };
-
-            self.pre_flight(pre_flight_ctx)?;
-            let calldata = self.calldata(registry);
-            simulate_calldata(registry, &calldata).await?;
+            let calldata = preflight_calldata(self, ctx).await?;
+            simulate_calldata(&ctx.registry, &calldata).await?;
             Ok(calldata)
         }
     }
+}
+
+pub(crate) async fn preflight_calldata(
+    request: &impl RequestValidation,
+    ctx: &GatewayContext,
+) -> Result<Bytes, GatewayErrorResponse> {
+    let registry = ctx.registry.as_ref();
+    request.pre_flight(PreFlightContext {
+        chain_id: chain_id(registry.provider()).await?,
+        verifying_contract: *registry.address(),
+        registry_version: ctx.registry_version,
+    })?;
+    Ok(request.calldata(registry))
 }
 
 /// The chain ID, fetched once.
@@ -113,19 +118,60 @@ async fn simulate_calldata(
     registry: &Registry,
     calldata: &Bytes,
 ) -> Result<(), GatewayErrorResponse> {
+    simulate_calldata_at(registry, calldata, BlockId::default())
+        .await
+        .map_err(GatewayErrorResponse::from_simulation_error)
+}
+
+pub(crate) async fn simulate_create_account(
+    registry: &Registry,
+    calldata: &Bytes,
+    minimum_block: Option<u64>,
+) -> Result<(), GatewayErrorResponse> {
+    let Some(minimum_block) = minimum_block else {
+        return simulate_calldata(registry, calldata).await;
+    };
+    let head = registry.provider().get_block_number().await.map_err(|error| {
+        tracing::warn!(%error, minimum_block, "Unable to read registry RPC head for create simulation");
+        GatewayErrorResponse::simulation_unavailable()
+    })?;
+    if head < minimum_block {
+        tracing::warn!(
+            head,
+            minimum_block,
+            "Registry RPC is behind the confirmed create block"
+        );
+        return Err(GatewayErrorResponse::simulation_unavailable());
+    }
+    // The head lookup and eth_call can go to different RPC backends. Pin the call
+    // so a lagging backend cannot silently simulate against an older block.
+    simulate_calldata_at(registry, calldata, BlockId::number(head))
+        .await
+        .map_err(|error| {
+            if error.as_error_resp().is_some_and(|error| {
+                error.code == 3
+                    || error.as_revert_data().is_some()
+                    || error.message.contains("execution reverted")
+            }) {
+                return GatewayErrorResponse::from_simulation_error(error);
+            }
+            tracing::warn!(%error, head, minimum_block, "Unable to simulate create-account at the required registry block");
+            GatewayErrorResponse::simulation_unavailable()
+        })
+}
+
+async fn simulate_calldata_at(
+    registry: &Registry,
+    calldata: &Bytes,
+    block: BlockId,
+) -> TransportResult<()> {
     let tx = TransactionRequest {
         to: Some(TxKind::Call(*registry.address())),
         input: calldata.clone().into(),
         ..Default::default()
     };
 
-    registry
-        .provider()
-        .call(tx)
-        .block(BlockId::default())
-        .await
-        .map(|_| ())
-        .map_err(GatewayErrorResponse::from_simulation_error)
+    registry.provider().call(tx).block(block).await.map(|_| ())
 }
 
 /// Recover the signer address from an EIP-712 typed data hash and signature.
@@ -814,9 +860,13 @@ mod tests {
     use super::*;
     use alloy::{
         primitives::{Address, U256, address},
+        providers::ProviderBuilder,
         signers::local::PrivateKeySigner,
+        transports::mock::Asserter,
     };
+    use axum::{Json, Router, response::IntoResponse, routing::post};
     use eddsa_babyjubjub::EdDSAPrivateKey;
+    use serde_json::{Value, json};
     use world_id_primitives::api_types::{
         CancelRecoveryAgentUpdateRequest, ExecuteRecoveryAgentUpdateRequest,
         InsertAuthenticatorRequest, RemoveAuthenticatorRequest, UpdateAuthenticatorRequest,
@@ -830,6 +880,64 @@ mod tests {
 
     const CHAIN_ID: u64 = 1;
     const CONTRACT: Address = address!("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+    #[tokio::test]
+    async fn create_simulation_skips_eth_call_when_rpc_head_is_stale() {
+        let rpc = Asserter::new();
+        rpc.push_success(&"0x29");
+        rpc.push_success(&"0x");
+        let provider = ProviderBuilder::new()
+            .connect_mocked_client(rpc.clone())
+            .erased();
+        let registry = Registry::new(CONTRACT, provider.into());
+
+        let error = simulate_create_account(&registry, &Bytes::new(), Some(42))
+            .await
+            .unwrap_err();
+
+        assert_eq!(
+            error.into_response().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert!(
+            rpc.pop_response().is_some(),
+            "eth_call should not run on a stale head"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_simulation_pins_eth_call_and_handles_unavailable_block() {
+        let rpc = Router::new().route(
+            "/",
+            post(|Json(request): Json<Value>| async move {
+                let id = &request["id"];
+                match request["method"].as_str() {
+                    Some("eth_blockNumber") => Json(json!({"jsonrpc": "2.0", "id": id, "result": "0x2b"})),
+                    Some("eth_call") if request["params"][1] == "0x2b" => Json(json!({
+                        "jsonrpc": "2.0", "id": id, "error": {"code": -32000, "message": "header not found"},
+                    })),
+                    // An unpinned eth_call on a lagging backend could incorrectly pass.
+                    Some("eth_call") => Json(json!({"jsonrpc": "2.0", "id": id, "result": "0x"})),
+                    _ => panic!("unexpected RPC request {request}"),
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, rpc).await.unwrap() });
+        let provider = ProviderBuilder::new()
+            .connect_http(endpoint.parse().unwrap())
+            .erased();
+        let registry = Registry::new(CONTRACT, provider.into());
+
+        let result = simulate_create_account(&registry, &Bytes::new(), Some(42)).await;
+        server.abort();
+
+        assert_eq!(
+            result.unwrap_err().into_response().status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+    }
 
     fn make_domain() -> alloy::sol_types::Eip712Domain {
         registry_domain(CHAIN_ID, CONTRACT)

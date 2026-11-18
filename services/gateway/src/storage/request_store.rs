@@ -189,12 +189,14 @@ impl RequestStore {
     /// Atomically updates a request's status and timestamp while preserving its TTL.
     ///
     /// Terminal statuses also remove the request from the pending set and delete
-    /// its in-flight locks. Returns an error when the request does not exist.
+    /// its in-flight locks. For a successful create, this also records the receipt
+    /// block before releasing the locks. Returns an error when the request does not exist.
     pub(crate) async fn update_status(
         &self,
         id: &str,
         status: &GatewayRequestState,
         updated_at: u64,
+        confirmed_block: Option<u64>,
     ) -> GatewayResult<()> {
         let status_json = serde_json::to_string(status)?;
         let mut manager = self.manager.clone();
@@ -207,6 +209,8 @@ impl RequestStore {
             local status = ARGV[1]
             local updated_at = tonumber(ARGV[2])
             local request_id = ARGV[3]
+            local confirmed_block = ARGV[4]
+            local block_ttl = tonumber(ARGV[5])
 
             local record = redis.call('GET', request_key)
             if not record then
@@ -226,6 +230,13 @@ impl RequestStore {
                 local inflight = decoded.inflight_keys
                 if inflight then
                     for _, k in ipairs(inflight) do
+                        if state == 'finalized' and decoded.kind == 'create_account' and confirmed_block ~= '' then
+                            local block_key = k .. ':confirmed_block'
+                            local previous = redis.call('GET', block_key)
+                            if not previous or tonumber(confirmed_block) > tonumber(previous) then
+                                redis.call('SET', block_key, confirmed_block, 'EX', block_ttl)
+                            end
+                        end
                         local owner = redis.call('GET', k)
                         -- Gateway versions predating lock ownership stored literal 1.
                         if owner == request_id or owner == '1' then
@@ -243,13 +254,40 @@ impl RequestStore {
         .arg(status_json)
         .arg(updated_at)
         .arg(id)
+        .arg(confirmed_block.map(|block| block.to_string()).unwrap_or_default())
+        .arg(REQUESTS_TTL.as_secs())
         .invoke_async(&mut manager)
         .await?;
         Ok(())
     }
 
-    /// Atomically moves every `Queued` request in `ids` to `Batching` and
-    /// returns the IDs it moved, in input order.
+    /// Highest recently confirmed create block across these authenticator addresses.
+    pub(crate) async fn create_simulation_floor(
+        &self,
+        addresses: &[String],
+    ) -> GatewayResult<Option<u64>> {
+        if addresses.is_empty() {
+            return Ok(None);
+        }
+        let keys: Vec<_> = addresses
+            .iter()
+            .map(|address| {
+                format!(
+                    "{}:confirmed_block",
+                    Self::inflight_key(GatewayRequestKind::CreateAccount, address)
+                )
+            })
+            .collect();
+        let mut manager = self.manager.clone();
+        let blocks: Vec<Option<u64>> = redis::cmd("MGET")
+            .arg(keys)
+            .query_async(&mut manager)
+            .await?;
+        Ok(blocks.into_iter().flatten().max())
+    }
+
+    /// Atomically moves eligible `Queued` requests to `Batching` and returns
+    /// the IDs it moved in input order. A create must still own all its locks.
     ///
     /// Requests in any other state (for example `Failed` by the orphan
     /// sweeper) or without a record are left untouched and not returned, so a
@@ -267,11 +305,23 @@ impl RequestStore {
             r#"
             local updated_at = tonumber(ARGV[1])
             local claimed = {}
+            local function still_owns_create_locks(record, request_id)
+                if record.kind ~= 'create_account' then
+                    return true
+                end
+                for _, lock in ipairs(record.inflight_keys or {}) do
+                    local owner = redis.call('GET', lock)
+                    if owner ~= request_id and owner ~= '1' then
+                        return false
+                    end
+                end
+                return true
+            end
             for i, request_key in ipairs(KEYS) do
                 local record = redis.call('GET', request_key)
                 if record then
                     local decoded = cjson.decode(record)
-                    if decoded.status.state == 'queued' then
+                    if decoded.status.state == 'queued' and still_owns_create_locks(decoded, ARGV[i + 1]) then
                         decoded.status = { state = 'batching' }
                         decoded.updated_at = updated_at
                         redis.call('SET', request_key, cjson.encode(decoded), 'KEEPTTL')
@@ -503,7 +553,7 @@ mod tests {
         assert_eq!(record.inflight_keys, ["gateway:inflight:create:0x1234"]);
 
         store
-            .update_status("request-1", &GatewayRequestState::Batching, 20)
+            .update_status("request-1", &GatewayRequestState::Batching, 20, None)
             .await
             .unwrap();
         assert_eq!(
@@ -518,6 +568,7 @@ mod tests {
                     tx_hash: "0xabc".to_string(),
                 },
                 30,
+                Some(42),
             )
             .await
             .unwrap();
@@ -529,6 +580,63 @@ mod tests {
             .await
             .unwrap();
         assert!(!lock_exists);
+        assert_eq!(
+            store.create_simulation_floor(&[lock]).await.unwrap(),
+            Some(42)
+        );
+    }
+
+    #[tokio::test]
+    async fn confirmed_create_blocks_are_monotonic_and_scoped_to_addresses() {
+        let (store, _redis) = store().await;
+        let addresses = ["0x1234", "0x5678"].map(String::from);
+        let finalized = GatewayRequestState::Finalized {
+            tx_hash: "0xabc".to_string(),
+        };
+        let failed =
+            GatewayRequestState::failed("reverted", Some(GatewayErrorCode::TransactionReverted));
+        assert_eq!(
+            store.create_simulation_floor(&addresses).await.unwrap(),
+            None
+        );
+
+        for (id, keys, status, block) in [
+            ("first", &addresses[..1], &finalized, 42),
+            ("second", &addresses[1..], &finalized, 43),
+            ("older_receipt", &addresses[..1], &finalized, 41),
+            ("reverted", &addresses[..], &failed, 44),
+        ] {
+            assert_eq!(
+                store
+                    .create_request(id, GatewayRequestKind::CreateAccount, keys, 10)
+                    .await
+                    .unwrap(),
+                CreateRequestOutcome::Created
+            );
+            store
+                .update_status(id, status, 20, Some(block))
+                .await
+                .unwrap();
+        }
+
+        assert_eq!(
+            store
+                .create_simulation_floor(&addresses[..1])
+                .await
+                .unwrap(),
+            Some(42)
+        );
+        assert_eq!(
+            store.create_simulation_floor(&addresses).await.unwrap(),
+            Some(43)
+        );
+        assert_eq!(
+            store
+                .create_simulation_floor(&["0x9abc".into()])
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     #[tokio::test]
@@ -593,6 +701,7 @@ mod tests {
                     tx_hash: "0xabc".to_string(),
                 },
                 20,
+                None,
             )
             .await
             .unwrap();
@@ -638,6 +747,7 @@ mod tests {
                     tx_hash: "0xabc".to_string(),
                 },
                 312,
+                None,
             )
             .await
             .unwrap();
@@ -677,9 +787,9 @@ mod tests {
     async fn claim_queued_moves_only_queued_requests() {
         let (store, _redis) = store().await;
 
-        for id in ["queued", "failed"] {
+        for id in ["queued", "failed", "lost_lock"] {
             store
-                .create_request(id, GatewayRequestKind::CreateAccount, &[], 10)
+                .create_request(id, GatewayRequestKind::CreateAccount, &[id.to_string()], 10)
                 .await
                 .unwrap();
         }
@@ -688,11 +798,17 @@ mod tests {
                 "failed",
                 &GatewayRequestState::failed("swept", Some(GatewayErrorCode::InternalServerError)),
                 20,
+                None,
             )
             .await
             .unwrap();
 
-        let ids = ["failed", "missing", "queued"].map(String::from);
+        let mut manager = store.manager.clone();
+        let _: usize = manager
+            .del("gateway:inflight:create:lost_lock")
+            .await
+            .unwrap();
+        let ids = ["failed", "missing", "lost_lock", "queued"].map(String::from);
         let claimed = store.claim_queued(&ids, 30).await.unwrap();
         assert_eq!(claimed, vec!["queued".to_string()]);
 

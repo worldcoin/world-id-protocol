@@ -5,7 +5,7 @@ use crate::{
     config::RegistryVersion,
     error::GatewayErrorResponse,
     request_tracker::RequestTracker,
-    routes::validation::RequestValidation,
+    routes::validation::{RequestValidation, preflight_calldata, simulate_create_account},
 };
 use alloy::{
     primitives::{Bytes, U256},
@@ -156,24 +156,23 @@ pub trait IntoRequestWithRateLimit: IntoRequest + HasLeafIndex {
 // CreateAccountRequest
 // =============================================================================
 
-impl IntoRequest for CreateAccountRequest {
-    const KIND: GatewayRequestKind = GatewayRequestKind::CreateAccount;
-}
-
-impl IntoCommand for CreateAccountRequest {
-    fn into_command(id: Uuid, payload: Self, _calldata: Bytes) -> Command {
-        Command::create_account(id, payload)
+pub(crate) async fn submit_create_account(
+    id: Uuid,
+    payload: CreateAccountRequest,
+    ctx: &GatewayContext,
+) -> Result<SubmittedRequest, GatewayErrorResponse> {
+    let calldata = preflight_calldata(&payload, ctx).await?;
+    let request_id = id.to_string();
+    let kind = GatewayRequestKind::CreateAccount;
+    let keys = payload.inflight_keys();
+    let minimum_block = ctx.tracker.reserve_create(&request_id, &keys).await?;
+    if let Err(error) = simulate_create_account(&ctx.registry, &calldata, minimum_block).await {
+        ctx.tracker
+            .set_status(&request_id, error.failed_request_status())
+            .await;
+        return Err(error);
     }
-}
-
-impl Request<CreateAccountRequest> {
-    /// Submit the request for processing.
-    pub async fn submit(
-        self,
-        ctx: &GatewayContext,
-    ) -> Result<SubmittedRequest, GatewayErrorResponse> {
-        submit_request(self, ctx).await
-    }
+    enqueue_request(id, kind, Command::create_account(id, payload), ctx).await
 }
 
 // =============================================================================
@@ -512,7 +511,15 @@ where
     ctx.tracker
         .new_request_with_id(id.to_string(), kind, inflight_keys)
         .await?;
+    enqueue_request(id, kind, cmd, ctx).await
+}
 
+async fn enqueue_request(
+    id: Uuid,
+    kind: GatewayRequestKind,
+    cmd: Command,
+    ctx: &GatewayContext,
+) -> Result<SubmittedRequest, GatewayErrorResponse> {
     if !ctx.batcher.submit(cmd).await {
         ctx.tracker
             .set_status(

@@ -123,7 +123,7 @@ pub async fn sweep_once(
             Ok(Some(receipt)) => {
                 let ids: Vec<String> = group.iter().map(|(id, _)| id.clone()).collect();
                 tracker
-                    .finalize_from_receipt(&ids, receipt.status(), tx_hash)
+                    .finalize_from_receipt(&ids, receipt.status(), tx_hash, receipt.block_number)
                     .await;
             }
             Ok(None) => {

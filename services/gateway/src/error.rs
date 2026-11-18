@@ -1,6 +1,6 @@
 use std::backtrace::Backtrace;
 use thiserror::Error;
-use world_id_primitives::api_types::{GatewayErrorCode, ServiceApiError};
+use world_id_primitives::api_types::{GatewayErrorCode, GatewayRequestState, ServiceApiError};
 use world_id_registries::{
     world_id::WorldIdRegistry::{
         AuthenticatorAddressAlreadyInUse, AuthenticatorDoesNotBelongToAccount,
@@ -192,6 +192,19 @@ impl GatewayErrorResponse {
             code.to_string()
         };
         Self::new(code, message, StatusCode::BAD_REQUEST)
+    }
+
+    pub(crate) fn simulation_unavailable() -> Self {
+        Self::new(
+            GatewayErrorCode::InternalServerError,
+            "Registry state is unavailable for create-account simulation. Please try again."
+                .to_owned(),
+            StatusCode::SERVICE_UNAVAILABLE,
+        )
+    }
+
+    pub(crate) fn failed_request_status(&self) -> GatewayRequestState {
+        GatewayRequestState::failed(self.error.message.clone(), Some(self.error.code.clone()))
     }
 }
 

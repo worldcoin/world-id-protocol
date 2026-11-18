@@ -269,8 +269,10 @@ pub(crate) async fn build_app(
     path = "/create-account",
     request_body = CreateAccountRequest,
     responses(
-        (status = 202, description = "TODO", body = GatewayStatusResponse),
-        (status = 500, description = "TODO", body = GatewayErrorBody)
+        (status = 200, description = "Create request queued", body = GatewayStatusResponse),
+        (status = 400, description = "Invalid request or authenticator already registered or in flight", body = GatewayErrorBody),
+        (status = 500, description = "Internal server error", body = GatewayErrorBody),
+        (status = 503, description = "Batcher or required registry state temporarily unavailable", body = GatewayErrorBody)
     ),
     tag = "Gateway"
 )]
