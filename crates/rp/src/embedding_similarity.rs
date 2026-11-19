@@ -2,7 +2,9 @@
 //!
 //! [`verify_embedding_similarity`] checks a [`ProofResponse`] against the RP's own
 //! [`ProofRequest`] and [`EmbeddingSimilarityPolicy`]: §4.8 items 2–7 first, then the proof
-//! (item 1), as the spec requires.
+//! (item 1), as the spec requires. It verifies the proof inline, which is CPU-bound; an RP
+//! serving requests on an async runtime calls [`check_embedding_similarity`] instead and runs
+//! [`EmbeddingSimilarityProofCheck::verify_proof`] on a blocking thread.
 //!
 //! The RP remains responsible for the request itself: it MUST be the RP's own, and its `nonce`
 //! one the RP issued and has not seen used before (WIP-201 §4.7 check 4). The challenge image
@@ -16,7 +18,7 @@ use std::{
 use eddsa_babyjubjub::EdDSAPublicKey;
 use world_id_flamingo::{MAX_ATTESTATION_AGE, ReleaseManifest, engine_config_hash};
 use world_id_primitives::{
-    FieldElement, ProofRequest, ProofResponse, ValidationError,
+    EmbeddingSimilarityProof, FieldElement, ProofRequest, ProofResponse, ValidationError,
     authenticator_assertion::AatPublicValues,
 };
 use world_id_proof::{
@@ -205,7 +207,35 @@ pub enum EmbeddingSimilarityVerificationError {
     Proof(#[from] ProofError),
 }
 
-/// Verifies a Proof of Embedding Similarity under WIP-202 §4.8.
+/// Verifies a Proof of Embedding Similarity under WIP-202 §4.8: [`check_embedding_similarity`],
+/// then [`EmbeddingSimilarityProofCheck::verify_proof`] inline.
+///
+/// # Errors
+/// The first failing check, see [`EmbeddingSimilarityVerificationError`].
+pub async fn verify_embedding_similarity<A, F, Fut, E, G, GFut, GE>(
+    request: &ProofRequest,
+    response: &ProofResponse,
+    policy: &EmbeddingSimilarityPolicy<A>,
+    is_valid_root: F,
+    is_trusted_issuer: G,
+    artifacts: &dyn ZkArtifactSource,
+) -> Result<(), EmbeddingSimilarityVerificationError>
+where
+    A: FlamingoAttestationVerifier + Sync,
+    F: FnOnce(FieldElement) -> Fut + Send,
+    Fut: Future<Output = Result<bool, E>> + Send,
+    E: Into<Box<dyn std::error::Error + Send + Sync>>,
+    G: FnOnce(EdDSAPublicKey) -> GFut + Send,
+    GFut: Future<Output = Result<bool, GE>> + Send,
+    GE: Into<Box<dyn std::error::Error + Send + Sync>>,
+{
+    check_embedding_similarity(request, response, policy, is_valid_root, is_trusted_issuer)
+        .await?
+        .verify_proof(artifacts)
+}
+
+/// Checks WIP-202 §4.8 items 2–7 of a Proof of Embedding Similarity, and returns the check of
+/// item 1, the proof itself, which the RP MUST still run.
 ///
 /// Time checks use the system clock.
 ///
@@ -219,14 +249,13 @@ pub enum EmbeddingSimilarityVerificationError {
 ///
 /// # Errors
 /// The first failing check, see [`EmbeddingSimilarityVerificationError`].
-pub async fn verify_embedding_similarity<A, F, Fut, E, G, GFut, GE>(
+pub async fn check_embedding_similarity<A, F, Fut, E, G, GFut, GE>(
     request: &ProofRequest,
     response: &ProofResponse,
     policy: &EmbeddingSimilarityPolicy<A>,
     is_valid_root: F,
     is_trusted_issuer: G,
-    artifacts: &dyn ZkArtifactSource,
-) -> Result<(), EmbeddingSimilarityVerificationError>
+) -> Result<EmbeddingSimilarityProofCheck, EmbeddingSimilarityVerificationError>
 where
     A: FlamingoAttestationVerifier + Sync,
     F: FnOnce(FieldElement) -> Fut + Send,
@@ -289,9 +318,34 @@ where
     let public = EmbeddingSimilarityRequestInputs::from_request(request, policy.issuer_version)
         .map_err(ProofError::from)?;
 
-    // 1. The proof verifies.
-    verify_embedding_similarity_proof(proof, &public, artifacts)?;
-    Ok(())
+    Ok(EmbeddingSimilarityProofCheck {
+        proof: proof.clone(),
+        public,
+    })
+}
+
+/// The remaining check of WIP-202 §4.8 item 1, that the proof verifies, after
+/// [`check_embedding_similarity`] passed. It owns its values, so it can move to a blocking thread.
+#[must_use = "the proof is not verified until `verify_proof` returns `Ok`"]
+#[derive(Debug, Clone)]
+pub struct EmbeddingSimilarityProofCheck {
+    proof: EmbeddingSimilarityProof,
+    public: EmbeddingSimilarityRequestInputs,
+}
+
+impl EmbeddingSimilarityProofCheck {
+    /// Verifies the proof. CPU-bound and blocking; on an async runtime, run it on a blocking
+    /// thread (e.g. `tokio::task::spawn_blocking`).
+    ///
+    /// # Errors
+    /// [`EmbeddingSimilarityVerificationError::Proof`] if the proof does not verify.
+    pub fn verify_proof(
+        &self,
+        artifacts: &dyn ZkArtifactSource,
+    ) -> Result<(), EmbeddingSimilarityVerificationError> {
+        verify_embedding_similarity_proof(&self.proof, &self.public, artifacts)?;
+        Ok(())
+    }
 }
 
 const fn check_unexpired(

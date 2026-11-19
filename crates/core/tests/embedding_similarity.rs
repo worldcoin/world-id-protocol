@@ -18,7 +18,7 @@ use world_id_core::{
     artifacts::{ZkArtifactSource, ZkArtifactSourceExt as _},
     embedding_similarity::{
         EmbeddingSimilarityVerificationError as VerifyError, FlamingoAttestationVerifier,
-        verify_embedding_similarity,
+        check_embedding_similarity, verify_embedding_similarity,
     },
     requests::{ProofRequest, ProofType},
 };
@@ -215,6 +215,18 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         .await,
         Err(VerifyError::IssuerCheck(_))
     ));
+
+    // An RP on an async runtime checks items 2-7, then verifies the proof on a blocking thread.
+    let check = check_embedding_similarity(
+        proof_request,
+        &response,
+        &policy,
+        valid_root,
+        trusted_issuer,
+    )
+    .await?;
+    let blocking_artifacts = Arc::clone(artifacts);
+    tokio::task::spawn_blocking(move || check.verify_proof(blocking_artifacts.as_ref())).await??;
 
     // The proof binds the RP's request: another challenge fails the proof itself.
     let ProofType::EmbeddingSimilarity(params) = &proof_request.proof_type else {
