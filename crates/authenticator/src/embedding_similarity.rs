@@ -262,8 +262,11 @@ fn check_token_answers_request(
 }
 
 /// Maps the token's AAT claims to the values the proof reveals. WIP-202 fixes
-/// `min_build_version` to `0` (§4.4).
+/// `min_build_version` to `0` (§4.4). Bits 62 and above carry no WIP-201 §4.5 sub-field.
 fn aat_public_values(aat: &FlamingoAatClaims) -> Result<AatPublicValues, AuthenticatorError> {
+    if aat.aat_flags >> 62 != 0 {
+        return Err(AuthenticatorError::FlamingoTokenMismatch("aat_flags"));
+    }
     let flags = aat.flags();
     if flags.min_build_version != 0 {
         return Err(AuthenticatorError::FlamingoTokenMismatch(
@@ -523,6 +526,18 @@ mod tests {
             Err(AuthenticatorError::FlamingoTokenMismatch(
                 "min_build_version"
             ))
+        ));
+    }
+
+    #[test]
+    fn reserved_aat_flags_bits_are_rejected() {
+        let aat = FlamingoAatClaims {
+            trust_anchor_key_hash: FieldElement::ZERO,
+            aat_flags: 1 << 62,
+        };
+        assert!(matches!(
+            aat_public_values(&aat),
+            Err(AuthenticatorError::FlamingoTokenMismatch("aat_flags"))
         ));
     }
 

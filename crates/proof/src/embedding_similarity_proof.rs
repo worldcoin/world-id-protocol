@@ -828,7 +828,7 @@ mod input_validation_tests {
 
     #[test]
     fn test_rejects_aat_values_wider_than_their_claims() {
-        // `sec_meta = 19` packs like `sec_meta = 3` with `key_protection` bit 0 set, so the
+        // `sec_meta = 16` packs like `sec_meta = 0` with `key_protection` bit 0 set, so the
         // token signature alone would not catch it.
         let mut input = embedding_similarity_fixture();
         input.aat.as_mut().unwrap().sec_meta = 16;
