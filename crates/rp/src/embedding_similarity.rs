@@ -73,8 +73,10 @@ pub fn nitro_attestation_verifier(
 pub struct AcceptedAatFlags {
     /// The platform.
     pub platform: u8,
-    /// The security level.
-    pub sec_level: u8,
+    /// The integrity level.
+    pub integrity_level: u8,
+    /// The key protection.
+    pub key_protection: u8,
     /// The security metadata.
     pub sec_meta: u8,
     /// The Authenticator metadata.
@@ -85,7 +87,8 @@ impl From<&AatPublicValues> for AcceptedAatFlags {
     fn from(aat: &AatPublicValues) -> Self {
         Self {
             platform: aat.platform,
-            sec_level: aat.sec_level,
+            integrity_level: aat.integrity_level,
+            key_protection: aat.key_protection,
             sec_meta: aat.sec_meta,
             authenticator_meta: aat.authenticator_meta,
         }
@@ -413,9 +416,10 @@ mod tests {
         AatPublicValues {
             trust_anchor_key_hash: FieldElement::from(7u64),
             platform: 1,
-            sec_level: 2,
+            integrity_level: 2,
+            key_protection: 4,
             sec_meta: 3,
-            authenticator_meta: 4,
+            authenticator_meta: 1,
         }
     }
 
@@ -454,15 +458,22 @@ mod tests {
                 "trust_anchor_key_hash"
             ))
         ));
-        let other_flags = AatPublicValues {
-            sec_level: 9,
-            ..aat
-        };
-        assert!(matches!(
-            check_aat(Some(&other_flags), &policy),
-            Err(EmbeddingSimilarityVerificationError::AatNotAccepted(
-                "flags"
-            ))
-        ));
+        for other_flags in [
+            AatPublicValues {
+                integrity_level: 9,
+                ..aat
+            },
+            AatPublicValues {
+                key_protection: 2,
+                ..aat
+            },
+        ] {
+            assert!(matches!(
+                check_aat(Some(&other_flags), &policy),
+                Err(EmbeddingSimilarityVerificationError::AatNotAccepted(
+                    "flags"
+                ))
+            ));
+        }
     }
 }

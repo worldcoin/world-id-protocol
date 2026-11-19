@@ -26,10 +26,12 @@ pub struct FlamingoTokenPublic {
     /// 8-bit.
     pub platform: Field,
     /// 8-bit.
-    pub sec_level: Field,
+    pub integrity_level: Field,
+    /// 8-bit.
+    pub key_protection: Field,
     /// 4-bit.
     pub sec_meta: Field,
-    /// 5-bit; its `user_presence` bits 0-2 are below 5.
+    /// 2-bit.
     pub authenticator_meta: Field,
     /// 32-bit.
     pub min_build_version: Field,
@@ -54,11 +56,10 @@ fn check_well_formed(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
     assert(public.has_aat * (public.has_aat - 1) == 0, "has_aat must be 0 or 1");
     // Each `aat_flags` sub-field fits its slot, so no two claim sets pack to the same flags.
     public.platform.assert_max_bit_size::<8>();
-    public.sec_level.assert_max_bit_size::<8>();
+    public.integrity_level.assert_max_bit_size::<8>();
+    public.key_protection.assert_max_bit_size::<8>();
     public.sec_meta.assert_max_bit_size::<4>();
-    public.authenticator_meta.assert_max_bit_size::<5>();
-    // WIP-106 reserves `user_presence` (bits 0-2 of `authenticator_meta`) values 5 to 7.
-    assert(((public.authenticator_meta as u8) & 7) < 5, "user_presence values 5 to 7 are reserved");
+    public.authenticator_meta.assert_max_bit_size::<2>();
     public.min_build_version.assert_max_bit_size::<32>();
     // One byte per compared entry.
     claims.compare_sources.assert_max_bit_size::<32>();
@@ -67,7 +68,8 @@ fn check_well_formed(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
         assert(
             (public.trust_anchor_key_hash == 0)
                 & (public.platform == 0)
-                & (public.sec_level == 0)
+                & (public.integrity_level == 0)
+                & (public.key_protection == 0)
                 & (public.sec_meta == 0)
                 & (public.authenticator_meta == 0)
                 & (public.min_build_version == 0),
@@ -77,13 +79,14 @@ fn check_well_formed(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
 }
 
 /// `aat_flags`: the TAKT's `sec_flags` layout with `min_build_version` in bits 16-47 and
-/// `authenticator_meta` in bits 52-56. Assumes the widths [`check_well_formed`] enforces.
+/// `authenticator_meta` in bits 60-61. Assumes the widths [`check_well_formed`] enforces.
 fn aat_flags(public: FlamingoTokenPublic) -> Field {
     public.platform
-        + 0x100 * public.sec_level
+        + 0x100 * public.integrity_level
         + 0x10000 * public.min_build_version
         + 0x1000000000000 * public.sec_meta
-        + 0x10000000000000 * public.authenticator_meta
+        + 0x10000000000000 * public.key_protection
+        + 0x1000000000000000 * public.authenticator_meta
 }
 
 /// The signed digest (WIP-201 §4.5): `H_16(DS_WIP_201; ...)` over the 13 claims.

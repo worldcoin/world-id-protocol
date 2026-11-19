@@ -4,8 +4,8 @@ use p256::ecdsa::{Signature, SigningKey};
 use super::*;
 
 /// WIP-106 Appendix A1; shared with `crates/proof/noir/authenticator-assertion/src/tests.nr`.
-const TAKT_HEX: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
-const AAT_HEX: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582006559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a443461503a000138805820000000000000000000000000000000000000000000000000000000000000000a5840c9deddf6657d8d624fc90f035ca1818de26d24aeb9becd946877d7a9f37520ad605b173c60660179227e019370ae9ea824b35f26fefb5b7592b2ab1865263d27";
+const TAKT_HEX: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480033000007d6010258402bb062e9e79a35598f8ad7aa6192b35d236f8deb771882c155d127ab393792af1cd0436b8b8c6663292d2280fb8fd07e1d02fd464a4f1b09a7076c8b05bc3605";
+const AAT_HEX: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582006559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a443461503a000138805820000000000000000000000000000000000000000000000000000000000000000158405fd32b98bf3ecb654cc0a2deed30283bc43900886e5fcc5034a02e94c8b5796eb136beedeee9c601f312604ae64bf73a5deb7942179e2df0cc43df9049f3bcdd";
 const KEY_HASH_HEX: &str = "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
 const CDH_HEX: &str = "06559c686e02e6fdd317c3faf3d3a871f1660465552dc3c15e36290a44346150";
 
@@ -32,13 +32,20 @@ fn cdh() -> FieldElement {
     FieldElement::from_be_bytes(&hex::decode(CDH_HEX).unwrap().try_into().unwrap()).unwrap()
 }
 
-/// User presence `PresentVerified` with provider bits `0b01`.
+/// Provider bits `0b01`.
 fn meta() -> AuthenticatorMeta {
-    AuthenticatorMeta::new(UserPresence::PresentVerified, 0b01).unwrap()
+    AuthenticatorMeta::new(0b01).unwrap()
 }
 
 fn sec_flags() -> SecFlags {
-    SecFlags::new(Platform::Ios.into(), SecLevel::HardwareKey.into(), 2006, 3).unwrap()
+    SecFlags::new(
+        Platform::Ios.into(),
+        IntegrityLevel::PlatformAttested.into(),
+        2006,
+        3,
+        KeyProtection::HardwareReported.into(),
+    )
+    .unwrap()
 }
 
 fn takt() -> TaktClaims {
@@ -79,7 +86,8 @@ fn inputs() -> (
         aud: AUD,
         nonce: 42u64.into(),
         platform: 2,
-        sec_level: 1,
+        integrity_level: 1,
+        key_protection: 3,
         sec_meta: 3,
         authenticator_meta: meta(),
         min_build_version: 2006,
@@ -104,22 +112,22 @@ fn tokens_match_spec_vectors() {
     let signature = trust_anchor_key().sign(*takt().message_hash());
     assert_eq!(
         takt().message_hash().to_string(),
-        "0x17a7e201265aef7edbe89f804b16ff8c98a7f87e1da7ed566bcaa91340053879"
+        "0x287479947525d64bb041dbbbc36462f46ccb75d3be505ab83e69a38ca3299cea"
     );
     assert_eq!(
         signature.s.to_string(),
-        "2397240400038770518390470117102122304061354532851818695499495078413578208938"
+        "2358271662210144119452071820160048538741534859901531750634697046917306896412"
     );
     assert_eq!(
         (signature.r.x.to_string(), signature.r.y.to_string()),
         (
-            "15307277759014775981403811608064749853061020498219662916284177626515398769025".into(),
-            "2390252300984025142885518919517646868494177410033079022009450775404847994778".into()
+            "20421980338803122010777117778973137794948709268084389261502187299763870483274".into(),
+            "21517044705661979807367039403922915424567391340559514125034686868758403919915".into()
         )
     );
     assert_eq!(hex::encode(takt_cwt), TAKT_HEX);
     assert_eq!(hex::encode(aat_cwt()), AAT_HEX);
-    assert_eq!(sec_flags().pack(), 0x0003_0000_07d6_0102);
+    assert_eq!(sec_flags().pack(), 0x0033_0000_07d6_0102);
 }
 
 #[test]
@@ -264,7 +272,12 @@ fn verify_rejects_each_check() {
         Mismatch("sec_flags"),
     );
     check(
-        with_public(&|p| p.sec_level = 3),
+        with_public(&|p| p.integrity_level = 3),
+        &private,
+        Mismatch("sec_flags"),
+    );
+    check(
+        with_public(&|p| p.key_protection = 1),
         &private,
         Mismatch("sec_flags"),
     );
@@ -274,9 +287,7 @@ fn verify_rejects_each_check() {
         Mismatch("sec_flags"),
     );
     check(
-        with_public(&|p| {
-            p.authenticator_meta = AuthenticatorMeta::new(UserPresence::PresentVerified, 0).unwrap()
-        }),
+        with_public(&|p| p.authenticator_meta = AuthenticatorMeta::new(0).unwrap()),
         &private,
         Mismatch("authenticator_meta"),
     );
@@ -324,14 +335,8 @@ fn non_canonical_encodings_rejected() {
         (AuthenticatorAssertionError::InvalidEncoding("AAT claims"))
     );
 
-    // Reserved `user_presence`, reserved `authenticator_meta` bits.
-    let mut presence = aat_cwt.clone();
-    presence[aat_payload + 162] = 5;
-    assert_eq!(
-        decode_aat(&presence).unwrap_err(),
-        (AuthenticatorAssertionError::InvalidField("user_presence"))
-    );
-    for (index, value) in [(162, 0x20), (131, 0x01)] {
+    // Reserved `authenticator_meta` bits.
+    for (index, value) in [(162, 0x04), (131, 0x01)] {
         let mut reserved = aat_cwt.clone();
         reserved[aat_payload + index] = value;
         assert_eq!(
@@ -366,9 +371,9 @@ fn non_canonical_encodings_rejected() {
         Err(AuthenticatorAssertionError::KeyMismatch)
     );
 
-    // TAKT `sec_flags` bit 52.
+    // TAKT `sec_flags` bit 60.
     let mut flags = takt_cwt.clone();
-    flags[TAKT_PAYLOAD + 126] |= 0x10;
+    flags[TAKT_PAYLOAD + 125] |= 0x10;
     assert_eq!(
         TrustAnchorKeyToken::from_cwt(&flags).unwrap_err(),
         (AuthenticatorAssertionError::InvalidField("sec_flags"))
@@ -467,7 +472,7 @@ fn issuance_enforces_lifetimes() {
             exp,
             1u64.into(),
             FieldElement::ZERO,
-            AuthenticatorMeta::new(UserPresence::Undetermined, 0).unwrap(),
+            AuthenticatorMeta::new(0).unwrap(),
         )
     };
     assert_eq!(
@@ -482,7 +487,7 @@ fn issuance_enforces_lifetimes() {
             0xffff,
             1u64.into(),
             FieldElement::ZERO,
-            AuthenticatorMeta::new(UserPresence::Undetermined, 0).unwrap()
+            AuthenticatorMeta::new(0).unwrap()
         ),
         Err(AuthenticatorAssertionError::InvalidField("exp"))
     );
@@ -491,33 +496,41 @@ fn issuance_enforces_lifetimes() {
 #[test]
 fn sec_flags_pack_and_unpack() {
     assert_eq!(
-        SecFlags::new(2, 1, 2006, 0x10),
+        SecFlags::new(2, 1, 2006, 0x10, 3),
         Err(AuthenticatorAssertionError::InvalidField("sec_meta"))
     );
     assert_eq!(SecFlags::unpack(sec_flags().pack()), Ok(sec_flags()));
     assert_eq!(
-        SecFlags::unpack(1 << 52),
+        SecFlags::unpack(1 << 60),
         Err(AuthenticatorAssertionError::InvalidField("sec_flags"))
     );
+    let top = SecFlags::unpack(0x0ff0_0000_0000_0000).unwrap();
+    assert_eq!((top.key_protection(), top.sec_meta()), (0xff, 0));
     // Unknown identifiers pass through for the RP to allowlist.
-    let unknown = SecFlags::unpack(0x0000_0000_07d6_0203).unwrap();
-    assert_eq!((unknown.platform(), unknown.sec_level()), (3, 2));
+    let unknown = SecFlags::unpack(0x0050_0000_07d6_0203).unwrap();
+    assert_eq!(
+        (
+            unknown.platform(),
+            unknown.integrity_level(),
+            unknown.key_protection()
+        ),
+        (3, 2, 5)
+    );
 }
 
 #[test]
-fn presence_round_trips_through_u8() {
-    for value in 0..5u8 {
-        assert_eq!(u8::from(UserPresence::try_from(value).unwrap()), value);
-    }
-    assert_eq!(meta().pack(), 10);
-    assert_eq!(AuthenticatorMeta::unpack(10), Ok(meta()));
+fn authenticator_meta_pack_and_unpack() {
+    assert_eq!(meta().pack(), 1);
+    assert_eq!(AuthenticatorMeta::unpack(1), Ok(meta()));
     assert_eq!(
-        AuthenticatorMeta::new(UserPresence::Undetermined, 4),
-        Err(AuthenticatorAssertionError::InvalidField("provider_bits"))
+        AuthenticatorMeta::unpack(4),
+        Err(AuthenticatorAssertionError::InvalidField(
+            "authenticator_meta"
+        ))
     );
     assert_eq!(
-        UserPresence::try_from(5),
-        Err(AuthenticatorAssertionError::InvalidField("user_presence"))
+        AuthenticatorMeta::new(4),
+        Err(AuthenticatorAssertionError::InvalidField("provider_bits"))
     );
 }
 

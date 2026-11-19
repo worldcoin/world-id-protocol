@@ -24,11 +24,13 @@ pub struct AatPublicValues {
     pub trust_anchor_key_hash: FieldElement,
     /// The platform.
     pub platform: u8,
-    /// The security level.
-    pub sec_level: u8,
+    /// The integrity level.
+    pub integrity_level: u8,
+    /// The key protection.
+    pub key_protection: u8,
     /// The security metadata, 4 bits.
     pub sec_meta: u8,
-    /// The Authenticator metadata, 5 bits.
+    /// The Authenticator metadata, 2 bits.
     pub authenticator_meta: u8,
 }
 
@@ -36,5 +38,5 @@ impl AatPublicValues {
     /// The width of `sec_meta` in bits.
     pub const SEC_META_BITS: u32 = 4;
     /// The width of `authenticator_meta` in bits.
-    pub const AUTHENTICATOR_META_BITS: u32 = 5;
+    pub const AUTHENTICATOR_META_BITS: u32 = 2;
 }

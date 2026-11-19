@@ -80,9 +80,10 @@ fn es_item() -> EmbeddingSimilarityResponseItem {
             aat: Some(AatPublicValues {
                 trust_anchor_key_hash: field(9),
                 platform: 2,
-                sec_level: 1,
+                integrity_level: 1,
+                key_protection: 3,
                 sec_meta: 3,
-                authenticator_meta: 10,
+                authenticator_meta: 1,
             }),
             merkle_root: field(11),
             cred_pk: public_key(2),

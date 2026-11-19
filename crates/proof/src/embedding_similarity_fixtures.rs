@@ -25,7 +25,7 @@ use taceo_oprf::{
     core::oprf::{BlindedOprfResponse, BlindingFactor, client},
     types::OprfKeyId,
 };
-use world_id_flamingo::{DS_SIGN, FlamingoAatClaims, FlamingoClaims};
+use world_id_flamingo::{AatFlags, DS_SIGN, FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, Credential, EmbeddingSimilarityParams, FieldElement, OprfPrefix,
     POH_ISSUER_SCHEMA_ID, ProofRequest, ProofType, RequestItem, RequestVersion, SessionId,
@@ -43,7 +43,8 @@ use crate::{
     circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs},
     embedding_similarity_proof::{
         CHUNK_BYTES, CHUNK_SLOTS, CLAIM_INDEX, COMPARE_SOURCES, DIGEST_HEX_LEN,
-        MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, THUMBNAIL_KEY, flamingo_nonce,
+        MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, THUMBNAIL_KEY, flamingo_aat_claims,
+        flamingo_nonce,
     },
     fixtures::toml_types::{PublicKey, Signature},
 };
@@ -101,17 +102,18 @@ const NOW: u32 = 1_783_446_000;
 const RP_ID: u64 = 1_928_118;
 const NONCE: u64 = 42;
 const PLATFORM: u8 = 2;
-const SEC_LEVEL: u8 = 1;
+const INTEGRITY_LEVEL: u8 = 1;
+const KEY_PROTECTION: u8 = 3;
 const SEC_META: u8 = 3;
-/// `user_presence` 2 with provider bits `0b01`.
-const AUTHENTICATOR_META: u8 = 10;
+/// Provider bits `0b01`.
+const AUTHENTICATOR_META: u8 = 1;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
 const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
-const DIGEST_WITH_AAT: &str = "24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f";
+const DIGEST_WITH_AAT: &str = "2492a71b9b13030ae5b45d035616da00bcc4f48e070079a1fcdf55deec1b299b";
 const DIGEST_WITHOUT_AAT: &str = "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
 /// WIP-201 Appendix A1 "Billed RP": the AAT vector with `billing_nullifier = 7`.
-const DIGEST_BILLED_7: &str = "247f7f653466f20e24fbac90c9c36055c7036d2c8d26c100907164723c7bb118";
+const DIGEST_BILLED_7: &str = "22807948f9c3e75fe556f7a2ad5eb14952d810a4eef82e56975f5cd2decad0d6";
 const CREDENTIAL_IMAGE: &[u8] = b"credential image";
 const LIVE_IMAGE: &[u8] = b"live image";
 const CHALLENGE_IMAGE: &[u8] = b"challenge image";
@@ -183,12 +185,17 @@ fn chunks(bytes: &[u8]) -> Vec<FieldElement> {
     chunks
 }
 
-/// `min_build_version` (bits 16-47) is 0, since WIP-202 fixes it to 0.
+/// `min_build_version` is 0, since WIP-202 fixes it to 0.
 fn aat_flags() -> u64 {
-    u64::from(PLATFORM)
-        + (u64::from(SEC_LEVEL) << 8)
-        + (u64::from(SEC_META) << 48)
-        + (u64::from(AUTHENTICATOR_META) << 52)
+    AatFlags {
+        platform: PLATFORM,
+        integrity_level: INTEGRITY_LEVEL,
+        min_build_version: 0,
+        sec_meta: SEC_META,
+        key_protection: KEY_PROTECTION,
+        authenticator_meta: AUTHENTICATOR_META,
+    }
+    .pack()
 }
 
 /// The fixture request's Flamingo `nonce`.
@@ -313,7 +320,8 @@ struct ProverToml {
     has_aat: bool,
     trust_anchor_key_hash: String,
     platform: String,
-    sec_level: String,
+    integrity_level: String,
+    key_protection: String,
     sec_meta: String,
     authenticator_meta: String,
     engine_config_hash: String,
@@ -498,7 +506,8 @@ fn render() -> Rendered {
         ("NONCE", "Field", NONCE.to_string()),
         ("TRUST_ANCHOR_KEY_HASH", "Field", takh.clone()),
         ("PLATFORM", "u8", PLATFORM.to_string()),
-        ("SEC_LEVEL", "u8", SEC_LEVEL.to_string()),
+        ("INTEGRITY_LEVEL", "u8", INTEGRITY_LEVEL.to_string()),
+        ("KEY_PROTECTION", "u8", KEY_PROTECTION.to_string()),
         ("SEC_META", "u8", SEC_META.to_string()),
         ("AUTHENTICATOR_META", "u8", AUTHENTICATOR_META.to_string()),
         ("ENGINE_CONFIG_HASH", "Field", engine_config_hash.clone()),
@@ -578,7 +587,8 @@ fn render() -> Rendered {
         has_aat: true,
         trust_anchor_key_hash: takh,
         platform: PLATFORM.to_string(),
-        sec_level: SEC_LEVEL.to_string(),
+        integrity_level: INTEGRITY_LEVEL.to_string(),
+        key_protection: KEY_PROTECTION.to_string(),
         sec_meta: SEC_META.to_string(),
         authenticator_meta: AUTHENTICATOR_META.to_string(),
         engine_config_hash,
@@ -739,7 +749,7 @@ fn token_digests_match_the_wip_201_vectors() {
         token_digest(true, NOW, compared(), nonce, FieldElement::from(7_u64)),
         from_hex(DIGEST_BILLED_7)
     );
-    assert_eq!(aat_flags(), 0x00a3_0000_0000_0102);
+    assert_eq!(aat_flags(), 0x1033_0000_0000_0102);
 }
 
 /// Pins the domain separators to the integers hardcoded in the Noir package.
@@ -899,7 +909,8 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
         aat: Some(AatPublicValues {
             trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
             platform: PLATFORM,
-            sec_level: SEC_LEVEL,
+            integrity_level: INTEGRITY_LEVEL,
+            key_protection: KEY_PROTECTION,
             sec_meta: SEC_META,
             authenticator_meta: AUTHENTICATOR_META,
         }),
@@ -977,13 +988,7 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
         ],
         aud: request.rp_id,
         nonce: flamingo_nonce(request.nonce, input.nonce_salt),
-        aat: input.aat.as_ref().map(|aat| FlamingoAatClaims {
-            trust_anchor_key_hash: aat.trust_anchor_key_hash,
-            aat_flags: u64::from(aat.platform)
-                + (u64::from(aat.sec_level) << 8)
-                + (u64::from(aat.sec_meta) << 48)
-                + (u64::from(aat.authenticator_meta) << 52),
-        }),
+        aat: input.aat.as_ref().map(flamingo_aat_claims),
         compare_sources: COMPARE_SOURCES,
         engine_config_hash: input.engine_config_hash,
         billing_nullifier: input.billing_nullifier,

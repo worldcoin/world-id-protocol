@@ -48,10 +48,12 @@ pub struct AuthenticatorAssertionPublicInputs {
     /// Platform of the Authenticator.
     pub platform: u8,
     /// Class of integrity evidence verified at TAKT issuance.
-    pub sec_level: u8,
+    pub integrity_level: u8,
+    /// How the `assertion_key` is protected.
+    pub key_protection: u8,
     /// Provider-defined 4-bit bitmask.
     pub sec_meta: u8,
-    /// User presence (bits 0-2) and provider-defined bits (3-4) the Authenticator reports.
+    /// Provider-defined bits (0-1) the Authenticator reports.
     pub authenticator_meta: u8,
     /// Minimum `build_version` the RP accepts.
     pub min_build_version: u32,
@@ -89,8 +91,7 @@ pub fn verify_assertion(
     private: AuthenticatorAssertionPrivateInputs,
 ) {
     assert(public.nonce != 0, "nonce must not be 0");
-    assert(public.authenticator_meta < 32, "authenticator_meta bits 5 and above are reserved");
-    assert((public.authenticator_meta & 7) < 5, "user_presence values 5 and above are reserved");
+    assert(public.authenticator_meta < 4, "authenticator_meta bits 2 and above are reserved");
 
     let key = private.trust_anchor_key;
     assert(
@@ -132,7 +133,8 @@ pub fn verify_assertion(
     let build_version = assert_sec_flags(
         private.sec_flags,
         public.platform,
-        public.sec_level,
+        public.integrity_level,
+        public.key_protection,
         public.sec_meta,
     );
     assert(build_version >= public.min_build_version, "build_version below minimum");
@@ -259,16 +261,25 @@ fn aat_sig_structure(
     msg
 }
 
-/// Asserts `sec_flags < 2^52` and that it packs LSB-first `platform` (bits 0-7), `sec_level`
-/// (8-15), `build_version` (16-47) and `sec_meta` (48-51). Returns `build_version`, which must
-/// stay private.
-fn assert_sec_flags(sec_flags: Field, platform: u8, sec_level: u8, sec_meta: u8) -> u32 {
-    // Constrains `sec_flags < 2^56`; `bytes[0]` holds bits 48-55.
-    let bytes: [u8; 7] = sec_flags.to_be_bytes();
-    assert(bytes[0] < 16, "sec_flags bits 52 and above are reserved and must be 0");
+/// Asserts `sec_flags < 2^60` and that it packs LSB-first `platform` (bits 0-7),
+/// `integrity_level` (8-15), `build_version` (16-47), `sec_meta` (48-51) and `key_protection`
+/// (52-59). Returns `build_version`, which must stay private.
+fn assert_sec_flags(
+    sec_flags: Field,
+    platform: u8,
+    integrity_level: u8,
+    key_protection: u8,
+    sec_meta: u8,
+) -> u32 {
+    // Constrains `sec_flags < 2^64`; `bytes[0]` holds bits 56-63 and `bytes[1]` bits 48-55.
+    let bytes: [u8; 8] = sec_flags.to_be_bytes();
+    assert(bytes[0] < 16, "sec_flags bits 60 and above are reserved and must be 0");
     assert(
-        (bytes[6] == platform) & (bytes[5] == sec_level) & (bytes[0] == sec_meta),
+        (bytes[7] == platform)
+            & (bytes[6] == integrity_level)
+            & (bytes[1] & 0xf == sec_meta)
+            & (bytes[0] * 16 + (bytes[1] >> 4) == key_protection),
         "sec_flags do not match the public security flags",
     );
-    Field::from_be_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]) as u32
+    Field::from_be_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]) as u32
 }

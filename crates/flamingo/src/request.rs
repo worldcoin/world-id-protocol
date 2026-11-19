@@ -16,8 +16,8 @@ use world_id_primitives::{
 };
 
 use crate::{
-    FlamingoAatClaims, MAX_COMPARED, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES, MAX_PIPELINE_INPUTS,
-    MAX_REQUEST_LIFETIME, REQUEST_VERSION, release_manifest::Pipeline,
+    AatFlags, FlamingoAatClaims, MAX_COMPARED, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES,
+    MAX_PIPELINE_INPUTS, MAX_REQUEST_LIFETIME, REQUEST_VERSION, release_manifest::Pipeline,
 };
 
 /// Why a request could not be encoded, decoded or accepted.
@@ -427,11 +427,15 @@ impl AatInputs {
         verify(&public, &private).map_err(RequestError::AatRejected)?;
         Ok(FlamingoAatClaims {
             trust_anchor_key_hash: public.trust_anchor_key_hash,
-            aat_flags: u64::from(public.platform)
-                | (u64::from(public.sec_level) << 8)
-                | (u64::from(public.min_build_version) << 16)
-                | (u64::from(public.sec_meta) << 48)
-                | (u64::from(public.authenticator_meta.pack()) << 52),
+            aat_flags: AatFlags {
+                platform: public.platform,
+                integrity_level: public.integrity_level,
+                min_build_version: public.min_build_version,
+                sec_meta: public.sec_meta,
+                key_protection: public.key_protection,
+                authenticator_meta: public.authenticator_meta.pack(),
+            }
+            .pack(),
         })
     }
 
@@ -485,8 +489,8 @@ mod tests {
     // WIP-201 Appendix A1, "With an AAT".
     const PAYLOAD: &str = "a66568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d657461406b706970656c696e655f6964016f706970656c696e655f696e707574738101706d617463685f7374726963746e65737302";
     const CDH: &str = "03ca8744a87789b5684fd3569cc3ac735de925464f2cd29e87bdfc2a45591d27";
-    const TAKT: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
-    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582003ca8744a87789b5684fd3569cc3ac735de925464f2cd29e87bdfc2a45591d273a000138805820000000000000000000000000000000000000000000000000000000000000000a58403c24fd0eb59bdcb7ca3177348f69f7ad45affbce19eb3aa85b1a51dcc3499683e84559b276e8bf5d1b6b7e28d2d45dd7ad86eb3e90c09292370f7e2c27feb09f";
+    const TAKT: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480033000007d6010258402bb062e9e79a35598f8ad7aa6192b35d236f8deb771882c155d127ab393792af1cd0436b8b8c6663292d2280fb8fd07e1d02fd464a4f1b09a7076c8b05bc3605";
+    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582003ca8744a87789b5684fd3569cc3ac735de925464f2cd29e87bdfc2a45591d273a000138805820000000000000000000000000000000000000000000000000000000000000000158405456786ba46083bf37fa8417bf05cde5926c16087fec9e9c9be08348d76d463a39932532e72d589cf80551b19b9cae9542de5812d87fc3397cb7bd1b70ce4b0a";
     const TRUST_ANCHOR_KEY_HASH: &str =
         "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
     const COMPARED: [&str; 3] = [
@@ -579,7 +583,7 @@ mod tests {
             claims,
             FlamingoAatClaims {
                 trust_anchor_key_hash: hex_field(TRUST_ANCHOR_KEY_HASH),
-                aat_flags: 0x00a3_0000_0000_0102,
+                aat_flags: 0x1033_0000_0000_0102,
             }
         );
         assert_eq!(request(None).verify_aat(NOW), Ok(None));

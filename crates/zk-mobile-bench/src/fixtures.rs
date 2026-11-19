@@ -11,7 +11,7 @@ use ark_ff::{PrimeField as _, UniformRand};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use rand::{CryptoRng, Rng};
 use sha2::{Digest as _, Sha256};
-use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims};
+use world_id_flamingo::{AatFlags, FlamingoAatClaims, FlamingoClaims};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
     authenticator_assertion::AatPublicValues,
@@ -172,10 +172,11 @@ const NOW: u32 = 1_783_446_000;
 const RP_ID: u64 = 1_928_118;
 const NONCE: u64 = 42;
 const PLATFORM: u8 = 2;
-const SEC_LEVEL: u8 = 1;
+const INTEGRITY_LEVEL: u8 = 1;
+const KEY_PROTECTION: u8 = 3;
 const SEC_META: u8 = 3;
-/// `user_presence` 2 with provider bits `0b01`.
-const AUTHENTICATOR_META: u8 = 10;
+/// Provider bits `0b01`.
+const AUTHENTICATOR_META: u8 = 1;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
 const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
@@ -263,7 +264,8 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
     let aat = AatPublicValues {
         trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
         platform: PLATFORM,
-        sec_level: SEC_LEVEL,
+        integrity_level: INTEGRITY_LEVEL,
+        key_protection: KEY_PROTECTION,
         sec_meta: SEC_META,
         authenticator_meta: AUTHENTICATOR_META,
     };
@@ -281,11 +283,16 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
         nonce: flamingo_nonce(FieldElement::from(NONCE), FieldElement::from(NONCE_SALT)),
         aat: Some(FlamingoAatClaims {
             trust_anchor_key_hash: aat.trust_anchor_key_hash,
-            // `min_build_version` (bits 16-47) is 0, since WIP-202 fixes it to 0.
-            aat_flags: u64::from(PLATFORM)
-                | (u64::from(SEC_LEVEL) << 8)
-                | (u64::from(SEC_META) << 48)
-                | (u64::from(AUTHENTICATOR_META) << 52),
+            aat_flags: AatFlags {
+                platform: PLATFORM,
+                integrity_level: INTEGRITY_LEVEL,
+                // WIP-202 fixes `min_build_version` to 0.
+                min_build_version: 0,
+                sec_meta: SEC_META,
+                key_protection: KEY_PROTECTION,
+                authenticator_meta: AUTHENTICATOR_META,
+            }
+            .pack(),
         }),
         compare_sources: COMPARE_SOURCES,
         engine_config_hash: from_hex(ENGINE_CONFIG_HASH),

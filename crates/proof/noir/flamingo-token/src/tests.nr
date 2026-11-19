@@ -7,10 +7,10 @@ global VERIFIER_KEY: PublicKey = PublicKey {
     y: 8192095922678382794800511095399932292627837066826129560890929861066610234610,
 };
 global SIG_WITH_AAT: Signature = Signature {
-    s: 1974479143804279392582966793003637700370117014073707568489823009312216105805,
+    s: 1969218470857421179612216617885300341933585808705462210241951989030402260427,
     r: [
-        16613254563570858836313967071310512340260378742803372667136760646645052547804,
-        15617754246088094067902926374354607839798802083713556585896183891600075703392,
+        10898103243790445823020157806913554943821302574928683895392306544241075006101,
+        14128763278302702215475356469690679032385742977262314480676182646441392930522,
     ],
 };
 
@@ -23,9 +23,10 @@ fn public() -> FlamingoTokenPublic {
         has_aat: 1,
         trust_anchor_key_hash: 0x14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8,
         platform: 2,
-        sec_level: 1,
+        integrity_level: 1,
+        key_protection: 3,
         sec_meta: 3,
-        authenticator_meta: 10,
+        authenticator_meta: 1,
         min_build_version: 0,
         engine_config_hash: 0x2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d,
     }
@@ -36,7 +37,8 @@ fn public_without_aat() -> FlamingoTokenPublic {
     p.has_aat = 0;
     p.trust_anchor_key_hash = 0;
     p.platform = 0;
-    p.sec_level = 0;
+    p.integrity_level = 0;
+    p.key_protection = 0;
     p.sec_meta = 0;
     p.authenticator_meta = 0;
     p
@@ -59,7 +61,7 @@ fn claims() -> FlamingoTokenClaims {
 fn test_digests_match_the_wip_201_vectors() {
     assert_eq(
         digest(public(), claims()),
-        0x24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f,
+        0x2492a71b9b13030ae5b45d035616da00bcc4f48e070079a1fcdf55deec1b299b,
     );
     assert_eq(
         digest(public_without_aat(), claims()),
@@ -69,7 +71,7 @@ fn test_digests_match_the_wip_201_vectors() {
     billed.billing_nullifier = 7;
     assert_eq(
         digest(public(), billed),
-        0x247f7f653466f20e24fbac90c9c36055c7036d2c8d26c100907164723c7bb118,
+        0x22807948f9c3e75fe556f7a2ad5eb14952d810a4eef82e56975f5cd2decad0d6,
     );
 }
 
@@ -77,7 +79,7 @@ fn test_digests_match_the_wip_201_vectors() {
 fn test_verifies_the_vector_token() {
     assert_eq(
         verify(public(), claims(), SIG_WITH_AAT),
-        0x24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f,
+        0x2492a71b9b13030ae5b45d035616da00bcc4f48e070079a1fcdf55deec1b299b,
     );
 }
 
@@ -109,10 +111,17 @@ fn test_rejects_aat_values_without_an_aat() {
     let _ = verify(p, claims(), SIG_WITH_AAT);
 }
 
-#[test(should_fail_with = "user_presence values 5 to 7 are reserved")]
-fn test_rejects_a_reserved_user_presence() {
+#[test(should_fail_with = "call to assert_max_bit_size")]
+fn test_rejects_a_wide_authenticator_meta() {
     let mut p = public();
-    p.authenticator_meta = 13;
+    p.authenticator_meta = 4;
+    let _ = verify(p, claims(), SIG_WITH_AAT);
+}
+
+#[test(should_fail_with = "call to assert_max_bit_size")]
+fn test_rejects_a_key_protection_beyond_8_bits() {
+    let mut p = public();
+    p.key_protection = 0x103;
     let _ = verify(p, claims(), SIG_WITH_AAT);
 }
 

@@ -262,8 +262,11 @@ fn check_token_answers_request(
 }
 
 /// Maps the token's AAT claims to the values the proof reveals. WIP-202 fixes
-/// `min_build_version` to `0` (§4.4).
+/// `min_build_version` to `0` (§4.4). Bits 62 and above carry no WIP-201 §4.5 sub-field.
 fn aat_public_values(aat: &FlamingoAatClaims) -> Result<AatPublicValues, AuthenticatorError> {
+    if aat.aat_flags >> 62 != 0 {
+        return Err(AuthenticatorError::FlamingoTokenMismatch("aat_flags"));
+    }
     let flags = aat.flags();
     if flags.min_build_version != 0 {
         return Err(AuthenticatorError::FlamingoTokenMismatch(
@@ -273,7 +276,8 @@ fn aat_public_values(aat: &FlamingoAatClaims) -> Result<AatPublicValues, Authent
     Ok(AatPublicValues {
         trust_anchor_key_hash: aat.trust_anchor_key_hash,
         platform: flags.platform,
-        sec_level: flags.sec_level,
+        integrity_level: flags.integrity_level,
+        key_protection: flags.key_protection,
         sec_meta: flags.sec_meta,
         authenticator_meta: flags.authenticator_meta,
     })
@@ -496,16 +500,17 @@ mod tests {
     fn aat_flags_unpack_into_the_public_values() {
         let aat = FlamingoAatClaims {
             trust_anchor_key_hash: FieldElement::from(7u64),
-            aat_flags: 2 + (3 << 8) + (0xA << 48) + (0x13 << 52),
+            aat_flags: 2 + (3 << 8) + (0xA << 48) + (0x14 << 52) + (0x1 << 60),
         };
         assert_eq!(
             aat_public_values(&aat).unwrap(),
             AatPublicValues {
                 trust_anchor_key_hash: FieldElement::from(7u64),
                 platform: 2,
-                sec_level: 3,
+                integrity_level: 3,
+                key_protection: 0x14,
                 sec_meta: 0xA,
-                authenticator_meta: 0x13,
+                authenticator_meta: 0x1,
             }
         );
     }
@@ -521,6 +526,18 @@ mod tests {
             Err(AuthenticatorError::FlamingoTokenMismatch(
                 "min_build_version"
             ))
+        ));
+    }
+
+    #[test]
+    fn reserved_aat_flags_bits_are_rejected() {
+        let aat = FlamingoAatClaims {
+            trust_anchor_key_hash: FieldElement::ZERO,
+            aat_flags: 1 << 62,
+        };
+        assert!(matches!(
+            aat_public_values(&aat),
+            Err(AuthenticatorError::FlamingoTokenMismatch("aat_flags"))
         ));
     }
 
