@@ -1,6 +1,6 @@
 //! The HTTP routes.
 
-use std::sync::Arc;
+use std::{num::NonZeroUsize, sync::Arc};
 
 use axum::{
     Json, Router,
@@ -11,7 +11,7 @@ use axum::{
 use world_id_primitives::api_types::HealthResponse;
 use world_id_rp::embedding_similarity::FlamingoAttestationVerifier;
 
-use crate::{error::ApiError, registries::Registries, server::AppState};
+use crate::{registries::Registries, server::AppState};
 
 mod embedding_similarity;
 
@@ -21,13 +21,8 @@ mod embedding_similarity;
 /// - `GET /health` answers once the sidecar serves. It checks no dependency: a registry outage
 ///   answers verifications `503` instead, so it does not take the caller's pod out of service.
 ///
-/// Requests longer than `request_timeout_secs` are answered `503 timeout`, and bodies larger
-/// than `max_body_bytes` `413 body_too_large`.
-pub fn router<A, R>(
-    state: AppState<A, R>,
-    request_timeout_secs: u64,
-    max_body_bytes: usize,
-) -> Router
+/// Bodies larger than `max_body_bytes` are answered `413 body_too_large`.
+pub fn router<A, R>(state: AppState<A, R>, max_body_bytes: NonZeroUsize) -> Router
 where
     A: FlamingoAttestationVerifier + Send + Sync + 'static,
     R: Registries,
@@ -39,13 +34,9 @@ where
         )
         .route("/health", get(health))
         .with_state(Arc::new(state))
-        .layer(DefaultBodyLimit::max(max_body_bytes))
+        .layer(DefaultBodyLimit::max(max_body_bytes.get()))
         .layer(from_fn(
             world_id_services_common::request_latency_middleware,
-        ))
-        .layer(world_id_services_common::timeout_layer(
-            request_timeout_secs,
-            ApiError::timeout(request_timeout_secs),
         ))
         .layer(world_id_services_common::trace_layer())
 }

@@ -2,7 +2,7 @@
 
 A local HTTP service that verifies [WIP-202](../../docs/WIPs/wip-202.md) Proofs of Embedding Similarity for a Relying Party. It wraps [`world-id-rp`](../../crates/rp) so that services written in Node, Go or other languages can verify proofs without building Rust.
 
-It runs next to the RP's service, for example as a Kubernetes sidecar container, and listens on loopback only. It has no authentication, so it must not be reachable from outside its pod.
+It runs next to the RP's service, for example as a sidecar container in its Kubernetes pod or ECS task, and listens on loopback only. It has no authentication, so it must not be reachable from outside its pod.
 
 ## What the caller must do
 
@@ -30,8 +30,8 @@ Every answer carries a `result`. Only `200` means the proof was accepted:
 
 | Status | `result` | Meaning | Retry? |
 | --- | --- | --- | --- |
-| `200` | `accepted` | The proof is valid for the request and the RP's policy. Consume the nonce now. | — |
-| `400`, `413` | `invalid` | The body is not a verification of a WIP-202 request. | No |
+| `200` | `accepted` | The proof is valid for the request and the RP's policy. Consume the stored request now. | — |
+| `400`, `413` | `invalid` | The body is not a verification of a valid WIP-202 request. | No |
 | `422` | `rejected` | The proof does not satisfy the request or the policy. | No |
 | `503` | `unavailable` | No verdict was reached: a registry was unreachable, every verification slot was busy, or the request timed out. Has `Retry-After`. | Yes, with backoff and jitter |
 | `500` | `internal` | The sidecar failed. | No |
@@ -47,7 +47,7 @@ Answers other than `200` also carry a stable `code` and a `message`:
 | `invalid_body`, `body_too_large`, `not_embedding_similarity`, `invalid_request` | `invalid` |
 | `response_mismatch`, `request_expired`, `attestation_not_accepted`, `attested_key_mismatch`, `engine_not_accepted`, `stale_proof`, `invalid_root`, `untrusted_issuer_key`, `aat_required`, `aat_not_accepted`, `invalid_proof` | `rejected` |
 | `root_check_failed`, `issuer_check_failed`, `overloaded`, `timeout` | `unavailable` |
-| `clock`, `proof_verifier`, `verification_panicked` | `internal` |
+| `clock_error`, `proof_verifier_failed`, `verification_panicked` | `internal` |
 
 ### `GET /health`
 
@@ -58,16 +58,25 @@ Answers `200` once the sidecar serves. It checks no dependency. A registry outag
 | Variable | Default | Description |
 | --- | --- | --- |
 | `POLICY_PATH` | required | The RP's policy file, see below. |
-| `RPC_URL` | required | World Chain JSON-RPC endpoints, comma-separated, in priority order. |
+| `RPC_URL` | required | World Chain JSON-RPC endpoints, comma-separated. Every call goes to all of them, and the first successful answer wins. |
 | `WORLD_ID_REGISTRY_ADDRESS` | required | The `WorldIDRegistry` proxy. |
 | `CREDENTIAL_SCHEMA_ISSUER_REGISTRY_ADDRESS` | required | The `CredentialSchemaIssuerRegistry` proxy. |
 | `LISTEN_ADDR` | `127.0.0.1:9202` | Keep it on loopback. |
-| `MAX_CONCURRENT_VERIFICATIONS` | available CPUs | Proof verifications that may run at once. Requests beyond this are answered `503 overloaded`; they are not queued. |
-| `REQUEST_TIMEOUT_SECS` | `30` | The longest one request may take. |
+| `MAX_CONCURRENT_VERIFICATIONS` | available CPUs | Verifications that may run at once, each on its own thread from the registry reads to the proof verification. Requests beyond this are answered `503 overloaded` at once; they are not queued. |
+| `REQUEST_TIMEOUT_SECS` | `30` | The deadline of one verification. A verification that misses it is answered `503 timeout` and runs to its end in the background. |
 | `MAX_BODY_BYTES` | `8388608` | The largest request body accepted. |
-| `RPC_MAX_RETRIES`, `RPC_INITIAL_BACKOFF_MS`, `RPC_MAX_BACKOFF_MS`, `RPC_TIMEOUT_SECS` | see `world-id-services-common` | Bounded retries with backoff for the registry reads. |
+| `RPC_TIMEOUT_SECS` | `3` | The timeout of one JSON-RPC attempt. |
+| `RPC_MAX_RETRIES` | `2` | Retries of a failed JSON-RPC call, with exponential backoff and jitter. |
+| `RPC_INITIAL_BACKOFF_MS`, `RPC_MAX_BACKOFF_MS` | `100`, `1000` | The first and the longest backoff between retries. |
 
-The registry addresses for each environment are in [`contracts/deployments/core`](../../contracts/deployments/core). Every verification reads both registries, so a revoked root or a rotated Issuer key takes effect immediately.
+The registry addresses for each environment are in [`contracts/deployments/core`](../../contracts/deployments/core). Every verification reads both registries, one after the other, so a revoked root or a rotated Issuer key takes effect immediately. The RPC defaults let both reads finish within `REQUEST_TIMEOUT_SECS` even when every attempt times out. Keep that true when you change them, or registry outages show up as `timeout` instead of `root_check_failed` or `issuer_check_failed`. Errors name the RPC endpoints by host only, so an API key in an `RPC_URL` path does not reach logs or responses.
+
+Telemetry is configured through [`telemetry-batteries`](https://crates.io/crates/telemetry-batteries):
+- `TELEMETRY_PRESET`: for example `datadog`, which also needs `TELEMETRY_SERVICE_NAME`.
+- `RUST_LOG`
+- `TELEMETRY_METRICS_BACKEND`: `statsd` with `TELEMETRY_STATSD_HOST` and `TELEMETRY_STATSD_PORT`, or `prometheus`.
+
+Metrics are off unless `TELEMETRY_METRICS_BACKEND` is set. The Prometheus exporter listens on `0.0.0.0:9090` unless `TELEMETRY_PROMETHEUS_LISTEN` says otherwise.
 
 ### Policy
 
@@ -75,21 +84,28 @@ The policy file holds what the RP accepts beyond its own request ([WIP-202 §4.8
 
 | Field | Description |
 | --- | --- |
-| `issuer_version` | The `issuer_version` of the PoH Credential. |
+| `issuer_version` | The `issuer_version` of the Proof of Human Credential. |
 | `flamingo_verifiers` | The PCR0–2 of each Flamingo Verifier enclave image accepted (WIP-201 §4.7 check 1), as hex. |
 | `engine_config_hashes` | The Engine configurations accepted (WIP-201 §4.7 check 6), as field elements. |
 | `aat.required` | Whether proofs without an Authenticator Assertion are rejected. |
 | `aat.trust_anchor_key_hashes`, `aat.accepted_flags` | The AAT values accepted ([WIP-106 §4](../../docs/WIPs/wip-106.md)). Both must be empty, or both must be set. With both empty, only proofs without an AAT are accepted. |
 
-The sidecar refuses to start with a policy that has unknown fields, an all-zero PCR0, no Flamingo Verifier or no Engine configuration. Each Flamingo Verifier or Engine release changes these values. Add a new release's values before Flamingo starts serving it, and remove the old values afterwards.
+The sidecar refuses to start with a policy that:
+- has unknown fields
+- has an all-zero PCR0
+- accepts no Flamingo Verifier or no Engine configuration
+- requires an AAT but accepts none
+
+Keep these points in mind:
+- **Engine hashes.** Each one is `engine_config_hash(release_hash, pipeline_id, match_strictness)` for a release manifest the RP verified under an active key of the manifest's `iss`. `world_id_rp::embedding_similarity::accepted_engine_configs` computes them. Remove a release's hashes when its manifest or key is revoked.
+- **AAT requirement.** `aat.required` decides whether an AAT is required, whatever the request's own `aat` says. An RP that asks for an AAT in its requests must also set it here.
+- **Releases.** Each Flamingo Verifier or Engine release changes these values. Add a new release's values before Flamingo starts serving it, and remove the old values afterwards.
 
 ## Deployment
 
-Images are published to `ghcr.io/worldcoin/world-id-protocol/world-id-rp-sidecar`, tagged `world-id-rp-sidecar-v<version>`. Pin the digest.
+The image embeds the verifier of one WIP-202 circuit version: the version of the `world-id-proof` it is built with. Proofs from Authenticators on another circuit version are rejected with `invalid_proof`. Pin an image built with the version the Authenticators prove with, and upgrade the two together.
 
-The image embeds the verifier of one WIP-202 circuit version: that of the `world-id-proof` it is built with. Proofs from Authenticators on another circuit version are rejected with `invalid_proof`. Pin an image built with the version the Authenticators prove with, and upgrade it together with them.
-
-Run the sidecar as a [native sidecar](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/) so that it starts before the app container and stops after it. The app can then finish verifications while it drains:
+Run the sidecar as a [native sidecar](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/), so that it starts before the app container and stops after it. The app can then finish verifications while it drains:
 
 ```yaml
 initContainers:
@@ -106,25 +122,30 @@ initContainers:
         value: "<from contracts/deployments/core>"
       - name: CREDENTIAL_SCHEMA_ISSUER_REGISTRY_ADDRESS
         value: "<from contracts/deployments/core>"
-    startupProbe:
-      httpGet: { path: /health, port: 9202 }
     volumeMounts:
       - { name: world-id-rp-sidecar-policy, mountPath: /etc/world-id-rp-sidecar }
 ```
 
-On ECS, add the sidecar to the app's task definition. Containers in an `awsvpc` task share `127.0.0.1`. Make the app container `dependsOn` the sidecar, so the sidecar starts first and stops last. The image has no shell, so the task cannot run a container health check against it; until it can, the app should retry `503`s and connection errors during startup.
+On ECS, add the sidecar to the app's task definition. Containers in an `awsvpc` task share `127.0.0.1`. Make the app container `dependsOn` the sidecar, so that the sidecar starts first and stops last.
 
-Proof verification is CPU-bound. Set the container's CPU and memory from a measured verification, and set `MAX_CONCURRENT_VERIFICATIONS` to match the CPU limit.
+Neither platform can probe the sidecar:
+- A kubelet probe connects to the pod IP, not to loopback.
+- The image has no shell for an ECS container health check.
+
+So the app should retry connection errors and `503`s for the few seconds the sidecar needs to start.
+
+Verification is CPU-bound. Size the container from `embedding_similarity.proof_verification_ms`, and set `MAX_CONCURRENT_VERIFICATIONS` to match its CPU limit.
 
 ## Observability
 
 | Metric | Description |
 | --- | --- |
-| `embedding_similarity.verifications{result,code}` | Every verification, by outcome. |
-| `http.latency_ms` | Request latency per route and status. |
-| `rpc.endpoint_requests`, `rpc.endpoint_latency_ms` | Registry reads per RPC endpoint. |
+| `embedding_similarity.verifications{result,code}` | Every verification, by outcome. `code` is `accepted` for accepted proofs. |
+| `embedding_similarity.proof_verification_ms` | The duration of the zero-knowledge proof verification alone. |
+| `http.latency_ms{route,method,status_class}` | Request latency. |
+| `rpc.endpoint_requests`, `rpc.endpoint_latency_ms` | Registry reads per RPC endpoint host. |
 
-`unavailable` outcomes are logged at `warn` and `internal` outcomes at `error`. Rejections are counted but not logged, because the caller receives their reason.
+`unavailable` outcomes other than `overloaded` are logged at `warn`, and `internal` outcomes at `error`. Rejections and shed requests are counted, not logged: the caller receives the reason for a rejection, and logging every shed request would add load during an overload.
 
 ## Development
 
@@ -134,4 +155,6 @@ Proof verification is CPU-bound. Set the container's CPU and memory from a measu
 nix develop --command cargo test -p world-id-rp-sidecar
 ```
 
-ProveKit checks a transcript pattern only in debug builds, and a forged proof without that pattern makes it panic. The sidecar runs each verification on its own blocking thread, so such a panic becomes a `500 verification_panicked` and does not take the sidecar down. Release builds compile that check out and reject the proof with `invalid_proof`.
+Run the sidecar in a release build to verify real proofs, for example `cargo run --release -p world-id-rp-sidecar`. In debug builds, ProveKit checks the prover's transcript pattern, which no proof carries after serialization, so every proof received over the API panics the verifier. The sidecar answers that with `500 verification_panicked` and keeps serving.
+
+`.env.example` lists the variables for a local run.

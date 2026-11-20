@@ -4,11 +4,7 @@
 //! Verifier enclaves, the Engine configurations, the AAT values and the Credential's
 //! `issuer_version`. See `policy.example.json`.
 
-use std::{
-    collections::HashSet,
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{collections::HashSet, fs, path::Path};
 
 use pontifex::attestation::{self, PCR_LENGTH, PcrConfig};
 use serde::{Deserialize, Deserializer};
@@ -21,13 +17,8 @@ use world_id_rp::embedding_similarity::{
 #[derive(Debug, thiserror::Error)]
 pub enum PolicyError {
     /// The file could not be read.
-    #[error("failed to read the policy at {path}: {source}")]
-    Read {
-        /// The policy's path.
-        path: PathBuf,
-        /// The read error.
-        source: std::io::Error,
-    },
+    #[error("failed to read the policy: {0}")]
+    Read(#[from] std::io::Error),
     /// The file is not a policy document.
     #[error("invalid policy: {0}")]
     Parse(#[from] serde_json::Error),
@@ -55,11 +46,7 @@ pub enum PolicyError {
 /// # Errors
 /// The file cannot be read or is not a valid policy, see [`parse`].
 pub fn load(path: &Path) -> Result<EmbeddingSimilarityPolicy<attestation::Verifier>, PolicyError> {
-    let json = fs::read_to_string(path).map_err(|source| PolicyError::Read {
-        path: path.to_owned(),
-        source,
-    })?;
-    parse(&json)
+    parse(&fs::read_to_string(path)?)
 }
 
 /// Parses a policy document.

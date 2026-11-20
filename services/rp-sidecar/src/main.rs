@@ -2,7 +2,7 @@
 //! services not written in Rust can use `world-id-rp` without building it.
 //!
 //! The sidecar is stateless: the caller keeps each [`ProofRequest`] it issued, sends it with the
-//! proof, and consumes the request's `nonce` once a proof is accepted. See the README.
+//! proof, and consumes the stored request once a proof is accepted. See the README.
 //!
 //! [`ProofRequest`]: world_id_primitives::ProofRequest
 #![recursion_limit = "256"]
@@ -21,6 +21,8 @@ mod policy;
 mod registries;
 mod routes;
 mod server;
+#[cfg(test)]
+mod test_support;
 
 #[tokio::main]
 async fn main() -> eyre::Result<()> {

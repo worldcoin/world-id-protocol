@@ -1,6 +1,6 @@
 //! Startup, shared state and shutdown.
 
-use std::{num::NonZeroUsize, sync::Arc, thread};
+use std::{num::NonZeroUsize, sync::Arc, thread, time::Duration};
 
 use eyre::WrapErr as _;
 use tokio::{net::TcpListener, sync::Semaphore};
@@ -10,7 +10,7 @@ use world_id_proof::artifacts::{
 use world_id_rp::embedding_similarity::EmbeddingSimilarityPolicy;
 use world_id_services_common::ProviderArgs;
 
-use crate::{Config, policy, registries::OnchainRegistries, routes::router};
+use crate::{config::Config, policy, registries::OnchainRegistries, routes::router};
 
 /// Serves the sidecar until SIGTERM or Ctrl-C, then finishes in-flight requests.
 ///
@@ -25,17 +25,23 @@ pub async fn run(config: Config) -> eyre::Result<()> {
         );
     }
 
-    let policy = policy::load(&config.policy_path)?;
+    let policy = policy::load(&config.policy_path).wrap_err_with(|| {
+        format!(
+            "failed to load the policy at {}",
+            config.policy_path.display()
+        )
+    })?;
     let artifacts = load_artifacts()?;
     let provider = ProviderArgs {
-        http: config.rpc_urls,
-        retry: config.rpc_retry,
+        http: config.rpc_urls.clone(),
+        retry: config.rpc_retry(),
         ..ProviderArgs::default()
     }
     .http()
     .await?;
     let registries = OnchainRegistries::new(
         provider,
+        &config.rpc_urls,
         config.world_id_registry,
         config.credential_schema_issuer_registry,
     );
@@ -43,8 +49,14 @@ pub async fn run(config: Config) -> eyre::Result<()> {
         .max_concurrent_verifications
         .unwrap_or_else(|| thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
 
-    let state = AppState::new(policy, registries, artifacts, max_concurrent_verifications);
-    let app = router(state, config.request_timeout_secs, config.max_body_bytes);
+    let state = AppState::new(
+        policy,
+        registries,
+        artifacts,
+        max_concurrent_verifications,
+        config.request_timeout(),
+    );
+    let app = router(state, config.max_body_bytes);
     let listener = TcpListener::bind(config.listen_addr)
         .await
         .wrap_err_with(|| format!("failed to bind {}", config.listen_addr))?;
@@ -56,27 +68,35 @@ pub async fn run(config: Config) -> eyre::Result<()> {
 
 /// What the routes verify proofs with.
 pub struct AppState<A, R> {
+    /// What the RP accepts beyond its own request.
     pub policy: EmbeddingSimilarityPolicy<A>,
+    /// Where roots and Issuer keys are checked.
     pub registries: R,
+    /// The embedding-similarity verifier.
     pub artifacts: Arc<dyn ZkArtifactSource>,
-    /// One permit per proof verification that may run at once.
-    pub proof_verifications: Arc<Semaphore>,
+    /// One permit per verification that may run at once, each on its own blocking thread.
+    pub verification_slots: Arc<Semaphore>,
+    /// How long one verification may take.
+    pub request_timeout: Duration,
 }
 
 impl<A, R> AppState<A, R> {
     /// Verifies proofs under `policy`, against `registries`, with the verifier from `artifacts`,
-    /// running at most `max_concurrent_verifications` proof verifications at once.
+    /// running at most `max_concurrent_verifications` verifications at once, each for at most
+    /// `request_timeout`.
     pub fn new(
         policy: EmbeddingSimilarityPolicy<A>,
         registries: R,
         artifacts: Arc<dyn ZkArtifactSource>,
         max_concurrent_verifications: NonZeroUsize,
+        request_timeout: Duration,
     ) -> Self {
         Self {
             policy,
             registries,
             artifacts,
-            proof_verifications: Arc::new(Semaphore::new(max_concurrent_verifications.get())),
+            verification_slots: Arc::new(Semaphore::new(max_concurrent_verifications.get())),
+            request_timeout,
         }
     }
 }
