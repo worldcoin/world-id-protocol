@@ -44,7 +44,6 @@ fn main(
     // World ID and Credential
     merkle_root: pub Field,
     issuer_schema_id: pub Field,
-    issuer_version: pub Field,
     cred_pk: pub PublicKey,
     genesis_issued_at_min: pub Field,
     expires_at_min: pub Field,
@@ -105,9 +104,10 @@ fn main(
     // 5. Session commitment.
     session::verify(session_id, leaf_index, inputs.session_id_r);
 
-    // 6. Credential verification.
+    // 6. Credential verification. The PoH `issuer_version` stays private.
     let claims = credential::verify(
-        CredentialPublic { cred_pk, issuer_schema_id, issuer_version, genesis_issued_at_min },
+        CredentialPublic { cred_pk, issuer_schema_id, genesis_issued_at_min },
+        inputs.issuer_version,
         now as Field,
         leaf_index,
         inputs.credential,

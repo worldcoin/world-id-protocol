@@ -7,7 +7,7 @@ use crate::{
         AUTH_SIG_BILLED_OTHER_RP, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTH_SIG_RP_NONCE,
         AUTHENTICATOR_META, BILLING_ACTION, BILLING_NULLIFIER, BILLING_NULLIFIER_OTHER_LEAF,
         BILLING_NULLIFIER_OTHER_RP, BILLING_OPRF_OUTPUT, CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK,
-        CRED_SIG, DIGEST_OFFSET, ENGINE_CONFIG_HASH, EXPIRES_AT, EXPIRES_AT_MIN,
+        CRED_SIG, CRED_SIG_VERSION_0, DIGEST_OFFSET, ENGINE_CONFIG_HASH, EXPIRES_AT, EXPIRES_AT_MIN,
         FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS,
         HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH,
         MERKLE_ROOT, NONCE, NONCE_SALT, NOW, PLATFORM, RP_ID, SEC_LEVEL, SEC_META, SESSION_ID,
@@ -88,6 +88,7 @@ fn inputs() -> PrivateInputs {
             id: CRED_ID,
             sig: CRED_SIG,
         },
+        issuer_version: ISSUER_VERSION,
         hashes_json: HashesJsonInputs {
             chunks: HASHES_JSON_CHUNKS,
             len: HASHES_JSON_LEN,
@@ -117,7 +118,6 @@ fn prove(p: Public, inputs: PrivateInputs) {
         p.authenticator_meta,
         MERKLE_ROOT,
         ISSUER_SCHEMA_ID,
-        ISSUER_VERSION,
         CRED_PK,
         p.genesis_issued_at_min,
         p.expires_at_min,
@@ -382,6 +382,21 @@ fn test_rejects_a_credential_expiring_before_the_minimum() {
     let mut p = public();
     p.expires_at_min = EXPIRES_AT;
     prove(p, inputs());
+}
+
+#[test]
+fn test_accepts_any_issuer_version_the_issuer_signed() {
+    let mut inputs = inputs();
+    inputs.issuer_version = 0;
+    inputs.credential.sig = CRED_SIG_VERSION_0;
+    prove(public(), inputs);
+}
+
+#[test(should_fail_with = "invalid credential signature")]
+fn test_rejects_an_issuer_version_the_issuer_did_not_sign() {
+    let mut inputs = inputs();
+    inputs.issuer_version = 0;
+    prove(public(), inputs);
 }
 
 #[test]
