@@ -1,7 +1,7 @@
 //! Metric names and descriptions.
 
-/// Verifications by `result` (`accepted`, `invalid`, `rejected`, `unavailable`, `internal`) and
-/// `code`, which is `accepted` for accepted proofs.
+/// Verifications by `result` (`accepted`, `invalid`, `rejected`, `unavailable`, `internal`,
+/// `abandoned`) and `code`, which is `accepted` or `abandoned` for those two results.
 pub const METRICS_EMBEDDING_SIMILARITY_VERIFICATIONS: &str = "embedding_similarity.verifications";
 
 /// The duration of the zero-knowledge proof verification alone, which sizes the container.

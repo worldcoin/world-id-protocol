@@ -246,9 +246,6 @@ impl Code {
     }
 }
 
-/// The `result`, and the metric's `code`, of an accepted proof.
-pub const ACCEPTED: &str = "accepted";
-
 /// The response's `result` for a [`Code`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Failure {

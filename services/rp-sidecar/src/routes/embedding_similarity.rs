@@ -14,7 +14,7 @@ use world_id_primitives::{ProofRequest, ProofResponse};
 use world_id_rp::embedding_similarity::{FlamingoAttestationVerifier, check_embedding_similarity};
 
 use crate::{
-    error::{ACCEPTED, ApiError, Code, Failure},
+    error::{ApiError, Code, Failure},
     metrics::{
         METRICS_EMBEDDING_SIMILARITY_PROOF_VERIFICATION_MS,
         METRICS_EMBEDDING_SIMILARITY_VERIFICATIONS,
@@ -44,12 +44,12 @@ where
     A: FlamingoAttestationVerifier + Send + Sync + 'static,
     R: Registries,
 {
-    let unanswered = AbandonGuard::new();
+    let abandon_guard = AbandonGuard::new();
     let result = match body {
         Ok(Json(body)) => verify_in_slot(state, body).await,
         Err(rejection) => Err(ApiError::from(rejection)),
     };
-    unanswered.disarm();
+    abandon_guard.disarm();
     report(result.as_ref().err());
     match result {
         Ok(()) => Json(json!({ "result": ACCEPTED })).into_response(),
@@ -116,19 +116,15 @@ where
     Ok(verified?)
 }
 
-/// Counts every verification, and logs those that reached no verdict because a dependency or
-/// the sidecar failed. Rejections and shed requests are only counted: rejections reach the
-/// caller with their reason, and logging every shed request would add load when overloaded.
+/// Counts every answered verification, and logs those that reached no verdict because a
+/// dependency or the sidecar failed. Rejections and shed requests are only counted: rejections
+/// reach the caller with their reason, and logging every shed request would add load when
+/// overloaded.
 fn report(error: Option<&ApiError>) {
-    let (result, code) = error.map_or((ACCEPTED, ACCEPTED), |error| {
-        (error.code().failure().as_str(), error.code().as_str())
-    });
-    metrics::counter!(
-        METRICS_EMBEDDING_SIMILARITY_VERIFICATIONS,
-        "result" => result,
-        "code" => code,
-    )
-    .increment(1);
+    match error {
+        None => count(ACCEPTED, ACCEPTED),
+        Some(error) => count(error.code().failure().as_str(), error.code().as_str()),
+    }
 
     let Some(error) = error else {
         return;
@@ -153,7 +149,7 @@ fn report(error: Option<&ApiError>) {
     }
 }
 
-/// Counts a verification as `abandoned` when the caller hangs up before the answer, which drops
+/// Counts a verification as `abandoned` when its caller hangs up before the answer, which drops
 /// the handler before [`report`] runs.
 struct AbandonGuard {
     armed: bool,
@@ -172,18 +168,24 @@ impl AbandonGuard {
 impl Drop for AbandonGuard {
     fn drop(&mut self) {
         if self.armed {
-            metrics::counter!(
-                METRICS_EMBEDDING_SIMILARITY_VERIFICATIONS,
-                "result" => ABANDONED,
-                "code" => ABANDONED,
-            )
-            .increment(1);
+            count(ABANDONED, ABANDONED);
         }
     }
 }
 
+/// The `result`, and the metric's `code`, of an accepted proof.
+const ACCEPTED: &str = "accepted";
 /// The metric's `result` and `code` of a verification whose caller hung up.
 const ABANDONED: &str = "abandoned";
+
+fn count(result: &'static str, code: &'static str) {
+    metrics::counter!(
+        METRICS_EMBEDDING_SIMILARITY_VERIFICATIONS,
+        "result" => result,
+        "code" => code,
+    )
+    .increment(1);
+}
 
 #[cfg(test)]
 mod tests {
@@ -212,7 +214,7 @@ mod tests {
         registries::{Registries, RegistryError},
         routes::router,
         server::AppState,
-        test_support::{Answer, KeyAsAttestation, post_verification, post_verify},
+        test_support::{Answer, KeyAsAttestation, post_body, post_verification},
     };
 
     const ENGINE_CONFIG_HASH: u64 = 10;
@@ -349,7 +351,7 @@ mod tests {
         Fixture { request, response }
     }
 
-    async fn verify(app: Router, fixture: &Fixture) -> Answer {
+    async fn post_fixture(app: Router, fixture: &Fixture) -> Answer {
         post_verification(app, &fixture.request, &fixture.response).await
     }
 
@@ -359,8 +361,8 @@ mod tests {
     async fn an_invalid_proof_is_not_accepted_and_frees_its_slot() {
         let app = app(FixedRegistries::Trusting);
 
-        let first = verify(app.clone(), &fixture()).await;
-        let second = verify(app, &fixture()).await;
+        let first = post_fixture(app.clone(), &fixture()).await;
+        let second = post_fixture(app, &fixture()).await;
 
         if cfg!(debug_assertions) {
             assert_eq!(first.status, StatusCode::INTERNAL_SERVER_ERROR);
@@ -408,7 +410,7 @@ mod tests {
         let mut fixture = fixture();
         change(&mut fixture);
 
-        let answer = verify(app(registries), &fixture).await;
+        let answer = post_fixture(app(registries), &fixture).await;
 
         assert_eq!(answer.status, status);
         assert_eq!(answer.body["code"], code);
@@ -425,7 +427,7 @@ mod tests {
         );
         let slots = Arc::clone(&state.verification_slots);
 
-        let answer = verify(router(state, MAX_BODY_BYTES), &fixture()).await;
+        let answer = post_fixture(router(state, MAX_BODY_BYTES), &fixture()).await;
 
         assert_eq!(answer.status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(answer.retry_after.as_deref(), Some("1"));
@@ -443,7 +445,7 @@ mod tests {
             .try_acquire_owned()
             .unwrap();
 
-        let answer = verify(router(state, MAX_BODY_BYTES), &fixture()).await;
+        let answer = post_fixture(router(state, MAX_BODY_BYTES), &fixture()).await;
 
         assert_eq!(answer.status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(answer.retry_after.as_deref(), Some("1"));
@@ -452,8 +454,8 @@ mod tests {
 
     #[tokio::test]
     async fn malformed_and_oversized_bodies_are_invalid() {
-        let malformed = post_verify(app(FixedRegistries::Trusting), r#"{"request": {}}"#).await;
-        let oversized = post_verify(
+        let malformed = post_body(app(FixedRegistries::Trusting), r#"{"request": {}}"#).await;
+        let oversized = post_body(
             app(FixedRegistries::Trusting),
             Body::from(vec![b' '; MAX_BODY_BYTES.get() + 1]),
         )

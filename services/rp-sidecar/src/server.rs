@@ -38,9 +38,12 @@ pub async fn run(config: Config) -> eyre::Result<()> {
         config.credential_schema_issuer_registry,
     )
     .await?;
-    let max_concurrent_verifications = config
-        .max_concurrent_verifications
-        .unwrap_or_else(|| thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
+    let max_concurrent_verifications = config.max_concurrent_verifications.unwrap_or_else(|| {
+        thread::available_parallelism().unwrap_or_else(|error| {
+            tracing::warn!(%error, "cannot count the CPUs, so only one verification runs at once");
+            NonZeroUsize::MIN
+        })
+    });
 
     let state = AppState::new(
         policy,
@@ -49,6 +52,7 @@ pub async fn run(config: Config) -> eyre::Result<()> {
         max_concurrent_verifications,
         config.request_timeout(),
     );
+    let slots = Arc::clone(&state.verification_slots);
     let app = router(state, config.max_body_bytes);
     let listener = TcpListener::bind(config.listen_addr)
         .await
@@ -56,7 +60,15 @@ pub async fn run(config: Config) -> eyre::Result<()> {
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
-        .wrap_err("server failed")
+        .wrap_err("server failed")?;
+
+    // Let verifications whose callers hung up finish before the runtime and its timers go away.
+    let all_slots = u32::try_from(max_concurrent_verifications.get()).unwrap_or(u32::MAX);
+    let drained = tokio::time::timeout(config.request_timeout(), slots.acquire_many(all_slots));
+    if drained.await.is_err() {
+        tracing::warn!("verifications still running at shutdown are cut short");
+    }
+    Ok(())
 }
 
 /// What the routes verify proofs with.

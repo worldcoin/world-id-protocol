@@ -16,14 +16,14 @@ use world_id_services_common::RetryConfig;
 pub mod defaults {
     use std::num::{NonZeroU64, NonZeroUsize};
 
-    /// Loopback only: the sidecar has no authentication, so only its own pod or task may reach
-    /// it.
+    /// Loopback only: the sidecar has no authentication, so nothing outside its pod may reach it.
     pub const LISTEN_ADDR: &str = "127.0.0.1:9202";
     pub const REQUEST_TIMEOUT_SECS: NonZeroU64 = NonZeroU64::new(30).unwrap();
     pub const MAX_BODY_BYTES: NonZeroUsize = NonZeroUsize::new(8 * 1024 * 1024).unwrap();
 
     // The registry reads run one after the other. With these values both fit in
-    // `REQUEST_TIMEOUT_SECS` even when every attempt times out: 2 × (3 × 3 s + ~0.6 s backoff).
+    // `REQUEST_TIMEOUT_SECS` even when every attempt times out:
+    // 2 reads × (3 attempts × 3 s + ~0.6 s backoff) ≈ 19 s.
     pub const RPC_TIMEOUT_SECS: NonZeroU64 = NonZeroU64::new(3).unwrap();
     pub const RPC_MAX_RETRIES: u32 = 2;
     pub const RPC_INITIAL_BACKOFF_MS: u64 = 100;
@@ -82,8 +82,9 @@ pub struct Config {
     #[arg(long, env = "MAX_CONCURRENT_VERIFICATIONS")]
     pub max_concurrent_verifications: Option<NonZeroUsize>,
 
-    /// How long one verification may take, in seconds. The registry reads are cancelled at the
-    /// deadline; CPU-bound work in progress finishes first.
+    /// How long one verification may take, in seconds. At the deadline the registry reads are
+    /// cancelled and the request is answered; CPU-bound work already running keeps its slot until
+    /// it finishes.
     #[arg(long, env = "REQUEST_TIMEOUT_SECS", default_value_t = defaults::REQUEST_TIMEOUT_SECS)]
     pub request_timeout_secs: NonZeroU64,
 

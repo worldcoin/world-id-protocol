@@ -29,8 +29,18 @@ pub struct Answer {
     pub body: Value,
 }
 
+/// Posts the verification of `response` to `request` to `app`'s verify route.
+pub async fn post_verification(
+    app: Router,
+    request: &ProofRequest,
+    response: &ProofResponse,
+) -> Answer {
+    let body = json!({ "request": request, "response": response });
+    post_body(app, body.to_string()).await
+}
+
 /// Posts `body` to `app`'s verify route.
-pub async fn post_verify(app: Router, body: impl Into<Body>) -> Answer {
+pub async fn post_body(app: Router, body: impl Into<Body>) -> Answer {
     let response = app
         .oneshot(
             Request::post("/v1/embedding-similarity/verify")
@@ -51,14 +61,4 @@ pub async fn post_verify(app: Router, body: impl Into<Body>) -> Answer {
         retry_after,
         body: serde_json::from_slice(&bytes).unwrap(),
     }
-}
-
-/// Posts the verification of `response` to `request` to `app`'s verify route.
-pub async fn post_verification(
-    app: Router,
-    request: &ProofRequest,
-    response: &ProofResponse,
-) -> Answer {
-    let body = json!({ "request": request, "response": response });
-    post_verify(app, body.to_string()).await
 }

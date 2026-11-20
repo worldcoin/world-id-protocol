@@ -1,7 +1,7 @@
 //! The on-chain registries a proof's `merkle_root` and `cred_pk` are checked against (WIP-202
 //! §4.8 item 4).
 
-use std::future::Future;
+use std::{cmp::Reverse, future::Future};
 
 use alloy::{contract, primitives::Address, providers::DynProvider, sol};
 use url::{Position, Url};
@@ -68,12 +68,10 @@ impl RegistryError {
 pub struct OnchainRegistries {
     world_id_registry: WorldIdRegistryInstance<DynProvider>,
     issuer_registry: CredentialSchemaIssuerRegistryInstance<DynProvider>,
-    /// Each part of an RPC URL that may carry an API key, and what errors show instead.
+    /// Each part of an RPC URL that may carry an API key, longest first, and what errors show
+    /// instead.
     redactions: Vec<(String, String)>,
 }
-
-/// How much of an RPC error a [`RegistryError`] keeps, e.g. of an HTML error page.
-const MAX_DETAIL_CHARS: usize = 300;
 
 impl OnchainRegistries {
     /// Reads the `WorldIDRegistry` and `CredentialSchemaIssuerRegistry` proxies at the given
@@ -94,52 +92,19 @@ impl OnchainRegistries {
         }
         .http()
         .await?;
+        let mut redactions: Vec<_> = rpc_urls.iter().flat_map(redactions).collect();
+        // Longest first, so that no secret is cut apart by a shorter one, e.g. the URL of another
+        // endpoint on the same host.
+        redactions.sort_by_key(|(secret, _)| Reverse(secret.len()));
         Ok(Self {
             world_id_registry: WorldIdRegistry::new(world_id_registry, provider.clone()),
             issuer_registry: CredentialSchemaIssuerRegistry::new(
                 credential_schema_issuer_registry,
                 provider,
             ),
-            redactions: rpc_urls.iter().flat_map(redactions).collect(),
+            redactions,
         })
     }
-
-    /// The error of a failed `call`, without the RPC URLs a transport error or an error page
-    /// may show.
-    fn error(&self, call: &'static str, source: &contract::Error) -> RegistryError {
-        let redacted = self
-            .redactions
-            .iter()
-            .fold(source.to_string(), |detail, (secret, shown)| {
-                detail.replace(secret, shown)
-            });
-        let mut detail: String = redacted.chars().take(MAX_DETAIL_CHARS).collect();
-        if detail.len() < redacted.len() {
-            detail.push('…');
-        }
-        RegistryError::new(call, detail)
-    }
-}
-
-/// The parts of `url` that may carry an API key, longest first, each with what errors show
-/// instead: the URL as configured and as sent, since the HTTP client drops its user info, then
-/// its password, and its path and query, which error pages may echo.
-fn redactions(url: &Url) -> Vec<(String, String)> {
-    let host = format!("<{}>", url.host_str().unwrap_or("rpc"));
-    let mut sent = url.clone();
-    let _ = sent.set_username("");
-    let _ = sent.set_password(None);
-    let path_and_query = &url[Position::BeforePath..];
-    [
-        Some((url.to_string(), host.clone())),
-        Some((sent.to_string(), host)),
-        url.password()
-            .map(|password| (password.to_owned(), "<redacted>".to_owned())),
-        (path_and_query != "/").then(|| (path_and_query.to_owned(), "/<redacted>".to_owned())),
-    ]
-    .into_iter()
-    .flatten()
-    .collect()
 }
 
 impl Registries for OnchainRegistries {
@@ -166,6 +131,48 @@ impl Registries for OnchainRegistries {
         Ok(registered.x == FieldElement::from(key.pk.x).to_u256()
             && registered.y == FieldElement::from(key.pk.y).to_u256())
     }
+}
+
+/// How much of an RPC error a [`RegistryError`] keeps, e.g. of an HTML error page.
+const MAX_DETAIL_CHARS: usize = 300;
+
+impl OnchainRegistries {
+    /// The error of a failed `call`, without the RPC URLs a transport error or an error page
+    /// may show.
+    fn error(&self, call: &'static str, source: &contract::Error) -> RegistryError {
+        let redacted = self
+            .redactions
+            .iter()
+            .fold(source.to_string(), |detail, (secret, shown)| {
+                detail.replace(secret, shown)
+            });
+        let mut detail: String = redacted.chars().take(MAX_DETAIL_CHARS).collect();
+        if detail.len() < redacted.len() {
+            detail.push('…');
+        }
+        RegistryError::new(call, detail)
+    }
+}
+
+/// The parts of `url` that may carry an API key, each with what errors show instead: the URL as
+/// configured and as sent, since the HTTP client drops its user info, its password, and its
+/// path and query, which error pages may echo.
+fn redactions(url: &Url) -> Vec<(String, String)> {
+    let host = format!("<{}>", url.host_str().unwrap_or("rpc"));
+    let mut sent = url.clone();
+    let _ = sent.set_username("");
+    let _ = sent.set_password(None);
+    let path_and_query = &url[Position::BeforePath..Position::AfterQuery];
+    [
+        Some((url.to_string(), host.clone())),
+        Some((sent.to_string(), host)),
+        url.password()
+            .map(|password| (password.to_owned(), "<redacted>".to_owned())),
+        (path_and_query != "/").then(|| (path_and_query.to_owned(), "/<redacted>".to_owned())),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 #[cfg(test)]
@@ -217,7 +224,7 @@ mod tests {
             }),
         );
         let url = serve(router).await;
-        (registries_at(&url, RetryConfig::default()).await, calls)
+        (registries_at(&[url], RetryConfig::default()).await, calls)
     }
 
     async fn serve(router: Router) -> Url {
@@ -227,15 +234,10 @@ mod tests {
         url.parse().unwrap()
     }
 
-    async fn registries_at(url: &Url, retry: RetryConfig) -> OnchainRegistries {
-        OnchainRegistries::connect(
-            std::slice::from_ref(url),
-            retry,
-            WORLD_ID_REGISTRY,
-            ISSUER_REGISTRY,
-        )
-        .await
-        .unwrap()
+    async fn registries_at(urls: &[Url], retry: RetryConfig) -> OnchainRegistries {
+        OnchainRegistries::connect(urls, retry, WORLD_ID_REGISTRY, ISSUER_REGISTRY)
+            .await
+            .unwrap()
     }
 
     fn eth_call(to: Address, calldata: &[u8]) -> (Value, Value) {
@@ -311,7 +313,7 @@ mod tests {
             max_backoff_ms: 20,
             timeout_secs: 1,
         };
-        let registries = registries_at(&url, retry).await;
+        let registries = registries_at(&[url], retry).await;
 
         let error = registries
             .is_valid_root(FieldElement::from(7u64))
@@ -328,13 +330,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_error_page_echoing_the_url_is_redacted_and_truncated() {
+    async fn an_error_page_echoing_a_url_is_redacted_and_truncated_whatever_the_url_order() {
         let echo = Router::new().fallback(|uri: Uri| async move {
             let page = format!("Cannot POST {uri}{}", " ".repeat(10 * MAX_DETAIL_CHARS));
             (StatusCode::NOT_FOUND, page)
         });
-        let url = serve(echo).await.join("v2/SECRET").unwrap();
-        let registries = registries_at(&url, RetryConfig::default()).await;
+        let origin = serve(echo).await;
+        let keyed = origin.join("worldchain/SECRET").unwrap();
+        let keyless = origin.join("worldchain").unwrap();
+        let registries = registries_at(&[keyless, keyed], RetryConfig::default()).await;
 
         let error = registries
             .is_valid_root(FieldElement::from(7u64))

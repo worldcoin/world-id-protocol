@@ -63,22 +63,24 @@ Answers `200` once the sidecar serves. It checks no dependency. A registry outag
 | `CREDENTIAL_SCHEMA_ISSUER_REGISTRY_ADDRESS` | required | The `CredentialSchemaIssuerRegistry` proxy. |
 | `LISTEN_ADDR` | `127.0.0.1:9202` | Keep it on loopback. |
 | `MAX_CONCURRENT_VERIFICATIONS` | available CPUs | Verifications that may run at once. Each runs on its own thread and holds its slot from the registry reads to the proof verification. Requests beyond this are answered `503 overloaded` at once; they are not queued. |
-| `REQUEST_TIMEOUT_SECS` | `30` | The deadline of one verification. At the deadline the registry reads are cancelled and the request is answered `503 timeout`. CPU-bound work already in progress finishes first, in its slot. |
+| `REQUEST_TIMEOUT_SECS` | `30` | The deadline of one verification. At the deadline the registry reads are cancelled and the request is answered `503 timeout`. CPU-bound work already running keeps its slot until it finishes. |
 | `MAX_BODY_BYTES` | `8388608` | The largest request body accepted. |
 | `RPC_TIMEOUT_SECS` | `3` | The timeout of one JSON-RPC attempt. |
 | `RPC_MAX_RETRIES` | `2` | Retries of a failed JSON-RPC call, with exponential backoff and jitter. |
 | `RPC_INITIAL_BACKOFF_MS`, `RPC_MAX_BACKOFF_MS` | `100`, `1000` | The first and the longest backoff between retries. |
 
-The registry addresses for each environment are in [`contracts/deployments/core`](../../contracts/deployments/core). Every verification reads both registries, one after the other, so a revoked root or a rotated Issuer key takes effect immediately. The RPC defaults let both reads finish within `REQUEST_TIMEOUT_SECS` even when every attempt times out. Keep that true when you change them, or registry outages show up as `timeout` instead of `root_check_failed` or `issuer_check_failed`. Errors name RPC endpoints by host only and redact their paths, so at the default log level an API key in an `RPC_URL` reaches neither responses nor logs. The RPC transport's `debug` logs print full URLs.
+The registry addresses for each environment are in [`contracts/deployments/core`](../../contracts/deployments/core). Every verification reads both registries, one after the other, so a revoked root or a rotated Issuer key takes effect immediately. The RPC defaults let both reads finish within `REQUEST_TIMEOUT_SECS` even when every attempt times out. Keep that true when you change them, or registry outages show up as `timeout` instead of `root_check_failed` or `issuer_check_failed`.
 
-Set the caller's own timeout above `REQUEST_TIMEOUT_SECS` plus one proof verification. A verification whose caller hangs up first is counted as `abandoned`, and its outcome is lost.
+An API key in an `RPC_URL` reaches neither responses nor logs at the default log level: errors name RPC endpoints by host only and redact their paths. The RPC transport's `debug` logs print full URLs.
+
+Set the caller's own timeout a few seconds above `REQUEST_TIMEOUT_SECS`. A verification whose caller hangs up first is counted as `abandoned`, and its outcome is lost.
 
 Telemetry is configured through [`telemetry-batteries`](https://crates.io/crates/telemetry-batteries):
 - `TELEMETRY_PRESET`: for example `datadog`, which also needs `TELEMETRY_SERVICE_NAME`.
 - `RUST_LOG`
 - `TELEMETRY_METRICS_BACKEND`: `statsd` with `TELEMETRY_STATSD_HOST` and `TELEMETRY_STATSD_PORT`, or `prometheus`.
 
-Metrics are off unless `TELEMETRY_METRICS_BACKEND` is set. The Prometheus exporter listens on `0.0.0.0:9090` unless `TELEMETRY_PROMETHEUS_LISTEN` says otherwise.
+Metrics are off unless `TELEMETRY_METRICS_BACKEND` is set. The Prometheus exporter listens on `0.0.0.0:9090` unless `TELEMETRY_PROMETHEUS_LISTEN` says otherwise, so pick a port the pod or task leaves free. An invalid telemetry configuration stops the sidecar at startup.
 
 ### Policy
 
@@ -123,5 +125,3 @@ nix develop --command cargo test -p world-id-rp-sidecar
 ```
 
 Run the sidecar in a release build to verify real proofs, for example `cargo run --release -p world-id-rp-sidecar`. In debug builds, ProveKit checks the prover's transcript pattern, which no proof carries after serialization, so every proof received over the API panics the verifier. The sidecar answers that with `500 verification_panicked` and keeps serving.
-
-`.env.example` lists the variables for a local run.
