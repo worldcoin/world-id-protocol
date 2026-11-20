@@ -155,8 +155,8 @@ impl OnchainRegistries {
 }
 
 /// The parts of `url` that may carry an API key, each with what errors show instead: the URL as
-/// configured, the URL as sent (the HTTP client drops its user info), its password, and its path
-/// with and without the query, which error pages may echo.
+/// configured, the URL as sent (the HTTP client drops its user info), its username and password,
+/// and its path with and without the query, which error pages may echo.
 fn url_redactions(url: &Url) -> Vec<(String, String)> {
     let host = format!("<{}>", url.host_str().unwrap_or("rpc"));
     let mut sent = url.clone();
@@ -168,6 +168,7 @@ fn url_redactions(url: &Url) -> Vec<(String, String)> {
     [
         Some((url.to_string(), host.clone())),
         Some((sent.to_string(), host)),
+        (!url.username().is_empty()).then(|| (url.username().to_owned(), "<redacted>".to_owned())),
         url.password()
             .map(|password| (password.to_owned(), "<redacted>".to_owned())),
         path(&url[Position::BeforePath..Position::AfterQuery]),
