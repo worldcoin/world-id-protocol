@@ -43,8 +43,6 @@ pub(crate) const CHUNK_SLOTS: usize = MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES
 pub(crate) const THUMBNAIL_KEY: &[u8] = b"\"thumbnail.png\":\"";
 /// Hex digits of a SHA-256 digest.
 pub(crate) const DIGEST_HEX_LEN: usize = 64;
-/// The highest PoH Credential `issuer_version` the circuit accepts; it accepts `0` and `1`.
-pub const MAX_POH_ISSUER_VERSION: u8 = 1;
 /// The `compare_sources` WIP-202 fixes: compared entry 1 is pipeline input 0 (§4.3).
 pub const COMPARE_SOURCES: u32 = 256;
 /// Credential claim holding the `hashes.json` commitment.
@@ -325,13 +323,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::InvalidSessionId);
     }
 
-    // 7. The issuer must have signed the World ID's PoH Credential of a supported version, which
-    // must be valid.
-    if inputs.issuer_version > MAX_POH_ISSUER_VERSION {
-        return Err(ProofInputError::UnsupportedIssuerVersion(
-            inputs.issuer_version,
-        ));
-    }
+    // 7. The issuer must have signed the World ID's PoH Credential, which must be valid.
     let credential = Credential {
         id: inputs.credential_id,
         version: CredentialVersion::V1,
@@ -922,16 +914,6 @@ mod input_validation_tests {
         assert!(matches!(
             check(&input),
             ProofInputError::InvalidCredentialSignature
-        ));
-    }
-
-    #[test]
-    fn test_rejects_an_issuer_version_above_1() {
-        let mut input = embedding_similarity_fixture();
-        input.issuer_version = 2;
-        assert!(matches!(
-            check(&input),
-            ProofInputError::UnsupportedIssuerVersion(2)
         ));
     }
 

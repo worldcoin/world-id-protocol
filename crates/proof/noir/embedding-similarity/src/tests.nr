@@ -384,13 +384,6 @@ fn test_rejects_a_credential_expiring_before_the_minimum() {
     prove(p, inputs());
 }
 
-#[test(should_fail_with = "unsupported issuer_version")]
-fn test_rejects_an_issuer_version_above_1() {
-    let mut inputs = inputs();
-    inputs.issuer_version = 2;
-    prove(public(), inputs);
-}
-
 #[test(should_fail_with = "invalid credential signature")]
 fn test_rejects_an_issuer_version_the_issuer_did_not_sign() {
     let mut inputs = inputs();

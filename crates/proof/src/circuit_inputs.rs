@@ -320,7 +320,7 @@ pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
     pub sub_blinding_factor: FieldElement,
     /// Private input. The PoH Credential's issuer-scoped `id`.
     pub credential_id: u64,
-    /// Private input. The PoH Credential's `issuer_version`, at most [`MAX_POH_ISSUER_VERSION`](crate::embedding_similarity_proof::MAX_POH_ISSUER_VERSION).
+    /// Private input. The PoH Credential's `issuer_version`.
     pub issuer_version: u8,
     /// Private input. The issuer's signature over the PoH Credential.
     pub credential_signature: EdDSASignature,

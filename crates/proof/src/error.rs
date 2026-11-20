@@ -156,9 +156,6 @@ pub enum ProofInputError {
         "The provided session ID commitment is invalid for the given id and session id randomness."
     )]
     InvalidSessionId,
-    /// The PoH Credential's `issuer_version` is not one the circuit accepts.
-    #[error("The PoH Credential's issuer_version {0} is not supported.")]
-    UnsupportedIssuerVersion(u8),
     /// The proof request is expired.
     #[error(
         "The provided proof request has expired (expires_at: {expires_at}, check_timestamp: {current_timestamp})."
