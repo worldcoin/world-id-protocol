@@ -105,6 +105,50 @@ Keep these points in mind:
 - **AAT requirement.** `aat.required` decides whether an AAT is required, whatever the request's own `aat` says. An RP that asks for an AAT in its requests must also set it here.
 - **Releases.** Each Flamingo Verifier or Engine release changes these values. Add a new release's values before Flamingo starts serving it, and remove the old values afterwards.
 
+## Deployment
+
+`build-docker.yml` publishes the image for `linux/amd64` to `ghcr.io/worldcoin/world-id-protocol/world-id-rp-sidecar`:
+- Pushing the git tag `world-id-rp-sidecar-v<version>` publishes `v<version>`.
+- Every push to `main` publishes `sha-<sha>`.
+- Pushes to `main` and stable release tags also move `latest`.
+
+Pin the digest.
+
+The image embeds the verifier of one WIP-202 circuit version: the version of the `world-id-proof` it is built with. Proofs from Authenticators on another circuit version are rejected with `invalid_proof`. Pin an image built with the version the Authenticators prove with, and upgrade the two together.
+
+Run the sidecar as a [native sidecar](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/), so that it starts before the app container and stops after it. The app can then finish verifications while it drains:
+
+```yaml
+initContainers:
+  - name: world-id-rp-sidecar
+    image: ghcr.io/worldcoin/world-id-protocol/world-id-rp-sidecar@sha256:<digest>
+    restartPolicy: Always
+    env:
+      - name: POLICY_PATH
+        value: /etc/world-id-rp-sidecar/policy.json
+      - name: RPC_URL
+        valueFrom:
+          secretKeyRef: { name: world-chain-rpc, key: url }
+      - name: WORLD_ID_REGISTRY_ADDRESS
+        value: "<from contracts/deployments/core>"
+      - name: CREDENTIAL_SCHEMA_ISSUER_REGISTRY_ADDRESS
+        value: "<from contracts/deployments/core>"
+    volumeMounts:
+      - { name: world-id-rp-sidecar-policy, mountPath: /etc/world-id-rp-sidecar }
+```
+
+On ECS, add the sidecar to the app's task definition. Containers in an `awsvpc` task share `127.0.0.1`. Make the app container `dependsOn` the sidecar, so that the sidecar starts first and stops last.
+
+Neither platform can probe the sidecar:
+- A kubelet probe connects to the pod IP, not to loopback.
+- The image has no shell for an ECS container health check.
+
+So the app should retry connection errors and `503`s for the few seconds the sidecar needs to start.
+
+Verification is CPU-bound:
+- Size the container's CPU from `embedding_similarity.proof_verification_ms`.
+- Set `MAX_CONCURRENT_VERIFICATIONS` from the verify route's `http.latency_ms`, since a slot is also held through the registry reads.
+
 ## Observability
 
 | Metric | Description |
