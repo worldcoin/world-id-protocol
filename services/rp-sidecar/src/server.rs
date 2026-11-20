@@ -8,7 +8,6 @@ use world_id_proof::artifacts::{
     ZkArtifactSource, ZkArtifactSourceExt as _, embedded::EmbeddedZkArtifacts,
 };
 use world_id_rp::embedding_similarity::EmbeddingSimilarityPolicy;
-use world_id_services_common::ProviderArgs;
 
 use crate::{config::Config, policy, registries::OnchainRegistries, routes::router};
 
@@ -32,19 +31,13 @@ pub async fn run(config: Config) -> eyre::Result<()> {
         )
     })?;
     let artifacts = load_artifacts()?;
-    let provider = ProviderArgs {
-        http: config.rpc_urls.clone(),
-        retry: config.rpc_retry(),
-        ..ProviderArgs::default()
-    }
-    .http()
-    .await?;
-    let registries = OnchainRegistries::new(
-        provider,
+    let registries = OnchainRegistries::connect(
         &config.rpc_urls,
+        config.rpc_retry(),
         config.world_id_registry,
         config.credential_schema_issuer_registry,
-    );
+    )
+    .await?;
     let max_concurrent_verifications = config
         .max_concurrent_verifications
         .unwrap_or_else(|| thread::available_parallelism().unwrap_or(NonZeroUsize::MIN));
@@ -81,9 +74,7 @@ pub struct AppState<A, R> {
 }
 
 impl<A, R> AppState<A, R> {
-    /// Verifies proofs under `policy`, against `registries`, with the verifier from `artifacts`,
-    /// running at most `max_concurrent_verifications` verifications at once, each for at most
-    /// `request_timeout`.
+    /// Creates the `max_concurrent_verifications` slots that all requests share.
     pub fn new(
         policy: EmbeddingSimilarityPolicy<A>,
         registries: R,

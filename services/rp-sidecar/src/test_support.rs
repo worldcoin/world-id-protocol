@@ -5,9 +5,9 @@ use axum::{
     body::{Body, to_bytes},
     http::{Request, StatusCode, header::RETRY_AFTER},
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 use tower::ServiceExt as _;
-use world_id_primitives::EdDSAPublicKey;
+use world_id_primitives::{EdDSAPublicKey, ProofRequest, ProofResponse};
 use world_id_rp::embedding_similarity::FlamingoAttestationVerifier;
 
 /// Stands in for the Nitro check: the attestation is the attested key's compressed bytes.
@@ -51,4 +51,14 @@ pub async fn post_verify(app: Router, body: impl Into<Body>) -> Answer {
         retry_after,
         body: serde_json::from_slice(&bytes).unwrap(),
     }
+}
+
+/// Posts the verification of `response` to `request` to `app`'s verify route.
+pub async fn post_verification(
+    app: Router,
+    request: &ProofRequest,
+    response: &ProofResponse,
+) -> Answer {
+    let body = json!({ "request": request, "response": response });
+    post_verify(app, body.to_string()).await
 }

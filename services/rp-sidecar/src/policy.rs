@@ -176,6 +176,7 @@ impl TryFrom<AatPolicyFile> for AatPolicy {
 #[cfg(test)]
 mod tests {
     use serde_json::{Value, json};
+    use test_case::test_case;
 
     use super::*;
 
@@ -196,12 +197,6 @@ mod tests {
         })
     }
 
-    fn parse_value(
-        value: &Value,
-    ) -> Result<EmbeddingSimilarityPolicy<attestation::Verifier>, PolicyError> {
-        parse(&value.to_string())
-    }
-
     #[test]
     fn parses_a_complete_policy() {
         let mut value = policy();
@@ -211,7 +206,7 @@ mod tests {
             "accepted_flags": [{"platform": 1, "sec_level": 2, "sec_meta": 0, "authenticator_meta": 3}],
         });
 
-        let policy = parse_value(&value).unwrap();
+        let policy = parse(&value.to_string()).unwrap();
 
         assert_eq!(policy.issuer_version, 1);
         assert_eq!(policy.engine_config_hashes.len(), 1);
@@ -224,68 +219,18 @@ mod tests {
         }));
     }
 
-    #[test]
-    fn rejects_unknown_fields() {
-        let mut value = policy();
-        value["aat"]["requried"] = json!(true);
+    #[test_case("/aat/requried", json!(true) => matches Err(PolicyError::Parse(_)) ; "an unknown field")]
+    #[test_case("/flamingo_verifiers/0/pcr1", json!("22".repeat(32)) => matches Err(PolicyError::Parse(_)) ; "a PCR of the wrong length")]
+    #[test_case("/flamingo_verifiers/0/pcr0", json!("00".repeat(PCR_LENGTH)) => matches Err(PolicyError::DebugModePcrs(0)) ; "a debug-mode PCR0")]
+    #[test_case("/flamingo_verifiers", json!([]) => matches Err(PolicyError::NoFlamingoVerifiers) ; "no Flamingo Verifier")]
+    #[test_case("/engine_config_hashes", json!([]) => matches Err(PolicyError::NoEngineConfigs) ; "no Engine configuration")]
+    #[test_case("/aat/required", json!(true) => matches Err(PolicyError::AcceptsNoAat) ; "a required AAT that none satisfies")]
+    #[test_case("/aat/trust_anchor_key_hashes", json!([format!("0x{}", "02".repeat(32))]) => matches Err(PolicyError::AcceptsNoAat) ; "trust anchors without flags")]
+    fn rejects_a_policy_with(pointer: &str, value: Value) -> Result<(), PolicyError> {
+        let mut policy = policy();
+        let (parent, key) = pointer.rsplit_once('/').unwrap();
+        policy.pointer_mut(parent).unwrap()[key] = value;
 
-        assert!(matches!(parse_value(&value), Err(PolicyError::Parse(_))));
-    }
-
-    #[test]
-    fn rejects_pcrs_of_the_wrong_length() {
-        let mut value = policy();
-        value["flamingo_verifiers"][0]["pcr1"] = json!("22".repeat(32));
-
-        assert!(matches!(parse_value(&value), Err(PolicyError::Parse(_))));
-    }
-
-    #[test]
-    fn rejects_debug_mode_pcrs() {
-        let mut value = policy();
-        value["flamingo_verifiers"] = json!([
-            policy()["flamingo_verifiers"][0],
-            {"pcr0": "00".repeat(PCR_LENGTH), "pcr1": "00".repeat(PCR_LENGTH), "pcr2": "00".repeat(PCR_LENGTH)},
-        ]);
-
-        assert!(matches!(
-            parse_value(&value),
-            Err(PolicyError::DebugModePcrs(1))
-        ));
-    }
-
-    #[test]
-    fn rejects_policies_that_accept_nothing() {
-        let mut no_verifiers = policy();
-        no_verifiers["flamingo_verifiers"] = json!([]);
-        let mut no_engines = policy();
-        no_engines["engine_config_hashes"] = json!([]);
-
-        assert!(matches!(
-            parse_value(&no_verifiers),
-            Err(PolicyError::NoFlamingoVerifiers)
-        ));
-        assert!(matches!(
-            parse_value(&no_engines),
-            Err(PolicyError::NoEngineConfigs)
-        ));
-    }
-
-    #[test]
-    fn rejects_aat_policies_that_accept_no_aat() {
-        let mut required_without_anchors = policy();
-        required_without_anchors["aat"]["required"] = json!(true);
-        let mut anchors_without_flags = policy();
-        anchors_without_flags["aat"]["trust_anchor_key_hashes"] =
-            json!([format!("0x{}", "02".repeat(32))]);
-
-        assert!(matches!(
-            parse_value(&required_without_anchors),
-            Err(PolicyError::AcceptsNoAat)
-        ));
-        assert!(matches!(
-            parse_value(&anchors_without_flags),
-            Err(PolicyError::AcceptsNoAat)
-        ));
+        parse(&policy.to_string()).map(drop)
     }
 }

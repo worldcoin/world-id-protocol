@@ -8,7 +8,7 @@
     }
   ],
   "engine_config_hashes": [
-    "0x<64 hex characters, from the Engine release manifest>"
+    "0x<64 hex characters: the engine_config_hash of an accepted release, pipeline and match strictness>"
   ],
   "aat": {
     "required": false,

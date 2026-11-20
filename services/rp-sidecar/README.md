@@ -2,7 +2,7 @@
 
 A local HTTP service that verifies [WIP-202](../../docs/WIPs/wip-202.md) Proofs of Embedding Similarity for a Relying Party. It wraps [`world-id-rp`](../../crates/rp) so that services written in Node, Go or other languages can verify proofs without building Rust.
 
-It runs next to the RP's service, for example as a sidecar container in its Kubernetes pod or ECS task, and listens on loopback only. It has no authentication, so it must not be reachable from outside its pod.
+It runs next to the RP's service, as a sidecar container in its Kubernetes pod or ECS task, and listens on loopback only. It has no authentication, so it must not be reachable from outside its pod.
 
 ## What the caller must do
 
@@ -62,14 +62,16 @@ Answers `200` once the sidecar serves. It checks no dependency. A registry outag
 | `WORLD_ID_REGISTRY_ADDRESS` | required | The `WorldIDRegistry` proxy. |
 | `CREDENTIAL_SCHEMA_ISSUER_REGISTRY_ADDRESS` | required | The `CredentialSchemaIssuerRegistry` proxy. |
 | `LISTEN_ADDR` | `127.0.0.1:9202` | Keep it on loopback. |
-| `MAX_CONCURRENT_VERIFICATIONS` | available CPUs | Verifications that may run at once, each on its own thread from the registry reads to the proof verification. Requests beyond this are answered `503 overloaded` at once; they are not queued. |
-| `REQUEST_TIMEOUT_SECS` | `30` | The deadline of one verification. A verification that misses it is answered `503 timeout` and runs to its end in the background. |
+| `MAX_CONCURRENT_VERIFICATIONS` | available CPUs | Verifications that may run at once. Each runs on its own thread and holds its slot from the registry reads to the proof verification. Requests beyond this are answered `503 overloaded` at once; they are not queued. |
+| `REQUEST_TIMEOUT_SECS` | `30` | The deadline of one verification. At the deadline the registry reads are cancelled and the request is answered `503 timeout`. CPU-bound work already in progress finishes first, in its slot. |
 | `MAX_BODY_BYTES` | `8388608` | The largest request body accepted. |
 | `RPC_TIMEOUT_SECS` | `3` | The timeout of one JSON-RPC attempt. |
 | `RPC_MAX_RETRIES` | `2` | Retries of a failed JSON-RPC call, with exponential backoff and jitter. |
 | `RPC_INITIAL_BACKOFF_MS`, `RPC_MAX_BACKOFF_MS` | `100`, `1000` | The first and the longest backoff between retries. |
 
-The registry addresses for each environment are in [`contracts/deployments/core`](../../contracts/deployments/core). Every verification reads both registries, one after the other, so a revoked root or a rotated Issuer key takes effect immediately. The RPC defaults let both reads finish within `REQUEST_TIMEOUT_SECS` even when every attempt times out. Keep that true when you change them, or registry outages show up as `timeout` instead of `root_check_failed` or `issuer_check_failed`. Errors name the RPC endpoints by host only, so an API key in an `RPC_URL` path does not reach logs or responses.
+The registry addresses for each environment are in [`contracts/deployments/core`](../../contracts/deployments/core). Every verification reads both registries, one after the other, so a revoked root or a rotated Issuer key takes effect immediately. The RPC defaults let both reads finish within `REQUEST_TIMEOUT_SECS` even when every attempt times out. Keep that true when you change them, or registry outages show up as `timeout` instead of `root_check_failed` or `issuer_check_failed`. Errors name RPC endpoints by host only and redact their paths, so at the default log level an API key in an `RPC_URL` reaches neither responses nor logs. The RPC transport's `debug` logs print full URLs.
+
+Set the caller's own timeout above `REQUEST_TIMEOUT_SECS` plus one proof verification. A verification whose caller hangs up first is counted as `abandoned`, and its outcome is lost.
 
 Telemetry is configured through [`telemetry-batteries`](https://crates.io/crates/telemetry-batteries):
 - `TELEMETRY_PRESET`: for example `datadog`, which also needs `TELEMETRY_SERVICE_NAME`.
@@ -97,50 +99,15 @@ The sidecar refuses to start with a policy that:
 - requires an AAT but accepts none
 
 Keep these points in mind:
-- **Engine hashes.** Each one is `engine_config_hash(release_hash, pipeline_id, match_strictness)` for a release manifest the RP verified under an active key of the manifest's `iss`. `world_id_rp::embedding_similarity::accepted_engine_configs` computes them. Remove a release's hashes when its manifest or key is revoked.
+- **Engine hashes.** Each one is `engine_config_hash(release_hash, pipeline_id, match_strictness)` for a release manifest that was verified under an active key of the manifest's `iss`. The sidecar does not read manifests. Compute the hashes with `world_id_rp::embedding_similarity::accepted_engine_configs`, or take them from the publisher of the Engine release. Remove a release's hashes when its manifest or key is revoked.
 - **AAT requirement.** `aat.required` decides whether an AAT is required, whatever the request's own `aat` says. An RP that asks for an AAT in its requests must also set it here.
 - **Releases.** Each Flamingo Verifier or Engine release changes these values. Add a new release's values before Flamingo starts serving it, and remove the old values afterwards.
-
-## Deployment
-
-The image embeds the verifier of one WIP-202 circuit version: the version of the `world-id-proof` it is built with. Proofs from Authenticators on another circuit version are rejected with `invalid_proof`. Pin an image built with the version the Authenticators prove with, and upgrade the two together.
-
-Run the sidecar as a [native sidecar](https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/), so that it starts before the app container and stops after it. The app can then finish verifications while it drains:
-
-```yaml
-initContainers:
-  - name: world-id-rp-sidecar
-    image: ghcr.io/worldcoin/world-id-protocol/world-id-rp-sidecar@sha256:<digest>
-    restartPolicy: Always
-    env:
-      - name: POLICY_PATH
-        value: /etc/world-id-rp-sidecar/policy.json
-      - name: RPC_URL
-        valueFrom:
-          secretKeyRef: { name: world-chain-rpc, key: url }
-      - name: WORLD_ID_REGISTRY_ADDRESS
-        value: "<from contracts/deployments/core>"
-      - name: CREDENTIAL_SCHEMA_ISSUER_REGISTRY_ADDRESS
-        value: "<from contracts/deployments/core>"
-    volumeMounts:
-      - { name: world-id-rp-sidecar-policy, mountPath: /etc/world-id-rp-sidecar }
-```
-
-On ECS, add the sidecar to the app's task definition. Containers in an `awsvpc` task share `127.0.0.1`. Make the app container `dependsOn` the sidecar, so that the sidecar starts first and stops last.
-
-Neither platform can probe the sidecar:
-- A kubelet probe connects to the pod IP, not to loopback.
-- The image has no shell for an ECS container health check.
-
-So the app should retry connection errors and `503`s for the few seconds the sidecar needs to start.
-
-Verification is CPU-bound. Size the container from `embedding_similarity.proof_verification_ms`, and set `MAX_CONCURRENT_VERIFICATIONS` to match its CPU limit.
 
 ## Observability
 
 | Metric | Description |
 | --- | --- |
-| `embedding_similarity.verifications{result,code}` | Every verification, by outcome. `code` is `accepted` for accepted proofs. |
+| `embedding_similarity.verifications{result,code}` | Every verification, by outcome. `code` is `accepted` for an accepted proof, and both are `abandoned` when the caller hung up before the answer. |
 | `embedding_similarity.proof_verification_ms` | The duration of the zero-knowledge proof verification alone. |
 | `http.latency_ms{route,method,status_class}` | Request latency. |
 | `rpc.endpoint_requests`, `rpc.endpoint_latency_ms` | Registry reads per RPC endpoint host. |

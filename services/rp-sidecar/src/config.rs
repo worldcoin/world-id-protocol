@@ -16,22 +16,17 @@ use world_id_services_common::RetryConfig;
 pub mod defaults {
     use std::num::{NonZeroU64, NonZeroUsize};
 
-    /// Loopback only: the sidecar has no authentication, so only its own pod may reach it.
+    /// Loopback only: the sidecar has no authentication, so only its own pod or task may reach
+    /// it.
     pub const LISTEN_ADDR: &str = "127.0.0.1:9202";
-    /// How long one verification may take, including the registry reads.
     pub const REQUEST_TIMEOUT_SECS: NonZeroU64 = NonZeroU64::new(30).unwrap();
-    /// The largest request body accepted, in bytes.
     pub const MAX_BODY_BYTES: NonZeroUsize = NonZeroUsize::new(8 * 1024 * 1024).unwrap();
 
     // The registry reads run one after the other. With these values both fit in
     // `REQUEST_TIMEOUT_SECS` even when every attempt times out: 2 × (3 × 3 s + ~0.6 s backoff).
-    /// The timeout of one JSON-RPC attempt, in seconds.
-    pub const RPC_TIMEOUT_SECS: u64 = 3;
-    /// How often a failed JSON-RPC call is retried.
+    pub const RPC_TIMEOUT_SECS: NonZeroU64 = NonZeroU64::new(3).unwrap();
     pub const RPC_MAX_RETRIES: u32 = 2;
-    /// The backoff before the first retry, in milliseconds. It doubles per retry, with jitter.
     pub const RPC_INITIAL_BACKOFF_MS: u64 = 100;
-    /// The longest backoff between retries, in milliseconds.
     pub const RPC_MAX_BACKOFF_MS: u64 = 1_000;
 }
 
@@ -59,13 +54,13 @@ pub struct Config {
 
     /// The timeout of one JSON-RPC attempt, in seconds.
     #[arg(long, env = "RPC_TIMEOUT_SECS", default_value_t = defaults::RPC_TIMEOUT_SECS)]
-    pub rpc_timeout_secs: u64,
+    pub rpc_timeout_secs: NonZeroU64,
 
-    /// How often a failed JSON-RPC call is retried.
+    /// How many times a failed JSON-RPC call is retried, with exponential backoff and jitter.
     #[arg(long, env = "RPC_MAX_RETRIES", default_value_t = defaults::RPC_MAX_RETRIES)]
     pub rpc_max_retries: u32,
 
-    /// The backoff before the first retry, in milliseconds.
+    /// The backoff before the first retry, in milliseconds. It doubles with every retry.
     #[arg(long, env = "RPC_INITIAL_BACKOFF_MS", default_value_t = defaults::RPC_INITIAL_BACKOFF_MS)]
     pub rpc_initial_backoff_ms: u64,
 
@@ -81,12 +76,14 @@ pub struct Config {
     #[arg(long, env = "CREDENTIAL_SCHEMA_ISSUER_REGISTRY_ADDRESS")]
     pub credential_schema_issuer_registry: Address,
 
-    /// How many verifications may run at once. Defaults to the available CPUs; a request beyond
-    /// it is answered `503 overloaded` instead of queueing.
+    /// How many verifications may run at once, each holding its slot from the registry reads to
+    /// the proof verification. Defaults to the available CPUs; a request beyond it is answered
+    /// `503 overloaded` instead of queueing.
     #[arg(long, env = "MAX_CONCURRENT_VERIFICATIONS")]
     pub max_concurrent_verifications: Option<NonZeroUsize>,
 
-    /// How long one verification may take, in seconds.
+    /// How long one verification may take, in seconds. The registry reads are cancelled at the
+    /// deadline; CPU-bound work in progress finishes first.
     #[arg(long, env = "REQUEST_TIMEOUT_SECS", default_value_t = defaults::REQUEST_TIMEOUT_SECS)]
     pub request_timeout_secs: NonZeroU64,
 
@@ -102,7 +99,7 @@ impl Config {
             max_retries: self.rpc_max_retries,
             initial_backoff_ms: self.rpc_initial_backoff_ms,
             max_backoff_ms: self.rpc_max_backoff_ms,
-            timeout_secs: self.rpc_timeout_secs,
+            timeout_secs: self.rpc_timeout_secs.get(),
         }
     }
 

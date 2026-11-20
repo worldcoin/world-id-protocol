@@ -1,6 +1,6 @@
 //! `POST /v1/embedding-similarity/verify`.
 
-use std::{sync::Arc, time::Instant};
+use std::sync::Arc;
 
 use axum::{
     Json,
@@ -9,12 +9,12 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use tokio::runtime::Handle;
+use tokio::{runtime::Handle, time::Instant};
 use world_id_primitives::{ProofRequest, ProofResponse};
 use world_id_rp::embedding_similarity::{FlamingoAttestationVerifier, check_embedding_similarity};
 
 use crate::{
-    error::{ApiError, Code, Failure},
+    error::{ACCEPTED, ApiError, Code, Failure},
     metrics::{
         METRICS_EMBEDDING_SIMILARITY_PROOF_VERIFICATION_MS,
         METRICS_EMBEDDING_SIMILARITY_VERIFICATIONS,
@@ -44,13 +44,15 @@ where
     A: FlamingoAttestationVerifier + Send + Sync + 'static,
     R: Registries,
 {
+    let unanswered = AbandonGuard::new();
     let result = match body {
-        Ok(Json(body)) => verify_embedding_similarity(state, body).await,
+        Ok(Json(body)) => verify_in_slot(state, body).await,
         Err(rejection) => Err(ApiError::from(rejection)),
     };
+    unanswered.disarm();
     report(result.as_ref().err());
     match result {
-        Ok(()) => Json(json!({ "result": "accepted" })).into_response(),
+        Ok(()) => Json(json!({ "result": ACCEPTED })).into_response(),
         Err(error) => error.into_response(),
     }
 }
@@ -58,10 +60,10 @@ where
 /// Runs the whole verification on a blocking thread, in one of the verification slots.
 ///
 /// The Flamingo attestation check and the proof verification are both CPU-bound, so neither runs
-/// on the async runtime. A request arriving when every slot is busy is shed before it costs
-/// anything. A verification that misses the deadline is answered `503 timeout` and still runs
-/// to its end in its slot.
-async fn verify_embedding_similarity<A, R>(
+/// on the async runtime. A request that arrives when every slot is busy is shed before any of
+/// that work. At the deadline the registry reads are cancelled and the request is answered
+/// `503 timeout`; CPU-bound work in progress still finishes in its slot.
+async fn verify_in_slot<A, R>(
     state: Arc<AppState<A, R>>,
     body: VerifyRequest,
 ) -> Result<(), ApiError>
@@ -73,18 +75,24 @@ where
         .try_acquire_owned()
         .map_err(|_| ApiError::overloaded())?;
     let timeout = state.request_timeout;
+    let deadline = Instant::now() + timeout;
     let runtime = Handle::current();
     let verification = tokio::task::spawn_blocking(move || {
         let _slot = slot;
-        runtime.block_on(check_and_verify(&state, &body))
+        runtime.block_on(async {
+            tokio::time::timeout_at(deadline, check_and_verify(&state, &body))
+                .await
+                .unwrap_or_else(|_| Err(ApiError::timeout(timeout)))
+        })
     });
-    match tokio::time::timeout(timeout, verification).await {
+    match tokio::time::timeout_at(deadline, verification).await {
         Err(_elapsed) => Err(ApiError::timeout(timeout)),
         Ok(Err(panic)) => Err(ApiError::verification_panicked(&panic)),
         Ok(Ok(result)) => result,
     }
 }
 
+/// The library's `verify_embedding_similarity`, with the proof verification timed.
 async fn check_and_verify<A, R>(
     state: &AppState<A, R>,
     body: &VerifyRequest,
@@ -101,7 +109,7 @@ where
         |key| state.registries.is_trusted_issuer(key),
     )
     .await?;
-    let started = Instant::now();
+    let started = std::time::Instant::now();
     let verified = check.verify_proof(state.artifacts.as_ref());
     metrics::histogram!(METRICS_EMBEDDING_SIMILARITY_PROOF_VERIFICATION_MS)
         .record(started.elapsed().as_secs_f64() * 1_000.0);
@@ -112,7 +120,7 @@ where
 /// the sidecar failed. Rejections and shed requests are only counted: rejections reach the
 /// caller with their reason, and logging every shed request would add load when overloaded.
 fn report(error: Option<&ApiError>) {
-    let (result, code) = error.map_or(("accepted", "accepted"), |error| {
+    let (result, code) = error.map_or((ACCEPTED, ACCEPTED), |error| {
         (error.code().failure().as_str(), error.code().as_str())
     });
     metrics::counter!(
@@ -145,6 +153,38 @@ fn report(error: Option<&ApiError>) {
     }
 }
 
+/// Counts a verification as `abandoned` when the caller hangs up before the answer, which drops
+/// the handler before [`report`] runs.
+struct AbandonGuard {
+    armed: bool,
+}
+
+impl AbandonGuard {
+    const fn new() -> Self {
+        Self { armed: true }
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for AbandonGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            metrics::counter!(
+                METRICS_EMBEDDING_SIMILARITY_VERIFICATIONS,
+                "result" => ABANDONED,
+                "code" => ABANDONED,
+            )
+            .increment(1);
+        }
+    }
+}
+
+/// The metric's `result` and `code` of a verification whose caller hung up.
+const ABANDONED: &str = "abandoned";
+
 #[cfg(test)]
 mod tests {
     use std::{
@@ -156,7 +196,7 @@ mod tests {
 
     use alloy::primitives::{Signature, U160, U256};
     use axum::{Router, body::Body, http::StatusCode};
-    use serde_json::json;
+    use test_case::test_case;
     use tokio::sync::Semaphore;
     use world_id_primitives::{
         EdDSAPrivateKey, EdDSAPublicKey, EmbeddingSimilarityParams, EmbeddingSimilarityProof,
@@ -172,7 +212,7 @@ mod tests {
         registries::{Registries, RegistryError},
         routes::router,
         server::AppState,
-        test_support::{Answer, KeyAsAttestation, post_verify},
+        test_support::{Answer, KeyAsAttestation, post_verification, post_verify},
     };
 
     const ENGINE_CONFIG_HASH: u64 = 10;
@@ -183,7 +223,7 @@ mod tests {
         Trusting,
         Distrusting,
         Failing,
-        /// Answers only once the gate has a permit.
+        /// Answers once the gate has a permit.
         Stalled(Arc<Semaphore>),
         /// Fails the test if it is asked.
         NeverAsked,
@@ -310,8 +350,7 @@ mod tests {
     }
 
     async fn verify(app: Router, fixture: &Fixture) -> Answer {
-        let body = json!({ "request": fixture.request, "response": fixture.response });
-        post_verify(app, body.to_string()).await
+        post_verification(app, &fixture.request, &fixture.response).await
     }
 
     /// `ProveKit` checks the prover's transcript pattern in debug builds and panics on any proof
@@ -334,50 +373,67 @@ mod tests {
         assert_eq!(second.body["code"], first.body["code"]);
     }
 
-    #[tokio::test]
-    async fn an_expired_request_is_rejected() {
-        let mut fixture = fixture();
+    fn expire(fixture: &mut Fixture) {
         fixture.request.created_at = 1;
         fixture.request.expires_at = 2;
+    }
 
-        let answer = verify(app(FixedRegistries::Trusting), &fixture).await;
+    fn ask_for_uniqueness(fixture: &mut Fixture) {
+        fixture.request.proof_type = ProofType::Uniqueness {
+            action: FieldElement::from(7u64),
+        };
+    }
 
-        assert_eq!(answer.status, StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(answer.body["code"], "request_expired");
+    fn clear_challenge(fixture: &mut Fixture) {
+        let ProofType::EmbeddingSimilarity(params) = &mut fixture.request.proof_type else {
+            unreachable!("the fixture requests a Proof of Embedding Similarity");
+        };
+        params.challenge_hash = FieldElement::ZERO;
+    }
+
+    const fn keep(_: &mut Fixture) {}
+
+    #[test_case(expire, FixedRegistries::Trusting, StatusCode::UNPROCESSABLE_ENTITY, "request_expired" ; "an expired request is rejected")]
+    #[test_case(keep, FixedRegistries::Distrusting, StatusCode::UNPROCESSABLE_ENTITY, "invalid_root" ; "an untrusted root is rejected")]
+    #[test_case(ask_for_uniqueness, FixedRegistries::Trusting, StatusCode::BAD_REQUEST, "not_embedding_similarity" ; "a request for another proof type is invalid")]
+    #[test_case(clear_challenge, FixedRegistries::Trusting, StatusCode::BAD_REQUEST, "invalid_request" ; "a malformed stored request is invalid, not a rejected proof")]
+    #[test_case(keep, FixedRegistries::Failing, StatusCode::SERVICE_UNAVAILABLE, "root_check_failed" ; "a failing registry is retryable, not a rejection")]
+    #[tokio::test]
+    async fn verification_outcomes(
+        change: fn(&mut Fixture),
+        registries: FixedRegistries,
+        status: StatusCode,
+        code: &str,
+    ) {
+        let mut fixture = fixture();
+        change(&mut fixture);
+
+        let answer = verify(app(registries), &fixture).await;
+
+        assert_eq!(answer.status, status);
+        assert_eq!(answer.body["code"], code);
+        let retryable = status == StatusCode::SERVICE_UNAVAILABLE;
+        assert_eq!(answer.retry_after.is_some(), retryable);
     }
 
     #[tokio::test]
-    async fn an_untrusted_root_is_rejected() {
-        let answer = verify(app(FixedRegistries::Distrusting), &fixture()).await;
-
-        assert_eq!(answer.status, StatusCode::UNPROCESSABLE_ENTITY);
-        assert_eq!(answer.body["code"], "invalid_root");
-    }
-
-    #[tokio::test]
-    async fn a_failing_registry_is_retryable_not_a_rejection() {
-        let answer = verify(app(FixedRegistries::Failing), &fixture()).await;
-
-        assert_eq!(answer.status, StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(answer.retry_after.as_deref(), Some("1"));
-        assert_eq!(answer.body["result"], "unavailable");
-        assert_eq!(answer.body["code"], "root_check_failed");
-    }
-
-    #[tokio::test]
-    async fn a_verification_past_the_deadline_is_retryable() {
-        let gate = Arc::new(Semaphore::new(0));
+    async fn a_verification_past_the_deadline_is_retryable_and_frees_its_slot() {
+        let never_opened = Arc::new(Semaphore::new(0));
         let state = state(
-            FixedRegistries::Stalled(Arc::clone(&gate)),
+            FixedRegistries::Stalled(never_opened),
             Duration::from_millis(50),
         );
+        let slots = Arc::clone(&state.verification_slots);
 
         let answer = verify(router(state, MAX_BODY_BYTES), &fixture()).await;
-        gate.add_permits(1);
 
         assert_eq!(answer.status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(answer.retry_after.as_deref(), Some("1"));
         assert_eq!(answer.body["code"], "timeout");
+        let freed = tokio::time::timeout(Duration::from_secs(5), slots.acquire_owned())
+            .await
+            .is_ok();
+        assert!(freed, "the cancelled registry read frees the slot");
     }
 
     #[tokio::test]
@@ -392,34 +448,6 @@ mod tests {
         assert_eq!(answer.status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(answer.retry_after.as_deref(), Some("1"));
         assert_eq!(answer.body["code"], "overloaded");
-    }
-
-    #[tokio::test]
-    async fn a_request_for_another_proof_type_is_invalid() {
-        let mut fixture = fixture();
-        fixture.request.proof_type = ProofType::Uniqueness {
-            action: FieldElement::from(7u64),
-        };
-
-        let answer = verify(app(FixedRegistries::Trusting), &fixture).await;
-
-        assert_eq!(answer.status, StatusCode::BAD_REQUEST);
-        assert_eq!(answer.body["result"], "invalid");
-        assert_eq!(answer.body["code"], "not_embedding_similarity");
-    }
-
-    #[tokio::test]
-    async fn a_malformed_stored_request_is_invalid_not_a_rejected_proof() {
-        let mut fixture = fixture();
-        let ProofType::EmbeddingSimilarity(params) = &mut fixture.request.proof_type else {
-            unreachable!("the fixture requests a Proof of Embedding Similarity");
-        };
-        params.challenge_hash = FieldElement::ZERO;
-
-        let answer = verify(app(FixedRegistries::Trusting), &fixture).await;
-
-        assert_eq!(answer.status, StatusCode::BAD_REQUEST);
-        assert_eq!(answer.body["code"], "invalid_request");
     }
 
     #[tokio::test]

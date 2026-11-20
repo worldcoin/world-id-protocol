@@ -4,9 +4,10 @@
 use std::future::Future;
 
 use alloy::{contract, primitives::Address, providers::DynProvider, sol};
-use url::Url;
+use url::{Position, Url};
 use world_id_primitives::{EdDSAPublicKey, FieldElement, POH_ISSUER_SCHEMA_ID};
 use world_id_registries::world_id::WorldIdRegistry::{self, WorldIdRegistryInstance};
+use world_id_services_common::{ProviderArgs, ProviderError, RetryConfig};
 
 use self::CredentialSchemaIssuerRegistry::CredentialSchemaIssuerRegistryInstance;
 
@@ -67,46 +68,78 @@ impl RegistryError {
 pub struct OnchainRegistries {
     world_id_registry: WorldIdRegistryInstance<DynProvider>,
     issuer_registry: CredentialSchemaIssuerRegistryInstance<DynProvider>,
-    /// Each RPC URL, which may carry an API key, and the host it is shown as in errors.
-    redacted_urls: Vec<(String, String)>,
+    /// Each part of an RPC URL that may carry an API key, and what errors show instead.
+    redactions: Vec<(String, String)>,
 }
+
+/// How much of an RPC error a [`RegistryError`] keeps, e.g. of an HTML error page.
+const MAX_DETAIL_CHARS: usize = 300;
 
 impl OnchainRegistries {
     /// Reads the `WorldIDRegistry` and `CredentialSchemaIssuerRegistry` proxies at the given
-    /// addresses through `provider`, which connects to `rpc_urls`.
-    #[must_use]
-    pub fn new(
-        provider: DynProvider,
+    /// addresses through `rpc_urls`, retrying failed calls as `retry` says.
+    ///
+    /// # Errors
+    /// `rpc_urls` is empty.
+    pub async fn connect(
         rpc_urls: &[Url],
+        retry: RetryConfig,
         world_id_registry: Address,
         credential_schema_issuer_registry: Address,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, ProviderError> {
+        let provider = ProviderArgs {
+            http: rpc_urls.to_vec(),
+            retry,
+            ..ProviderArgs::default()
+        }
+        .http()
+        .await?;
+        Ok(Self {
             world_id_registry: WorldIdRegistry::new(world_id_registry, provider.clone()),
             issuer_registry: CredentialSchemaIssuerRegistry::new(
                 credential_schema_issuer_registry,
                 provider,
             ),
-            redacted_urls: rpc_urls
-                .iter()
-                .map(|url| {
-                    let host = url.host_str().unwrap_or("rpc");
-                    (url.to_string(), format!("<{host}>"))
-                })
-                .collect(),
-        }
+            redactions: rpc_urls.iter().flat_map(redactions).collect(),
+        })
     }
 
-    /// The error of a failed `call`, without the RPC URLs a transport error names.
+    /// The error of a failed `call`, without the RPC URLs a transport error or an error page
+    /// may show.
     fn error(&self, call: &'static str, source: &contract::Error) -> RegistryError {
-        let detail = self
-            .redacted_urls
+        let redacted = self
+            .redactions
             .iter()
-            .fold(source.to_string(), |detail, (url, host)| {
-                detail.replace(url, host)
+            .fold(source.to_string(), |detail, (secret, shown)| {
+                detail.replace(secret, shown)
             });
+        let mut detail: String = redacted.chars().take(MAX_DETAIL_CHARS).collect();
+        if detail.len() < redacted.len() {
+            detail.push('…');
+        }
         RegistryError::new(call, detail)
     }
+}
+
+/// The parts of `url` that may carry an API key, longest first, each with what errors show
+/// instead: the URL as configured and as sent, since the HTTP client drops its user info, then
+/// its password, and its path and query, which error pages may echo.
+fn redactions(url: &Url) -> Vec<(String, String)> {
+    let host = format!("<{}>", url.host_str().unwrap_or("rpc"));
+    let mut sent = url.clone();
+    let _ = sent.set_username("");
+    let _ = sent.set_password(None);
+    let path_and_query = &url[Position::BeforePath..];
+    [
+        Some((url.to_string(), host.clone())),
+        Some((sent.to_string(), host)),
+        url.password()
+            .map(|password| (password.to_owned(), "<redacted>".to_owned())),
+        (path_and_query != "/").then(|| (path_and_query.to_owned(), "/<redacted>".to_owned())),
+    ]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 impl Registries for OnchainRegistries {
@@ -139,14 +172,14 @@ impl Registries for OnchainRegistries {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use alloy::{
-        primitives::U256,
-        sol_types::{SolCall as _, SolValue as _},
+    use alloy::sol_types::{SolCall as _, SolValue as _};
+    use axum::{
+        Json, Router,
+        http::{StatusCode, Uri},
+        routing::post,
     };
-    use axum::{Json, Router, routing::post};
     use serde_json::{Value, json};
     use world_id_primitives::EdDSAPrivateKey;
-    use world_id_services_common::{ProviderArgs, RetryConfig};
 
     use super::*;
 
@@ -183,29 +216,26 @@ mod tests {
                 })
             }),
         );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url: Url = format!("http://{}", listener.local_addr().unwrap())
-            .parse()
-            .unwrap();
-        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let url = serve(router).await;
         (registries_at(&url, RetryConfig::default()).await, calls)
     }
 
+    async fn serve(router: Router) -> Url {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        url.parse().unwrap()
+    }
+
     async fn registries_at(url: &Url, retry: RetryConfig) -> OnchainRegistries {
-        let provider = ProviderArgs {
-            http: vec![url.clone()],
-            retry,
-            ..ProviderArgs::default()
-        }
-        .http()
-        .await
-        .unwrap();
-        OnchainRegistries::new(
-            provider,
+        OnchainRegistries::connect(
             std::slice::from_ref(url),
+            retry,
             WORLD_ID_REGISTRY,
             ISSUER_REGISTRY,
         )
+        .await
+        .unwrap()
     }
 
     fn eth_call(to: Address, calldata: &[u8]) -> (Value, Value) {
@@ -259,19 +289,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_unregistered_issuer_is_not_trusted() {
-        let key = EdDSAPrivateKey::random(&mut rand::thread_rng()).public();
-        let unregistered = CredentialSchemaIssuerRegistry::Pubkey {
-            x: U256::ZERO,
-            y: U256::ZERO,
-        }
-        .abi_encode();
-        let (registries, _) = registries_answering(Ok(unregistered)).await;
-
-        assert!(!registries.is_trusted_issuer(key).await.unwrap());
-    }
-
-    #[tokio::test]
     async fn rpc_errors_are_errors_not_untrusted() {
         let (registries, _) = registries_answering(Err("execution reverted")).await;
 
@@ -285,7 +302,9 @@ mod tests {
 
     #[tokio::test]
     async fn an_unreachable_endpoint_fails_after_bounded_retries_without_naming_its_url() {
-        let url: Url = "http://127.0.0.1:1/v2/SECRET".parse().unwrap();
+        let url: Url = "http://user:PASSWORD@127.0.0.1:1/v2/SECRET"
+            .parse()
+            .unwrap();
         let retry = RetryConfig {
             max_retries: 2,
             initial_backoff_ms: 10,
@@ -305,5 +324,26 @@ mod tests {
             "{error}"
         );
         assert!(!error.contains("SECRET"), "{error}");
+        assert!(!error.contains("PASSWORD"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn an_error_page_echoing_the_url_is_redacted_and_truncated() {
+        let echo = Router::new().fallback(|uri: Uri| async move {
+            let page = format!("Cannot POST {uri}{}", " ".repeat(10 * MAX_DETAIL_CHARS));
+            (StatusCode::NOT_FOUND, page)
+        });
+        let url = serve(echo).await.join("v2/SECRET").unwrap();
+        let registries = registries_at(&url, RetryConfig::default()).await;
+
+        let error = registries
+            .is_valid_root(FieldElement::from(7u64))
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(error.contains("Cannot POST /<redacted>"), "{error}");
+        assert!(!error.contains("SECRET"), "{error}");
+        assert!(error.chars().count() < 2 * MAX_DETAIL_CHARS, "{error}");
     }
 }

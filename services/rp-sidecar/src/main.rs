@@ -30,7 +30,7 @@ async fn main() -> eyre::Result<()> {
 
     let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
     let _ = dotenvy::from_path(&env_path);
-    let _guard = telemetry_batteries::init();
+    let _guard = telemetry_batteries::init()?;
     metrics::describe_metrics();
 
     server::run(Config::parse())
