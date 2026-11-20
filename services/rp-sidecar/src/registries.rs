@@ -92,7 +92,7 @@ impl OnchainRegistries {
         }
         .http()
         .await?;
-        let mut redactions: Vec<_> = rpc_urls.iter().flat_map(redactions).collect();
+        let mut redactions: Vec<_> = rpc_urls.iter().flat_map(url_redactions).collect();
         // Longest first, so that no secret is cut apart by a shorter one, e.g. the URL of another
         // endpoint on the same host.
         redactions.sort_by_key(|(secret, _)| Reverse(secret.len()));
@@ -155,20 +155,23 @@ impl OnchainRegistries {
 }
 
 /// The parts of `url` that may carry an API key, each with what errors show instead: the URL as
-/// configured and as sent, since the HTTP client drops its user info, its password, and its
-/// path and query, which error pages may echo.
-fn redactions(url: &Url) -> Vec<(String, String)> {
+/// configured, the URL as sent (the HTTP client drops its user info), its password, and its path
+/// with and without the query, which error pages may echo.
+fn url_redactions(url: &Url) -> Vec<(String, String)> {
     let host = format!("<{}>", url.host_str().unwrap_or("rpc"));
     let mut sent = url.clone();
     let _ = sent.set_username("");
     let _ = sent.set_password(None);
-    let path_and_query = &url[Position::BeforePath..Position::AfterQuery];
+    let path = |path: &str| {
+        (!path.is_empty() && path != "/").then(|| (path.to_owned(), "/<redacted>".to_owned()))
+    };
     [
         Some((url.to_string(), host.clone())),
         Some((sent.to_string(), host)),
         url.password()
             .map(|password| (password.to_owned(), "<redacted>".to_owned())),
-        (path_and_query != "/").then(|| (path_and_query.to_owned(), "/<redacted>".to_owned())),
+        path(&url[Position::BeforePath..Position::AfterQuery]),
+        path(url.path()),
     ]
     .into_iter()
     .flatten()
@@ -330,8 +333,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_error_page_echoing_a_url_is_redacted_and_truncated_whatever_the_url_order() {
+    async fn an_error_page_echoing_a_url_is_redacted_and_truncated_beside_a_shorter_url() {
         let echo = Router::new().fallback(|uri: Uri| async move {
+            // The fallback layer reports the error that comes last, so make it the keyed one's.
+            if uri.path().ends_with("SECRET") {
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
             let page = format!("Cannot POST {uri}{}", " ".repeat(10 * MAX_DETAIL_CHARS));
             (StatusCode::NOT_FOUND, page)
         });

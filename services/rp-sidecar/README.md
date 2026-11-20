@@ -62,7 +62,7 @@ Answers `200` once the sidecar serves. It checks no dependency. A registry outag
 | `WORLD_ID_REGISTRY_ADDRESS` | required | The `WorldIDRegistry` proxy. |
 | `CREDENTIAL_SCHEMA_ISSUER_REGISTRY_ADDRESS` | required | The `CredentialSchemaIssuerRegistry` proxy. |
 | `LISTEN_ADDR` | `127.0.0.1:9202` | Keep it on loopback. |
-| `MAX_CONCURRENT_VERIFICATIONS` | available CPUs | Verifications that may run at once. Each runs on its own thread and holds its slot from the registry reads to the proof verification. Requests beyond this are answered `503 overloaded` at once; they are not queued. |
+| `MAX_CONCURRENT_VERIFICATIONS` | available CPUs | Verifications that may run at once. Each runs on its own thread and holds its slot from the registry reads to the proof verification. Requests beyond this are answered `503 overloaded` at once; they are not queued. Keep it well below 512, the size of the blocking thread pool that DNS lookups share. |
 | `REQUEST_TIMEOUT_SECS` | `30` | The deadline of one verification. At the deadline the registry reads are cancelled and the request is answered `503 timeout`. CPU-bound work already running keeps its slot until it finishes. |
 | `MAX_BODY_BYTES` | `8388608` | The largest request body accepted. |
 | `RPC_TIMEOUT_SECS` | `3` | The timeout of one JSON-RPC attempt. |

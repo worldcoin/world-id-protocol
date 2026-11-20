@@ -14,7 +14,6 @@ rust-version.workspace = true
 alloy = { workspace = true, features = ["contract", "providers", "sol-types"] }
 axum = { workspace = true, features = ["json"] }
 clap = { workspace = true, features = ["derive", "env"] }
-dotenvy = { workspace = true }
 eyre = { workspace = true }
 hex = { workspace = true }
 metrics = { workspace = true }

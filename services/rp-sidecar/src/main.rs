@@ -7,8 +7,6 @@
 //! [`ProofRequest`]: world_id_primitives::ProofRequest
 #![recursion_limit = "256"]
 
-use std::path::Path;
-
 use clap::Parser as _;
 use telemetry_batteries::TopLevelResultExt as _;
 
@@ -28,8 +26,6 @@ mod test_support;
 async fn main() -> eyre::Result<()> {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 
-    let env_path = Path::new(env!("CARGO_MANIFEST_DIR")).join(".env");
-    let _ = dotenvy::from_path(&env_path);
     let _guard = telemetry_batteries::init()?;
     metrics::describe_metrics();
 

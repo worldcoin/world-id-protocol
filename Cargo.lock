@@ -12790,7 +12790,6 @@ dependencies = [
  "alloy",
  "axum",
  "clap",
- "dotenvy",
  "eyre",
  "hex",
  "metrics",

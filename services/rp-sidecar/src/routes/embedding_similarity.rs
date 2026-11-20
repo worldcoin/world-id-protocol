@@ -23,6 +23,11 @@ use crate::{
     server::AppState,
 };
 
+/// The `result`, and the metric's `code`, of an accepted proof.
+const ACCEPTED: &str = "accepted";
+/// The metric's `result` and `code` of a verification whose caller hung up.
+const ABANDONED: &str = "abandoned";
+
 /// A verification: the request the RP issued, from the RP's own store, and the response to it.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -121,15 +126,12 @@ where
 /// reach the caller with their reason, and logging every shed request would add load when
 /// overloaded.
 fn report(error: Option<&ApiError>) {
-    match error {
-        None => count(ACCEPTED, ACCEPTED),
-        Some(error) => count(error.code().failure().as_str(), error.code().as_str()),
-    }
-
     let Some(error) = error else {
+        count(ACCEPTED, ACCEPTED);
         return;
     };
     let code = error.code();
+    count(code.failure().as_str(), code.as_str());
     match code.failure() {
         Failure::Unavailable if code != Code::Overloaded => {
             tracing::warn!(
@@ -172,11 +174,6 @@ impl Drop for AbandonGuard {
         }
     }
 }
-
-/// The `result`, and the metric's `code`, of an accepted proof.
-const ACCEPTED: &str = "accepted";
-/// The metric's `result` and `code` of a verification whose caller hung up.
-const ABANDONED: &str = "abandoned";
 
 fn count(result: &'static str, code: &'static str) {
     metrics::counter!(
@@ -259,6 +256,8 @@ mod tests {
         }
     }
 
+    /// A sidecar with one verification slot, so a second request is shed unless the first freed
+    /// it.
     fn state(
         registries: FixedRegistries,
         timeout: Duration,

@@ -11,7 +11,8 @@ use world_id_rp::embedding_similarity::EmbeddingSimilarityPolicy;
 
 use crate::{config::Config, policy, registries::OnchainRegistries, routes::router};
 
-/// Serves the sidecar until SIGTERM or Ctrl-C, then finishes in-flight requests.
+/// Serves the sidecar until SIGTERM or Ctrl-C, then finishes in-flight requests and waits up to
+/// the request timeout for verifications whose callers hung up.
 ///
 /// # Errors
 /// The policy, the verification artifacts or the RPC provider cannot be loaded, or the listener
@@ -64,9 +65,9 @@ pub async fn run(config: Config) -> eyre::Result<()> {
 
     // Let verifications whose callers hung up finish before the runtime and its timers go away.
     let all_slots = u32::try_from(max_concurrent_verifications.get()).unwrap_or(u32::MAX);
-    let drained = tokio::time::timeout(config.request_timeout(), slots.acquire_many(all_slots));
-    if drained.await.is_err() {
-        tracing::warn!("verifications still running at shutdown are cut short");
+    let drain = tokio::time::timeout(config.request_timeout(), slots.acquire_many(all_slots));
+    if drain.await.is_err() {
+        tracing::warn!("verifications are still running at shutdown; waiting for their CPU work");
     }
     Ok(())
 }
