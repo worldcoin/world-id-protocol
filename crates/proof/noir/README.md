@@ -7,6 +7,7 @@
 - `ownership-proof/` — Proof of Ownership (WIP-103).
 - `embedding-similarity/` — WIP-202 Proof of Embedding Similarity over a WIP-201 Flamingo Token. **🚧 Unaudited, in active development.**
 - `authenticator-assertion/` — WIP-106 Trust Anchor Key Token (`BabyJubJub-EdDSA-Poseidon2`) and Authenticator Assertion Token (`ES256`) verification. **🚧 Warning. This is WIP and in active development, things may change significantly.**
+- `oprf-query-v2/`, `oprf-nullifier-v2/`, `share-fetch-xmss/` — OPRF query and nullifier over a query digest that includes a World ID's secret-shared blinding secret `s`, and the XMSS-authorized fetch of its shares. **🚧 Unaudited research prototype.**
 
 ## Consuming `authenticator-assertion`
 

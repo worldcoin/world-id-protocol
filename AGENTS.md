@@ -66,7 +66,7 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 - `crates/flamingo/`: WIP-201 Flamingo Verifier types (Flamingo Token, Engine configuration hash).
 - `crates/issuer/`: Issuer functionality for World ID.
 - `crates/primitives/`: Foundational raw types with minimal dependencies.
-- `crates/proof/`: Proof generation/verification; ZK artifacts provided at runtime via `ZkArtifactSource`, with opt-in embed features (`embed-zkeys`, `embed-ownership-prover`/`-verifier`, the unaudited `embed-embedding-similarity-prover`/`-verifier`, umbrella `embed-zk-artifacts`); nothing is embedded by default.
+- `crates/proof/`: Proof generation/verification; ZK artifacts provided at runtime via `ZkArtifactSource`, with opt-in embed features (`embed-zkeys`, `embed-ownership-prover`/`-verifier`, the unaudited `embed-embedding-similarity-prover`/`-verifier`, the unaudited `embed-secret-share-prover`/`-verifier`, umbrella `embed-zk-artifacts`); nothing is embedded by default.
 - `crates/rp/`: RP verification of proofs checked off-chain (WIP-202 Proof of Embedding Similarity).
 - `crates/test-utils/`: Shared test helpers for integration/e2e tests across crates and services.
 - `crates/zk-mobile-bench/`: Mobile benchmarks for World ID ZK proof generation, used by CI via mobench.

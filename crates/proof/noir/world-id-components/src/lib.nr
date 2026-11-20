@@ -8,5 +8,7 @@ pub mod session;
 pub mod types;
 pub mod var_hash;
 pub mod merkle;
+pub mod secret_share;
+pub mod xmss;
 
 mod tests;

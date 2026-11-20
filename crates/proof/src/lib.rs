@@ -54,6 +54,8 @@ pub mod ownership_proof;
 
 pub mod embedding_similarity_proof;
 
+pub mod secret_share_proof;
+
 mod noir_components;
 
 mod provekit;

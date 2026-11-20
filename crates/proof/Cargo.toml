@@ -28,6 +28,10 @@ embed-noir-artifacts = ["embed-ownership-prover", "embed-ownership-verifier"]
 # `embed-noir-artifacts`.
 embed-embedding-similarity-prover = ["dep:provekit-r1cs-compiler"]
 embed-embedding-similarity-verifier = ["dep:provekit-r1cs-compiler"]
+# UNAUDITED RESEARCH PROTOTYPE. The secret-share circuits (`oprf-query-v2`, `oprf-nullifier-v2`,
+# `share-fetch-xmss`); deliberately not part of `embed-noir-artifacts`.
+embed-secret-share-prover = ["dep:provekit-r1cs-compiler"]
+embed-secret-share-verifier = ["dep:provekit-r1cs-compiler"]
 
 # Embed everything
 embed-zk-artifacts = ["embed-zkeys", "embed-noir-artifacts"]
