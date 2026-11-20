@@ -49,6 +49,12 @@ You are the owner and long-term maintainer of this codebase, and its design is u
 - Binary: `world-id-relay` (see `services/relay/src/bin/main.rs`).
 - See `services/relay/README.md`.
 
+## RP Sidecar
+
+- Code: `services/rp-sidecar/`
+- Binary: `world-id-rp-sidecar` (see `services/rp-sidecar/src/main.rs`).
+- Stateless loopback HTTP service that verifies WIP-202 Proofs of Embedding Similarity with `world-id-rp`, for RP services not written in Rust. See `services/rp-sidecar/README.md`.
+
 ## Other Services
 
 - `services/common/`: Shared middleware, server layers, and provider utilities used across services.

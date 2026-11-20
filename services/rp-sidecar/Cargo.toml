@@ -1,0 +1,42 @@
+[package]
+name = "world-id-rp-sidecar"
+description = "RP verification of World ID proofs as a local HTTP service"
+version = "0.1.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+alloy = { workspace = true, features = ["contract", "providers", "sol-types"] }
+axum = { workspace = true, features = ["json"] }
+clap = { workspace = true, features = ["derive", "env"] }
+dotenvy = { workspace = true }
+eyre = { workspace = true }
+hex = { workspace = true }
+metrics = { workspace = true }
+pontifex = { workspace = true, features = ["attestation"] }
+rustls = { workspace = true, features = ["aws-lc-rs"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+telemetry-batteries = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal"] }
+tracing = { workspace = true }
+url = { workspace = true }
+world-id-primitives = { workspace = true }
+world-id-proof = { workspace = true, features = ["embed-embedding-similarity-verifier"] }
+world-id-registries = { workspace = true }
+world-id-rp = { workspace = true }
+world-id-services-common = { workspace = true }
+
+[dev-dependencies]
+provekit-common = { workspace = true }
+rand = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+
+[lints]
+workspace = true

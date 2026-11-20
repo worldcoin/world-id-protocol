@@ -19,6 +19,7 @@ members = [
   "tools/generate-solidity-fixtures",
   "tools/legacy-recovery-migration",
   "services/relay",
+  "services/rp-sidecar",
 ]
 
 resolver = "2"
