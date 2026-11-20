@@ -12,7 +12,13 @@ use telemetry_batteries::TopLevelResultExt as _;
 
 use crate::config::Config;
 
+// Only the integration test uses these dev-dependencies.
+#[cfg(all(test, not(feature = "integration-tests")))]
+use {world_id_core as _, world_id_flamingo as _, world_id_test_utils as _};
+
 mod config;
+#[cfg(all(test, feature = "integration-tests"))]
+mod e2e_tests;
 mod error;
 mod metrics;
 mod policy;
