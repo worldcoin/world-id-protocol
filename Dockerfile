@@ -36,6 +36,15 @@ RUN curl -L https://foundry.paradigm.xyz | bash \
  && /root/.foundry/bin/foundryup
 ENV PATH="/root/.foundry/bin:${PATH}"
 
+# Install nargo, which world-id-proof's build script runs to embed Noir circuit verifiers.
+# The version and hash match nix/nargo.nix.
+ARG NARGO_VERSION=1.0.0-beta.26
+ARG NARGO_SHA256=64048040befd55a987158b11137d8f38f9688f696db4d84910dd1bcf0442fb80
+RUN curl -fsSL -o /tmp/nargo.tar.gz "https://github.com/noir-lang/noir/releases/download/v${NARGO_VERSION}/nargo-x86_64-unknown-linux-gnu.tar.gz" \
+ && echo "${NARGO_SHA256}  /tmp/nargo.tar.gz" | sha256sum -c - \
+ && tar -xzf /tmp/nargo.tar.gz -C /usr/local/bin nargo \
+ && rm /tmp/nargo.tar.gz
+
 RUN cargo install cargo-chef --locked
 
 FROM chef AS planner
