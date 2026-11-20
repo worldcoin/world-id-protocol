@@ -357,7 +357,7 @@ jobs:
   android:
     name: Android BrowserStack benchmark
     if: inputs.platform == 'android' || inputs.platform == 'both'
-    runs-on: macos-14
+    runs-on: macos-15
 
     outputs:
       bench_outcome: ${{ steps.run_android_benchmarks.outcome }}
