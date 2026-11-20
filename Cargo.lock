@@ -12784,6 +12784,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "world-id-rp-sidecar"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "axum",
+ "clap",
+ "eyre",
+ "hex",
+ "metrics",
+ "pontifex",
+ "provekit-common",
+ "rand 0.8.6",
+ "rustls",
+ "serde",
+ "serde_json",
+ "telemetry-batteries",
+ "test-case",
+ "thiserror 2.0.18",
+ "tokio",
+ "tower",
+ "tracing",
+ "url",
+ "world-id-primitives",
+ "world-id-proof",
+ "world-id-registries",
+ "world-id-rp",
+ "world-id-services-common",
+]
+
+[[package]]
 name = "world-id-services-common"
 version = "0.1.0"
 dependencies = [

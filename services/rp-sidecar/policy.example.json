@@ -1,0 +1,18 @@
+{
+  "issuer_version": 1,
+  "flamingo_verifiers": [
+    {
+      "pcr0": "<96 hex characters, from the Flamingo Verifier release>",
+      "pcr1": "<96 hex characters>",
+      "pcr2": "<96 hex characters>"
+    }
+  ],
+  "engine_config_hashes": [
+    "0x<64 hex characters: the engine_config_hash of an accepted release, pipeline and match strictness>"
+  ],
+  "aat": {
+    "required": false,
+    "trust_anchor_key_hashes": [],
+    "accepted_flags": []
+  }
+}
