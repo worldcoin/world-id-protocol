@@ -475,6 +475,13 @@ fn render() -> Rendered {
         .sign(&issuer_sk)
         .unwrap();
     let cred_sig = credential.signature.as_ref().unwrap();
+    let cred_sig_version_0 = credential
+        .clone()
+        .issuer_version(0)
+        .sign(&issuer_sk)
+        .unwrap()
+        .signature
+        .unwrap();
 
     let session_id_r = FieldElement::from(555_u64);
     let session_id = poseidon::hash(
@@ -540,6 +547,7 @@ fn render() -> Rendered {
         ("AUTH_SIG_AT_EXPIRY", "Signature", noir_sig(&auth_at_expiry)),
         ("TOKEN_SIG_RP_NONCE", "Signature", noir_sig(&token_rp_nonce)),
         ("AUTH_SIG_RP_NONCE", "Signature", noir_sig(&auth_rp_nonce)),
+        ("CRED_SIG_VERSION_0", "Signature", noir_sig(&cred_sig_version_0)),
         ("BILLING_NULLIFIER", "Field", dec(*billing_nullifier_own)),
         ("BILLING_ACTION", "Field", BILLING_ACTION.to_string()),
         ("BILLING_OPRF_OUTPUT", "[Field; 2]", list(billing_oprf_output.map(|v| dec(*v)))),

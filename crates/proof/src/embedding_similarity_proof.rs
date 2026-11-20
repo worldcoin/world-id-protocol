@@ -918,6 +918,14 @@ mod input_validation_tests {
     }
 
     #[test]
+    fn test_accepts_any_issuer_version_the_issuer_signed() {
+        let mut input = embedding_similarity_fixture();
+        input.issuer_version = 0;
+        resign(&mut input);
+        check_embedding_similarity_input_validity(&input).expect("version 0 is valid");
+    }
+
+    #[test]
     fn test_rejects_an_issuer_version_the_issuer_did_not_sign() {
         let mut input = embedding_similarity_fixture();
         input.issuer_version = 0;
