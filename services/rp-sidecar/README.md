@@ -169,3 +169,9 @@ nix develop --command cargo test -p world-id-rp-sidecar
 ```
 
 Run the sidecar in a release build to verify real proofs, for example `cargo run --release -p world-id-rp-sidecar`. In debug builds, ProveKit checks the prover's transcript pattern, which no proof carries after serialization, so every proof received over the API panics the verifier. The sidecar answers that with `500 verification_panicked` and keeps serving.
+
+The `integration-tests` feature adds a test that generates a real proof on the WIP-202 fixture. It needs Docker, and anvil and forge on `PATH`. In a debug build it checks two things: the API gets as far as the proof verification, and the request and proof survive JSON. In a release build it verifies the proof through the API:
+
+```sh
+nix develop --command cargo test --release -p world-id-rp-sidecar --features integration-tests
+```
