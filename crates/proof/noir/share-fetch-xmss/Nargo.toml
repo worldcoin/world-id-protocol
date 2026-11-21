@@ -1,0 +1,12 @@
+[package]
+name = "share_fetch_xmss"
+type = "bin"
+description = "UNAUDITED. RESEARCH PROTOTYPE. XMSS-authorized fetch of a World ID's secret shares from the OPRF nodes."
+authors = ["@kilianglas"]
+license = "MIT"
+backend = "provekit"
+
+[dependencies]
+poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
+world_id_components = { path = "../world-id-components" }
+

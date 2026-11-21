@@ -1,0 +1,13 @@
+[package]
+name = "oprf_nullifier_v2"
+type = "bin"
+description = "UNAUDITED. RESEARCH PROTOTYPE. OPRF evaluation and nullifier (core of π2) over the s-dependent query digest."
+authors = ["@kilianglas"]
+license = "MIT"
+backend = "provekit"
+
+[dependencies]
+poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
+world_id_components = { path = "../world-id-components" }
+babyjubjub = { tag = "v2.0.0", git = "https://github.com/TaceoLabs/oprf-nr", directory = "babyjubjub" }
+oprf = { tag = "v2.0.0", git = "https://github.com/TaceoLabs/oprf-nr", directory = "oprf" }

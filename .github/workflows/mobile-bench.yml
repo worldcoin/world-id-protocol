@@ -149,7 +149,7 @@ jobs:
     uses: ./.github/workflows/mobile-bench-reusable.yml
     with:
       crate_path: ${{ inputs.crate_path }}
-      functions: ${{ inputs.functions != '' && inputs.functions || '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_ownership_proof_generation","zk_mobile_bench::bench_embedding_similarity_proof_generation"]' }}
+      functions: ${{ inputs.functions != '' && inputs.functions || '["zk_mobile_bench::bench_nullifier_proof_generation","zk_mobile_bench::bench_nullifier_witness_generation_only","zk_mobile_bench::bench_nullifier_proving_only","zk_mobile_bench::bench_query_proof_generation","zk_mobile_bench::bench_query_cached_proof_generation","zk_mobile_bench::bench_query_witness_generation_only","zk_mobile_bench::bench_query_proving_only","zk_mobile_bench::bench_ownership_proof_generation","zk_mobile_bench::bench_embedding_similarity_proof_generation","zk_mobile_bench::bench_oprf_query_v2_proof_generation","zk_mobile_bench::bench_oprf_nullifier_v2_proof_generation","zk_mobile_bench::bench_share_fetch_xmss_proof_generation"]' }}
       mobench_version: "0.2.0"
       # Retry flags ship after 0.2.0; pinned until the next release.
       mobench_ref: "a2004cd418d9de954b34c26044b7270b3c1f5c34"

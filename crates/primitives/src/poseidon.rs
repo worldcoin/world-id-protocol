@@ -69,6 +69,33 @@ pub mod ds {
     /// register: the lowered registration digest (WIP-109).
     pub const AUTHENTICATOR_REGISTRATION: DomainSeparator<2> =
         DomainSeparator::new(b"WORLD-ID/WIP-109/REGSIG");
+    /// Separates the commitment to a World ID's secret-shared OPRF blinding secret `s`.
+    pub const SECRET_COMMITMENT: DomainSeparator<1> =
+        DomainSeparator::new(b"WORLD-ID/SHARES/S-COMMIT");
+    /// Separates the registry leaf binding the key set, `s` and the XMSS credential set.
+    pub const REGISTRY_LEAF: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/SHARES/LEAF");
+    /// Separates the OPRF query digest that includes `s`.
+    pub const OPRF_QUERY_V2: DomainSeparator<4> = DomainSeparator::new(b"WORLD-ID/SHARES/QUERY");
+    /// Separates the message authorizing a share fetch from the OPRF nodes.
+    pub const SHARE_FETCH: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/SHARES/FETCH");
+    /// Separates the commitment to a World ID's XMSS credential slots.
+    pub const XMSS_SET: DomainSeparator<7> = DomainSeparator::new(b"WORLD-ID/SHARES/XMSS-SET");
+    /// Separates the derivation of an XMSS chain start from the seed.
+    pub const XMSS_SECRET: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/XMSS/SK");
+    /// Separates one WOTS+ chain step.
+    pub const XMSS_CHAIN: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/XMSS/CHAIN");
+    /// Separates the randomized digest an XMSS one-time key signs.
+    pub const XMSS_MESSAGE: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/XMSS/MSG");
+    /// Separates the sponge compressing a WOTS+ public key into an XMSS leaf.
+    pub const XMSS_PUBLIC_KEY: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/XMSS/PK");
+    /// Separates an inner node of the XMSS tree.
+    pub const XMSS_NODE: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/XMSS/NODE");
+    /// Separates the registry commitment to an XMSS credential.
+    pub const XMSS_COMMITMENT: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/XMSS/COMMIT");
+    /// Separates the public one-time-key tag OPRF nodes deduplicate on.
+    pub const XMSS_TAG: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/XMSS/TAG");
+    /// Separates the commitment to the key that derives the one-time-key tags.
+    pub const XMSS_TAG_KEY: DomainSeparator<3> = DomainSeparator::new(b"WORLD-ID/XMSS/TAG-KEY");
     /// Separates the hash of a single raw-bytes credential claim.
     pub const CLAIMS_HASH_V1: VariableLengthDomainSeparator =
         VariableLengthDomainSeparator::new(b"CLAIMS_HASH_V1");

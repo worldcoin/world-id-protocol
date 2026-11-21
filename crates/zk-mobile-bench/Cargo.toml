@@ -23,7 +23,7 @@ inventory = "0.3"
 world-id-core = { workspace = true, default-features = false, features = ["authenticator", "embed-zkeys", "embed-ownership-prover", "issuer"] }
 world-id-primitives = { workspace = true }
 world-id-flamingo = { workspace = true }
-world-id-proof = { workspace = true, features = ["embed-embedding-similarity-prover", "embed-embedding-similarity-verifier"] }
+world-id-proof = { workspace = true, features = ["embed-embedding-similarity-prover", "embed-embedding-similarity-verifier", "embed-secret-share-prover", "embed-secret-share-verifier"] }
 
 # ZK dependencies
 ark-babyjubjub = { workspace = true }

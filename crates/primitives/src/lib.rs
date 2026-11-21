@@ -46,6 +46,10 @@ pub use poseidon::{DomainSeparator, VariableLengthDomainSeparator};
 /// SAFE-style sponge utilities and helpers.
 pub mod sponge;
 
+pub mod secret_share;
+
+pub mod xmss;
+
 /// Base definition of a "Credential" in the World ID Protocol.
 pub mod credential;
 pub use credential::{Credential, CredentialVersion, POH_ISSUER_SCHEMA_ID};
