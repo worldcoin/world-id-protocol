@@ -117,3 +117,53 @@ fn g2(x0: &str, x1: &str, y0: &str, y1: &str) -> G2Affine {
 fn fq(decimal: &str) -> Fq {
     Fq::from_str(decimal).expect("valid base field element")
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+
+    use super::*;
+
+    /// The verifying key of `contracts/src/core/Verifier.sol`, the Groth16 verifier behind
+    /// `WorldIDVerifier`. It stores β, γ and δ negated.
+    fn solidity_verifying_key() -> VerifyingKey<Bn254> {
+        let source = include_str!("../../../contracts/src/core/Verifier.sol");
+        let constants: HashMap<&str, &str> = source
+            .lines()
+            .filter_map(|line| line.trim().strip_prefix("uint256 constant "))
+            .filter_map(|line| line.strip_suffix(';')?.split_once(" = "))
+            .collect();
+        let get = |name: &str| constants[name];
+        let negated_g2 = |name: &str| {
+            -g2(
+                get(&format!("{name}_NEG_X_0")),
+                get(&format!("{name}_NEG_X_1")),
+                get(&format!("{name}_NEG_Y_0")),
+                get(&format!("{name}_NEG_Y_1")),
+            )
+        };
+        let mut gamma_abc_g1 = vec![g1(get("CONSTANT_X"), get("CONSTANT_Y"))];
+        gamma_abc_g1.extend(
+            (0..)
+                .map_while(|i| {
+                    Some((
+                        constants.get(format!("PUB_{i}_X").as_str())?,
+                        get(&format!("PUB_{i}_Y")),
+                    ))
+                })
+                .map(|(x, y)| g1(x, y)),
+        );
+        VerifyingKey {
+            alpha_g1: g1(get("ALPHA_X"), get("ALPHA_Y")),
+            beta_g2: negated_g2("BETA"),
+            gamma_g2: negated_g2("GAMMA"),
+            delta_g2: negated_g2("DELTA"),
+            gamma_abc_g1,
+        }
+    }
+
+    #[test]
+    fn matches_the_solidity_verifier() {
+        assert_eq!(nullifier_verifying_key(), solidity_verifying_key());
+    }
+}

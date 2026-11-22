@@ -1,15 +1,19 @@
 //! Off-chain verification of Uniqueness and Session Proofs (the nullifier circuit `π2`).
 //!
-//! [`verify_nullifier_proof`] runs the Groth16 check that `WorldIDVerifier.verifyProofAndSignals`
-//! runs on-chain, over the same 15 public signals in the same order. The caller resolves the
-//! on-chain state the contract reads (Merkle root validity, Issuer key, OPRF key, expiration
+//! [`verify_nullifier_proof`] runs the stateless part of `WorldIDVerifier`: the action prefix and
+//! session id checks of `verify`, `verifyWithSession` and `verifySession`, and the Groth16 check of
+//! `verifyProofAndSignals` over the same 15 public signals in the same order. The caller resolves
+//! the on-chain state the contract reads (Merkle root validity, Issuer key, OPRF key, expiration
 //! threshold) and supplies it in [`NullifierPublicInputs`].
 
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Groth16, PreparedVerifyingKey};
 use eddsa_babyjubjub::EdDSAPublicKey;
 use once_cell::sync::Lazy;
-use world_id_primitives::{FieldElement, TREE_DEPTH, ZeroKnowledgeProof};
+use world_id_primitives::{
+    FieldElement, TREE_DEPTH, ZeroKnowledgeProof,
+    oprf::{OprfPrefix, OprfPrefixedFieldElement as _},
+};
 
 use crate::nullifier_verifying_key::nullifier_verifying_key;
 
@@ -47,8 +51,21 @@ pub struct NullifierPublicInputs {
     pub signal_hash: FieldElement,
     /// The RP's nonce.
     pub nonce: FieldElement,
-    /// The session id commitment the proof is bound to, `0` if none.
+    /// The session id commitment the proof is bound to: `0` for a Uniqueness Proof bound to no
+    /// session, and never `0` for a Session Proof.
     pub session_id: FieldElement,
+}
+
+/// Which proof a [`NullifierPublicInputs`] describes. Both use the same circuit; the contract tells
+/// them apart by the action's prefix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NullifierProofKind {
+    /// A Uniqueness Proof: the action carries the [`OprfPrefix::Uniqueness`] prefix. The session id
+    /// is `0`, or the session the proof mints (`verifyWithSession`).
+    Uniqueness,
+    /// A Session Proof: the action carries the [`OprfPrefix::SessionAction`] prefix and the session
+    /// id is not `0`.
+    Session,
 }
 
 impl NullifierPublicInputs {
@@ -77,6 +94,12 @@ impl NullifierPublicInputs {
 /// Why a Uniqueness or Session Proof was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NullifierProofVerificationError {
+    /// The action does not carry the prefix of the proof kind.
+    #[error("the action does not carry the {0:?} prefix")]
+    InvalidAction(OprfPrefix),
+    /// A Session Proof has a `0` session id.
+    #[error("a session proof needs a session id")]
+    InvalidSessionId,
     /// The proof's Merkle root is not a scalar field element.
     #[error("the proof's merkle root is not in the scalar field")]
     MerkleRootNotInField,
@@ -86,21 +109,31 @@ pub enum NullifierProofVerificationError {
     /// The proof does not verify for the public inputs.
     #[error("the proof is invalid")]
     ProofInvalid,
+    /// The Groth16 verifier itself failed. The proof is rejected; this indicates a bug.
+    #[error("the groth16 verifier failed: {0}")]
+    Verifier(String),
 }
 
-/// Verifies a Uniqueness or Session Proof against `public`.
+/// Verifies a Uniqueness or Session Proof of `kind` against `public`.
 ///
-/// This is only the Groth16 check. The caller MUST also run the checks `WorldIDVerifier` runs
-/// around it: the Merkle root ([`merkle_root`]) is a valid `WorldIDRegistry` root, the Issuer and
-/// OPRF keys are the registered ones, `expires_at_min` is within the minimum expiration
-/// threshold, and the action carries the prefix of its proof type.
+/// `Ok` does not mean the proof is acceptable. The caller MUST also run the checks
+/// `WorldIDVerifier` runs against on-chain state, and use the values it resolves there:
+/// - the Merkle root ([`merkle_root`]) is a valid `WorldIDRegistry` root;
+/// - `issuer_public_key` is the key `CredentialSchemaIssuerRegistry` holds for
+///   `issuer_schema_id`, and that schema is registered;
+/// - `oprf_public_key` is the key `OprfKeyRegistry` holds for the RP;
+/// - `expires_at_min + minExpirationThreshold >= now`.
+///
+/// The tree depth is the protocol's [`TREE_DEPTH`]; a registry with another depth fails closed.
 ///
 /// # Errors
 /// A [`NullifierProofVerificationError`] if the proof is malformed or does not verify.
 pub fn verify_nullifier_proof(
+    kind: NullifierProofKind,
     proof: &ZeroKnowledgeProof,
     public: &NullifierPublicInputs,
 ) -> Result<(), NullifierProofVerificationError> {
+    check_kind(kind, public)?;
     let encoded = proof.as_ethereum_representation();
     let merkle_root =
         merkle_root(proof).ok_or(NullifierProofVerificationError::MerkleRootNotInField)?;
@@ -110,8 +143,28 @@ pub fn verify_nullifier_proof(
     let signals = public.public_signals(*merkle_root);
     match Groth16::<Bn254>::verify_proof(&PREPARED_VERIFYING_KEY, &groth16_proof, &signals) {
         Ok(true) => Ok(()),
-        _ => Err(NullifierProofVerificationError::ProofInvalid),
+        Ok(false) => Err(NullifierProofVerificationError::ProofInvalid),
+        Err(err) => Err(NullifierProofVerificationError::Verifier(err.to_string())),
     }
+}
+
+/// The prefix and session id rules of `WorldIDVerifierV3`'s `verify`, `verifyWithSession` and
+/// `verifySession`.
+fn check_kind(
+    kind: NullifierProofKind,
+    public: &NullifierPublicInputs,
+) -> Result<(), NullifierProofVerificationError> {
+    let prefix = match kind {
+        NullifierProofKind::Uniqueness => OprfPrefix::Uniqueness,
+        NullifierProofKind::Session => OprfPrefix::SessionAction,
+    };
+    if !public.action.has_prefix(prefix) {
+        return Err(NullifierProofVerificationError::InvalidAction(prefix));
+    }
+    if kind == NullifierProofKind::Session && public.session_id == FieldElement::ZERO {
+        return Err(NullifierProofVerificationError::InvalidSessionId);
+    }
+    Ok(())
 }
 
 /// The Merkle root a proof is generated against, if it is a scalar field element.
@@ -200,8 +253,18 @@ mod tests {
 
     #[test]
     fn accepts_the_contract_fixtures() {
-        verify_nullifier_proof(&proof(UNIQUENESS_PROOF), &uniqueness_inputs()).unwrap();
-        verify_nullifier_proof(&proof(SESSION_PROOF), &session_inputs()).unwrap();
+        verify_nullifier_proof(
+            NullifierProofKind::Uniqueness,
+            &proof(UNIQUENESS_PROOF),
+            &uniqueness_inputs(),
+        )
+        .unwrap();
+        verify_nullifier_proof(
+            NullifierProofKind::Session,
+            &proof(SESSION_PROOF),
+            &session_inputs(),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -224,7 +287,11 @@ mod tests {
             let mut inputs = uniqueness_inputs();
             change(&mut inputs);
             assert_eq!(
-                verify_nullifier_proof(&proof(UNIQUENESS_PROOF), &inputs),
+                verify_nullifier_proof(
+                    NullifierProofKind::Uniqueness,
+                    &proof(UNIQUENESS_PROOF),
+                    &inputs
+                ),
                 Err(NullifierProofVerificationError::ProofInvalid)
             );
         }
@@ -236,17 +303,41 @@ mod tests {
         encoded[4] = U256::from(2);
         assert_eq!(
             verify_nullifier_proof(
+                NullifierProofKind::Uniqueness,
                 &ZeroKnowledgeProof::from_ethereum_representation(encoded),
                 &uniqueness_inputs()
             ),
             Err(NullifierProofVerificationError::ProofInvalid)
         );
-        // The session proof does not verify as a uniqueness proof without its session id.
+    }
+
+    #[test]
+    fn enforces_the_contract_prefix_and_session_rules() {
+        assert_eq!(
+            verify_nullifier_proof(
+                NullifierProofKind::Uniqueness,
+                &proof(SESSION_PROOF),
+                &session_inputs()
+            ),
+            Err(NullifierProofVerificationError::InvalidAction(
+                OprfPrefix::Uniqueness
+            ))
+        );
+        assert_eq!(
+            verify_nullifier_proof(
+                NullifierProofKind::Session,
+                &proof(UNIQUENESS_PROOF),
+                &uniqueness_inputs()
+            ),
+            Err(NullifierProofVerificationError::InvalidAction(
+                OprfPrefix::SessionAction
+            ))
+        );
         let mut unbound = session_inputs();
         unbound.session_id = FieldElement::ZERO;
         assert_eq!(
-            verify_nullifier_proof(&proof(SESSION_PROOF), &unbound),
-            Err(NullifierProofVerificationError::ProofInvalid)
+            verify_nullifier_proof(NullifierProofKind::Session, &proof(SESSION_PROOF), &unbound),
+            Err(NullifierProofVerificationError::InvalidSessionId)
         );
     }
 
@@ -256,6 +347,7 @@ mod tests {
         encoded[4] = U256::MAX;
         assert_eq!(
             verify_nullifier_proof(
+                NullifierProofKind::Uniqueness,
                 &ZeroKnowledgeProof::from_ethereum_representation(encoded),
                 &uniqueness_inputs()
             ),
@@ -266,11 +358,37 @@ mod tests {
         encoded[0] = U256::MAX;
         assert_eq!(
             verify_nullifier_proof(
+                NullifierProofKind::Uniqueness,
                 &ZeroKnowledgeProof::from_ethereum_representation(encoded),
                 &uniqueness_inputs()
             ),
             Err(NullifierProofVerificationError::InvalidProofPoint)
         );
+    }
+
+    #[test]
+    fn rejects_altered_proof_points() {
+        let alterations: [fn(&mut [U256; 5]); 3] = [
+            // The sign bit of A: a valid point, but the wrong one.
+            |e| e[0] ^= U256::from(1),
+            // A as the point at infinity.
+            |e| e[0] = U256::ZERO,
+            // B's limbs swapped.
+            |e| e.swap(1, 2),
+        ];
+        for alter in alterations {
+            let mut encoded = proof(UNIQUENESS_PROOF).as_ethereum_representation();
+            alter(&mut encoded);
+            assert!(matches!(
+                verify_nullifier_proof(
+                    NullifierProofKind::Uniqueness,
+                    &ZeroKnowledgeProof::from_ethereum_representation(encoded),
+                    &uniqueness_inputs()
+                ),
+                Err(NullifierProofVerificationError::ProofInvalid
+                    | NullifierProofVerificationError::InvalidProofPoint)
+            ));
+        }
     }
 
     #[test]

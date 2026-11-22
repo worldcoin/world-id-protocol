@@ -38,7 +38,8 @@ pub use oprf_query_proof::{
 pub mod nullifier_proof;
 pub mod nullifier_proof_verification;
 pub use nullifier_proof_verification::{
-    NullifierProofVerificationError, NullifierPublicInputs, verify_nullifier_proof,
+    NullifierProofKind, NullifierProofVerificationError, NullifierPublicInputs,
+    verify_nullifier_proof,
 };
 mod nullifier_verifying_key;
 pub use nullifier_proof::{
