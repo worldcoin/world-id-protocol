@@ -12,6 +12,7 @@ repository.workspace = true
 include = ["src/**/*", "Cargo.toml", "README.md"]
 
 [dependencies]
+ark-babyjubjub = { workspace = true }
 eddsa-babyjubjub = { workspace = true }
 # Nitro attestation check of the Flamingo Verifier's signing key (WIP-201 §4.7 check 1).
 pontifex = { workspace = true, features = ["attestation"] }
@@ -21,6 +22,7 @@ world-id-primitives = { workspace = true }
 world-id-proof = { workspace = true }
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt"] }
 base64 = { workspace = true }
 serde_json = { workspace = true }
 
