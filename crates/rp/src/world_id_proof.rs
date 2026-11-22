@@ -6,8 +6,8 @@
 //! node never sees a nullifier, nonce or signal.
 //!
 //! The RP remains responsible for what the contract does not check either: the request is its own,
-//! its `nonce` is one it issued and has not seen used, and each nullifier is used at most once per
-//! action.
+//! its `nonce` is one it issued and has not seen used (request expiry does not replace this), and
+//! each nullifier is used at most once per action, compared as a field element, not as a string.
 
 use std::{
     error::Error as StdError,
@@ -34,20 +34,26 @@ type BoxError = Box<dyn StdError + Send + Sync>;
 ///
 /// Implementations SHOULD answer from local state that follows the registries' events, so that
 /// verifying a proof sends nothing about it to an RPC node. Every method fails closed: an error
-/// rejects the proof.
+/// rejects the proof. Implementations MUST:
+/// - return an error instead of an answer when their view of the chain may be stale, e.g. when an
+///   event follower has fallen behind the chain head by more than the RP tolerates;
+/// - bound every lookup with a timeout and return an error when it expires;
+/// - reflect removals: a removed schema or a deleted OPRF key is `None`.
 pub trait WorldIdState: Sync {
     /// The error of a lookup.
     type Error: Into<BoxError>;
 
-    /// Whether `root` is valid in `WorldIDRegistry` now (`isValidRoot`): the latest root, or a
-    /// known root recorded within the root validity window.
+    /// Whether `root` is valid in `WorldIDRegistry` at time `now` (`isValidRoot`): the latest root,
+    /// or a known root recorded no longer than the root validity window before `now`.
     fn is_valid_root(
         &self,
         root: FieldElement,
+        now: u64,
     ) -> impl Future<Output = Result<bool, Self::Error>> + Send;
 
     /// The Issuer key `CredentialSchemaIssuerRegistry` holds for `issuer_schema_id`, or `None` if
-    /// the schema is not registered (`issuerSchemaIdToPubkey`).
+    /// the schema is not registered (`issuerSchemaIdToPubkey`). A key with a zero coordinate is
+    /// rejected as unregistered either way, as the contract does.
     fn issuer_public_key(
         &self,
         issuer_schema_id: u64,
@@ -96,7 +102,8 @@ pub enum WorldIdProofVerificationError {
     /// rejects (`InvalidSessionId`).
     #[error("the session id commitment is zero")]
     ZeroSessionId,
-    /// The proof's minimum credential expiration is older than the threshold allows.
+    /// The proof's minimum credential expiration is older than the threshold allows, or adding the
+    /// threshold overflows (which reverts on-chain).
     #[error("{0}: expires_at_min is older than the minimum expiration threshold")]
     ExpirationTooOld(String),
     /// The proof's Merkle root is not a valid `WorldIDRegistry` root.
@@ -123,7 +130,9 @@ pub enum WorldIdProofVerificationError {
 
 /// Verifies the Uniqueness or Session Proof `response` to the RP's own `request`.
 ///
-/// Time checks use the system clock.
+/// Time checks use the system clock, where the contract uses `block.timestamp`; a clock behind the
+/// chain accepts proofs the contract has started to reject. Use [`verify_world_id_proof_at`] to
+/// supply the time.
 ///
 /// # Errors
 /// The first failing check, see [`WorldIdProofVerificationError`].
@@ -133,10 +142,14 @@ pub async fn verify_world_id_proof<S: WorldIdState>(
     state: &S,
 ) -> Result<(), WorldIdProofVerificationError> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
-    verify_at(request, response, state, now).await
+    verify_world_id_proof_at(request, response, state, now).await
 }
 
-async fn verify_at<S: WorldIdState>(
+/// [`verify_world_id_proof`] at time `now`, in Unix seconds, e.g. the latest block's timestamp.
+///
+/// # Errors
+/// The first failing check, see [`WorldIdProofVerificationError`].
+pub async fn verify_world_id_proof_at<S: WorldIdState>(
     request: &ProofRequest,
     response: &ProofResponse,
     state: &S,
@@ -213,7 +226,11 @@ async fn verify_item<S: WorldIdState>(
             got: item.issuer_schema_id,
         });
     }
-    if item.expires_at_min.saturating_add(threshold) < now {
+    if item
+        .expires_at_min
+        .checked_add(threshold)
+        .is_none_or(|min_expiration| min_expiration < now)
+    {
         return Err(Error::ExpirationTooOld(item.identifier.clone()));
     }
     let root = merkle_root(&item.proof).ok_or_else(|| Error::Proof {
@@ -221,7 +238,7 @@ async fn verify_item<S: WorldIdState>(
         source: NullifierProofVerificationError::MerkleRootNotInField,
     })?;
     if !state
-        .is_valid_root(root)
+        .is_valid_root(root, now)
         .await
         .map_err(|err| Error::State(err.into()))?
     {
@@ -231,6 +248,7 @@ async fn verify_item<S: WorldIdState>(
         .issuer_public_key(item.issuer_schema_id)
         .await
         .map_err(|err| Error::State(err.into()))?
+        .filter(|key| ![key.pk.x, key.pk.y].contains(&ark_babyjubjub::Fq::from(0u64)))
         .ok_or(Error::UnregisteredIssuerSchemaId(item.issuer_schema_id))?;
 
     // `validate_response` guarantees the nullifier of the request's proof type.
@@ -351,7 +369,7 @@ mod tests {
             Self {
                 valid_root: true,
                 issuer: Some(EdDSAPublicKey {
-                    pk: ark_babyjubjub::EdwardsAffine::default(),
+                    pk: ark_babyjubjub::EdwardsAffine::new_unchecked(1u64.into(), 2u64.into()),
                 }),
                 oprf: Some(OprfPublicKey::default()),
                 threshold: 3600,
@@ -376,6 +394,7 @@ mod tests {
         fn is_valid_root(
             &self,
             _root: FieldElement,
+            _now: u64,
         ) -> impl Future<Output = Result<bool, Self::Error>> + Send {
             std::future::ready(self.answer(self.valid_root))
         }
@@ -406,7 +425,7 @@ mod tests {
         state: &State,
         now: u64,
     ) -> Result<(), WorldIdProofVerificationError> {
-        verify_at(&uniqueness_request(), response, state, now).await
+        verify_world_id_proof_at(&uniqueness_request(), response, state, now).await
     }
 
     #[tokio::test]
@@ -449,6 +468,22 @@ mod tests {
         assert!(matches!(
             verify(&response, &state(|s| s.threshold = 0), CREATED_AT + 1).await,
             Err(Error::ExpirationTooOld(_))
+        ));
+        assert!(matches!(
+            verify(&response, &state(|s| s.threshold = u64::MAX), CREATED_AT).await,
+            Err(Error::ExpirationTooOld(_))
+        ));
+        // `issuerSchemaIdToPubkey` answers an unregistered schema with a zero key.
+        assert!(matches!(
+            verify(
+                &response,
+                &state(|s| s.issuer = Some(EdDSAPublicKey {
+                    pk: ark_babyjubjub::EdwardsAffine::default(),
+                })),
+                CREATED_AT
+            )
+            .await,
+            Err(Error::UnregisteredIssuerSchemaId(1))
         ));
     }
 

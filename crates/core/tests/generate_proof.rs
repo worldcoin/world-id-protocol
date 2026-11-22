@@ -24,7 +24,10 @@ use world_id_core::{
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
 };
 use world_id_primitives::rp::RpId;
-use world_id_rp::world_id_proof::{OprfPublicKey, WorldIdState, verify_world_id_proof};
+use world_id_proof::NullifierProofVerificationError;
+use world_id_rp::world_id_proof::{
+    OprfPublicKey, WorldIdProofVerificationError, WorldIdState, verify_world_id_proof,
+};
 
 fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
     Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached())
@@ -34,7 +37,7 @@ use world_id_gateway::{
     spawn_gateway_for_tests,
 };
 use world_id_primitives::{
-    Config, FieldElement, ServiceEndpoint, SessionId, SessionRef, TREE_DEPTH,
+    Config, FieldElement, ServiceEndpoint, SessionId, SessionRef, TREE_DEPTH, ZeroKnowledgeProof,
     merkle::AccountInclusionProof,
 };
 use world_id_test_utils::{
@@ -474,11 +477,109 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
     };
     let mut unbound_response = create_result.proof_response.clone();
     unbound_response.session_id = None;
+    assert!(is_invalid_proof(
+        &verify_world_id_proof(&unbound_request, &unbound_response, &state).await
+    ));
+
+    // ── SESSION (a Session Proof for the session minted above) ──
+    let session_nonce = FieldElement::random(&mut rng);
+    let session_msg = world_id_primitives::rp::compute_rp_signature_msg(
+        *session_nonce,
+        rp_fixture.current_timestamp,
+        rp_fixture.expiration_timestamp,
+        None,
+    );
+    let session_request = ProofRequest {
+        id: "test_session".to_string(),
+        proof_type: ProofType::Session,
+        session_id: SessionRef::Existing(created_session_id),
+        nonce: session_nonce,
+        signature: LocalSigner::from_signing_key(rp_fixture.signing_key.clone())
+            .sign_message_sync(&session_msg)?,
+        ..proof_request.clone()
+    };
+    let session_nullifier = authenticator
+        .generate_nullifier(&session_request, rp_fixture.current_timestamp, None)
+        .await?;
+    let session_result = authenticator
+        .generate_proof(
+            &session_request,
+            session_nullifier,
+            &credentials,
+            None,
+            Some(created_session_seed),
+        )
+        .await?;
+    let session_item = &session_result.proof_response.responses[0];
+    world_id_verifier
+        .verifySession(
+            rp_fixture.world_rp_id.into_inner(),
+            session_nonce.into(),
+            request_item.signal_hash().into(),
+            session_item.expires_at_min,
+            issuer_schema_id,
+            U256::ZERO,
+            created_session_id.commitment.into(),
+            session_item
+                .session_nullifier
+                .expect("session proof should have a session nullifier")
+                .as_ethereum_representation(),
+            session_item.proof.as_ethereum_representation(),
+        )
+        .call()
+        .await?;
+    verify_world_id_proof(&session_request, &session_result.proof_response, &state).await?;
+    info!("session proof verified on-chain and off-chain");
+
+    // A proof under another root, and an item answering with another schema.
+    let mut other_root = result.proof_response.clone();
+    let mut encoded = other_root.responses[0].proof.as_ethereum_representation();
+    encoded[4] = U256::from(12345);
+    other_root.responses[0].proof = ZeroKnowledgeProof::from_ethereum_representation(encoded);
     assert!(
-        verify_world_id_proof(&unbound_request, &unbound_response, &state)
+        world_id_verifier
+            .verify(
+                response_item.nullifier.unwrap().into(),
+                rp_fixture.action.into(),
+                rp_fixture.world_rp_id.into_inner(),
+                rp_fixture.nonce.into(),
+                request_item.signal_hash().into(),
+                response_item.expires_at_min,
+                issuer_schema_id,
+                U256::ZERO,
+                encoded,
+            )
+            .call()
             .await
             .is_err()
     );
+    assert!(matches!(
+        verify_world_id_proof(&proof_request, &other_root, &state).await,
+        Err(WorldIdProofVerificationError::InvalidRoot(_))
+    ));
+    let mut other_schema = result.proof_response.clone();
+    other_schema.responses[0].issuer_schema_id = issuer_schema_id + 1;
+    assert!(
+        world_id_verifier
+            .verify(
+                response_item.nullifier.unwrap().into(),
+                rp_fixture.action.into(),
+                rp_fixture.world_rp_id.into_inner(),
+                rp_fixture.nonce.into(),
+                request_item.signal_hash().into(),
+                response_item.expires_at_min,
+                issuer_schema_id + 1,
+                U256::ZERO,
+                response_item.proof.as_ethereum_representation(),
+            )
+            .call()
+            .await
+            .is_err()
+    );
+    assert!(matches!(
+        verify_world_id_proof(&proof_request, &other_schema, &state).await,
+        Err(WorldIdProofVerificationError::IssuerSchemaMismatch { .. })
+    ));
 
     // Each change makes the contract reject the proof; the off-chain verifier must too.
     let changes: [(&str, RequestChange); 4] = [
@@ -517,8 +618,8 @@ async fn e2e_authenticator_generate_proof() -> Result<()> {
         let off_chain = verify_world_id_proof(&changed, &result.proof_response, &state).await;
         assert!(on_chain.is_err(), "the contract accepts a changed {name}");
         assert!(
-            off_chain.is_err(),
-            "the off-chain verifier accepts a changed {name}"
+            is_invalid_proof(&off_chain),
+            "the off-chain verifier does not reject a changed {name} as an invalid proof: {off_chain:?}"
         );
     }
     info!("off-chain verification agrees with WorldIDVerifier");
@@ -560,7 +661,8 @@ struct ChainState {
 impl WorldIdState for ChainState {
     type Error = eyre::Report;
 
-    async fn is_valid_root(&self, root: FieldElement) -> Result<bool> {
+    /// Read at the latest block, whose timestamp stands in for `now`, as for `WorldIDVerifier`.
+    async fn is_valid_root(&self, root: FieldElement, _now: u64) -> Result<bool> {
         Ok(self.registry.isValidRoot(root.into()).call().await?)
     }
 
@@ -595,6 +697,16 @@ impl WorldIdState for ChainState {
             .await?
             .try_into()?)
     }
+}
+
+fn is_invalid_proof(result: &Result<(), WorldIdProofVerificationError>) -> bool {
+    matches!(
+        result,
+        Err(WorldIdProofVerificationError::Proof {
+            source: NullifierProofVerificationError::ProofInvalid,
+            ..
+        })
+    )
 }
 
 fn babyjubjub_point(x: U256, y: U256) -> Result<OprfPublicKey> {
