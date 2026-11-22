@@ -39,7 +39,7 @@ issuer = [
     "dep:world-id-issuer",
 ]
 
-# RP-side verification of the WIP-202 Proof of Embedding Similarity (§4.8).
+# RP-side verification: Uniqueness and Session Proofs, and the WIP-202 Proof of Embedding Similarity (§4.8).
 rp = ["dep:world-id-proof", "dep:world-id-rp"]
 
 [dependencies]
@@ -56,7 +56,7 @@ world-id-registries = { workspace = true }
 # Integration tests that generate real proofs need embedded artifacts.
 [[test]]
 name = "generate_proof"
-required-features = ["embed-zkeys"]
+required-features = ["rp", "embed-zkeys"]
 
 [[test]]
 name = "billing_registration"
