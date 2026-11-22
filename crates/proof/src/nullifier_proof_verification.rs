@@ -93,6 +93,7 @@ impl NullifierPublicInputs {
 
 /// Why a Uniqueness or Session Proof was rejected.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum NullifierProofVerificationError {
     /// The action does not carry the prefix of the proof kind.
     #[error("the action does not carry the {0:?} prefix")]
@@ -368,13 +369,21 @@ mod tests {
 
     #[test]
     fn rejects_altered_proof_points() {
-        let alterations: [fn(&mut [U256; 5]); 3] = [
+        let alterations: [fn(&mut [U256; 5]); 6] = [
             // The sign bit of A: a valid point, but the wrong one.
             |e| e[0] ^= U256::from(1),
             // A as the point at infinity.
             |e| e[0] = U256::ZERO,
             // B's limbs swapped.
             |e| e.swap(1, 2),
+            // B's sign and hint bits.
+            |e| e[2] ^= U256::from(1),
+            |e| e[2] ^= U256::from(2),
+            // A's x coordinate at the base field modulus, with its sign bit set.
+            |e| {
+                let p = u256("0x30644e72e131a029b85045b68181585d97816a916871ca8d3c208c16d87cfd47");
+                e[0] = (p << 1) | U256::from(1);
+            },
         ];
         for alter in alterations {
             let mut encoded = proof(UNIQUENESS_PROOF).as_ethereum_representation();
