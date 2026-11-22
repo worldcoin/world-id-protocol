@@ -147,6 +147,9 @@ pub async fn verify_world_id_proof<S: WorldIdState>(
 
 /// [`verify_world_id_proof`] at time `now`, in Unix seconds, e.g. the latest block's timestamp.
 ///
+/// `now` MUST be the current time, no earlier than the chain head's timestamp: an earlier `now`
+/// accepts expired requests, credentials and roots.
+///
 /// # Errors
 /// The first failing check, see [`WorldIdProofVerificationError`].
 pub async fn verify_world_id_proof_at<S: WorldIdState>(
