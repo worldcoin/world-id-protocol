@@ -1,0 +1,10 @@
+[package]
+name = "bjj_fast"
+type = "lib"
+description = "EXPERIMENTAL. Constraint-optimized BabyJubJub gadgets (Montgomery scalar multiplication, 8Q subgroup check) for benchmarking against oprf-nr."
+authors = ["@kilianglas"]
+license = "MIT"
+
+[dependencies]
+babyjubjub = { tag = "v2.0.0", git = "https://github.com/TaceoLabs/oprf-nr", directory = "babyjubjub" }
+poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }

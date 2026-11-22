@@ -310,7 +310,7 @@ mod noir_artifacts {
                 &manifest_dir,
                 "ownership-proof",
                 "ownership_proof",
-                &["world-id-components"],
+                &["world-id-components", "bjj-fast"],
                 out_dir,
             )?;
         }
@@ -319,7 +319,7 @@ mod noir_artifacts {
                 &manifest_dir,
                 "embedding-similarity",
                 "embedding_similarity",
-                &["world-id-components", "flamingo-token"],
+                &["world-id-components", "flamingo-token", "bjj-fast"],
                 out_dir,
             )?;
         }
@@ -333,7 +333,7 @@ mod noir_artifacts {
                     &manifest_dir,
                     package,
                     target,
-                    &["world-id-components"],
+                    &["world-id-components", "bjj-fast"],
                     out_dir,
                 )?;
             }

@@ -1,7 +1,7 @@
 //! OPRF query proof (π1) over a query digest that includes the World ID's secret-shared
 //! blinding secret `s`, so every OPRF output depends on `s`.
-use babyjubjub::BabyJubJubPointInSubgroup;
-use oprf::blinded_query::blinded_query;
+use babyjubjub::BabyJubJubPoint;
+use bjj_fast::blinded_query;
 use world_id_components::{
     authentication, merkle::key_set_commitment, secret_share, types::AccountInputs,
 };
@@ -35,7 +35,7 @@ pub fn query_point(
     rp_id: Field,
     action: Field,
     inputs: QueryInputs,
-) -> BabyJubJubPointInSubgroup {
+) -> BabyJubJubPoint {
     let query = authorized_query(merkle_root, rp_id, action, inputs);
     blinded_query(inputs.beta, query)
 }

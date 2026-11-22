@@ -11,3 +11,4 @@ poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon"
 world_id_components = { path = "../world-id-components" }
 babyjubjub = { tag = "v2.0.0", git = "https://github.com/TaceoLabs/oprf-nr", directory = "babyjubjub" }
 oprf = { tag = "v2.0.0", git = "https://github.com/TaceoLabs/oprf-nr", directory = "oprf" }
+bjj_fast = { path = "../bjj-fast" }

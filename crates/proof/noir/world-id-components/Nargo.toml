@@ -8,3 +8,4 @@ license = "MIT"
 [dependencies]
 poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "poseidon2" }
 eddsa_poseidon2 = { tag = "v0.8.0", git = "https://github.com/TaceoLabs/noir-poseidon", directory = "eddsa_poseidon2" }
+bjj_fast = { path = "../bjj-fast" }

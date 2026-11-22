@@ -1,8 +1,4 @@
 use super::constants::{MAX_CLAIMS, MERKLE_DEPTH, NUM_KEYS};
-use eddsa_poseidon2::{
-    BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement,
-    verify_eddsa_poseidon2,
-};
 
 /// An EdDSA public key over the BabyJubJub curve, as its affine coordinates (x, y).
 pub struct PublicKey {
@@ -19,12 +15,7 @@ pub struct Signature {
 impl Signature {
     /// Whether this is a valid signature by `pk` over `message`; rejects the identity key.
     pub fn verify(self, pk: PublicKey, message: Field) -> bool {
-        verify_eddsa_poseidon2(
-            BabyJubJubPointInSubgroup::new(pk.x, pk.y),
-            BabyJubJubScalarFieldElement::new(self.s),
-            BabyJubJubPoint::new(self.r[0], self.r[1]),
-            message,
-        )
+        bjj_fast::verify_eddsa(pk.x, pk.y, self.s, self.r[0], self.r[1], message)
     }
 }
 

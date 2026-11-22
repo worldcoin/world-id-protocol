@@ -2,8 +2,6 @@
 //! Uniqueness Proof (π2).
 // TODO: Add the Credential Verification and Session Commitment checks of the full π2 before
 // using this beyond benchmarks.
-use babyjubjub::{BabyJubJubPoint, BabyJubJubPointInSubgroup};
-use oprf::oprf_output::verified_oprf;
 use world_id_components::{
     authentication,
     constants::DS_NULLIFIER,
@@ -45,12 +43,14 @@ fn main(
     );
     let _ = authentication::verify_with_leaf(merkle_root, leaf, query, inputs.account);
 
-    verified_oprf(
+    bjj_fast::verified_oprf(
         inputs.beta,
-        BabyJubJubPointInSubgroup::new(oprf_pk.x, oprf_pk.y),
+        oprf_pk.x,
+        oprf_pk.y,
         inputs.dlog_e,
         inputs.dlog_s,
-        BabyJubJubPoint::new(inputs.oprf_response[0], inputs.oprf_response[1]),
+        inputs.oprf_response[0],
+        inputs.oprf_response[1],
         query,
         DS_DLOG,
         DS_NULLIFIER,
