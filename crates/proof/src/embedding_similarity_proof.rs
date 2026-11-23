@@ -34,7 +34,7 @@ use crate::{
 /// Shortest accepted `hashes.json` in bytes (`MIN_HASHES_JSON_BYTES` in the circuit).
 pub const MIN_HASHES_JSON_BYTES: usize = 1024;
 /// Longest accepted `hashes.json` in bytes (`MAX_HASHES_JSON_BYTES` in the circuit).
-pub const MAX_HASHES_JSON_BYTES: usize = 5120;
+pub const MAX_HASHES_JSON_BYTES: usize = 6144;
 /// Bytes per sponge chunk: 31 bytes stay below the BN254 modulus.
 pub(crate) const CHUNK_BYTES: usize = 31;
 /// Chunk slots of the circuit's `HashesJsonInputs`: `⌈MAX_HASHES_JSON_BYTES / 31⌉` (WIP-202 §4.5).

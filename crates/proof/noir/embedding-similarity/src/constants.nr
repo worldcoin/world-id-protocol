@@ -15,10 +15,10 @@ pub global THUMBNAIL_KEY: [u8; 17] = "\"thumbnail.png\":\"".as_bytes();
 /// Hex digits of a SHA-256 digest.
 pub global DIGEST_HEX_LEN: u32 = 64;
 
-/// Accepted `hashes.json` lengths. A v3 PCP `hashes.json` is about 4.3 KB and a v2 one
-/// about 3.9 KB. The SAFE tag table costs about 3 R1CS constraints per accepted length.
+/// Accepted `hashes.json` lengths. A v3 PCP `hashes.json` is about 4.3 KB and a v2.8 one up to
+/// about 5.4 KB. The SAFE tag table costs about 3 R1CS constraints per accepted length.
 pub global MIN_HASHES_JSON_BYTES: u32 = 1024;
-pub global MAX_HASHES_JSON_BYTES: u32 = 5120;
+pub global MAX_HASHES_JSON_BYTES: u32 = 6144;
 
 /// Bytes per `H_var` chunk, from the shared library.
 pub use world_id_components::var_hash::CHUNK_BYTES;
