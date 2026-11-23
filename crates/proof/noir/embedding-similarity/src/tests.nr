@@ -443,7 +443,7 @@ fn test_reads_a_thumbnail_in_the_final_short_chunk() {
 #[test(should_fail_with = "H_var input is shorter than its bound")]
 fn test_rejects_a_hashes_json_below_the_length_window() {
     let mut json = inputs().hashes_json;
-    json.len = 3071;
+    json.len = MIN_HASHES_JSON_BYTES - 1;
     let _ = claims_hash_v1(json);
 }
 
