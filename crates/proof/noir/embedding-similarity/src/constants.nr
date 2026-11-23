@@ -17,7 +17,7 @@ pub global DIGEST_HEX_LEN: u32 = 64;
 
 /// Accepted `hashes.json` lengths. A v3 PCP `hashes.json` is about 4.3 KB and a v2 one
 /// about 3.9 KB. The SAFE tag table costs about 3 R1CS constraints per accepted length.
-pub global MIN_HASHES_JSON_BYTES: u32 = 3072;
+pub global MIN_HASHES_JSON_BYTES: u32 = 1024;
 pub global MAX_HASHES_JSON_BYTES: u32 = 5120;
 
 /// Bytes per `H_var` chunk, from the shared library.
