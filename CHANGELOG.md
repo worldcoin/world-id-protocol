@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.24.0...world-id-primitives-v0.25.0) - 2026-11-23
+
+### Added
+
+- [**breaking**] keep the WIP-202 PoH issuer_version private ([#1207](https://github.com/worldcoin/world-id-protocol/pull/1207))
+
+### Fixed
+
+- harden manifest validation and RP proof verification ([#1248](https://github.com/worldcoin/world-id-protocol/pull/1248))
+- [**breaking**] accept WIP-202 hashes.json from 1,024 bytes ([#1259](https://github.com/worldcoin/world-id-protocol/pull/1259))
+
+### Other
+
+- rename the Noir nullifier domain separator to DS_NULLIFIER ([#1219](https://github.com/worldcoin/world-id-protocol/pull/1219))
+
 ## [0.24.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.23.0...world-id-primitives-v0.24.0) - 2026-11-18
 
 ### Added
