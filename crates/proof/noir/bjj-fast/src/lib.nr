@@ -1,6 +1,6 @@
 // Constraint-optimized replacements for the oprf-nr BabyJubJub gadgets (measurement prototype).
-// Montgomery addition is incomplete; like circomlib's EscalarMulAny, the accumulator starts at an
-// offset point so honest inputs never hit the exceptional cases. Needs review before production use.
+// Montgomery addition is incomplete: every addition proves its two inputs have distinct u, so an
+// input that collides with the offset accumulator fails to prove instead of freeing the slope.
 use babyjubjub::{BabyJubJubPoint, BabyJubJubPointInSubgroup, BabyJubJubScalarFieldElement};
 use babyjubjub::hash_to_curve::encode;
 use poseidon2::bn254::permutation;
@@ -23,17 +23,24 @@ struct M {
 
 /// `bits * p` (little-endian bits), Montgomery double-and-add with an offset accumulator.
 ///
-/// One unconstrained call computes every slope of the ladder; per-step hint calls dominate
+/// `p` must be in the prime-order subgroup: its multiples then never have order 2, so every
+/// doubling slope is determined. Inputs where an addition degenerates (`p = G` at the first
+/// step, or a later collision with the accumulator) fail to prove.
+///
+/// One unconstrained call computes every hint of the ladder; per-step hint calls dominate
 /// witness generation and blow up the ACIR program.
-pub fn mul_bits<let N: u32>(p: BabyJubJubPoint, bits: [bool; N]) -> BabyJubJubPoint {
+pub fn mul_bits<let N: u32>(p: BabyJubJubPointInSubgroup, bits: [bool; N]) -> BabyJubJubPoint {
     // Safety: each hint is checked below by the equation that defines it.
-    let (u0, v0, add_slopes, dbl_slopes, x, y) = unsafe { ladder_hints(p.x(), p.y(), bits) };
+    let (u0, v0, add_slopes, add_invs, dbl_slopes, acc_v_inv, x, y) =
+        unsafe { ladder_hints(p.x(), p.y(), bits) };
     assert(u0 * (1 - p.y()) == 1 + p.y());
     assert(v0 * p.x() == u0);
 
     let mut d = M { u: u0, v: v0 };
     let mut acc = M { u: OFFSET_U, v: OFFSET_V };
     for i in 0..N {
+        // A nonzero `d.u - acc.u` makes the slope unique; without it any slope satisfies `d = acc`.
+        assert(add_invs[i] * (d.u - acc.u) == 1, "exceptional Montgomery addition");
         let l = add_slopes[i];
         assert(l * (d.u - acc.u) == d.v - acc.v);
         let u3 = l * l - MONT_A - acc.u - d.u;
@@ -47,40 +54,58 @@ pub fn mul_bits<let N: u32>(p: BabyJubJubPoint, bits: [bool; N]) -> BabyJubJubPo
         d = M { u: u4, v: ld * (d.u - u4) - d.v };
     }
 
+    assert(acc_v_inv * acc.v == 1, "exceptional Montgomery accumulator");
     assert(x * acc.v == acc.u);
     assert(y * (acc.u + 1) == acc.u - 1);
     BabyJubJubPoint::new_unchecked(x, y).subtract(BabyJubJubPoint::generator())
 }
 
-/// The Montgomery form of `p`, every add and double slope of the ladder, and the Edwards form of
-/// the final accumulator. The last doubling is unused but computed so every hint is constrained.
+/// The Montgomery form of `p`, every add slope with the inverse of its u-difference, every
+/// double slope, and the final accumulator's v inverse and Edwards form. The last doubling is
+/// unused but computed so every hint is constrained. Degenerate steps yield `0` hints, which the
+/// constraints reject.
 unconstrained fn ladder_hints<let N: u32>(
     px: Field,
     py: Field,
     bits: [bool; N],
-) -> (Field, Field, [Field; N], [Field; N], Field, Field) {
-    let u0 = (1 + py) / (1 - py);
-    let v0 = u0 / px;
+) -> (Field, Field, [Field; N], [Field; N], [Field; N], Field, Field, Field) {
+    let u0 = inv_or_zero(1 - py) * (1 + py);
+    let v0 = inv_or_zero(px) * u0;
     let mut d = M { u: u0, v: v0 };
     let mut acc = M { u: OFFSET_U, v: OFFSET_V };
     let mut add_slopes = [0; N];
+    let mut add_invs = [0; N];
     let mut dbl_slopes = [0; N];
     for i in 0..N {
-        let l = (d.v - acc.v) / (d.u - acc.u);
+        let inv = inv_or_zero(d.u - acc.u);
+        add_invs[i] = inv;
+        let l = (d.v - acc.v) * inv;
         add_slopes[i] = l;
         if bits[i] {
             let u3 = l * l - MONT_A - acc.u - d.u;
             acc = M { u: u3, v: l * (acc.u - u3) - acc.v };
         }
-        let ld = (3 * d.u * d.u + 2 * MONT_A * d.u + 1) / (2 * d.v);
+        let ld = (3 * d.u * d.u + 2 * MONT_A * d.u + 1) * inv_or_zero(2 * d.v);
         dbl_slopes[i] = ld;
         let u4 = ld * ld - MONT_A - 2 * d.u;
         d = M { u: u4, v: ld * (d.u - u4) - d.v };
     }
-    (u0, v0, add_slopes, dbl_slopes, acc.u / acc.v, (acc.u - 1) / (acc.u + 1))
+    let acc_v_inv = inv_or_zero(acc.v);
+    (
+        u0, v0, add_slopes, add_invs, dbl_slopes, acc_v_inv, acc.u * acc_v_inv,
+        (acc.u - 1) * inv_or_zero(acc.u + 1),
+    )
 }
 
-pub fn mul_base_field(p: BabyJubJubPoint, h: Field) -> BabyJubJubPoint {
+unconstrained fn inv_or_zero(x: Field) -> Field {
+    if x == 0 {
+        0
+    } else {
+        1 / x
+    }
+}
+
+pub fn mul_base_field(p: BabyJubJubPointInSubgroup, h: Field) -> BabyJubJubPoint {
     let bits: [bool; 254] = h.to_le_bits();
     mul_bits(p, bits)
 }
@@ -92,13 +117,13 @@ unconstrained fn div_by_8(x: Field, y: Field) -> (Field, Field) {
 
 /// On-curve and prime-order-subgroup check: the group is cyclic of order 8r, so the subgroup is
 /// exactly the set of points 8Q.
-pub fn point_in_subgroup(x: Field, y: Field) -> BabyJubJubPoint {
+pub fn point_in_subgroup(x: Field, y: Field) -> BabyJubJubPointInSubgroup {
     let p = BabyJubJubPoint::new(x, y);
     // Safety: Q is checked by recomputing 8Q.
     let (qx, qy) = unsafe { div_by_8(x, y) };
     let e = BabyJubJubPoint::new(qx, qy).double().double().double();
     assert((e.x() == x) & (e.y() == y), "Point is not in the correct subgroup");
-    p
+    BabyJubJubPointInSubgroup::from_point_unchecked(p)
 }
 
 fn generator_mul(s: BabyJubJubScalarFieldElement) -> BabyJubJubPoint {
@@ -121,8 +146,7 @@ pub fn verify_eddsa(ax: Field, ay: Field, s: Field, rx: Field, ry: Field, messag
 pub fn blinded_query(beta: Field, client_input: Field) -> BabyJubJubPoint {
     assert(beta != 0, "Beta cannot be zero");
     let bits = BabyJubJubScalarFieldElement::new(beta).to_le_bits();
-    let p = encode(client_input);
-    mul_bits(BabyJubJubPoint::new_unchecked(p.x(), p.y()), bits)
+    mul_bits(encode(client_input), bits)
 }
 
 /// Drop-in for `oprf::oprf_output::verified_oprf`.
@@ -141,13 +165,11 @@ pub fn verified_oprf(
     assert(beta != 0, "Beta cannot be zero");
     let beta_bits = BabyJubJubScalarFieldElement::new(beta).to_le_bits();
     let a = point_in_subgroup(oprf_pk_x, oprf_pk_y);
-    let encoded = encode(client_input);
-    let b = mul_bits(
-        BabyJubJubPoint::new_unchecked(encoded.x(), encoded.y()),
-        beta_bits,
-    );
+    // `b` and `c` are multiples of subgroup points, so they are in the subgroup too.
+    let b =
+        BabyJubJubPointInSubgroup::from_point_unchecked(mul_bits(encode(client_input), beta_bits));
     let response = point_in_subgroup(response_x, response_y);
-    let c = mul_bits(response, beta_bits);
+    let c = BabyJubJubPointInSubgroup::from_point_unchecked(mul_bits(response, beta_bits));
 
     assert(a.is_not_identity() & b.is_not_identity() & c.is_not_identity(), "identity point");
     let s_el = BabyJubJubScalarFieldElement::new(dlog_s);
@@ -198,4 +220,20 @@ fn test_blinded_query_vector() {
 #[test(should_fail_with = "Point is not in the correct subgroup")]
 fn test_rejects_small_order_point() {
     let _ = point_in_subgroup(0, -1);
+}
+
+#[test(should_fail_with = "exceptional Montgomery addition")]
+fn test_rejects_input_colliding_with_the_offset() {
+    let g = BabyJubJubPointInSubgroup::generator();
+    let _ = mul_bits(g, [true, false, true]);
+}
+
+#[test]
+fn test_mul_bits_matches_the_library() {
+    let p = encode(42);
+    let bits: [bool; 251] = BabyJubJubScalarFieldElement::new(123456789).to_le_bits();
+    let expected = p.scalar_mul_bits(bits);
+    let got = mul_bits(p, bits);
+    assert_eq(got.x(), expected.x());
+    assert_eq(got.y(), expected.y());
 }
