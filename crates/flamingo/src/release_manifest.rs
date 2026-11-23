@@ -1,5 +1,7 @@
 //! Engine release manifests (WIP-201 §4.3.4).
 
+use std::collections::HashSet;
+
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier as _};
 use serde::{Deserialize, Serialize};
@@ -252,11 +254,8 @@ impl ManifestPayload {
             "match_strictness_levels",
         )?;
         invalid(!self.pipelines.is_empty(), "pipelines")?;
-        let unique_pipelines = self.pipelines.iter().enumerate().all(|(i, p)| {
-            self.pipelines[..i]
-                .iter()
-                .all(|q| q.pipeline_id != p.pipeline_id)
-        });
+        let mut seen = HashSet::with_capacity(self.pipelines.len());
+        let unique_pipelines = self.pipelines.iter().all(|p| seen.insert(p.pipeline_id));
         invalid(
             unique_pipelines && self.pipelines.iter().all(|p| p.pipeline_id != 0),
             "pipeline_id",

@@ -9,6 +9,7 @@ on:
       - "world-id-indexer-v*"
       - "world-id-gateway-v*"
       - "world-id-relay-v*"
+      - "world-id-rp-sidecar-v*"
   workflow_dispatch:
   workflow_call:
     inputs:
@@ -41,13 +42,15 @@ jobs:
           if [[ -n "$INPUT_SERVICE" ]]; then
             echo "services=[\"$INPUT_SERVICE\"]" >> "$GITHUB_OUTPUT"
           elif [[ "$REF_TYPE" == "branch" ]]; then
-            echo 'services=["indexer","gateway","relay"]' >> "$GITHUB_OUTPUT"
+            echo 'services=["indexer","gateway","relay","rp-sidecar"]' >> "$GITHUB_OUTPUT"
           elif [[ "$REF_NAME" == world-id-indexer-v* ]]; then
             echo 'services=["indexer"]' >> "$GITHUB_OUTPUT"
           elif [[ "$REF_NAME" == world-id-gateway-v* ]]; then
             echo 'services=["gateway"]' >> "$GITHUB_OUTPUT"
           elif [[ "$REF_NAME" == world-id-relay-v* ]]; then
             echo 'services=["relay"]' >> "$GITHUB_OUTPUT"
+          elif [[ "$REF_NAME" == world-id-rp-sidecar-v* ]]; then
+            echo 'services=["rp-sidecar"]' >> "$GITHUB_OUTPUT"
           else
             echo 'services=[]' >> "$GITHUB_OUTPUT"
           fi
@@ -132,7 +135,8 @@ jobs:
           subject-digest: ${{ steps.docker_build.outputs.digest }}
 
       - name: Trigger staging deploy
-        if: (github.ref_type == 'tag' || inputs.version != '') && matrix.service != 'oprf-node'
+        # The RP sidecar ships to RPs as an image; World ID deploys no instance of it.
+        if: (github.ref_type == 'tag' || inputs.version != '') && matrix.service != 'oprf-node' && matrix.service != 'rp-sidecar'
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0 https://github.com/actions/github-script/releases/tag/v9.0.0
         env:
           SERVICE: ${{ matrix.service }}

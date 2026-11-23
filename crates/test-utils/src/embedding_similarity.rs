@@ -463,7 +463,6 @@ impl EmbeddingSimilarityFixture {
         EmbeddingSimilarityPolicy {
             attestation,
             engine_config_hashes,
-            issuer_version: self.credential.credential.issuer_version,
             aat: AatPolicy::default(),
         }
     }

@@ -28,6 +28,8 @@ pub struct PrivateInputs {
     pub token: FlamingoTokenInputs,
     pub account: AccountInputs,
     pub credential: CredentialInputs,
+    /// The PoH Credential's `issuer_version`.
+    pub issuer_version: Field,
     pub hashes_json: HashesJsonInputs,
     /// Blinding factor of the session commitment.
     pub session_id_r: Field,

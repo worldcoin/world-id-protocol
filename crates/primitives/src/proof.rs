@@ -139,7 +139,7 @@ pub struct EmbeddingSimilarityProof {
     pub aat: Option<AatPublicValues>,
     /// The root of the `WorldIDRegistry` tree the proof's inclusion is under.
     pub merkle_root: FieldElement,
-    /// The Issuer's key, which the RP checks it trusts for the schema and version.
+    /// The Issuer's key, which the RP checks it trusts for the schema.
     #[serde(serialize_with = "serialize_public_key")]
     #[serde(deserialize_with = "deserialize_public_key")]
     pub cred_pk: EdDSAPublicKey,
