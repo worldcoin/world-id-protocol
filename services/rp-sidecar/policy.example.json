@@ -1,5 +1,4 @@
 {
-  "issuer_version": 1,
   "flamingo_verifiers": [
     {
       "pcr0": "<96 hex characters, from the Flamingo Verifier release>",
