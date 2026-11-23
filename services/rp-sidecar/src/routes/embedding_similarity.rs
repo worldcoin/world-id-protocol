@@ -265,7 +265,6 @@ mod tests {
         let policy = EmbeddingSimilarityPolicy {
             attestation: KeyAsAttestation,
             engine_config_hashes: HashSet::from([FieldElement::from(ENGINE_CONFIG_HASH)]),
-            issuer_version: 1,
             aat: AatPolicy::default(),
         };
         AppState::new(
