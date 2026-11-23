@@ -121,13 +121,16 @@ pub struct OwnershipProof {
 /// A WIP-202 Proof of Embedding Similarity.
 ///
 /// The RP verifies it with its own `rp_id`, `nonce`, `challenge_hash`, `signal_hash`, Credential
-/// policy and session (WIP-202 §4.8).
+/// policy and session (WIP-202 §4.8), and any live capture it received against
+/// [`Self::live_capture_hash`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EmbeddingSimilarityProof {
     /// The WHIR R1CS proof from ProveKit.
     pub proof: provekit_common::WhirR1CSProof,
     /// The Flamingo Verifier's time when it signed the token, in Unix seconds.
     pub now: u32,
+    /// `R(SHA-256)` of the live capture the Flamingo Verifier matched.
+    pub live_capture_hash: FieldElement,
     /// The Flamingo Verifier's signing key, which the RP checks against its attestation.
     #[serde(serialize_with = "serialize_public_key")]
     #[serde(deserialize_with = "deserialize_public_key")]

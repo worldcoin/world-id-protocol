@@ -257,17 +257,10 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
     let request = &inputs.request;
     let leaf_index = inputs.inclusion_proof.leaf_index;
 
-    // 1. The challenge must be present: `0` marks an unused compared entry.
-    if request.challenge_hash == FieldElement::ZERO {
-        return Err(ProofInputError::ValueMustNotBeZero {
-            name: "challenge_hash",
-        });
-    }
-
-    // 2. `hashes.json` must fit the circuit, before its thumbnail digest is read below.
+    // 1. `hashes.json` must fit the circuit, before its thumbnail digest is read below.
     hashes_json_inputs(&inputs.hashes_json)?;
 
-    // 3. The AAT values must fit their claim widths, as the token library range-checks them.
+    // 2. The AAT values must fit their claim widths, as the token library range-checks them.
     if let Some(aat) = &inputs.aat {
         let widths = [
             ("sec_meta", aat.sec_meta, AatPublicValues::SEC_META_BITS),
@@ -293,7 +286,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         }
     }
 
-    // 4. The Flamingo Verifier must have signed the token.
+    // 3. The Flamingo Verifier must have signed the token.
     let flamingo_token_digest = token_digest(inputs)?;
     if !inputs
         .flamingo_verifier_key
@@ -302,7 +295,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::InvalidFlamingoTokenSignature);
     }
 
-    // 5. A registered key of the World ID must have authorized the token and the RP's signal.
+    // 4. A registered key of the World ID must have authorized the token and the RP's signal.
     let key =
         check_account_input_validity(&inputs.key_set, inputs.key_index, &inputs.inclusion_proof)?;
     let message = authorization_message(
@@ -314,7 +307,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::InvalidAuthenticatorSignature);
     }
 
-    // 6. The session ID is either absent or this World ID's session commitment.
+    // 5. The session ID is either absent or this World ID's session commitment.
     let session_commitment = poseidon::hash(
         ds::SESSION_COMMITMENT,
         [leaf_index.into(), inputs.session_id_r],
@@ -323,7 +316,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         return Err(ProofInputError::InvalidSessionId);
     }
 
-    // 7. The issuer must have signed the World ID's PoH Credential, which must be valid.
+    // 6. The issuer must have signed the World ID's PoH Credential, which must be valid.
     let credential = Credential {
         id: inputs.credential_id,
         version: CredentialVersion::V1,
@@ -363,7 +356,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         });
     }
 
-    // 8. The billing nullifier is `0` or this World ID's WIP-107 nullifier for the RP.
+    // 7. The billing nullifier is `0` or this World ID's WIP-107 nullifier for the RP.
     if inputs.billing_nullifier != FieldElement::ZERO {
         let query = oprf_query_digest(leaf_index, inputs.billing_action, request.rp_id);
         let own_nullifier = poseidon::hash(
@@ -379,7 +372,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
         }
     }
 
-    // 9. The Credential claim must commit to `hashes.json`.
+    // 8. The Credential claim must commit to `hashes.json`.
     let claim = hash_bytes_to_field_element(ds::CLAIMS_HASH_V1, &inputs.hashes_json)
         .map_err(|_| ProofInputError::InvalidHashesJsonClaim)?;
     if inputs.claims[CLAIM_INDEX] != claim {
@@ -392,6 +385,7 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
 /// The public inputs the prover chooses, which [`EmbeddingSimilarityProof`] carries.
 struct ProverChosen<'a> {
     now: u32,
+    live_capture_hash: FieldElement,
     flamingo_verifier_key: &'a EdDSAPublicKey,
     engine_config_hash: FieldElement,
     aat: Option<&'a AatPublicValues>,
@@ -405,6 +399,7 @@ impl<'a> ProverChosen<'a> {
     ) -> Self {
         Self {
             now: input.now,
+            live_capture_hash: input.live_capture_hash,
             flamingo_verifier_key: &input.flamingo_verifier_key,
             engine_config_hash: input.engine_config_hash,
             aat: input.aat.as_ref(),
@@ -417,6 +412,7 @@ impl<'a> ProverChosen<'a> {
     fn of_proof(proof: &'a EmbeddingSimilarityProof) -> Self {
         Self {
             now: proof.now,
+            live_capture_hash: proof.live_capture_hash,
             flamingo_verifier_key: &proof.flamingo_verifier_key,
             engine_config_hash: proof.engine_config_hash,
             aat: proof.aat.as_ref(),
@@ -430,7 +426,7 @@ impl<'a> ProverChosen<'a> {
 fn public_witness(
     request: &EmbeddingSimilarityRequestInputs,
     chosen: &ProverChosen<'_>,
-) -> [(&'static str, InputValue); 19] {
+) -> [(&'static str, InputValue); 20] {
     let field = |value: u64| InputValue::Field(NoirElement::from(value));
     // Without an AAT, the circuit takes every AAT value as `0`.
     let zero = FieldElement::ZERO;
@@ -448,6 +444,10 @@ fn public_witness(
         ("now", field(chosen.now.into())),
         ("rp_id", request.rp_id.into_noir_value()),
         ("nonce", request.nonce.into_noir_value()),
+        (
+            "live_capture_hash",
+            chosen.live_capture_hash.into_noir_value(),
+        ),
         ("challenge_hash", request.challenge_hash.into_noir_value()),
         ("signal_hash", request.signal_hash.into_noir_value()),
         ("session_id", request.session_id.into_noir_value()),
@@ -487,10 +487,6 @@ impl NoirCircuitInput for EmbeddingSimilarityCircuitInput<TREE_DEPTH> {
             .collect();
 
         let mut token = BTreeMap::new();
-        token.insert(
-            "live_capture_hash".into(),
-            self.live_capture_hash.into_noir_value(),
-        );
         token.insert(
             "billing_nullifier".into(),
             self.billing_nullifier.into_noir_value(),
@@ -568,8 +564,9 @@ pub fn generate_embedding_similarity_proof_with_prover(
     check_embedding_similarity_input_validity(&input)?;
 
     let merkle_root = input.inclusion_proof.root;
-    let (now, flamingo_verifier_key, engine_config_hash, aat, cred_pk) = (
+    let (now, live_capture_hash, flamingo_verifier_key, engine_config_hash, aat, cred_pk) = (
         input.now,
+        input.live_capture_hash,
         input.flamingo_verifier_key.clone(),
         input.engine_config_hash,
         input.aat.clone(),
@@ -580,6 +577,7 @@ pub fn generate_embedding_similarity_proof_with_prover(
     Ok(EmbeddingSimilarityProof {
         proof,
         now,
+        live_capture_hash,
         flamingo_verifier_key,
         engine_config_hash,
         aat,
@@ -795,16 +793,12 @@ mod input_validation_tests {
     }
 
     #[test]
-    fn test_rejects_zero_challenge_hash() {
+    fn test_accepts_a_token_without_a_challenge() {
         let mut input = embedding_similarity_fixture();
         input.request.challenge_hash = FieldElement::ZERO;
         resign(&mut input);
-        assert!(matches!(
-            check(&input),
-            ProofInputError::ValueMustNotBeZero {
-                name: "challenge_hash"
-            }
-        ));
+        check_embedding_similarity_input_validity(&input)
+            .expect("a token without a challenge is valid");
     }
 
     #[test]
@@ -1068,9 +1062,9 @@ mod tests {
             .embedding_similarity_verifier()
             .expect("embedded verifier loads");
 
-        // 19 public parameters, two of which are public keys.
-        assert_eq!(prover.r1cs.num_public_inputs, 21);
-        assert_eq!(verifier.r1cs.num_public_inputs, 21);
+        // 20 public parameters, two of which are public keys.
+        assert_eq!(prover.r1cs.num_public_inputs, 22);
+        assert_eq!(verifier.r1cs.num_public_inputs, 22);
         assert_eq!(verifier.r1cs.hash(), prover.r1cs.hash());
     }
 
@@ -1131,13 +1125,11 @@ mod tests {
     #[test]
     fn test_generation_rejects_invalid_inputs_before_proving() {
         let mut input = embedding_similarity_fixture();
-        input.request.challenge_hash = FieldElement::ZERO;
+        input.request.challenge_hash = FieldElement::from(1_u64);
         let err = generate_embedding_similarity_proof(input, &EmbeddedZkArtifacts).unwrap_err();
         assert!(matches!(
             err,
-            ProofError::ProofInputError(ProofInputError::ValueMustNotBeZero {
-                name: "challenge_hash"
-            })
+            ProofError::ProofInputError(ProofInputError::InvalidFlamingoTokenSignature)
         ));
     }
 }

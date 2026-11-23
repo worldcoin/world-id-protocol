@@ -317,6 +317,7 @@ struct ProverToml {
     sec_meta: String,
     authenticator_meta: String,
     engine_config_hash: String,
+    live_capture_hash: String,
     challenge_hash: String,
     signal_hash: String,
     merkle_root: String,
@@ -343,7 +344,6 @@ struct PrivateInputs {
 
 #[derive(Serialize)]
 struct TokenInputs {
-    live_capture_hash: String,
     billing_nullifier: String,
     nonce_salt: String,
     sig: Signature,
@@ -408,6 +408,10 @@ fn render() -> Rendered {
     let digest_at_expiry = token_digest(true, EXPIRES_AT, compared, nonce, zero);
     // Signed over the RP's nonce instead of the derived one.
     let digest_rp_nonce = token_digest(true, NOW, compared, NONCE.into(), zero);
+    // Compared without a challenge, which leaves position 2 at `0`.
+    let mut compared_no_challenge = compared;
+    compared_no_challenge[2] = zero;
+    let digest_no_challenge = token_digest(true, NOW, compared_no_challenge, nonce, zero);
     // Billed: this World ID's nullifier, and ones of another World ID and of another RP that
     // the Verifier also signed.
     let (billing_nullifier_own, billing_oprf_output) = billing(LEAF_INDEX, RP_ID);
@@ -424,6 +428,7 @@ fn render() -> Rendered {
     let token_no_aat = verifier_sk.sign(*digest_no_aat);
     let token_at_expiry = verifier_sk.sign(*digest_at_expiry);
     let token_rp_nonce = verifier_sk.sign(*digest_rp_nonce);
+    let token_no_challenge = verifier_sk.sign(*digest_no_challenge);
     let signal_hash = FieldElement::from_arbitrary_raw_bytes(SIGNAL);
     let auth = authenticator_sk.sign(*authorization_message(digest, &verifier_key, signal_hash));
     let auth_no_aat = authenticator_sk.sign(*authorization_message(
@@ -443,6 +448,11 @@ fn render() -> Rendered {
     ));
     let auth_rp_nonce = authenticator_sk.sign(*authorization_message(
         digest_rp_nonce,
+        &verifier_key,
+        signal_hash,
+    ));
+    let auth_no_challenge = authenticator_sk.sign(*authorization_message(
+        digest_no_challenge,
         &verifier_key,
         signal_hash,
     ));
@@ -509,6 +519,7 @@ fn render() -> Rendered {
         ("SEC_META", "u8", SEC_META.to_string()),
         ("AUTHENTICATOR_META", "u8", AUTHENTICATOR_META.to_string()),
         ("ENGINE_CONFIG_HASH", "Field", engine_config_hash.clone()),
+        ("LIVE_CAPTURE_HASH", "Field", dec(*compared[1])),
         ("CHALLENGE_HASH", "Field", dec(*compared[2])),
         ("SIGNAL_HASH", "Field", dec(*signal_hash)),
         ("MERKLE_ROOT", "Field", dec(*merkle_root)),
@@ -519,7 +530,6 @@ fn render() -> Rendered {
         ("EXPIRES_AT_MIN", "Field", EXPIRES_AT_MIN.to_string()),
         ("SESSION_ID", "Field", dec(*session_id)),
         // Flamingo Token witness
-        ("LIVE_CAPTURE_HASH", "Field", dec(*compared[1])),
         ("NONCE_SALT", "Field", NONCE_SALT.to_string()),
         ("TOKEN_SIG", "Signature", noir_sig(&token)),
         // Account witness
@@ -547,6 +557,8 @@ fn render() -> Rendered {
         ("AUTH_SIG_AT_EXPIRY", "Signature", noir_sig(&auth_at_expiry)),
         ("TOKEN_SIG_RP_NONCE", "Signature", noir_sig(&token_rp_nonce)),
         ("AUTH_SIG_RP_NONCE", "Signature", noir_sig(&auth_rp_nonce)),
+        ("TOKEN_SIG_NO_CHALLENGE", "Signature", noir_sig(&token_no_challenge)),
+        ("AUTH_SIG_NO_CHALLENGE", "Signature", noir_sig(&auth_no_challenge)),
         ("CRED_SIG_VERSION_0", "Signature", noir_sig(&cred_sig_version_0)),
         ("BILLING_NULLIFIER", "Field", dec(*billing_nullifier_own)),
         ("BILLING_ACTION", "Field", BILLING_ACTION.to_string()),
@@ -590,6 +602,7 @@ fn render() -> Rendered {
         sec_meta: SEC_META.to_string(),
         authenticator_meta: AUTHENTICATOR_META.to_string(),
         engine_config_hash,
+        live_capture_hash: dec(*compared[1]),
         challenge_hash: dec(*compared[2]),
         signal_hash: dec(*signal_hash),
         merkle_root: dec(*merkle_root),
@@ -605,7 +618,6 @@ fn render() -> Rendered {
             billing_action: "0".into(),
             billing_oprf_output: vec!["0".into(), "0".into()],
             token: TokenInputs {
-                live_capture_hash: dec(*compared[1]),
                 billing_nullifier: "0".into(),
                 nonce_salt: NONCE_SALT.to_string(),
                 sig: (&token).into(),
