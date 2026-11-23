@@ -88,7 +88,6 @@ The policy file holds what the RP accepts beyond its own request ([WIP-202 §4.8
 
 | Field | Description |
 | --- | --- |
-| `issuer_version` | The `issuer_version` of the Proof of Human Credential. |
 | `flamingo_verifiers` | The PCR0–2 of each Flamingo Verifier enclave image accepted (WIP-201 §4.7 check 1), as hex. |
 | `engine_config_hashes` | The Engine configurations accepted (WIP-201 §4.7 check 6), as field elements. |
 | `aat.required` | Whether proofs without an Authenticator Assertion are rejected. |

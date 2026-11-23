@@ -1,8 +1,7 @@
 //! The RP's policy for Proofs of Embedding Similarity, read from a JSON file.
 //!
 //! The policy names what the RP accepts beyond its own request (WIP-202 §4.8): the Flamingo
-//! Verifier enclaves, the Engine configurations, the AAT values and the Credential's
-//! `issuer_version`. See `policy.example.json`.
+//! Verifier enclaves, the Engine configurations and the AAT values. See `policy.example.json`.
 
 use std::{collections::HashSet, fs, path::Path};
 
@@ -65,7 +64,6 @@ pub fn parse(json: &str) -> Result<EmbeddingSimilarityPolicy<attestation::Verifi
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct PolicyFile {
-    issuer_version: u8,
     flamingo_verifiers: Vec<FlamingoVerifierPcrs>,
     engine_config_hashes: Vec<FieldElement>,
     aat: AatPolicyFile,
@@ -130,7 +128,6 @@ impl TryFrom<PolicyFile> for EmbeddingSimilarityPolicy<attestation::Verifier> {
         Ok(Self {
             attestation: nitro_attestation_verifier(pcr_configs),
             engine_config_hashes: file.engine_config_hashes.into_iter().collect(),
-            issuer_version: file.issuer_version,
             aat: file.aat.try_into()?,
         })
     }
@@ -182,7 +179,6 @@ mod tests {
 
     fn policy() -> Value {
         json!({
-            "issuer_version": 1,
             "flamingo_verifiers": [{
                 "pcr0": "11".repeat(PCR_LENGTH),
                 "pcr1": "22".repeat(PCR_LENGTH),
@@ -208,7 +204,6 @@ mod tests {
 
         let policy = parse(&value.to_string()).unwrap();
 
-        assert_eq!(policy.issuer_version, 1);
         assert_eq!(policy.engine_config_hashes.len(), 1);
         assert!(policy.aat.required);
         assert!(policy.aat.accepted_flags.contains(&AcceptedAatFlags {
