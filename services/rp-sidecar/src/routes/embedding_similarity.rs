@@ -333,7 +333,7 @@ mod tests {
                         pattern: vec![],
                     },
                     now: u32::try_from(now).unwrap(),
-                    live_capture_hash: FieldElement::from(12u64),
+                    disclosed_live_capture_hash: FieldElement::ZERO,
                     flamingo_verifier_key: verifier_key.clone(),
                     engine_config_hash: FieldElement::from(ENGINE_CONFIG_HASH),
                     aat: None,

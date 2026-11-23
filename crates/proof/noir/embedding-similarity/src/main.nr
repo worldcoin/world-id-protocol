@@ -28,7 +28,7 @@ fn main(
     // RP request
     rp_id: pub Field,
     nonce: pub Field,
-    live_capture_hash: pub Field,
+    disclosed_live_capture_hash: pub Field,
     challenge_hash: pub Field,
     signal_hash: pub Field,
     session_id: pub Field,
@@ -57,7 +57,7 @@ fn main(
     let flamingo_nonce = permutation::t3([DS_WIP_202_NONCE, nonce, inputs.token.nonce_salt])[1];
 
     // 1.2 Flamingo Token verification; fixing the entries binds the Credential image, live capture
-    // and challenge. 2. A zero `challenge_hash` means the token compared no challenge.
+    // and challenge. A zero `challenge_hash` means the token compared no challenge (constraint 2).
     let flamingo_public = FlamingoTokenPublic {
         verifier_key: flamingo_verifier_key,
         now: now as Field,
@@ -75,11 +75,23 @@ fn main(
     };
     let billing_nullifier = inputs.token.billing_nullifier;
     let token_claims = FlamingoTokenClaims {
-        compared_entry_hashes: [credential_digest, live_capture_hash, challenge_hash, 0],
+        compared_entry_hashes: [
+            credential_digest,
+            inputs.token.live_capture_hash,
+            challenge_hash,
+            0,
+        ],
         compare_sources: COMPARE_SOURCES as Field,
         billing_nullifier,
     };
     let digest = flamingo_token::verify(flamingo_public, token_claims, inputs.token.sig);
+
+    // 2. The proof discloses the live capture's hash, or `0`.
+    assert(
+        disclosed_live_capture_hash * (disclosed_live_capture_hash - inputs.token.live_capture_hash)
+            == 0,
+        "disclosed live capture hash is not the token's",
+    );
 
     // 4. World ID Authentication over the authorization message, which also binds the
     // RP's signal. One `leaf_index` witness binds the World ID, the Credential and the session.

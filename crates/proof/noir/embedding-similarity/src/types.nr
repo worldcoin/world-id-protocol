@@ -3,6 +3,8 @@ use world_id_components::types::{AccountInputs, CredentialInputs, Signature};
 
 /// The WIP-201 Flamingo Token values that stay private.
 pub struct FlamingoTokenInputs {
+    /// `compared_entry_hash_1`, the live capture; the circuit derives the other entries.
+    pub live_capture_hash: Field,
     /// The WIP-107 billing nullifier the Verifier checked, or `0` for an RP that is not billed.
     pub billing_nullifier: Field,
     /// The Authenticator's salt for this Flamingo request's `nonce`; any field element.

@@ -382,10 +382,21 @@ pub fn check_embedding_similarity_input_validity<const MAX_DEPTH: usize>(
     Ok(())
 }
 
+/// The live capture's hash if the proof discloses it, or `0` (WIP-202 §4.6 constraint 2).
+fn disclosed_live_capture_hash<const MAX_DEPTH: usize>(
+    input: &EmbeddingSimilarityCircuitInput<MAX_DEPTH>,
+) -> FieldElement {
+    if input.disclose_live_capture {
+        input.live_capture_hash
+    } else {
+        FieldElement::ZERO
+    }
+}
+
 /// The public inputs the prover chooses, which [`EmbeddingSimilarityProof`] carries.
 struct ProverChosen<'a> {
     now: u32,
-    live_capture_hash: FieldElement,
+    disclosed_live_capture_hash: FieldElement,
     flamingo_verifier_key: &'a EdDSAPublicKey,
     engine_config_hash: FieldElement,
     aat: Option<&'a AatPublicValues>,
@@ -399,7 +410,7 @@ impl<'a> ProverChosen<'a> {
     ) -> Self {
         Self {
             now: input.now,
-            live_capture_hash: input.live_capture_hash,
+            disclosed_live_capture_hash: disclosed_live_capture_hash(input),
             flamingo_verifier_key: &input.flamingo_verifier_key,
             engine_config_hash: input.engine_config_hash,
             aat: input.aat.as_ref(),
@@ -412,7 +423,7 @@ impl<'a> ProverChosen<'a> {
     fn of_proof(proof: &'a EmbeddingSimilarityProof) -> Self {
         Self {
             now: proof.now,
-            live_capture_hash: proof.live_capture_hash,
+            disclosed_live_capture_hash: proof.disclosed_live_capture_hash,
             flamingo_verifier_key: &proof.flamingo_verifier_key,
             engine_config_hash: proof.engine_config_hash,
             aat: proof.aat.as_ref(),
@@ -445,8 +456,8 @@ fn public_witness(
         ("rp_id", request.rp_id.into_noir_value()),
         ("nonce", request.nonce.into_noir_value()),
         (
-            "live_capture_hash",
-            chosen.live_capture_hash.into_noir_value(),
+            "disclosed_live_capture_hash",
+            chosen.disclosed_live_capture_hash.into_noir_value(),
         ),
         ("challenge_hash", request.challenge_hash.into_noir_value()),
         ("signal_hash", request.signal_hash.into_noir_value()),
@@ -487,6 +498,10 @@ impl NoirCircuitInput for EmbeddingSimilarityCircuitInput<TREE_DEPTH> {
             .collect();
 
         let mut token = BTreeMap::new();
+        token.insert(
+            "live_capture_hash".into(),
+            self.live_capture_hash.into_noir_value(),
+        );
         token.insert(
             "billing_nullifier".into(),
             self.billing_nullifier.into_noir_value(),
@@ -564,9 +579,9 @@ pub fn generate_embedding_similarity_proof_with_prover(
     check_embedding_similarity_input_validity(&input)?;
 
     let merkle_root = input.inclusion_proof.root;
-    let (now, live_capture_hash, flamingo_verifier_key, engine_config_hash, aat, cred_pk) = (
+    let (now, disclosed_live_capture_hash, flamingo_verifier_key, engine_config_hash, aat, cred_pk) = (
         input.now,
-        input.live_capture_hash,
+        disclosed_live_capture_hash(&input),
         input.flamingo_verifier_key.clone(),
         input.engine_config_hash,
         input.aat.clone(),
@@ -577,7 +592,7 @@ pub fn generate_embedding_similarity_proof_with_prover(
     Ok(EmbeddingSimilarityProof {
         proof,
         now,
-        live_capture_hash,
+        disclosed_live_capture_hash,
         flamingo_verifier_key,
         engine_config_hash,
         aat,
@@ -1072,6 +1087,7 @@ mod tests {
     #[ignore = "expensive: proves the full circuit; run with --release --include-ignored"]
     fn test_generate_and_verify_embedding_similarity_proof() {
         let input = embedding_similarity_fixture();
+        assert_eq!(disclosed_live_capture_hash(&input), FieldElement::ZERO);
         let request = input.request.clone();
         let root = input.inclusion_proof.root;
 
@@ -1096,7 +1112,9 @@ mod tests {
         other_root.merkle_root = FieldElement::from(1_u64);
         let mut other_verifier = proof.clone();
         other_verifier.flamingo_verifier_key = proof.cred_pk.clone();
-        for tampered in [other_root, other_verifier] {
+        let mut disclosed = proof.clone();
+        disclosed.disclosed_live_capture_hash = embedding_similarity_fixture().live_capture_hash;
+        for tampered in [other_root, other_verifier, disclosed] {
             let err =
                 verify_embedding_similarity_proof(&tampered, &request, &artifacts).unwrap_err();
             assert!(matches!(err, ProofError::Verification(_)));
@@ -1119,6 +1137,26 @@ mod tests {
             verify_embedding_similarity_proof(&proof, &request, &artifacts)
                 .expect("embedding similarity proof verifies");
         }
+    }
+
+    #[test]
+    #[ignore = "expensive: proves the full circuit; run with --release --include-ignored"]
+    fn test_generate_and_verify_a_proof_that_discloses_the_live_capture() {
+        let mut input = embedding_similarity_fixture();
+        input.disclose_live_capture = true;
+        let live_capture_hash = input.live_capture_hash;
+        let request = input.request.clone();
+
+        let artifacts = EmbeddedZkArtifacts;
+        let proof = generate_embedding_similarity_proof(input, &artifacts).unwrap();
+        assert_eq!(proof.disclosed_live_capture_hash, live_capture_hash);
+        verify_embedding_similarity_proof(&proof, &request, &artifacts)
+            .expect("a disclosing proof verifies");
+
+        let mut withheld = proof;
+        withheld.disclosed_live_capture_hash = FieldElement::ZERO;
+        let err = verify_embedding_similarity_proof(&withheld, &request, &artifacts).unwrap_err();
+        assert!(matches!(err, ProofError::Verification(_)));
     }
 
     /// [`check_embedding_similarity_input_validity`] rejects a bad input before proving.

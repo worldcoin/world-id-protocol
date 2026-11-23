@@ -324,6 +324,7 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
         engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
         aat: Some(aat),
         cred_pk: credential.issuer.clone(),
+        disclose_live_capture: false,
         live_capture_hash,
         billing_nullifier: FieldElement::ZERO,
         nonce_salt: FieldElement::from(NONCE_SALT),

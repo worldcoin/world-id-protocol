@@ -317,7 +317,7 @@ struct ProverToml {
     sec_meta: String,
     authenticator_meta: String,
     engine_config_hash: String,
-    live_capture_hash: String,
+    disclosed_live_capture_hash: String,
     challenge_hash: String,
     signal_hash: String,
     merkle_root: String,
@@ -344,6 +344,7 @@ struct PrivateInputs {
 
 #[derive(Serialize)]
 struct TokenInputs {
+    live_capture_hash: String,
     billing_nullifier: String,
     nonce_salt: String,
     sig: Signature,
@@ -519,7 +520,6 @@ fn render() -> Rendered {
         ("SEC_META", "u8", SEC_META.to_string()),
         ("AUTHENTICATOR_META", "u8", AUTHENTICATOR_META.to_string()),
         ("ENGINE_CONFIG_HASH", "Field", engine_config_hash.clone()),
-        ("LIVE_CAPTURE_HASH", "Field", dec(*compared[1])),
         ("CHALLENGE_HASH", "Field", dec(*compared[2])),
         ("SIGNAL_HASH", "Field", dec(*signal_hash)),
         ("MERKLE_ROOT", "Field", dec(*merkle_root)),
@@ -530,6 +530,7 @@ fn render() -> Rendered {
         ("EXPIRES_AT_MIN", "Field", EXPIRES_AT_MIN.to_string()),
         ("SESSION_ID", "Field", dec(*session_id)),
         // Flamingo Token witness
+        ("LIVE_CAPTURE_HASH", "Field", dec(*compared[1])),
         ("NONCE_SALT", "Field", NONCE_SALT.to_string()),
         ("TOKEN_SIG", "Signature", noir_sig(&token)),
         // Account witness
@@ -602,7 +603,7 @@ fn render() -> Rendered {
         sec_meta: SEC_META.to_string(),
         authenticator_meta: AUTHENTICATOR_META.to_string(),
         engine_config_hash,
-        live_capture_hash: dec(*compared[1]),
+        disclosed_live_capture_hash: "0".into(),
         challenge_hash: dec(*compared[2]),
         signal_hash: dec(*signal_hash),
         merkle_root: dec(*merkle_root),
@@ -618,6 +619,7 @@ fn render() -> Rendered {
             billing_action: "0".into(),
             billing_oprf_output: vec!["0".into(), "0".into()],
             token: TokenInputs {
+                live_capture_hash: dec(*compared[1]),
                 billing_nullifier: "0".into(),
                 nonce_salt: NONCE_SALT.to_string(),
                 sig: (&token).into(),
@@ -923,6 +925,7 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
             authenticator_meta: AUTHENTICATOR_META,
         }),
         cred_pk: credential.issuer.clone(),
+        disclose_live_capture: false,
         live_capture_hash: compared[1],
         billing_nullifier: FieldElement::ZERO,
         nonce_salt: NONCE_SALT.into(),
