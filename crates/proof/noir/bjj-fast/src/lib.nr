@@ -10,55 +10,74 @@ global DS_EDDSA: Field = 360302137480307891234917541314130533;
 global EIGHT_INV: Field =
     2394026564107420727433200628387514462817212225638746351800188703329891451411;
 
+/// The BabyJubJub generator in Montgomery coordinates, the ladder's offset accumulator.
+global OFFSET_U: Field =
+    7117928050407583618111176421555214756675765419608405867398403713213306743542;
+global OFFSET_V: Field =
+    14577268218881899420966779687690205425227431577728659819975198491127179315626;
+
 struct M {
     u: Field,
     v: Field,
 }
-unconstrained fn div(a: Field, b: Field) -> Field {
-    a / b
-}
-fn to_m(p: BabyJubJubPoint) -> M {
-    let u = unsafe { div(1 + p.y(), 1 - p.y()) };
-    assert(u * (1 - p.y()) == 1 + p.y());
-    let v = unsafe { div(u, p.x()) };
-    assert(v * p.x() == u);
-    M { u, v }
-}
-fn from_m(p: M) -> BabyJubJubPoint {
-    let x = unsafe { div(p.u, p.v) };
-    assert(x * p.v == p.u);
-    let y = unsafe { div(p.u - 1, p.u + 1) };
-    assert(y * (p.u + 1) == p.u - 1);
-    BabyJubJubPoint::new_unchecked(x, y)
-}
-fn m_add(p: M, q: M) -> M {
-    let l = unsafe { div(q.v - p.v, q.u - p.u) };
-    assert(l * (q.u - p.u) == q.v - p.v);
-    let u3 = l * l - MONT_A - p.u - q.u;
-    M { u: u3, v: l * (p.u - u3) - p.v }
-}
-fn m_dbl(p: M) -> M {
-    let num = 3 * p.u * p.u + 2 * MONT_A * p.u + 1;
-    let l = unsafe { div(num, 2 * p.v) };
-    assert(l * 2 * p.v == num);
-    let u3 = l * l - MONT_A - 2 * p.u;
-    M { u: u3, v: l * (p.u - u3) - p.v }
-}
 
 /// `bits * p` (little-endian bits), Montgomery double-and-add with an offset accumulator.
+///
+/// One unconstrained call computes every slope of the ladder; per-step hint calls dominate
+/// witness generation and blow up the ACIR program.
 pub fn mul_bits<let N: u32>(p: BabyJubJubPoint, bits: [bool; N]) -> BabyJubJubPoint {
-    let offset = BabyJubJubPoint::generator();
-    let mut d = to_m(p);
-    let mut acc = to_m(offset);
+    // Safety: each hint is checked below by the equation that defines it.
+    let (u0, v0, add_slopes, dbl_slopes, x, y) = unsafe { ladder_hints(p.x(), p.y(), bits) };
+    assert(u0 * (1 - p.y()) == 1 + p.y());
+    assert(v0 * p.x() == u0);
+
+    let mut d = M { u: u0, v: v0 };
+    let mut acc = M { u: OFFSET_U, v: OFFSET_V };
     for i in 0..N {
-        let s = m_add(acc, d);
+        let l = add_slopes[i];
+        assert(l * (d.u - acc.u) == d.v - acc.v);
+        let u3 = l * l - MONT_A - acc.u - d.u;
+        let sum = M { u: u3, v: l * (acc.u - u3) - acc.v };
         let b = bits[i] as Field;
-        acc = M { u: acc.u + b * (s.u - acc.u), v: acc.v + b * (s.v - acc.v) };
-        if i + 1 < N {
-            d = m_dbl(d);
-        }
+        acc = M { u: acc.u + b * (sum.u - acc.u), v: acc.v + b * (sum.v - acc.v) };
+
+        let ld = dbl_slopes[i];
+        assert(ld * 2 * d.v == 3 * d.u * d.u + 2 * MONT_A * d.u + 1);
+        let u4 = ld * ld - MONT_A - 2 * d.u;
+        d = M { u: u4, v: ld * (d.u - u4) - d.v };
     }
-    from_m(acc).subtract(offset)
+
+    assert(x * acc.v == acc.u);
+    assert(y * (acc.u + 1) == acc.u - 1);
+    BabyJubJubPoint::new_unchecked(x, y).subtract(BabyJubJubPoint::generator())
+}
+
+/// The Montgomery form of `p`, every add and double slope of the ladder, and the Edwards form of
+/// the final accumulator. The last doubling is unused but computed so every hint is constrained.
+unconstrained fn ladder_hints<let N: u32>(
+    px: Field,
+    py: Field,
+    bits: [bool; N],
+) -> (Field, Field, [Field; N], [Field; N], Field, Field) {
+    let u0 = (1 + py) / (1 - py);
+    let v0 = u0 / px;
+    let mut d = M { u: u0, v: v0 };
+    let mut acc = M { u: OFFSET_U, v: OFFSET_V };
+    let mut add_slopes = [0; N];
+    let mut dbl_slopes = [0; N];
+    for i in 0..N {
+        let l = (d.v - acc.v) / (d.u - acc.u);
+        add_slopes[i] = l;
+        if bits[i] {
+            let u3 = l * l - MONT_A - acc.u - d.u;
+            acc = M { u: u3, v: l * (acc.u - u3) - acc.v };
+        }
+        let ld = (3 * d.u * d.u + 2 * MONT_A * d.u + 1) / (2 * d.v);
+        dbl_slopes[i] = ld;
+        let u4 = ld * ld - MONT_A - 2 * d.u;
+        d = M { u: u4, v: ld * (d.u - u4) - d.v };
+    }
+    (u0, v0, add_slopes, dbl_slopes, acc.u / acc.v, (acc.u - 1) / (acc.u + 1))
 }
 
 pub fn mul_base_field(p: BabyJubJubPoint, h: Field) -> BabyJubJubPoint {
@@ -75,6 +94,7 @@ unconstrained fn div_by_8(x: Field, y: Field) -> (Field, Field) {
 /// exactly the set of points 8Q.
 pub fn point_in_subgroup(x: Field, y: Field) -> BabyJubJubPoint {
     let p = BabyJubJubPoint::new(x, y);
+    // Safety: Q is checked by recomputing 8Q.
     let (qx, qy) = unsafe { div_by_8(x, y) };
     let e = BabyJubJubPoint::new(qx, qy).double().double().double();
     assert((e.x() == x) & (e.y() == y), "Point is not in the correct subgroup");
