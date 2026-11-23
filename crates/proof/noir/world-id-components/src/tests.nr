@@ -62,6 +62,7 @@ fn test_authentication_vector_rejects_other_message() {
 // SECTION: Credential Verification (WIP-202 fixture)
 
 global NOW: Field = 1783446000;
+global ISSUER_VERSION: Field = 1;
 global CLAIM_0: Field =
     18221512155588497305747704225993744070660555059966222885154001906335959616602;
 
@@ -72,7 +73,6 @@ fn credential_public() -> CredentialPublic {
             y: 12968755499483333796470904991791972225213732697010974473747270661164777138792,
         },
         issuer_schema_id: 4242,
-        issuer_version: 1,
         genesis_issued_at_min: 1500000000,
     }
 }
@@ -107,13 +107,25 @@ fn test_credential_sub_vector() {
 
 #[test]
 fn test_credential_vector() {
-    let claims = credential::verify(credential_public(), NOW, 1, credential_inputs());
+    let claims = credential::verify(
+        credential_public(),
+        ISSUER_VERSION,
+        NOW,
+        1,
+        credential_inputs(),
+    );
     assert_eq(claims[0], CLAIM_0);
 }
 
 #[test(should_fail_with = "invalid credential signature")]
 fn test_credential_vector_rejects_other_leaf_index() {
-    let _ = credential::verify(credential_public(), NOW, 2, credential_inputs());
+    let _ = credential::verify(
+        credential_public(),
+        ISSUER_VERSION,
+        NOW,
+        2,
+        credential_inputs(),
+    );
 }
 
 // SECTION: Session Commitment (WIP-202 fixture)
@@ -136,6 +148,7 @@ fn test_session_vector_rejects_other_leaf_index() {
 fn test_credential_rejects_a_now_beyond_32_bits() {
     let _ = credential::verify(
         credential_public(),
+        ISSUER_VERSION,
         NOW + 0x100000000,
         1,
         credential_inputs(),
@@ -201,40 +214,56 @@ fn test_authentication_rejects_another_registered_slot() {
 
 #[test]
 fn test_credential_is_valid_until_just_before_expiry() {
-    let _ = credential::verify(credential_public(), 1899999999, 1, credential_inputs());
+    let _ = credential::verify(
+        credential_public(),
+        ISSUER_VERSION,
+        1899999999,
+        1,
+        credential_inputs(),
+    );
 }
 
 #[test(should_fail_with = "credential expired")]
 fn test_credential_rejects_now_at_expiry() {
-    let _ = credential::verify(credential_public(), 1900000000, 1, credential_inputs());
+    let _ = credential::verify(
+        credential_public(),
+        ISSUER_VERSION,
+        1900000000,
+        1,
+        credential_inputs(),
+    );
 }
 
 #[test]
 fn test_credential_accepts_a_minimum_equal_to_genesis() {
     let mut public = credential_public();
     public.genesis_issued_at_min = 1600000000;
-    let _ = credential::verify(public, NOW, 1, credential_inputs());
+    let _ = credential::verify(public, ISSUER_VERSION, NOW, 1, credential_inputs());
 }
 
 #[test(should_fail_with = "credential too recent")]
 fn test_credential_rejects_a_minimum_after_genesis() {
     let mut public = credential_public();
     public.genesis_issued_at_min = 1600000001;
-    let _ = credential::verify(public, NOW, 1, credential_inputs());
+    let _ = credential::verify(public, ISSUER_VERSION, NOW, 1, credential_inputs());
 }
 
 #[test(should_fail_with = "call to assert_max_bit_size")]
 fn test_credential_rejects_an_issuer_version_beyond_8_bits() {
-    let mut public = credential_public();
-    public.issuer_version += 0x100;
-    let _ = credential::verify(public, NOW, 1, credential_inputs());
+    let _ = credential::verify(
+        credential_public(),
+        ISSUER_VERSION + 0x100,
+        NOW,
+        1,
+        credential_inputs(),
+    );
 }
 
 #[test(should_fail_with = "call to assert_max_bit_size")]
 fn test_credential_rejects_an_id_beyond_64_bits() {
     let mut inputs = credential_inputs();
     inputs.id += 0x10000000000000000;
-    let _ = credential::verify(credential_public(), NOW, 1, inputs);
+    let _ = credential::verify(credential_public(), ISSUER_VERSION, NOW, 1, inputs);
 }
 
 // SECTION: domain separators are their ASCII labels read as big-endian integers

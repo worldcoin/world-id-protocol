@@ -271,8 +271,6 @@ pub struct EmbeddingSimilarityRequestInputs {
     pub session_id: FieldElement,
     /// The PoH Credential's issuer schema.
     pub issuer_schema_id: u64,
-    /// The PoH Credential's issuer version.
-    pub issuer_version: u8,
     /// The RP's minimum Credential `genesis_issued_at`.
     pub genesis_issued_at_min: u64,
     /// The RP's minimum Credential `expires_at`, exclusive.
@@ -322,6 +320,8 @@ pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
     pub sub_blinding_factor: FieldElement,
     /// Private input. The PoH Credential's issuer-scoped `id`.
     pub credential_id: u64,
+    /// Private input. The PoH Credential's `issuer_version`.
+    pub issuer_version: u8,
     /// Private input. The issuer's signature over the PoH Credential.
     pub credential_signature: EdDSASignature,
     /// Private input. The raw PCP `hashes.json` bytes the Credential claim commits to.

@@ -114,8 +114,6 @@ pub struct EmbeddingSimilarityPolicy<A> {
     /// The Engine configurations the RP accepts (WIP-201 §4.7 check 6), e.g. from
     /// [`accepted_engine_configs`].
     pub engine_config_hashes: HashSet<FieldElement>,
-    /// The `issuer_version` of the Proof of Human Credential the RP verifies against.
-    pub issuer_version: u8,
     /// The AAT policy.
     pub aat: AatPolicy,
 }
@@ -315,8 +313,8 @@ where
     check_aat(proof.aat.as_ref(), &policy.aat)?;
 
     // 5 and 6. The request matches: every public input the RP chooses comes from its own request.
-    let public = EmbeddingSimilarityRequestInputs::from_request(request, policy.issuer_version)
-        .map_err(ProofError::from)?;
+    let public =
+        EmbeddingSimilarityRequestInputs::from_request(request).map_err(ProofError::from)?;
 
     Ok(EmbeddingSimilarityProofCheck {
         proof: proof.clone(),
