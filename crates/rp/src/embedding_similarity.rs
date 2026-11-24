@@ -213,6 +213,11 @@ pub enum EmbeddingSimilarityVerificationError {
     /// The received live capture is not the one the proof discloses.
     #[error("the live capture does not hash to disclosed_live_capture_hash")]
     LiveCaptureMismatch,
+    /// The proof discloses a live capture hash the request did not ask for.
+    #[error(
+        "disclosed_live_capture_hash is not 0, but the request does not ask for the live capture"
+    )]
+    LiveCaptureDisclosedUnrequested,
     /// The proof does not verify.
     #[error(transparent)]
     Proof(#[from] ProofError),
@@ -424,7 +429,8 @@ fn check_live_capture(
 ) -> Result<(), EmbeddingSimilarityVerificationError> {
     use EmbeddingSimilarityVerificationError as Error;
     match (requested, live_capture) {
-        (false, None) => Ok(()),
+        (false, None) if disclosed_live_capture_hash == FieldElement::ZERO => Ok(()),
+        (false, None) => Err(Error::LiveCaptureDisclosedUnrequested),
         (false, Some(_)) => Err(Error::LiveCaptureNotRequested),
         (true, None) => Err(Error::LiveCaptureMissing),
         // No image hashes to `0`, so this also rejects a proof that withholds the hash.
@@ -457,6 +463,10 @@ mod tests {
         let hash = FieldElement::from_digest(&Sha256::digest(image).into());
         assert!(check_live_capture(false, None, FieldElement::ZERO).is_ok());
         assert!(check_live_capture(true, Some(image), hash).is_ok());
+        assert!(matches!(
+            check_live_capture(false, None, hash),
+            Err(Error::LiveCaptureDisclosedUnrequested)
+        ));
         assert!(matches!(
             check_live_capture(false, Some(image), hash),
             Err(Error::LiveCaptureNotRequested)

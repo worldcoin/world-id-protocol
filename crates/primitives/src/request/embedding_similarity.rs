@@ -27,7 +27,7 @@ pub struct EmbeddingSimilarityParams {
     /// `None` for a proof without a challenge (WIP-202 §4.3).
     pub challenge_hash: Option<FieldElement>,
     /// Whether the Authenticator sends the RP the live capture with the proof and discloses its
-    /// hash (WIP-202 §4.9).
+    /// hash (WIP-202 §4.3).
     pub return_live_capture: bool,
     /// The AAT requirements, if the RP states any.
     pub aat: Option<AatRequirements>,

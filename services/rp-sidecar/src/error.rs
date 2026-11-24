@@ -79,6 +79,7 @@ impl From<EmbeddingSimilarityVerificationError> for ApiError {
             Error::LiveCaptureMissing => Code::LiveCaptureMissing,
             Error::LiveCaptureNotRequested => Code::LiveCaptureNotRequested,
             Error::LiveCaptureMismatch => Code::LiveCaptureMismatch,
+            Error::LiveCaptureDisclosedUnrequested => Code::LiveCaptureDisclosedUnrequested,
             Error::Proof(ProofError::Verification(_)) => Code::InvalidProof,
             Error::RootCheck(_) => Code::RootCheckFailed,
             Error::IssuerCheck(_) => Code::IssuerCheckFailed,
@@ -170,6 +171,8 @@ pub enum Code {
     LiveCaptureNotRequested,
     /// The live capture is not the one the proof discloses.
     LiveCaptureMismatch,
+    /// The proof discloses a live capture hash, but the request does not set `return_live_capture`.
+    LiveCaptureDisclosedUnrequested,
     /// The proof does not verify.
     InvalidProof,
     /// The `WorldIDRegistry` could not be read.
@@ -209,6 +212,7 @@ impl Code {
             Self::LiveCaptureMissing => "live_capture_missing",
             Self::LiveCaptureNotRequested => "live_capture_not_requested",
             Self::LiveCaptureMismatch => "live_capture_mismatch",
+            Self::LiveCaptureDisclosedUnrequested => "live_capture_disclosed_unrequested",
             Self::InvalidProof => "invalid_proof",
             Self::RootCheckFailed => "root_check_failed",
             Self::IssuerCheckFailed => "issuer_check_failed",
@@ -240,6 +244,7 @@ impl Code {
             | Self::AatRequired
             | Self::AatNotAccepted
             | Self::LiveCaptureMismatch
+            | Self::LiveCaptureDisclosedUnrequested
             | Self::InvalidProof => Failure::Rejected,
             Self::RootCheckFailed | Self::IssuerCheckFailed | Self::Overloaded | Self::Timeout => {
                 Failure::Unavailable

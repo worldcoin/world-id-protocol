@@ -189,7 +189,7 @@ pub enum AuthenticatorError {
     SessionSeedRequired,
 
     /// The attested Flamingo release has no pipeline WIP-202 can use: one with a single
-    /// `live_frame` input and at most 8 response slots (§4.3).
+    /// `live_frame` input and at most 8 response slots (WIP-202 §4.4.1).
     #[error("the Flamingo release has no pipeline for a single live frame")]
     NoFlamingoPipeline,
 

@@ -25,7 +25,7 @@ The sidecar is stateless. It checks a proof against the request the RP issued, b
 }
 ```
 
-`request` and `response` are the protocol's JSON encodings of `ProofRequest` and `ProofResponse`, the same objects the RP sends to and receives from the Authenticator. `live_capture` is the hex-encoded image the Authenticator sent with the proof. Send it exactly when the request sets `return_live_capture`, and use the image only after a `200` ([WIP-202 §4.9](../../docs/WIPs/wip-202.md#49-live-capture-delivery)).
+`request` and `response` are the protocol's JSON encodings of `ProofRequest` and `ProofResponse`, the same objects the RP sends to and receives from the Authenticator. `live_capture` is the hex-encoded image the Authenticator sent with the proof. Send it exactly when the request sets `return_live_capture`, and use the image only after a `200` ([WIP-202 §4.4](../../docs/WIPs/wip-202.md#44-proof-generation)).
 
 Every answer carries a `result`. Only `200` means the proof was accepted:
 
@@ -46,7 +46,7 @@ Answers other than `200` also carry a stable `code` and a `message`:
 | `code` | `result` |
 | --- | --- |
 | `invalid_body`, `body_too_large`, `not_embedding_similarity`, `invalid_request`, `live_capture_missing`, `live_capture_not_requested` | `invalid` |
-| `response_mismatch`, `request_expired`, `attestation_not_accepted`, `attested_key_mismatch`, `engine_not_accepted`, `stale_proof`, `invalid_root`, `untrusted_issuer_key`, `aat_required`, `aat_not_accepted`, `live_capture_mismatch`, `invalid_proof` | `rejected` |
+| `response_mismatch`, `request_expired`, `attestation_not_accepted`, `attested_key_mismatch`, `engine_not_accepted`, `stale_proof`, `invalid_root`, `untrusted_issuer_key`, `aat_required`, `aat_not_accepted`, `live_capture_mismatch`, `live_capture_disclosed_unrequested`, `invalid_proof` | `rejected` |
 | `root_check_failed`, `issuer_check_failed`, `overloaded`, `timeout` | `unavailable` |
 | `clock_error`, `proof_verifier_failed`, `verification_panicked` | `internal` |
 

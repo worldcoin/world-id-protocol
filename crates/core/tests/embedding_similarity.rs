@@ -46,7 +46,7 @@ fn now_secs() -> u64 {
 }
 
 /// The Flamingo Verifier's result for one attempt at `proof_request`, comparing the thumbnail, a
-/// live capture and the challenge under the WIP-202 entry layout (§4.3).
+/// live capture and the challenge under the WIP-202 entry layout (§4.4.1).
 fn flamingo_result(
     proof_request: &ProofRequest,
     thumbnail: &[u8],
@@ -77,6 +77,7 @@ fn flamingo_result(
         verifier_key: verifier_sk.public(),
         signing_key_attestation: Bytes::from(verifier_sk.public().to_compressed_bytes()?.to_vec()),
         nonce_salt,
+        compared_entry_hashes: claims.compared_entry_hashes,
     })
 }
 

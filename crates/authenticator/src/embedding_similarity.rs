@@ -7,8 +7,8 @@ use rand::rngs::OsRng;
 use secrecy::ExposeSecret as _;
 use sha2::{Digest as _, Sha256};
 use world_id_flamingo::{
-    Entry, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_REQUEST_LIFETIME, Payload,
-    ReleaseManifest, Request, RequestError, release_manifest::Pipeline,
+    Entry, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_COMPARED, MAX_REQUEST_LIFETIME,
+    Payload, ReleaseManifest, Request, RequestError, release_manifest::Pipeline,
 };
 use world_id_primitives::{
     Credential, EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem, FieldElement,
@@ -41,10 +41,12 @@ pub struct FlamingoResult {
     pub signing_key_attestation: Bytes,
     /// The salt the request's `nonce` was derived with, from [`FlamingoAttempt::nonce_salt`].
     pub nonce_salt: FieldElement,
+    /// The request's compared entry hashes, from [`FlamingoAttempt::compared_entry_hashes`].
+    pub compared_entry_hashes: [FieldElement; MAX_COMPARED],
 }
 
 /// The images a Proof of Embedding Similarity compares, in the order of the WIP-202 entry layout
-/// (§4.3).
+/// (§4.4.1).
 #[derive(Clone)]
 pub struct EmbeddingSimilarityImages {
     /// The PCP thumbnail that the Credential's `hashes.json` lists.
@@ -64,7 +66,7 @@ impl std::fmt::Debug for EmbeddingSimilarityImages {
     }
 }
 
-/// The role WIP-202 requires of the pipeline's only input (§4.3).
+/// The role WIP-202 requires of the pipeline's only input (§4.4.1).
 const LIVE_FRAME: &str = "live_frame";
 
 /// Most response release times a chosen pipeline may list, so a response's timing reveals at most
@@ -77,7 +79,7 @@ const MAX_RESPONSE_SLOTS: usize = 8;
 const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 
 /// Builds a Flamingo request (WIP-201 §4.4.1) for a Proof of Embedding Similarity request, under
-/// the WIP-202 entry layout (§4.3), with a `nonce` derived from a fresh salt.
+/// the WIP-202 entry layout (§4.4.1), with a `nonce` derived from a fresh salt.
 ///
 /// Each call samples a new `nonce_salt` with a CSPRNG and sets the request's `nonce` to
 /// [`flamingo_nonce`]`(proof_request.nonce, nonce_salt)` (WIP-202 constraint 1.1), so a retry after
@@ -127,9 +129,11 @@ pub fn flamingo_request(
         nonce_salt,
         now,
     )?;
+    let compared_entry_hashes = request.payload()?.compared_entry_hashes();
     Ok(FlamingoAttempt {
         request,
         nonce_salt,
+        compared_entry_hashes,
     })
 }
 
@@ -140,6 +144,9 @@ pub struct FlamingoAttempt {
     pub request: Request,
     /// The salt of the request's `nonce`, for [`FlamingoResult::nonce_salt`].
     pub nonce_salt: FieldElement,
+    /// `R(SHA-256)` of each compared entry, or `0` past the last, for
+    /// [`FlamingoResult::compared_entry_hashes`].
+    pub compared_entry_hashes: [FieldElement; MAX_COMPARED],
 }
 
 /// Omits the request, which carries biometric data.
@@ -191,7 +198,7 @@ fn flamingo_request_with_salt(
     }
 
     // Without a challenge, only the Credential image and the live capture are compared, so
-    // `compared_entry_hash_2` is `0` (WIP-202 §4.3).
+    // `compared_entry_hash_2` is `0` (WIP-202 §4.4.1).
     let entries: Vec<Entry> = [Some(images.credential_image), Some(images.live_capture)]
         .into_iter()
         .chain([images.challenge])
@@ -239,13 +246,15 @@ fn embedding_similarity_params(
     Ok(params)
 }
 
-/// Rejects a token that does not answer `proof_request` under the WIP-202 entry layout (§4.3), so
-/// a mismatch surfaces before proving rather than as an invalid token signature.
+/// Rejects a token that does not answer the Flamingo request sent for `proof_request` under the
+/// WIP-202 entry layout (§4.4.1), so a mismatch surfaces before proving rather than as an invalid
+/// token signature or, for a delivered live capture, at the RP (WIP-202 §4.4 step 5).
 fn check_token_answers_request(
     claims: &FlamingoClaims,
     rp_id: FieldElement,
     rp_nonce: FieldElement,
     nonce_salt: FieldElement,
+    sent_entry_hashes: &[FieldElement; MAX_COMPARED],
     params: &EmbeddingSimilarityParams,
 ) -> Result<(), AuthenticatorError> {
     let mismatch = |attribute| Err(AuthenticatorError::FlamingoTokenMismatch(attribute));
@@ -254,6 +263,12 @@ fn check_token_answers_request(
     }
     if claims.nonce != flamingo_nonce(rp_nonce, nonce_salt) {
         return mismatch("nonce");
+    }
+    if claims.compared_entry_hashes[0] != sent_entry_hashes[0] {
+        return mismatch("compared_entry_hash_0");
+    }
+    if claims.compared_entry_hashes[1] != sent_entry_hashes[1] {
+        return mismatch("compared_entry_hash_1");
     }
     if claims.compare_sources != COMPARE_SOURCES {
         return mismatch("compare_sources");
@@ -327,7 +342,7 @@ impl Authenticator {
     /// # Arguments
     /// - `proof_request`: the RP's [`ProofType::EmbeddingSimilarity`] request.
     /// - `flamingo`: the Flamingo Verifier's result for this request. Its token must answer the
-    ///   request under the WIP-202 entry layout (§4.3).
+    ///   request under the WIP-202 entry layout (§4.4.1).
     /// - `credential`: the PoH Credential for the request's single item, whose claim 0 commits to
     ///   `hashes_json`.
     /// - `hashes_json`: the PCP's Orb-signed `hashes.json` (WIP-202 §4.1).
@@ -373,6 +388,7 @@ impl Authenticator {
             proof_request.rp_id.into(),
             proof_request.nonce,
             flamingo.nonce_salt,
+            &flamingo.compared_entry_hashes,
             params,
         )?;
         let aat = claims.aat.as_ref().map(aat_public_values).transpose()?;
@@ -587,6 +603,7 @@ mod tests {
             FieldElement::from(9u64),
             FieldElement::from(5u64),
             FieldElement::from(NONCE_SALT),
+            &self::claims().compared_entry_hashes,
             params,
         )
         .map_err(|err| match err {
@@ -616,11 +633,17 @@ mod tests {
     #[test]
     fn a_token_for_another_request_is_rejected() {
         type Tamper = fn(&mut FlamingoClaims);
-        let cases: [(&str, Tamper); 5] = [
+        let cases: [(&str, Tamper); 7] = [
             ("aud", |c| c.aud = FieldElement::from(10u64)),
             // A token over the RP's own nonce rather than the derived one.
             ("nonce", |c| c.nonce = FieldElement::from(5u64)),
             ("compare_sources", |c| c.compare_sources = 0),
+            ("compared_entry_hash_0", |c| {
+                c.compared_entry_hashes[0] = FieldElement::from(8u64);
+            }),
+            ("compared_entry_hash_1", |c| {
+                c.compared_entry_hashes[1] = FieldElement::from(8u64);
+            }),
             ("compared_entry_hash_2", |c| {
                 c.compared_entry_hashes[2] = FieldElement::from(8u64);
             }),
