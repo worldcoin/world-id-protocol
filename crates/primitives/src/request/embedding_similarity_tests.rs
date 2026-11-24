@@ -75,6 +75,7 @@ fn es_item() -> EmbeddingSimilarityResponseItem {
                 pattern: vec![],
             },
             now: 1_735_689_650,
+            disclosed_live_capture_hash: field(12),
             flamingo_verifier_key: public_key(1),
             engine_config_hash: field(10),
             aat: Some(AatPublicValues {
