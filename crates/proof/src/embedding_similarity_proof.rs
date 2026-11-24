@@ -154,7 +154,7 @@ fn hashes_json_inputs(hashes_json: &[u8]) -> Result<InputValue, ProofInputError>
 }
 
 impl EmbeddingSimilarityRequestInputs {
-    /// The RP's public inputs of a WIP-202 request (WIP-202 §4.4).
+    /// The RP's public inputs of a WIP-202 request (WIP-202 §4.3).
     ///
     /// # Errors
     /// Returns [`ProofInputError::InvalidEmbeddingSimilarityRequest`] if `request` is not a valid

@@ -10,7 +10,7 @@ use crate::{
 use alloy_primitives::Bytes;
 use serde::{Deserialize, Serialize};
 
-/// The parameters only a Proof of Embedding Similarity request takes (WIP-202 §4.4).
+/// The parameters only a Proof of Embedding Similarity request takes (WIP-202 §4.3).
 ///
 /// The Credential policy and the `signal` are the request's single [`RequestItem`], and the
 /// request's `session_id` is the optional session.
