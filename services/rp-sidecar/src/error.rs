@@ -76,6 +76,9 @@ impl From<EmbeddingSimilarityVerificationError> for ApiError {
             Error::UntrustedIssuerKey => Code::UntrustedIssuerKey,
             Error::AatRequired => Code::AatRequired,
             Error::AatNotAccepted(_) => Code::AatNotAccepted,
+            Error::LiveCaptureMissing => Code::LiveCaptureMissing,
+            Error::LiveCaptureNotRequested => Code::LiveCaptureNotRequested,
+            Error::LiveCaptureMismatch => Code::LiveCaptureMismatch,
             Error::Proof(ProofError::Verification(_)) => Code::InvalidProof,
             Error::RootCheck(_) => Code::RootCheckFailed,
             Error::IssuerCheck(_) => Code::IssuerCheckFailed,
@@ -161,6 +164,12 @@ pub enum Code {
     AatRequired,
     /// An AAT value is outside the policy.
     AatNotAccepted,
+    /// The request sets `return_live_capture`, but the body has no `live_capture`.
+    LiveCaptureMissing,
+    /// The body has a `live_capture`, but the request does not set `return_live_capture`.
+    LiveCaptureNotRequested,
+    /// The live capture is not the one the proof discloses.
+    LiveCaptureMismatch,
     /// The proof does not verify.
     InvalidProof,
     /// The `WorldIDRegistry` could not be read.
@@ -197,6 +206,9 @@ impl Code {
             Self::UntrustedIssuerKey => "untrusted_issuer_key",
             Self::AatRequired => "aat_required",
             Self::AatNotAccepted => "aat_not_accepted",
+            Self::LiveCaptureMissing => "live_capture_missing",
+            Self::LiveCaptureNotRequested => "live_capture_not_requested",
+            Self::LiveCaptureMismatch => "live_capture_mismatch",
             Self::InvalidProof => "invalid_proof",
             Self::RootCheckFailed => "root_check_failed",
             Self::IssuerCheckFailed => "issuer_check_failed",
@@ -214,7 +226,9 @@ impl Code {
             Self::InvalidBody
             | Self::BodyTooLarge
             | Self::NotEmbeddingSimilarity
-            | Self::InvalidRequest => Failure::Invalid,
+            | Self::InvalidRequest
+            | Self::LiveCaptureMissing
+            | Self::LiveCaptureNotRequested => Failure::Invalid,
             Self::ResponseMismatch
             | Self::RequestExpired
             | Self::AttestationNotAccepted
@@ -225,6 +239,7 @@ impl Code {
             | Self::UntrustedIssuerKey
             | Self::AatRequired
             | Self::AatNotAccepted
+            | Self::LiveCaptureMismatch
             | Self::InvalidProof => Failure::Rejected,
             Self::RootCheckFailed | Self::IssuerCheckFailed | Self::Overloaded | Self::Timeout => {
                 Failure::Unavailable

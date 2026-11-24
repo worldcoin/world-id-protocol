@@ -866,7 +866,8 @@ pub(crate) fn embedding_similarity_request(session_id_r: FieldElement) -> ProofR
         version: RequestVersion::V1,
         proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
             action: prefixed(OprfPrefix::EmbeddingSimilarity, 1),
-            challenge_hash: sha256_field(CHALLENGE_IMAGE),
+            challenge_hash: Some(sha256_field(CHALLENGE_IMAGE)),
+            return_live_capture: false,
             aat: None,
         }),
         session_id: SessionRef::Existing(session),

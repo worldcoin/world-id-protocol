@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use alloy::primitives::Bytes;
 use axum::{
     Json,
     extract::{State, rejection::JsonRejection},
@@ -28,12 +29,15 @@ const ACCEPTED: &str = "accepted";
 /// The metric's `result` and `code` of a verification whose caller hung up.
 const ABANDONED: &str = "abandoned";
 
-/// A verification: the request the RP issued, from the RP's own store, and the response to it.
+/// A verification: the request the RP issued, from the RP's own store, the response to it, and
+/// the live capture received with it if the request set `return_live_capture`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct VerifyRequest {
     request: ProofRequest,
     response: ProofResponse,
+    #[serde(default)]
+    live_capture: Option<Bytes>,
 }
 
 /// Verifies a Proof of Embedding Similarity under WIP-202 §4.8 and answers `200` only if it is
@@ -109,6 +113,7 @@ where
     let check = check_embedding_similarity(
         &body.request,
         &body.response,
+        body.live_capture.as_ref().map(AsRef::as_ref),
         &state.policy,
         |root| state.registries.is_valid_root(root),
         |key| state.registries.is_trusted_issuer(key),
@@ -299,7 +304,8 @@ mod tests {
             version: RequestVersion::V1,
             proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
                 action: FieldElement::random_with_prefix(&mut rng, OprfPrefix::EmbeddingSimilarity),
-                challenge_hash: FieldElement::from(0x00c0_ffee_u64),
+                challenge_hash: Some(FieldElement::from(0x00c0_ffee_u64)),
+                return_live_capture: false,
                 aat: None,
             }),
             session_id: SessionRef::None,
@@ -389,7 +395,7 @@ mod tests {
         let ProofType::EmbeddingSimilarity(params) = &mut fixture.request.proof_type else {
             unreachable!("the fixture requests a Proof of Embedding Similarity");
         };
-        params.challenge_hash = FieldElement::ZERO;
+        params.challenge_hash = Some(FieldElement::ZERO);
     }
 
     const fn keep(_: &mut Fixture) {}

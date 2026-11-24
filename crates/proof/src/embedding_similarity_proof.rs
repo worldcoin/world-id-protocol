@@ -175,7 +175,7 @@ impl EmbeddingSimilarityRequestInputs {
         Ok(Self {
             rp_id: request.rp_id.into(),
             nonce: request.nonce,
-            challenge_hash: params.challenge_hash,
+            challenge_hash: params.challenge_hash.unwrap_or(FieldElement::ZERO),
             signal_hash: item.signal_hash(),
             session_id: match request.session_id {
                 SessionRef::Existing(session_id) => session_id.commitment,
@@ -687,7 +687,8 @@ mod request_inputs_tests {
     fn embedding_similarity() -> ProofType {
         ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
             action: prefixed(OprfPrefix::EmbeddingSimilarity, 1),
-            challenge_hash: FieldElement::from(9_u64),
+            challenge_hash: Some(FieldElement::from(9_u64)),
+            return_live_capture: false,
             aat: None,
         })
     }

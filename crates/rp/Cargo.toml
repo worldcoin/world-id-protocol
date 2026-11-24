@@ -15,6 +15,8 @@ include = ["src/**/*", "Cargo.toml", "README.md"]
 eddsa-babyjubjub = { workspace = true }
 # Nitro attestation check of the Flamingo Verifier's signing key (WIP-201 §4.7 check 1).
 pontifex = { workspace = true, features = ["attestation"] }
+# `R(SHA-256)` of a delivered live capture (WIP-202 §4.8 item 8).
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 world-id-flamingo = { workspace = true }
 world-id-primitives = { workspace = true }

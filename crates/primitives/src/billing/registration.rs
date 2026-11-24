@@ -138,7 +138,8 @@ mod tests {
             version: RequestVersion::V1,
             proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
                 action,
-                challenge_hash: FieldElement::from(7u64),
+                challenge_hash: Some(FieldElement::from(7u64)),
+                return_live_capture: false,
                 aat: None,
             }),
             created_at: 1_793_534_500,

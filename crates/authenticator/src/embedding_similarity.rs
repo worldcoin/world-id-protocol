@@ -51,8 +51,9 @@ pub struct EmbeddingSimilarityImages {
     pub credential_image: Vec<u8>,
     /// The live capture, the pipeline's only input.
     pub live_capture: Vec<u8>,
-    /// The RP's challenge image, whose `R(SHA-256)` is the request's `challenge_hash`.
-    pub challenge: Vec<u8>,
+    /// The RP's challenge image, whose `R(SHA-256)` is the request's `challenge_hash`, or `None`
+    /// for a request without a challenge.
+    pub challenge: Option<Vec<u8>>,
 }
 
 /// Omits the images, which are biometric data.
@@ -93,7 +94,8 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 ///   attestation binds the manifest but does not vouch for it, so it MUST also verify under a
 ///   release key of an Engine Provider the caller trusts (§4.3.4).
 /// - `match_strictness`: the Authenticator Provider's level; WIP-202 requests set none.
-/// - `images`: the entries to compare; the challenge must hash to the request's `challenge_hash`.
+/// - `images`: the entries to compare; the challenge must be present exactly when the request
+///   has a `challenge_hash`, and hash to it.
 /// - `billing_nullifier`: the WIP-107 `billingNullifier` registered for the RP, or `0`.
 /// - `now`: the device's time, in Unix seconds. `expires_at` is the request's expiry capped at
 ///   `now + MAX_REQUEST_LIFETIME / 2`, so a device clock up to `MAX_REQUEST_LIFETIME / 2` ahead of
@@ -101,7 +103,7 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 ///
 /// # Errors
 /// - [`AuthenticatorError::PrimitiveError`] if the request is not a valid Proof of Embedding
-///   Similarity request, or the challenge does not hash to its `challenge_hash`.
+///   Similarity request, or the challenge does not match its `challenge_hash`.
 /// - [`AuthenticatorError::NoFlamingoPipeline`] if `release` has no usable pipeline.
 /// - [`AuthenticatorError::MatchStrictnessNotOffered`] if `release` does not list
 ///   `match_strictness`.
@@ -158,11 +160,15 @@ fn flamingo_request_with_salt(
     now: u64,
 ) -> Result<Request, AuthenticatorError> {
     let params = embedding_similarity_params(proof_request)?;
-    if FieldElement::from_digest(&Sha256::digest(&images.challenge).into()) != params.challenge_hash
-    {
+    let challenge_hash = images
+        .challenge
+        .as_ref()
+        .map(|challenge| FieldElement::from_digest(&Sha256::digest(challenge).into()));
+    if challenge_hash != params.challenge_hash {
         return Err(PrimitiveError::InvalidInput {
             attribute: "challenge".to_string(),
-            reason: "must hash to the request's challenge_hash".to_string(),
+            reason: "must be present exactly when the request has a challenge_hash, and hash to it"
+                .to_string(),
         }
         .into());
     }
@@ -184,19 +190,22 @@ fn flamingo_request_with_salt(
         return Err(RequestError::OutOfBounds("expires_at").into());
     }
 
-    let entries = [
-        images.credential_image,
-        images.live_capture,
-        images.challenge,
-    ]
-    .map(|data| Entry { data, meta: vec![] });
+    // Without a challenge, only the Credential image and the live capture are compared, so
+    // `compared_entry_hash_2` is `0` (WIP-202 §4.3).
+    let entries: Vec<Entry> = [Some(images.credential_image), Some(images.live_capture)]
+        .into_iter()
+        .chain([images.challenge])
+        .flatten()
+        .map(|data| Entry { data, meta: vec![] })
+        .collect();
+    let compare = (0..).take(entries.len()).collect();
     let payload = Payload {
         pipeline_id: pipeline.pipeline_id,
         match_strictness,
         hints: vec![],
-        entries: entries.into(),
+        entries,
         pipeline_inputs: vec![1],
-        compare: vec![0, 1, 2],
+        compare,
     };
     Ok(Request::new(
         proof_request.rp_id.into(),
@@ -249,7 +258,7 @@ fn check_token_answers_request(
     if claims.compare_sources != COMPARE_SOURCES {
         return mismatch("compare_sources");
     }
-    if claims.compared_entry_hashes[2] != params.challenge_hash {
+    if claims.compared_entry_hashes[2] != params.challenge_hash.unwrap_or(FieldElement::ZERO) {
         return mismatch("compared_entry_hash_2");
     }
     if claims.compared_entry_hashes[3] != FieldElement::ZERO {
@@ -404,8 +413,7 @@ impl Authenticator {
             engine_config_hash: claims.engine_config_hash,
             aat,
             cred_pk: cred.issuer.clone(),
-            // TODO: Disclose the live capture when the request sets `return_live_capture`, per https://github.com/worldcoin/world-id-protocol/pull/1264.
-            disclose_live_capture: false,
+            disclose_live_capture: params.return_live_capture,
             live_capture_hash: claims.compared_entry_hashes[1],
             billing_nullifier: claims.billing_nullifier,
             nonce_salt: flamingo.nonce_salt,
@@ -564,7 +572,8 @@ mod tests {
     fn params(aat: Option<AatRequirements>) -> EmbeddingSimilarityParams {
         EmbeddingSimilarityParams {
             action: FieldElement::ZERO,
-            challenge_hash: FieldElement::from(3u64),
+            challenge_hash: Some(FieldElement::from(3u64)),
+            return_live_capture: false,
             aat,
         }
     }
@@ -589,6 +598,19 @@ mod tests {
     #[test]
     fn a_token_for_the_request_is_accepted() {
         assert_eq!(check(&claims(), &params(None)), Ok(()));
+    }
+
+    #[test]
+    fn a_request_without_a_challenge_takes_a_token_without_one() {
+        let mut no_challenge = params(None);
+        no_challenge.challenge_hash = None;
+        assert_eq!(
+            check(&claims(), &no_challenge),
+            Err("compared_entry_hash_2")
+        );
+        let mut claims = claims();
+        claims.compared_entry_hashes[2] = FieldElement::ZERO;
+        assert_eq!(check(&claims, &no_challenge), Ok(()));
     }
 
     #[test]
@@ -636,7 +658,7 @@ mod tests {
         EmbeddingSimilarityImages {
             credential_image: b"credential image".to_vec(),
             live_capture: b"live image".to_vec(),
-            challenge: b"challenge image".to_vec(),
+            challenge: Some(b"challenge image".to_vec()),
         }
     }
 
@@ -650,7 +672,8 @@ mod tests {
             version: RequestVersion::V1,
             proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
                 action,
-                challenge_hash: image_hash(b"challenge image"),
+                challenge_hash: Some(image_hash(b"challenge image")),
+                return_live_capture: false,
                 aat: None,
             }),
             created_at: NOW - 60,
@@ -668,6 +691,15 @@ mod tests {
             )],
             constraints: None,
         }
+    }
+
+    fn proof_request_without_a_challenge() -> ProofRequest {
+        let mut request = proof_request();
+        let ProofType::EmbeddingSimilarity(params) = &mut request.proof_type else {
+            unreachable!()
+        };
+        params.challenge_hash = None;
+        request
     }
 
     fn pipeline(pipeline_id: u16, roles: &[&str]) -> Pipeline {
@@ -842,21 +874,61 @@ mod tests {
     }
 
     #[test]
-    fn another_challenge_is_rejected() {
+    fn a_request_without_a_challenge_compares_two_entries() {
+        let release = release(vec![pipeline(1, &["live_frame"])]);
         let mut images = images();
-        images.challenge = b"other image".to_vec();
-        assert!(matches!(
-            flamingo_request_with_salt(
-                &proof_request(),
-                &release(vec![pipeline(1, &["live_frame"])]),
-                1,
-                images,
+        images.challenge = None;
+        let request = flamingo_request_with_salt(
+            &proof_request_without_a_challenge(),
+            &release,
+            1,
+            images,
+            FieldElement::ZERO,
+            FieldElement::from(NONCE_SALT),
+            NOW,
+        )
+        .unwrap();
+        let payload = request.payload().unwrap();
+        assert_eq!(
+            payload.compare_sources(release.pipeline(1).unwrap()),
+            Ok(COMPARE_SOURCES)
+        );
+        assert_eq!(
+            payload.compared_entry_hashes(),
+            [
+                image_hash(b"credential image"),
+                image_hash(b"live image"),
                 FieldElement::ZERO,
-                FieldElement::from(NONCE_SALT),
-                NOW,
-            ),
-            Err(AuthenticatorError::PrimitiveError(PrimitiveError::InvalidInput { attribute, .. }))
-                if attribute == "challenge"
-        ));
+                FieldElement::ZERO,
+            ]
+        );
+    }
+
+    #[test]
+    fn a_challenge_that_does_not_match_the_request_is_rejected() {
+        let mut other = images();
+        other.challenge = Some(b"other image".to_vec());
+        let mut missing = images();
+        missing.challenge = None;
+        let cases = [
+            (proof_request(), other),
+            (proof_request(), missing),
+            (proof_request_without_a_challenge(), images()),
+        ];
+        for (proof_request, images) in cases {
+            assert!(matches!(
+                flamingo_request_with_salt(
+                    &proof_request,
+                    &release(vec![pipeline(1, &["live_frame"])]),
+                    1,
+                    images,
+                    FieldElement::ZERO,
+                    FieldElement::from(NONCE_SALT),
+                    NOW,
+                ),
+                Err(AuthenticatorError::PrimitiveError(PrimitiveError::InvalidInput { attribute, .. }))
+                    if attribute == "challenge"
+            ));
+        }
     }
 }

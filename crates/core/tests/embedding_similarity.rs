@@ -122,7 +122,9 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         StubAttestation,
         [engine_config_hash(&[0xE7; 32], 1, 2)].into(),
     );
-    fixture.verify(proof_request, &response, &policy).await?;
+    fixture
+        .verify(proof_request, &response, None, &policy)
+        .await?;
 
     // Each policy check rejects on its own, before the proof is verified.
     let mut other_engine = policy.clone();
@@ -134,7 +136,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         (&aat_required, "AatRequired"),
     ] {
         let err = fixture
-            .verify(proof_request, &response, policy)
+            .verify(proof_request, &response, None, policy)
             .await
             .expect_err(expected);
         assert!(format!("{err:?}").starts_with(expected), "{err:?}");
@@ -152,7 +154,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     );
     assert!(matches!(
         fixture
-            .verify(proof_request, &other_attestation, &policy)
+            .verify(proof_request, &other_attestation, None, &policy)
             .await,
         Err(VerifyError::AttestedKeyMismatch)
     ));
@@ -167,6 +169,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         verify_embedding_similarity(
             proof_request,
             &response,
+            None,
             &policy,
             unknown_root,
             trusted_issuer,
@@ -180,6 +183,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         verify_embedding_similarity(
             proof_request,
             &response,
+            None,
             &policy,
             unreachable_registry,
             trusted_issuer,
@@ -193,6 +197,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         verify_embedding_similarity(
             proof_request,
             &response,
+            None,
             &policy,
             valid_root,
             untrusted_issuer,
@@ -207,6 +212,7 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         verify_embedding_similarity(
             proof_request,
             &response,
+            None,
             &policy,
             valid_root,
             unreachable_issuer_registry,
@@ -216,10 +222,11 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         Err(VerifyError::IssuerCheck(_))
     ));
 
-    // An RP on an async runtime checks items 2-7, then verifies the proof on a blocking thread.
+    // An RP on an async runtime checks items 2-8, then verifies the proof on a blocking thread.
     let check = check_embedding_similarity(
         proof_request,
         &response,
+        None,
         &policy,
         valid_root,
         trusted_issuer,
@@ -234,11 +241,14 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     };
     let mut other_challenge = proof_request.clone();
     other_challenge.proof_type = ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
-        challenge_hash: image_hash(b"another frame"),
+        challenge_hash: Some(image_hash(b"another frame")),
+        return_live_capture: false,
         ..params.clone()
     });
     assert!(matches!(
-        fixture.verify(&other_challenge, &response, &policy).await,
+        fixture
+            .verify(&other_challenge, &response, None, &policy)
+            .await,
         Err(VerifyError::Proof(_))
     ));
 
@@ -260,8 +270,79 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
         "{err}"
     );
     let response = fixture.prove(&billed, Some(&witness)).await?;
-    fixture.verify(proof_request, &response, &policy).await?;
+    fixture
+        .verify(proof_request, &response, None, &policy)
+        .await?;
 
     info!("e2e_embedding_similarity_proof finished successfully");
+    Ok(())
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn e2e_embedding_similarity_proof_returns_the_live_capture() -> Result<()> {
+    init_test_tracing();
+    let mut fixture = EmbeddingSimilarityFixture::spawn(zk_artifact_source()).await?;
+    let ProofType::EmbeddingSimilarity(params) = &mut fixture.proof_request.proof_type else {
+        return Err(eyre!("not an embedding similarity request"));
+    };
+    params.challenge_hash = None;
+    params.return_live_capture = true;
+    let proof_request = fixture.proof_request.clone();
+
+    // Without a challenge, the token compares only the thumbnail and the live capture.
+    let flamingo = flamingo_result(
+        &proof_request,
+        &fixture.credential_image,
+        FieldElement::ZERO,
+        FieldElement::ZERO,
+    )?;
+    let response = fixture.prove(&flamingo, None).await?;
+    let disclosed = response
+        .embedding_similarity
+        .as_ref()
+        .ok_or_else(|| eyre!("no embedding similarity item"))?
+        .proof
+        .disclosed_live_capture_hash;
+    assert_eq!(disclosed, image_hash(b"live capture"));
+
+    let policy = fixture.policy(
+        StubAttestation,
+        [engine_config_hash(&[0xE7; 32], 1, 2)].into(),
+    );
+    fixture
+        .verify(&proof_request, &response, Some(b"live capture"), &policy)
+        .await?;
+    assert!(matches!(
+        fixture
+            .verify(&proof_request, &response, None, &policy)
+            .await,
+        Err(VerifyError::LiveCaptureMissing)
+    ));
+    assert!(matches!(
+        fixture
+            .verify(&proof_request, &response, Some(b"another capture"), &policy)
+            .await,
+        Err(VerifyError::LiveCaptureMismatch)
+    ));
+
+    // The disclosed hash is a public input: a proof claiming another one fails.
+    let mut other_hash = response.clone();
+    other_hash
+        .embedding_similarity
+        .as_mut()
+        .ok_or_else(|| eyre!("no embedding similarity item"))?
+        .proof
+        .disclosed_live_capture_hash = image_hash(b"another capture");
+    assert!(matches!(
+        fixture
+            .verify(
+                &proof_request,
+                &other_hash,
+                Some(b"another capture"),
+                &policy
+            )
+            .await,
+        Err(VerifyError::Proof(_))
+    ));
     Ok(())
 }

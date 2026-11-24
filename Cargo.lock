@@ -12776,6 +12776,7 @@ dependencies = [
  "base64 0.22.1",
  "pontifex",
  "serde_json",
+ "sha2 0.11.0",
  "taceo-eddsa-babyjubjub",
  "thiserror 2.0.18",
  "world-id-flamingo",
