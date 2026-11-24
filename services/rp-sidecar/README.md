@@ -25,7 +25,7 @@ The sidecar is stateless. It checks a proof against the request the RP issued, b
 }
 ```
 
-`request` and `response` are the protocol's JSON encodings of `ProofRequest` and `ProofResponse`, the same objects the RP sends to and receives from the Authenticator. `live_capture` is the hex-encoded image the Authenticator sent with the proof. Send it exactly when the request sets `return_live_capture`, and use the image only after a `200` ([WIP-202 §4.4](../../docs/WIPs/wip-202.md#44-proof-generation)).
+`request` and `response` are the protocol's JSON encodings of `ProofRequest` and `ProofResponse`, the same objects the RP sends to and receives from the Authenticator. `live_capture` is the hex-encoded image the Authenticator sent with the proof. Send it exactly when the request sets `return_live_capture`, and use the image only after a `200` ([WIP-202 §4.8 item 8](../../docs/WIPs/wip-202.md#48-reference-verification)).
 
 Every answer carries a `result`. Only `200` means the proof was accepted:
 

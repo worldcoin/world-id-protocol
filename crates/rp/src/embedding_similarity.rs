@@ -1,7 +1,7 @@
 //! RP verification of the WIP-202 Proof of Embedding Similarity (§4.8).
 //!
 //! [`verify_embedding_similarity`] checks a [`ProofResponse`] against the RP's own
-//! [`ProofRequest`] and [`EmbeddingSimilarityPolicy`]: §4.8 items 2–7 first, then the proof
+//! [`ProofRequest`] and [`EmbeddingSimilarityPolicy`]: §4.8 items 2–8 first, then the proof
 //! (item 1), as the spec requires. It verifies the proof inline, which is CPU-bound; an RP
 //! serving requests on an async runtime calls [`check_embedding_similarity`] instead and runs
 //! [`EmbeddingSimilarityProofCheck::verify_proof`] on a blocking thread.

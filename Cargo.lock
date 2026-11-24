@@ -12800,6 +12800,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
  "telemetry-batteries",
  "test-case",
  "thiserror 2.0.18",
