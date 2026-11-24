@@ -137,11 +137,12 @@ impl fmt::Debug for RegistrationDigest {
 /// Decode received params with [`RegistrationRequest::from_params`]. The `Deserialize` impl alone
 /// skips CBOR tags, which WIP-109 payloads must not contain.
 ///
+/// Unknown fields are ignored, so that later revisions of WIP-109 can add optional ones.
+///
 /// Decoding only checks encodings and bounds. The Approving Authenticator still has to compare
 /// [`RegistrationRequest::digest`] with the digest from the Pairing URI and verify the signature
 /// with [`RegistrationRequest::verify_signature`].
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct RegistrationRequest {
     /// The signing key the Requesting Authenticator asks to register.
     #[serde(with = "eddsa_pubkey")]
@@ -630,6 +631,15 @@ mod tests {
     }
 
     #[test]
+    fn from_params_ignores_unknown_fields() {
+        let params = params_with("class", Some("admin".into()));
+        assert_eq!(
+            RegistrationRequest::from_params(&params).unwrap(),
+            signed_request(ADMIN).0
+        );
+    }
+
+    #[test]
     fn from_params_rejects_tagged_params() {
         let tagged = Value::Tag(55799, Box::new(admin_params()));
         let rejection = RegistrationRequest::from_params(&tagged).unwrap_err();
@@ -670,7 +680,6 @@ mod tests {
                 Some(Value::Array(vec![Value::Tag(2, Box::new(Value::Bytes(vec![1])))])),
                 "must not contain CBOR tags"; "bignum schema id")]
     #[test_case("registration_sig", None, "missing field `registration_sig`"; "missing signature")]
-    #[test_case("class", Some("admin".into()), "unknown field `class`"; "unknown field")]
     fn from_params_rejects_a_malformed_field(field: &str, value: Option<Value>, error: &str) {
         let rejection = RegistrationRequest::from_params(&params_with(field, value))
             .unwrap_err()

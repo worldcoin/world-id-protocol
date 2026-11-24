@@ -20,7 +20,8 @@ pub const MAX_TRANSFER_SIZE: usize = 15_728_640;
 /// credentials it needs to generate proofs.
 ///
 /// Encoding and decoding reject a result that carries attachments without a vault, or a
-/// transfer of more than [`MAX_TRANSFER_SIZE`] bytes.
+/// transfer of more than [`MAX_TRANSFER_SIZE`] bytes. Unknown fields are ignored at every level,
+/// so that later revisions of WIP-109 can add optional ones.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "ResultFields<'static>")]
 pub struct RegistrationResult {
@@ -91,7 +92,6 @@ impl TryFrom<ResultFields<'static>> for RegistrationResult {
 /// The wire form of a [`RegistrationResult`] (WIP-109 §3.6.2), before the checks that span
 /// several fields.
 #[derive(Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 struct ResultFields<'a> {
     #[serde(with = "leaf_index")]
     leaf_index: u64,
@@ -111,7 +111,6 @@ struct ResultFields<'a> {
 
 /// The name of one of the account's other authenticators.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct KnownAuthenticator {
     /// The slot of the authenticator, below [`MAX_AUTHENTICATOR_KEYS`].
     #[serde(with = "pubkey_id")]
@@ -125,7 +124,6 @@ pub struct KnownAuthenticator {
 ///
 /// The vault holds the credentials the user chose to transfer. Its bytes are zeroized on drop.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Vault {
     /// The format of `data`, a CBOR text string. This crate does not interpret it; the consumer
     /// of the vault decides which formats it accepts. Untrusted text with no length limit of its
@@ -151,7 +149,6 @@ impl fmt::Debug for Vault {
 /// The issuer's code defines `format` and `data`, and the receiver treats both as untrusted
 /// input to that code. The data may be biometric; its bytes are zeroized on drop.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Attachment {
     /// The issuer schema of the credential the attachment belongs to.
     #[serde(deserialize_with = "deserialize_unsigned")]
@@ -813,10 +810,35 @@ mod tests {
                     ("data".into(), Value::Bytes(vec![1])),
                 ])),
                 "missing field `format`"; "attachment without a format")]
-    #[test_case(result_with("unknown", true.into()), "unknown field `unknown`"; "unknown field")]
     fn result_rejects_other_cbor_types_and_tags(result: Value, error: &str) {
         let rejection = decode_result(result).unwrap_err().to_string();
         assert!(rejection.contains(error), "{rejection}");
+    }
+
+    #[test]
+    fn result_ignores_unknown_fields() {
+        let Value::Map(mut entries) =
+            result_with_attachment(attachment(1.into(), Value::Bytes(b"PCP".to_vec())))
+        else {
+            unreachable!("the result is a map")
+        };
+        let known = decode_result(Value::Map(entries.clone())).unwrap();
+        for (_, value) in &mut entries {
+            match value {
+                Value::Map(nested) => nested.push(("unknown".into(), true.into())),
+                Value::Array(items) => {
+                    for item in items {
+                        let Value::Map(nested) = item else {
+                            unreachable!("attachments are maps")
+                        };
+                        nested.push(("unknown".into(), true.into()));
+                    }
+                }
+                _ => {}
+            }
+        }
+        entries.push(("unknown".into(), true.into()));
+        assert_eq!(decode_result(Value::Map(entries)).unwrap(), known);
     }
 
     #[test_case(MAX_TRANSFER_SIZE, &[]; "vault alone")]
