@@ -500,7 +500,10 @@ mod tests {
             disclosed_unrequested.body["code"],
             "live_capture_disclosed_unrequested"
         );
-        assert_eq!(disclosed_unrequested.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            disclosed_unrequested.status,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
         // The live capture matched, so verification reached the (invalid) proof.
         assert_ne!(matched.body["code"], "live_capture_mismatch");
         assert_ne!(matched.body["code"], "live_capture_missing");

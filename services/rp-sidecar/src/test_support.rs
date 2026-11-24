@@ -48,9 +48,10 @@ pub async fn post_verification_with_live_capture(
 ) -> Answer {
     let mut body = json!({ "request": request, "response": response });
     if let Some(image) = live_capture {
-        body.as_object_mut()
-            .unwrap()
-            .insert("live_capture".into(), json!(format!("0x{}", hex::encode(image))));
+        body.as_object_mut().unwrap().insert(
+            "live_capture".into(),
+            json!(format!("0x{}", hex::encode(image))),
+        );
     }
     post_body(app, body.to_string()).await
 }
