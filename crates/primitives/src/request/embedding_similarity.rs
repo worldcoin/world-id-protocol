@@ -46,7 +46,7 @@ impl EmbeddingSimilarityParams {
                 ),
             });
         }
-        // TODO: Make `challenge_hash` optional and add `return_images` per https://github.com/worldcoin/world-id-protocol/pull/1264; the circuit already accepts `0`.
+        // TODO: Make `challenge_hash` optional and add `return_live_capture` per https://github.com/worldcoin/world-id-protocol/pull/1264; the circuit already accepts `0`.
         if self.challenge_hash == FieldElement::ZERO {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "challenge_hash".to_string(),

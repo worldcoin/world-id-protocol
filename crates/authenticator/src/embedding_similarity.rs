@@ -404,7 +404,7 @@ impl Authenticator {
             engine_config_hash: claims.engine_config_hash,
             aat,
             cred_pk: cred.issuer.clone(),
-            // TODO: Disclose the live capture when the request's `return_images` asks for it, per https://github.com/worldcoin/world-id-protocol/pull/1264.
+            // TODO: Disclose the live capture when the request sets `return_live_capture`, per https://github.com/worldcoin/world-id-protocol/pull/1264.
             disclose_live_capture: false,
             live_capture_hash: claims.compared_entry_hashes[1],
             billing_nullifier: claims.billing_nullifier,
