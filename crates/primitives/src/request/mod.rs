@@ -52,7 +52,8 @@ impl<'de> serde::Deserialize<'de> for RequestVersion {
 /// The high-level proof flow requested by an RP, with the parameters only that flow takes.
 ///
 /// Serialized flat into the request: `proof_type` as a snake_case name, plus `action` for
-/// uniqueness and embedding similarity proofs and, for the latter, `challenge_hash` and `aat`.
+/// uniqueness and embedding similarity proofs and, for the latter, `challenge_hash`,
+/// `return_live_capture` and `aat`.
 /// An absent `proof_type` means [`ProofType::Uniqueness`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(try_from = "RawProofType", into = "RawProofType")]
@@ -148,6 +149,8 @@ struct RawProofType {
     action: Option<FieldElement>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     challenge_hash: Option<FieldElement>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    return_live_capture: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     aat: Option<AatRequirements>,
 }
@@ -157,6 +160,7 @@ impl RawProofType {
     fn reject_embedding_similarity_params(&self) -> Result<(), PrimitiveError> {
         let present = [
             ("challenge_hash", self.challenge_hash.is_some()),
+            ("return_live_capture", self.return_live_capture),
             ("aat", self.aat.is_some()),
         ];
         match present.into_iter().find(|(_, present)| *present) {
@@ -197,9 +201,8 @@ impl TryFrom<RawProofType> for ProofType {
             (ProofTypeTag::EmbeddingSimilarity, action) => {
                 Ok(Self::EmbeddingSimilarity(EmbeddingSimilarityParams {
                     action: action.ok_or_else(|| missing_embedding_similarity_param("action"))?,
-                    challenge_hash: raw
-                        .challenge_hash
-                        .ok_or_else(|| missing_embedding_similarity_param("challenge_hash"))?,
+                    challenge_hash: raw.challenge_hash,
+                    return_live_capture: raw.return_live_capture,
                     aat: raw.aat,
                 }))
             }
@@ -211,14 +214,19 @@ impl From<ProofType> for RawProofType {
     fn from(proof_type: ProofType) -> Self {
         let tag = proof_type.tag();
         let action = proof_type.action();
-        let (challenge_hash, aat) = match proof_type {
-            ProofType::EmbeddingSimilarity(params) => (Some(params.challenge_hash), params.aat),
-            ProofType::Uniqueness { .. } | ProofType::Session => (None, None),
+        let (challenge_hash, return_live_capture, aat) = match proof_type {
+            ProofType::EmbeddingSimilarity(params) => (
+                params.challenge_hash,
+                params.return_live_capture,
+                params.aat,
+            ),
+            ProofType::Uniqueness { .. } | ProofType::Session => (None, false, None),
         };
         Self {
             proof_type: tag,
             action,
             challenge_hash,
+            return_live_capture,
             aat,
         }
     }

@@ -1,7 +1,7 @@
 //! RP verification of the WIP-202 Proof of Embedding Similarity (§4.8).
 //!
 //! [`verify_embedding_similarity`] checks a [`ProofResponse`] against the RP's own
-//! [`ProofRequest`] and [`EmbeddingSimilarityPolicy`]: §4.8 items 2–7 first, then the proof
+//! [`ProofRequest`] and [`EmbeddingSimilarityPolicy`]: §4.8 items 2–8 first, then the proof
 //! (item 1), as the spec requires. It verifies the proof inline, which is CPU-bound; an RP
 //! serving requests on an async runtime calls [`check_embedding_similarity`] instead and runs
 //! [`EmbeddingSimilarityProofCheck::verify_proof`] on a blocking thread.
@@ -9,6 +9,9 @@
 //! The RP remains responsible for the request itself: it MUST be the RP's own, and its `nonce`
 //! one the RP issued and has not seen used before (WIP-201 §4.7 check 4). The challenge image
 //! behind `challenge_hash` MUST be one the RP checked against the party it interacts with.
+//!
+//! An RP that set `return_live_capture` passes the live capture it received next to the proof; the
+//! checks bind it to the proof (§4.8 item 8). It MUST NOT use the image before the proof verifies.
 
 use std::{
     collections::HashSet,
@@ -16,10 +19,11 @@ use std::{
 };
 
 use eddsa_babyjubjub::EdDSAPublicKey;
+use sha2::{Digest as _, Sha256};
 use world_id_flamingo::{MAX_ATTESTATION_AGE, ReleaseManifest, engine_config_hash};
 use world_id_primitives::{
-    EmbeddingSimilarityProof, FieldElement, ProofRequest, ProofResponse, ValidationError,
-    authenticator_assertion::AatPublicValues,
+    EmbeddingSimilarityProof, FieldElement, ProofRequest, ProofResponse, ProofType,
+    ValidationError, authenticator_assertion::AatPublicValues,
 };
 use world_id_proof::{
     ProofError, artifacts::ZkArtifactSource, circuit_inputs::EmbeddingSimilarityRequestInputs,
@@ -200,6 +204,20 @@ pub enum EmbeddingSimilarityVerificationError {
     /// An AAT value is outside the RP's policy.
     #[error("the AAT's {0} is not accepted")]
     AatNotAccepted(&'static str),
+    /// The request set `return_live_capture`, but no live capture was received.
+    #[error("the request asks for the live capture, but none was received")]
+    LiveCaptureMissing,
+    /// A live capture was received for a request that did not ask for one.
+    #[error("a live capture was received, but the request does not ask for one")]
+    LiveCaptureNotRequested,
+    /// The received live capture is not the one the proof discloses.
+    #[error("the live capture does not hash to disclosed_live_capture_hash")]
+    LiveCaptureMismatch,
+    /// The proof discloses a live capture hash the request did not ask for.
+    #[error(
+        "disclosed_live_capture_hash is not 0, but the request does not ask for the live capture"
+    )]
+    LiveCaptureDisclosedUnrequested,
     /// The proof does not verify.
     #[error(transparent)]
     Proof(#[from] ProofError),
@@ -213,6 +231,7 @@ pub enum EmbeddingSimilarityVerificationError {
 pub async fn verify_embedding_similarity<A, F, Fut, E, G, GFut, GE>(
     request: &ProofRequest,
     response: &ProofResponse,
+    live_capture: Option<&[u8]>,
     policy: &EmbeddingSimilarityPolicy<A>,
     is_valid_root: F,
     is_trusted_issuer: G,
@@ -227,15 +246,23 @@ where
     GFut: Future<Output = Result<bool, GE>> + Send,
     GE: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
-    check_embedding_similarity(request, response, policy, is_valid_root, is_trusted_issuer)
-        .await?
-        .verify_proof(artifacts)
+    check_embedding_similarity(
+        request,
+        response,
+        live_capture,
+        policy,
+        is_valid_root,
+        is_trusted_issuer,
+    )
+    .await?
+    .verify_proof(artifacts)
 }
 
-/// Checks WIP-202 §4.8 items 2–7 of a Proof of Embedding Similarity, and returns the check of
+/// Checks WIP-202 §4.8 items 2–8 of a Proof of Embedding Similarity, and returns the check of
 /// item 1, the proof itself, which the RP MUST still run.
 ///
-/// Time checks use the system clock.
+/// Time checks use the system clock. `live_capture` is the image the RP received next to the
+/// proof, required exactly when the request sets `return_live_capture`.
 ///
 /// `is_valid_root` checks Root Freshness (WIP-202 §4.7) at verification time, e.g. through
 /// `WorldIDRegistry.isValidRoot` or a cache bounded by the root's expiration. An error rejects the
@@ -250,6 +277,7 @@ where
 pub async fn check_embedding_similarity<A, F, Fut, E, G, GFut, GE>(
     request: &ProofRequest,
     response: &ProofResponse,
+    live_capture: Option<&[u8]>,
     policy: &EmbeddingSimilarityPolicy<A>,
     is_valid_root: F,
     is_trusted_issuer: G,
@@ -265,9 +293,9 @@ where
 {
     use EmbeddingSimilarityVerificationError as Error;
 
-    if !request.proof_type.is_embedding_similarity() {
+    let ProofType::EmbeddingSimilarity(params) = &request.proof_type else {
         return Err(Error::NotEmbeddingSimilarity);
-    }
+    };
     request.validate_response(response)?;
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     check_unexpired(request.expires_at, now)?;
@@ -311,6 +339,13 @@ where
 
     // 7. The AAT values are within the RP's policy.
     check_aat(proof.aat.as_ref(), &policy.aat)?;
+
+    // 8. A requested live capture is the one the proof discloses.
+    check_live_capture(
+        params.return_live_capture,
+        live_capture,
+        proof.disclosed_live_capture_hash,
+    )?;
 
     // 5 and 6. The request matches: every public input the RP chooses comes from its own request.
     let public =
@@ -387,6 +422,30 @@ fn check_aat(
     Ok(())
 }
 
+fn check_live_capture(
+    requested: bool,
+    live_capture: Option<&[u8]>,
+    disclosed_live_capture_hash: FieldElement,
+) -> Result<(), EmbeddingSimilarityVerificationError> {
+    use EmbeddingSimilarityVerificationError as Error;
+    match (requested, live_capture) {
+        (false, None) if disclosed_live_capture_hash == FieldElement::ZERO => Ok(()),
+        (false, None) => Err(Error::LiveCaptureDisclosedUnrequested),
+        (false, Some(_)) => Err(Error::LiveCaptureNotRequested),
+        (true, None) => Err(Error::LiveCaptureMissing),
+        // No image hashes to `0`, so this also rejects a proof that withholds the hash.
+        (true, Some(image)) => {
+            if FieldElement::from_digest(&Sha256::digest(image).into())
+                == disclosed_live_capture_hash
+            {
+                Ok(())
+            } else {
+                Err(Error::LiveCaptureMismatch)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
@@ -396,6 +455,33 @@ mod tests {
     };
 
     use super::*;
+
+    #[test]
+    fn a_live_capture_is_checked_exactly_when_requested() {
+        use EmbeddingSimilarityVerificationError as Error;
+        let image = b"live image".as_slice();
+        let hash = FieldElement::from_digest(&Sha256::digest(image).into());
+        assert!(check_live_capture(false, None, FieldElement::ZERO).is_ok());
+        assert!(check_live_capture(true, Some(image), hash).is_ok());
+        assert!(matches!(
+            check_live_capture(false, None, hash),
+            Err(Error::LiveCaptureDisclosedUnrequested)
+        ));
+        assert!(matches!(
+            check_live_capture(false, Some(image), hash),
+            Err(Error::LiveCaptureNotRequested)
+        ));
+        assert!(matches!(
+            check_live_capture(true, None, hash),
+            Err(Error::LiveCaptureMissing)
+        ));
+        for disclosed in [FieldElement::ZERO, FieldElement::from(1_u64)] {
+            assert!(matches!(
+                check_live_capture(true, Some(image), disclosed),
+                Err(Error::LiveCaptureMismatch)
+            ));
+        }
+    }
 
     /// A manifest of `version` defining pipelines 1 and 2 at strictness levels 1 and 2. The
     /// signature is not checked by [`ReleaseManifest::from_jws`].

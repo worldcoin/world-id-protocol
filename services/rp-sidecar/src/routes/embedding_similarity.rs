@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use alloy::primitives::Bytes;
 use axum::{
     Json,
     extract::{State, rejection::JsonRejection},
@@ -28,12 +29,15 @@ const ACCEPTED: &str = "accepted";
 /// The metric's `result` and `code` of a verification whose caller hung up.
 const ABANDONED: &str = "abandoned";
 
-/// A verification: the request the RP issued, from the RP's own store, and the response to it.
+/// A verification: the request the RP issued, from the RP's own store, the response to it, and
+/// the live capture received with it if the request set `return_live_capture`.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct VerifyRequest {
     request: ProofRequest,
     response: ProofResponse,
+    #[serde(default)]
+    live_capture: Option<Bytes>,
 }
 
 /// Verifies a Proof of Embedding Similarity under WIP-202 §4.8 and answers `200` only if it is
@@ -109,6 +113,7 @@ where
     let check = check_embedding_similarity(
         &body.request,
         &body.response,
+        body.live_capture.as_ref().map(AsRef::as_ref),
         &state.policy,
         |root| state.registries.is_valid_root(root),
         |key| state.registries.is_trusted_issuer(key),
@@ -195,6 +200,7 @@ mod tests {
 
     use alloy::primitives::{Signature, U160, U256};
     use axum::{Router, body::Body, http::StatusCode};
+    use sha2::{Digest as _, Sha256};
     use test_case::test_case;
     use tokio::sync::Semaphore;
     use world_id_primitives::{
@@ -211,7 +217,10 @@ mod tests {
         registries::{Registries, RegistryError},
         routes::router,
         server::AppState,
-        test_support::{Answer, KeyAsAttestation, post_body, post_verification},
+        test_support::{
+            Answer, KeyAsAttestation, post_body, post_verification,
+            post_verification_with_live_capture,
+        },
     };
 
     const ENGINE_CONFIG_HASH: u64 = 10;
@@ -299,7 +308,8 @@ mod tests {
             version: RequestVersion::V1,
             proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
                 action: FieldElement::random_with_prefix(&mut rng, OprfPrefix::EmbeddingSimilarity),
-                challenge_hash: FieldElement::from(0x00c0_ffee_u64),
+                challenge_hash: Some(FieldElement::from(0x00c0_ffee_u64)),
+                return_live_capture: false,
                 aat: None,
             }),
             session_id: SessionRef::None,
@@ -389,15 +399,47 @@ mod tests {
         let ProofType::EmbeddingSimilarity(params) = &mut fixture.request.proof_type else {
             unreachable!("the fixture requests a Proof of Embedding Similarity");
         };
-        params.challenge_hash = FieldElement::ZERO;
+        params.challenge_hash = Some(FieldElement::ZERO);
     }
 
     const fn keep(_: &mut Fixture) {}
+
+    const LIVE_CAPTURE: &[u8] = b"live capture";
+
+    fn ask_for_live_capture(fixture: &mut Fixture) {
+        let ProofType::EmbeddingSimilarity(params) = &mut fixture.request.proof_type else {
+            unreachable!("the fixture requests a Proof of Embedding Similarity");
+        };
+        params.return_live_capture = true;
+        fixture
+            .response
+            .embedding_similarity
+            .as_mut()
+            .unwrap()
+            .proof
+            .disclosed_live_capture_hash = image_hash(LIVE_CAPTURE);
+    }
+
+    fn disclose_unrequested_live_capture(fixture: &mut Fixture) {
+        fixture
+            .response
+            .embedding_similarity
+            .as_mut()
+            .unwrap()
+            .proof
+            .disclosed_live_capture_hash = image_hash(LIVE_CAPTURE);
+    }
+
+    fn image_hash(image: &[u8]) -> FieldElement {
+        FieldElement::from_digest(&Sha256::digest(image).into())
+    }
 
     #[test_case(expire, FixedRegistries::Trusting, StatusCode::UNPROCESSABLE_ENTITY, "request_expired" ; "an expired request is rejected")]
     #[test_case(keep, FixedRegistries::Distrusting, StatusCode::UNPROCESSABLE_ENTITY, "invalid_root" ; "an untrusted root is rejected")]
     #[test_case(ask_for_uniqueness, FixedRegistries::Trusting, StatusCode::BAD_REQUEST, "not_embedding_similarity" ; "a request for another proof type is invalid")]
     #[test_case(clear_challenge, FixedRegistries::Trusting, StatusCode::BAD_REQUEST, "invalid_request" ; "a malformed stored request is invalid, not a rejected proof")]
+    #[test_case(ask_for_live_capture, FixedRegistries::Trusting, StatusCode::BAD_REQUEST, "live_capture_missing" ; "a requested live capture that is absent is invalid")]
+    #[test_case(disclose_unrequested_live_capture, FixedRegistries::Trusting, StatusCode::UNPROCESSABLE_ENTITY, "live_capture_disclosed_unrequested" ; "an unrequested disclosed live capture is rejected")]
     #[test_case(keep, FixedRegistries::Failing, StatusCode::SERVICE_UNAVAILABLE, "root_check_failed" ; "a failing registry is retryable, not a rejection")]
     #[tokio::test]
     async fn verification_outcomes(
@@ -415,6 +457,56 @@ mod tests {
         assert_eq!(answer.body["code"], code);
         let retryable = status == StatusCode::SERVICE_UNAVAILABLE;
         assert_eq!(answer.retry_after.is_some(), retryable);
+    }
+
+    #[tokio::test]
+    async fn a_live_capture_is_checked_exactly_when_requested() {
+        let mut asked = fixture();
+        ask_for_live_capture(&mut asked);
+        let missing = post_fixture(app(FixedRegistries::Trusting), &asked).await;
+        let mismatch = post_verification_with_live_capture(
+            app(FixedRegistries::Trusting),
+            &asked.request,
+            &asked.response,
+            Some(b"another capture"),
+        )
+        .await;
+        let matched = post_verification_with_live_capture(
+            app(FixedRegistries::Trusting),
+            &asked.request,
+            &asked.response,
+            Some(LIVE_CAPTURE),
+        )
+        .await;
+
+        let mut unasked = fixture();
+        let not_requested = post_verification_with_live_capture(
+            app(FixedRegistries::Trusting),
+            &unasked.request,
+            &unasked.response,
+            Some(LIVE_CAPTURE),
+        )
+        .await;
+        disclose_unrequested_live_capture(&mut unasked);
+        let disclosed_unrequested = post_fixture(app(FixedRegistries::Trusting), &unasked).await;
+
+        assert_eq!(missing.body["code"], "live_capture_missing");
+        assert_eq!(missing.status, StatusCode::BAD_REQUEST);
+        assert_eq!(mismatch.body["code"], "live_capture_mismatch");
+        assert_eq!(mismatch.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(not_requested.body["code"], "live_capture_not_requested");
+        assert_eq!(not_requested.status, StatusCode::BAD_REQUEST);
+        assert_eq!(
+            disclosed_unrequested.body["code"],
+            "live_capture_disclosed_unrequested"
+        );
+        assert_eq!(
+            disclosed_unrequested.status,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+        // The live capture matched, so verification reached the (invalid) proof.
+        assert_ne!(matched.body["code"], "live_capture_mismatch");
+        assert_ne!(matched.body["code"], "live_capture_missing");
     }
 
     #[tokio::test]

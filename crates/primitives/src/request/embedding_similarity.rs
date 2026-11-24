@@ -23,9 +23,12 @@ pub struct EmbeddingSimilarityParams {
     /// The proof does not use it. The RP's signature over it authorizes the registration of the
     /// user's World ID under WIP-107 (§4.5).
     pub action: FieldElement,
-    /// `R(SHA-256(challenge))` of the challenge image, which the RP computes itself. It is never
-    /// zero, since zero marks an unused position of the Flamingo Token.
-    pub challenge_hash: FieldElement,
+    /// `R(SHA-256(challenge))` of the RP's challenge image, which the RP computes itself, or
+    /// `None` for a proof without a challenge (WIP-202 §4.3).
+    pub challenge_hash: Option<FieldElement>,
+    /// Whether the Authenticator sends the RP the live capture with the proof and discloses its
+    /// hash (WIP-202 §4.3).
+    pub return_live_capture: bool,
     /// The AAT requirements, if the RP states any.
     pub aat: Option<AatRequirements>,
 }
@@ -35,7 +38,8 @@ impl EmbeddingSimilarityParams {
     ///
     /// # Errors
     /// Returns [`PrimitiveError::InvalidInput`] if the `action` does not carry
-    /// [`OprfPrefix::EmbeddingSimilarity`] or the `challenge_hash` is zero.
+    /// [`OprfPrefix::EmbeddingSimilarity`] or a `challenge_hash` is zero, which marks an unused
+    /// position of the Flamingo Token.
     pub fn validate(&self) -> Result<(), PrimitiveError> {
         if !self.action.has_prefix(OprfPrefix::EmbeddingSimilarity) {
             return Err(PrimitiveError::InvalidInput {
@@ -46,11 +50,10 @@ impl EmbeddingSimilarityParams {
                 ),
             });
         }
-        // TODO: Make `challenge_hash` optional and add `return_live_capture` per https://github.com/worldcoin/world-id-protocol/pull/1264; the circuit already accepts `0`.
-        if self.challenge_hash == FieldElement::ZERO {
+        if self.challenge_hash == Some(FieldElement::ZERO) {
             return Err(PrimitiveError::InvalidInput {
                 attribute: "challenge_hash".to_string(),
-                reason: "must not be zero".to_string(),
+                reason: "must not be zero; omit it for no challenge".to_string(),
             });
         }
         Ok(())

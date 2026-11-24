@@ -273,7 +273,8 @@ async fn e2e_billing_registration() -> Result<()> {
         proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
             action,
             // Non-zero placeholder; this test does not generate a PoES proof.
-            challenge_hash: FieldElement::from(1u64),
+            challenge_hash: Some(FieldElement::from(1u64)),
+            return_live_capture: false,
             aat: None,
         }),
         created_at,
