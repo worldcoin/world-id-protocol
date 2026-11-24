@@ -292,7 +292,7 @@ pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
     pub aat: Option<AatPublicValues>,
     /// **Public input** the proof carries. The PoH Credential's issuer key.
     pub cred_pk: EdDSAPublicKey,
-    /// Whether the proof discloses [`Self::live_capture_hash`] (WIP-202 §4.9); the public input
+    /// Whether the proof discloses [`Self::live_capture_hash`] (WIP-202 §4.4); the public input
     /// the proof carries is the hash if so, and `0` otherwise.
     pub disclose_live_capture: bool,
     /// Private input. The Flamingo Token's `compared_entry_hash_1`: `R(SHA-256)` of the live capture.
