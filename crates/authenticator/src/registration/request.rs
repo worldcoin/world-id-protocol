@@ -1,6 +1,6 @@
 //! The `worldid_auth_v1_register` request (WIP-109 §3.3.1, §3.3.2 and §3.6.1).
 
-use std::fmt;
+use std::{collections::HashSet, fmt};
 
 use alloy::primitives::Address;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
@@ -74,7 +74,7 @@ const DIGEST_LABEL: &[u8] = b"WORLD-ID/WIP-109/REGISTER";
 ///
 /// It lets the Approving Authenticator detect a request that was substituted on the way. It
 /// covers the [`RequestId`], the new authenticator's signing key and address, and the response
-/// key, but not the name.
+/// key, but neither the name nor the supported issuer schema IDs.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RegistrationDigest([u8; 32]);
 
@@ -164,6 +164,15 @@ pub struct RegistrationRequest {
         deserialize_with = "deserialize_present"
     )]
     pub name: Option<AuthenticatorName>,
+    /// The issuer schema IDs whose credentials the Requesting Authenticator can use, without
+    /// duplicates. `None` leaves the choice of credentials to the Approving Authenticator.
+    /// Self-reported and unauthenticated, so it is not an authorization boundary.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "issuer_schema_ids"
+    )]
+    pub supported_issuer_schema_ids: Option<Vec<u64>>,
     /// The signature over the [`RegistrationDigest`] by `new_authenticator_pubkey`.
     #[serde(with = "eddsa_signature")]
     pub registration_sig: EdDSASignature,
@@ -175,15 +184,23 @@ impl RegistrationRequest {
     ///
     /// # Errors
     ///
-    /// - [`PrimitiveError::InvalidInput`] if `new_authenticator_address` is the zero address.
+    /// - [`PrimitiveError::InvalidInput`] if `new_authenticator_address` is the zero address or
+    ///   `supported_issuer_schema_ids` repeats an ID.
     /// - Another [`PrimitiveError`] if the public key fails to serialize.
     pub fn new_signed(
         signing_key: &EdDSAPrivateKey,
         new_authenticator_address: Option<Address>,
         response_pubkey: ResponsePublicKey,
         name: Option<AuthenticatorName>,
+        supported_issuer_schema_ids: Option<Vec<u64>>,
         request_id: &RequestId,
     ) -> Result<(Self, RegistrationDigest), PrimitiveError> {
+        if let Some(ids) = &supported_issuer_schema_ids {
+            without_duplicates(ids).map_err(|reason| PrimitiveError::InvalidInput {
+                attribute: "supported_issuer_schema_ids".to_string(),
+                reason: reason.to_string(),
+            })?;
+        }
         let new_authenticator_address = new_authenticator_address
             .map(non_zero_address)
             .transpose()
@@ -204,6 +221,7 @@ impl RegistrationRequest {
             new_authenticator_address,
             response_pubkey,
             name,
+            supported_issuer_schema_ids,
             registration_sig,
         };
         Ok((request, digest))
@@ -262,6 +280,16 @@ fn non_zero_address(address: Address) -> Result<Address, &'static str> {
         return Err("must not be the zero address");
     }
     Ok(address)
+}
+
+/// Checks that `ids` names every issuer schema at most once (WIP-109 §3.6.1).
+fn without_duplicates(ids: &[u64]) -> Result<(), &'static str> {
+    let mut seen = HashSet::with_capacity(ids.len());
+    if ids.iter().all(|id| seen.insert(id)) {
+        Ok(())
+    } else {
+        Err("must not contain duplicates")
+    }
 }
 
 /// The compressed public key (WIP-100 §4) as a 32-byte CBOR byte string.
@@ -339,6 +367,44 @@ mod authenticator_address {
     }
 }
 
+/// A present `supported_issuer_schema_ids` as a CBOR array of distinct unsigned integers.
+mod issuer_schema_ids {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _, ser::Error as _};
+    use world_id_primitives::serde_utils::cbor::deserialize_unsigned;
+
+    use super::without_duplicates;
+
+    #[derive(Deserialize)]
+    #[serde(transparent)]
+    struct IssuerSchemaId(#[serde(deserialize_with = "deserialize_unsigned")] u64);
+
+    pub(super) fn serialize<S: Serializer>(
+        ids: &Option<Vec<u64>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let Some(ids) = ids else {
+            return serializer.serialize_none();
+        };
+        without_duplicates(ids).map_err(|reason| {
+            S::Error::custom(format_args!("supported_issuer_schema_ids {reason}"))
+        })?;
+        serializer.collect_seq(ids)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Vec<u64>>, D::Error> {
+        let ids: Vec<u64> = Vec::<IssuerSchemaId>::deserialize(deserializer)?
+            .into_iter()
+            .map(|IssuerSchemaId(id)| id)
+            .collect();
+        without_duplicates(&ids).map_err(|reason| {
+            D::Error::custom(format_args!("supported_issuer_schema_ids {reason}"))
+        })?;
+        Ok(Some(ids))
+    }
+}
+
 /// The X-Wing encapsulation key as a 1216-byte CBOR byte string.
 mod xwing_pubkey {
     use serde::{Deserializer, Serializer, de::Error as _};
@@ -386,6 +452,7 @@ mod tests {
             new_authenticator_address,
             response_pubkey,
             Some(name),
+            Some(vec![1, 9303]),
             &request_id,
         )
         .unwrap();
@@ -439,9 +506,10 @@ mod tests {
         other_response_key.response_pubkey = ResponseSecretKey::from_seed(&[5; 32]).public_key();
         assert_ne!(other_response_key.digest(&request_id).unwrap(), digest);
 
-        let mut renamed = request;
-        renamed.name = None;
-        assert_eq!(renamed.digest(&request_id).unwrap(), digest);
+        let mut unauthenticated = request;
+        unauthenticated.name = None;
+        unauthenticated.supported_issuer_schema_ids = None;
+        assert_eq!(unauthenticated.digest(&request_id).unwrap(), digest);
     }
 
     #[test]
@@ -453,6 +521,7 @@ mod tests {
             &signing_key(1),
             zero,
             response_pubkey,
+            None,
             None,
             &request_id,
         );
@@ -478,6 +547,42 @@ mod tests {
     }
 
     #[test]
+    fn repeated_supported_issuer_schema_ids_are_neither_signed_nor_encoded() {
+        let request_id = PairingSecret::from_bytes([9; 32]).request_id();
+        let response_pubkey = ResponseSecretKey::from_seed(&[4; 32]).public_key();
+        let signing = RegistrationRequest::new_signed(
+            &signing_key(1),
+            ADMIN,
+            response_pubkey,
+            None,
+            Some(vec![1, 9303, 1]),
+            &request_id,
+        );
+        assert_eq!(
+            signing.unwrap_err().to_string(),
+            "Invalid input at supported_issuer_schema_ids: must not contain duplicates"
+        );
+
+        let (mut request, _, _) = signed_request(ADMIN);
+        request.supported_issuer_schema_ids = Some(vec![1, 1]);
+        let encoding = Value::serialized(&request).unwrap_err().to_string();
+        assert!(
+            encoding.contains("supported_issuer_schema_ids must not contain duplicates"),
+            "{encoding}"
+        );
+    }
+
+    #[test_case(None; "absent")]
+    #[test_case(Some(Vec::new()); "empty")]
+    #[test_case(Some(vec![u64::MAX, 0]); "full range")]
+    fn supported_issuer_schema_ids_round_trip(ids: Option<Vec<u64>>) {
+        let (mut request, _, _) = signed_request(ADMIN);
+        request.supported_issuer_schema_ids = ids;
+        let params = Value::serialized(&request).unwrap();
+        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+    }
+
+    #[test]
     fn params_use_the_wip_109_field_names_and_byte_strings() {
         let (request, _, _) = signed_request(ADMIN);
         let pubkey = request
@@ -499,6 +604,10 @@ mod tests {
                 Value::Bytes(request.response_pubkey.to_bytes()),
             ),
             ("name".into(), "Chrome on MacBook".into()),
+            (
+                "supported_issuer_schema_ids".into(),
+                Value::Array(vec![1.into(), 9303.into()]),
+            ),
             ("registration_sig".into(), Value::Bytes(signature.to_vec())),
         ]);
         assert_eq!(Value::serialized(&request).unwrap(), params);
@@ -547,6 +656,19 @@ mod tests {
                 "invalid X-Wing encapsulation key"; "long response key")]
     #[test_case("registration_sig", Some(Value::Bytes(vec![1; 63])),
                 "of 64 bytes, got 63"; "short signature")]
+    #[test_case("supported_issuer_schema_ids", Some(Value::Null),
+                "invalid type: null"; "null schema ids")]
+    #[test_case("supported_issuer_schema_ids", Some(1.into()),
+                "invalid type: integer"; "schema ids as an integer")]
+    #[test_case("supported_issuer_schema_ids", Some(Value::Array(vec![1.into(), 1.into()])),
+                "must not contain duplicates"; "repeated schema id")]
+    #[test_case("supported_issuer_schema_ids", Some(Value::Array(vec![(-1).into()])),
+                "expected a CBOR unsigned integer"; "negative schema id")]
+    #[test_case("supported_issuer_schema_ids", Some(Value::Array(vec!["1".into()])),
+                "expected a CBOR unsigned integer"; "text schema id")]
+    #[test_case("supported_issuer_schema_ids",
+                Some(Value::Array(vec![Value::Tag(2, Box::new(Value::Bytes(vec![1])))])),
+                "must not contain CBOR tags"; "bignum schema id")]
     #[test_case("registration_sig", None, "missing field `registration_sig`"; "missing signature")]
     #[test_case("class", Some("admin".into()), "unknown field `class`"; "unknown field")]
     fn from_params_rejects_a_malformed_field(field: &str, value: Option<Value>, error: &str) {
