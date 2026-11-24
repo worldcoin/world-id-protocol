@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-oprf-node-v1.2.5...world-id-oprf-node-v1.3.0) (2026-11-24)
+
+### Features
+
+- Accept WIP-107 billing queries ([#1181](https://github.com/worldcoin/world-id-protocol/issues/1181))
+- Add the WIP-202 Embedding Similarity request and response types ([#1180](https://github.com/worldcoin/world-id-protocol/issues/1180))
+
+### Bug Fixes
+
+- Do not enable ark-groth16's default `parallel` feature ([#1192](https://github.com/worldcoin/world-id-protocol/issues/1192))
+
+### Refactoring
+
+- One error module, input checks in their proof modules, shared backend helpers ([#1204](https://github.com/worldcoin/world-id-protocol/issues/1204))
+
+### Testing
+
+- Pin cross-module nonce scoping for create-and-bind and billing ([#917](https://github.com/worldcoin/world-id-protocol/issues/917))
+
 ## [1.2.5](https://github.com/worldcoin/world-id-protocol/compare/world-id-oprf-node-v1.2.4...world-id-oprf-node-v1.2.5) (2026-11-02)
 
 ### Build
