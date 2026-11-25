@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, se
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
     authenticator_message::{ErrorObject, MessageError, Response, Value},
-    serde_utils::{cbor::deserialize_unsigned, deserialize_present},
+    serde_utils::deserialize_present,
 };
 use zeroize::Zeroizing;
 
@@ -19,8 +19,7 @@ pub const MAX_TRANSFER_SIZE: usize = 15_728_640;
 /// The result of a successful registration: where the new authenticator was inserted, and the
 /// credentials it needs to generate proofs.
 ///
-/// Encoding and decoding reject a result that carries attachments without a vault, or a
-/// transfer of more than [`MAX_TRANSFER_SIZE`] bytes.
+/// Encoding and decoding reject a transfer of more than [`MAX_TRANSFER_SIZE`] bytes.
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
 #[serde(try_from = "ResultFields<'static>")]
 pub struct RegistrationResult {
@@ -32,16 +31,13 @@ pub struct RegistrationResult {
     pub authenticators: Vec<KnownAuthenticator>,
     /// The vault with the credentials the user chose to transfer, or `None` if they chose none.
     pub vault: Option<Vault>,
-    /// Issuer-specific data for the credentials in `vault`. This crate does not check that an
-    /// attachment's issuer schema has a credential in the vault; the consumer of the vault does.
+    /// Data transferred next to the vault. This crate does not check an attachment's kind
+    /// against the request's `supported_attachment_kinds`; the authenticators do.
     pub attachments: Vec<Attachment>,
 }
 
 impl RegistrationResult {
     fn check_transfer(&self) -> Result<(), &'static str> {
-        if self.vault.is_none() && !self.attachments.is_empty() {
-            return Err("attachments require a vault");
-        }
         let vault = self.vault.iter().map(|vault| vault.data.len());
         let attachments = self
             .attachments
@@ -145,20 +141,16 @@ impl fmt::Debug for Vault {
     }
 }
 
-/// Data that an issuer's code attaches to a transferred credential, e.g. a Personal Custody
-/// Package.
+/// Data transferred to the new authenticator outside the vault, e.g. a Personal Custody Package.
 ///
-/// The issuer's code defines `format` and `data`, and the receiver treats both as untrusted
-/// input to that code. The data may be biometric; its bytes are zeroized on drop.
+/// WIP-109 does not define attachment kinds. The receiver treats `data` as untrusted input to
+/// the code that handles its kind. The data may be biometric; its bytes are zeroized on drop.
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Attachment {
-    /// The issuer schema of the credential the attachment belongs to.
-    #[serde(deserialize_with = "deserialize_unsigned")]
-    pub issuer_schema_id: u64,
-    /// The format of `data`, a CBOR text string defined by the issuer's code. Untrusted text
-    /// with no length limit of its own; the message size limit bounds it.
-    pub format: String,
+    /// The kind of attachment, a CBOR text string, which decides how `data` is handled.
+    /// Untrusted text with no length limit of its own; the message size limit bounds it.
+    pub kind: String,
     /// The attachment bytes, a CBOR byte string.
     #[serde(with = "secret_bytes")]
     pub data: Zeroizing<Vec<u8>>,
@@ -167,8 +159,7 @@ pub struct Attachment {
 impl fmt::Debug for Attachment {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Attachment")
-            .field("issuer_schema_id", &self.issuer_schema_id)
-            .field("format", &self.format)
+            .field("kind", &self.kind)
             .field("len", &self.data.len())
             .finish_non_exhaustive()
     }
@@ -481,16 +472,12 @@ mod tests {
         result_with_vault(format, Value::Bytes(b"SQLite".to_vec()))
     }
 
-    /// The attachment format used by these tests.
-    const ATTACHMENT_FORMAT: &str = "pcp_v1";
+    /// The attachment kind used by these tests.
+    const KIND: &str = "oxide_orb_pcp_v1";
 
-    /// A CBOR attachment with the format [`ATTACHMENT_FORMAT`].
-    fn attachment(issuer_schema_id: Value, data: Value) -> Value {
-        Value::Map(vec![
-            ("issuer_schema_id".into(), issuer_schema_id),
-            ("format".into(), ATTACHMENT_FORMAT.into()),
-            ("data".into(), data),
-        ])
+    /// A CBOR attachment.
+    fn attachment(kind: Value, data: Value) -> Value {
+        Value::Map(vec![("kind".into(), kind), ("data".into(), data)])
     }
 
     /// A CBOR `result` with a vault of `vault_size` bytes and one attachment per size in
@@ -502,7 +489,7 @@ mod tests {
         };
         let attachments: Vec<Value> = attachment_sizes
             .iter()
-            .map(|size| attachment(1.into(), Value::Bytes(vec![0; *size])))
+            .map(|size| attachment(KIND.into(), Value::Bytes(vec![0; *size])))
             .collect();
         if !attachments.is_empty() {
             entries.push(("attachments".into(), Value::Array(attachments)));
@@ -523,8 +510,7 @@ mod tests {
             attachments: attachment_sizes
                 .iter()
                 .map(|size| Attachment {
-                    issuer_schema_id: 1,
-                    format: ATTACHMENT_FORMAT.to_string(),
+                    kind: KIND.to_string(),
                     data: vec![0; *size].into(),
                 })
                 .collect(),
@@ -584,8 +570,7 @@ mod tests {
                 data: b"SQLite".to_vec().into(),
             }),
             attachments: vec![Attachment {
-                issuer_schema_id: 1,
-                format: ATTACHMENT_FORMAT.to_string(),
+                kind: KIND.to_string(),
                 data: b"PCP".to_vec().into(),
             }],
         };
@@ -608,7 +593,7 @@ mod tests {
             ),
             (
                 "attachments".into(),
-                Value::Array(vec![attachment(1.into(), Value::Bytes(b"PCP".to_vec()))]),
+                Value::Array(vec![attachment(KIND.into(), Value::Bytes(b"PCP".to_vec()))]),
             ),
         ]);
         assert_eq!(Value::serialized(&result).unwrap(), wire);
@@ -801,18 +786,23 @@ mod tests {
                 "must not contain CBOR tags"; "tagged vault format")]
     #[test_case(result_with("attachments", Value::Null),
                 "invalid type: null"; "null attachments")]
-    #[test_case(result_with_attachment(attachment((-1).into(), Value::Bytes(vec![1]))),
-                "expected a CBOR unsigned integer"; "negative attachment schema id")]
+    #[test_case(result_with_attachment(attachment(1.into(), Value::Bytes(vec![1]))),
+                "invalid type: integer"; "integer attachment kind")]
     #[test_case(result_with_attachment(attachment(
-                    Value::Tag(2, Box::new(Value::Bytes(vec![1]))), Value::Bytes(vec![1]))),
-                "expected a CBOR unsigned integer"; "bignum attachment schema id")]
-    #[test_case(result_with_attachment(attachment(1.into(), "UENQ".into())),
+                    Value::Tag(0, Box::new(KIND.into())), Value::Bytes(vec![1]))),
+                "must not contain CBOR tags"; "tagged attachment kind")]
+    #[test_case(result_with_attachment(attachment(KIND.into(), "UENQ".into())),
                 "expected a CBOR byte string"; "text attachment data")]
     #[test_case(result_with_attachment(Value::Map(vec![
+                    ("data".into(), Value::Bytes(vec![1])),
+                ])),
+                "missing field `kind`"; "attachment without a kind")]
+    #[test_case(result_with_attachment(Value::Map(vec![
+                    ("kind".into(), KIND.into()),
                     ("issuer_schema_id".into(), 1.into()),
                     ("data".into(), Value::Bytes(vec![1])),
                 ])),
-                "missing field `format`"; "attachment without a format")]
+                "unknown field `issuer_schema_id`"; "attachment with an unknown member")]
     #[test_case(result_with("unknown", true.into()), "unknown field `unknown`"; "unknown field")]
     fn result_rejects_other_cbor_types_and_tags(result: Value, error: &str) {
         let rejection = decode_result(result).unwrap_err().to_string();
@@ -848,18 +838,14 @@ mod tests {
     }
 
     #[test]
-    fn attachments_without_a_vault_are_neither_decoded_nor_encoded() {
-        let error = "attachments require a vault";
-        let wire = result_with(
-            "attachments",
-            Value::Array(vec![attachment(1.into(), Value::Bytes(b"PCP".to_vec()))]),
-        );
-        let decoding = decode_result(wire).unwrap_err().to_string();
-        assert!(decoding.contains(error), "{decoding}");
-
+    fn attachments_round_trip_without_a_vault() {
         let mut result = transfer_result(0, &[3]);
         result.vault = None;
-        let encoding = Value::serialized(&result).unwrap_err().to_string();
-        assert!(encoding.contains(error), "{encoding}");
+        let wire = result_with(
+            "attachments",
+            Value::Array(vec![attachment(KIND.into(), Value::Bytes(vec![0; 3]))]),
+        );
+        assert_eq!(Value::serialized(&result).unwrap(), wire);
+        assert_eq!(decode_result(wire).unwrap(), result);
     }
 }

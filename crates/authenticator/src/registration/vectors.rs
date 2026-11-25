@@ -94,6 +94,7 @@ fn registration_request_matches_vectors() {
             response_pubkey.clone(),
             None,
             None,
+            None,
             &request_id,
         )
         .unwrap();

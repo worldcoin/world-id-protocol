@@ -1,6 +1,6 @@
 //! The `worldid_auth_v1_register` request (WIP-109 §3.3.1, §3.3.2 and §3.6.1).
 
-use std::{collections::HashSet, fmt};
+use std::{collections::HashSet, fmt, hash::Hash};
 
 use alloy::primitives::Address;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
@@ -74,7 +74,7 @@ const DIGEST_LABEL: &[u8] = b"WORLD-ID/WIP-109/REGISTER";
 ///
 /// It lets the Approving Authenticator detect a request that was substituted on the way. It
 /// covers the [`RequestId`], the new authenticator's signing key and address, and the response
-/// key, but neither the name nor the supported issuer schema IDs.
+/// key, but not the name, the supported issuer schema IDs or the supported attachment kinds.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RegistrationDigest([u8; 32]);
 
@@ -173,6 +173,15 @@ pub struct RegistrationRequest {
         with = "issuer_schema_ids"
     )]
     pub supported_issuer_schema_ids: Option<Vec<u64>>,
+    /// The attachment kinds the Requesting Authenticator can handle, without duplicates. It
+    /// ignores attachments of any other kind, and `None` asks for no attachments. Self-reported
+    /// and unauthenticated, so it is not an authorization boundary.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "attachment_kinds"
+    )]
+    pub supported_attachment_kinds: Option<Vec<String>>,
     /// The signature over the [`RegistrationDigest`] by `new_authenticator_pubkey`.
     #[serde(with = "eddsa_signature")]
     pub registration_sig: EdDSASignature,
@@ -184,8 +193,9 @@ impl RegistrationRequest {
     ///
     /// # Errors
     ///
-    /// - [`PrimitiveError::InvalidInput`] if `new_authenticator_address` is the zero address or
-    ///   `supported_issuer_schema_ids` repeats an ID.
+    /// - [`PrimitiveError::InvalidInput`] if `new_authenticator_address` is the zero address,
+    ///   `supported_issuer_schema_ids` repeats an ID or `supported_attachment_kinds` repeats a
+    ///   kind.
     /// - Another [`PrimitiveError`] if the public key fails to serialize.
     pub fn new_signed(
         signing_key: &EdDSAPrivateKey,
@@ -193,13 +203,20 @@ impl RegistrationRequest {
         response_pubkey: ResponsePublicKey,
         name: Option<AuthenticatorName>,
         supported_issuer_schema_ids: Option<Vec<u64>>,
+        supported_attachment_kinds: Option<Vec<String>>,
         request_id: &RequestId,
     ) -> Result<(Self, RegistrationDigest), PrimitiveError> {
+        let invalid = |attribute: &str, reason: &str| PrimitiveError::InvalidInput {
+            attribute: attribute.to_string(),
+            reason: reason.to_string(),
+        };
         if let Some(ids) = &supported_issuer_schema_ids {
-            without_duplicates(ids).map_err(|reason| PrimitiveError::InvalidInput {
-                attribute: "supported_issuer_schema_ids".to_string(),
-                reason: reason.to_string(),
-            })?;
+            without_duplicates(ids)
+                .map_err(|reason| invalid("supported_issuer_schema_ids", reason))?;
+        }
+        if let Some(kinds) = &supported_attachment_kinds {
+            without_duplicates(kinds)
+                .map_err(|reason| invalid("supported_attachment_kinds", reason))?;
         }
         let new_authenticator_address = new_authenticator_address
             .map(non_zero_address)
@@ -222,6 +239,7 @@ impl RegistrationRequest {
             response_pubkey,
             name,
             supported_issuer_schema_ids,
+            supported_attachment_kinds,
             registration_sig,
         };
         Ok((request, digest))
@@ -282,10 +300,11 @@ fn non_zero_address(address: Address) -> Result<Address, &'static str> {
     Ok(address)
 }
 
-/// Checks that `ids` names every issuer schema at most once (WIP-109 §3.6.1).
-fn without_duplicates(ids: &[u64]) -> Result<(), &'static str> {
-    let mut seen = HashSet::with_capacity(ids.len());
-    if ids.iter().all(|id| seen.insert(id)) {
+/// Checks that `items` lists every issuer schema ID or attachment kind at most once (WIP-109
+/// §3.6.1).
+fn without_duplicates<T: Eq + Hash>(items: &[T]) -> Result<(), &'static str> {
+    let mut seen = HashSet::with_capacity(items.len());
+    if items.iter().all(|item| seen.insert(item)) {
         Ok(())
     } else {
         Err("must not contain duplicates")
@@ -405,6 +424,36 @@ mod issuer_schema_ids {
     }
 }
 
+/// A present `supported_attachment_kinds` as a CBOR array of distinct text strings.
+mod attachment_kinds {
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _, ser::Error as _};
+
+    use super::without_duplicates;
+
+    pub(super) fn serialize<S: Serializer>(
+        kinds: &Option<Vec<String>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        let Some(kinds) = kinds else {
+            return serializer.serialize_none();
+        };
+        without_duplicates(kinds).map_err(|reason| {
+            S::Error::custom(format_args!("supported_attachment_kinds {reason}"))
+        })?;
+        serializer.collect_seq(kinds)
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<Vec<String>>, D::Error> {
+        let kinds = Vec::<String>::deserialize(deserializer)?;
+        without_duplicates(&kinds).map_err(|reason| {
+            D::Error::custom(format_args!("supported_attachment_kinds {reason}"))
+        })?;
+        Ok(Some(kinds))
+    }
+}
+
 /// The X-Wing encapsulation key as a 1216-byte CBOR byte string.
 mod xwing_pubkey {
     use serde::{Deserializer, Serializer, de::Error as _};
@@ -436,6 +485,7 @@ mod tests {
 
     const ADMIN: Option<Address> = Some(Address::repeat_byte(0x11));
     const PROVING: Option<Address> = None;
+    const ORB_PCP: &str = "oxide_orb_pcp_v1";
 
     fn signing_key(seed: u8) -> EdDSAPrivateKey {
         EdDSAPrivateKey::from_bytes([seed; 32])
@@ -453,6 +503,7 @@ mod tests {
             response_pubkey,
             Some(name),
             Some(vec![1, 9303]),
+            Some(vec![ORB_PCP.to_string()]),
             &request_id,
         )
         .unwrap();
@@ -509,6 +560,7 @@ mod tests {
         let mut unauthenticated = request;
         unauthenticated.name = None;
         unauthenticated.supported_issuer_schema_ids = None;
+        unauthenticated.supported_attachment_kinds = None;
         assert_eq!(unauthenticated.digest(&request_id).unwrap(), digest);
     }
 
@@ -521,6 +573,7 @@ mod tests {
             &signing_key(1),
             zero,
             response_pubkey,
+            None,
             None,
             None,
             &request_id,
@@ -556,6 +609,7 @@ mod tests {
             response_pubkey,
             None,
             Some(vec![1, 9303, 1]),
+            None,
             &request_id,
         );
         assert_eq!(
@@ -570,6 +624,43 @@ mod tests {
             encoding.contains("supported_issuer_schema_ids must not contain duplicates"),
             "{encoding}"
         );
+    }
+
+    #[test]
+    fn repeated_supported_attachment_kinds_are_neither_signed_nor_encoded() {
+        let request_id = PairingSecret::from_bytes([9; 32]).request_id();
+        let response_pubkey = ResponseSecretKey::from_seed(&[4; 32]).public_key();
+        let signing = RegistrationRequest::new_signed(
+            &signing_key(1),
+            ADMIN,
+            response_pubkey,
+            None,
+            None,
+            Some(vec![ORB_PCP.to_string(), ORB_PCP.to_string()]),
+            &request_id,
+        );
+        assert_eq!(
+            signing.unwrap_err().to_string(),
+            "Invalid input at supported_attachment_kinds: must not contain duplicates"
+        );
+
+        let (mut request, _, _) = signed_request(ADMIN);
+        request.supported_attachment_kinds = Some(vec![ORB_PCP.to_string(); 2]);
+        let encoding = Value::serialized(&request).unwrap_err().to_string();
+        assert!(
+            encoding.contains("supported_attachment_kinds must not contain duplicates"),
+            "{encoding}"
+        );
+    }
+
+    #[test_case(None; "absent")]
+    #[test_case(Some(Vec::new()); "empty")]
+    #[test_case(Some(vec![ORB_PCP.to_string(), "telemetry_seed_v1".to_string()]); "two kinds")]
+    fn supported_attachment_kinds_round_trip(kinds: Option<Vec<String>>) {
+        let (mut request, _, _) = signed_request(ADMIN);
+        request.supported_attachment_kinds = kinds;
+        let params = Value::serialized(&request).unwrap();
+        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
     }
 
     #[test_case(None; "absent")]
@@ -607,6 +698,10 @@ mod tests {
             (
                 "supported_issuer_schema_ids".into(),
                 Value::Array(vec![1.into(), 9303.into()]),
+            ),
+            (
+                "supported_attachment_kinds".into(),
+                Value::Array(vec![ORB_PCP.into()]),
             ),
             ("registration_sig".into(), Value::Bytes(signature.to_vec())),
         ]);
@@ -669,6 +764,18 @@ mod tests {
     #[test_case("supported_issuer_schema_ids",
                 Some(Value::Array(vec![Value::Tag(2, Box::new(Value::Bytes(vec![1])))])),
                 "must not contain CBOR tags"; "bignum schema id")]
+    #[test_case("supported_attachment_kinds", Some(Value::Null),
+                "invalid type: null"; "null attachment kinds")]
+    #[test_case("supported_attachment_kinds", Some(ORB_PCP.into()),
+                "invalid type: string"; "attachment kinds as text")]
+    #[test_case("supported_attachment_kinds",
+                Some(Value::Array(vec![ORB_PCP.into(), ORB_PCP.into()])),
+                "must not contain duplicates"; "repeated attachment kind")]
+    #[test_case("supported_attachment_kinds", Some(Value::Array(vec![1.into()])),
+                "invalid type: integer"; "integer attachment kind")]
+    #[test_case("supported_attachment_kinds",
+                Some(Value::Array(vec![Value::Bytes(ORB_PCP.as_bytes().to_vec())])),
+                "invalid type: byte"; "attachment kind as bytes")]
     #[test_case("registration_sig", None, "missing field `registration_sig`"; "missing signature")]
     #[test_case("class", Some("admin".into()), "unknown field `class`"; "unknown field")]
     fn from_params_rejects_a_malformed_field(field: &str, value: Option<Value>, error: &str) {
