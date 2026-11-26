@@ -1,6 +1,6 @@
 //! The `worldid_auth_v1_register` request (WIP-109 §3.3.1, §3.3.2 and §3.6.1).
 
-use std::{collections::HashSet, fmt, hash::Hash};
+use std::{collections::BTreeSet, fmt};
 
 use alloy::primitives::Address;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
@@ -164,24 +164,24 @@ pub struct RegistrationRequest {
         deserialize_with = "deserialize_present"
     )]
     pub name: Option<AuthenticatorName>,
-    /// The issuer schema IDs whose credentials the Requesting Authenticator can use, without
-    /// duplicates. `None` leaves the choice of credentials to the Approving Authenticator.
+    /// The issuer schema IDs whose credentials the Requesting Authenticator can use. `None`
+    /// leaves the choice of credentials to the Approving Authenticator.
     /// Self-reported and unauthenticated, so it is not an authorization boundary.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         with = "issuer_schema_ids"
     )]
-    pub supported_issuer_schema_ids: Option<Vec<u64>>,
-    /// The attachment kinds the Requesting Authenticator can handle, without duplicates. It
-    /// ignores attachments of any other kind, and `None` asks for no attachments. Self-reported
+    pub supported_issuer_schema_ids: Option<BTreeSet<u64>>,
+    /// The attachment kinds the Requesting Authenticator can handle. It ignores attachments of
+    /// any other kind, and `None` asks for no attachments. Self-reported
     /// and unauthenticated, so it is not an authorization boundary.
     #[serde(
         default,
         skip_serializing_if = "Option::is_none",
         with = "attachment_kinds"
     )]
-    pub supported_attachment_kinds: Option<Vec<String>>,
+    pub supported_attachment_kinds: Option<BTreeSet<String>>,
     /// The signature over the [`RegistrationDigest`] by `new_authenticator_pubkey`.
     #[serde(with = "eddsa_signature")]
     pub registration_sig: EdDSASignature,
@@ -193,31 +193,17 @@ impl RegistrationRequest {
     ///
     /// # Errors
     ///
-    /// - [`PrimitiveError::InvalidInput`] if `new_authenticator_address` is the zero address,
-    ///   `supported_issuer_schema_ids` repeats an ID or `supported_attachment_kinds` repeats a
-    ///   kind.
+    /// - [`PrimitiveError::InvalidInput`] if `new_authenticator_address` is the zero address.
     /// - Another [`PrimitiveError`] if the public key fails to serialize.
     pub fn new_signed(
         signing_key: &EdDSAPrivateKey,
         new_authenticator_address: Option<Address>,
         response_pubkey: ResponsePublicKey,
         name: Option<AuthenticatorName>,
-        supported_issuer_schema_ids: Option<Vec<u64>>,
-        supported_attachment_kinds: Option<Vec<String>>,
+        supported_issuer_schema_ids: Option<BTreeSet<u64>>,
+        supported_attachment_kinds: Option<BTreeSet<String>>,
         request_id: &RequestId,
     ) -> Result<(Self, RegistrationDigest), PrimitiveError> {
-        let invalid = |attribute: &str, reason: &str| PrimitiveError::InvalidInput {
-            attribute: attribute.to_string(),
-            reason: reason.to_string(),
-        };
-        if let Some(ids) = &supported_issuer_schema_ids {
-            without_duplicates(ids)
-                .map_err(|reason| invalid("supported_issuer_schema_ids", reason))?;
-        }
-        if let Some(kinds) = &supported_attachment_kinds {
-            without_duplicates(kinds)
-                .map_err(|reason| invalid("supported_attachment_kinds", reason))?;
-        }
         let new_authenticator_address = new_authenticator_address
             .map(non_zero_address)
             .transpose()
@@ -306,12 +292,13 @@ fn non_zero_address(address: Address) -> Result<Address, &'static str> {
     Ok(address)
 }
 
-/// Checks that `items` lists every issuer schema ID or attachment kind at most once (WIP-109
-/// §3.6.1).
-fn without_duplicates<T: Eq + Hash>(items: &[T]) -> Result<(), &'static str> {
-    let mut seen = HashSet::with_capacity(items.len());
-    if items.iter().all(|item| seen.insert(item)) {
-        Ok(())
+/// Collects the items of a decoded array into a set, which WIP-109 §3.6.1 requires to hold no
+/// duplicates.
+fn distinct<T: Ord>(items: Vec<T>) -> Result<BTreeSet<T>, &'static str> {
+    let count = items.len();
+    let set: BTreeSet<T> = items.into_iter().collect();
+    if set.len() == count {
+        Ok(set)
     } else {
         Err("must not contain duplicates")
     }
@@ -394,69 +381,64 @@ mod authenticator_address {
 
 /// A present `supported_issuer_schema_ids` as a CBOR array of distinct unsigned integers.
 mod issuer_schema_ids {
-    use serde::{Deserialize, Deserializer, Serializer, de::Error as _, ser::Error as _};
+    use std::collections::BTreeSet;
+
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
     use world_id_primitives::serde_utils::cbor::deserialize_unsigned;
 
-    use super::without_duplicates;
+    use super::distinct;
 
     #[derive(Deserialize)]
     #[serde(transparent)]
     struct IssuerSchemaId(#[serde(deserialize_with = "deserialize_unsigned")] u64);
 
     pub(super) fn serialize<S: Serializer>(
-        ids: &Option<Vec<u64>>,
+        ids: &Option<BTreeSet<u64>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        let Some(ids) = ids else {
-            return serializer.serialize_none();
-        };
-        without_duplicates(ids).map_err(|reason| {
-            S::Error::custom(format_args!("supported_issuer_schema_ids {reason}"))
-        })?;
-        serializer.collect_seq(ids)
+        match ids {
+            Some(ids) => serializer.collect_seq(ids),
+            None => serializer.serialize_none(),
+        }
     }
 
     pub(super) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
-    ) -> Result<Option<Vec<u64>>, D::Error> {
-        let ids: Vec<u64> = Vec::<IssuerSchemaId>::deserialize(deserializer)?
+    ) -> Result<Option<BTreeSet<u64>>, D::Error> {
+        let ids = Vec::<IssuerSchemaId>::deserialize(deserializer)?
             .into_iter()
             .map(|IssuerSchemaId(id)| id)
             .collect();
-        without_duplicates(&ids).map_err(|reason| {
+        distinct(ids).map(Some).map_err(|reason| {
             D::Error::custom(format_args!("supported_issuer_schema_ids {reason}"))
-        })?;
-        Ok(Some(ids))
+        })
     }
 }
 
 /// A present `supported_attachment_kinds` as a CBOR array of distinct text strings.
 mod attachment_kinds {
-    use serde::{Deserialize, Deserializer, Serializer, de::Error as _, ser::Error as _};
+    use std::collections::BTreeSet;
 
-    use super::without_duplicates;
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+
+    use super::distinct;
 
     pub(super) fn serialize<S: Serializer>(
-        kinds: &Option<Vec<String>>,
+        kinds: &Option<BTreeSet<String>>,
         serializer: S,
     ) -> Result<S::Ok, S::Error> {
-        let Some(kinds) = kinds else {
-            return serializer.serialize_none();
-        };
-        without_duplicates(kinds).map_err(|reason| {
-            S::Error::custom(format_args!("supported_attachment_kinds {reason}"))
-        })?;
-        serializer.collect_seq(kinds)
+        match kinds {
+            Some(kinds) => serializer.collect_seq(kinds),
+            None => serializer.serialize_none(),
+        }
     }
 
     pub(super) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
-    ) -> Result<Option<Vec<String>>, D::Error> {
-        let kinds = Vec::<String>::deserialize(deserializer)?;
-        without_duplicates(&kinds).map_err(|reason| {
-            D::Error::custom(format_args!("supported_attachment_kinds {reason}"))
-        })?;
-        Ok(Some(kinds))
+    ) -> Result<Option<BTreeSet<String>>, D::Error> {
+        distinct(Vec::<String>::deserialize(deserializer)?)
+            .map(Some)
+            .map_err(|reason| D::Error::custom(format_args!("supported_attachment_kinds {reason}")))
     }
 }
 
@@ -508,8 +490,8 @@ mod tests {
             new_authenticator_address,
             response_pubkey,
             Some(name),
-            Some(vec![1, 9303]),
-            Some(vec![POH_AD.to_string()]),
+            Some(BTreeSet::from([1, 9303])),
+            Some(BTreeSet::from([POH_AD.to_string()])),
             &request_id,
         )
         .unwrap();
@@ -612,64 +594,11 @@ mod tests {
         );
     }
 
-    #[test]
-    fn repeated_supported_issuer_schema_ids_are_neither_signed_nor_encoded() {
-        let request_id = PairingSecret::from_bytes([9; 32]).request_id();
-        let response_pubkey = ResponseSecretKey::from_seed(&[4; 32]).public_key();
-        let signing = RegistrationRequest::new_signed(
-            &signing_key(1),
-            ADMIN,
-            response_pubkey,
-            None,
-            Some(vec![1, 9303, 1]),
-            None,
-            &request_id,
-        );
-        assert_eq!(
-            signing.unwrap_err().to_string(),
-            "Invalid input at supported_issuer_schema_ids: must not contain duplicates"
-        );
-
-        let (mut request, _, _) = signed_request(ADMIN);
-        request.supported_issuer_schema_ids = Some(vec![1, 1]);
-        let encoding = Value::serialized(&request).unwrap_err().to_string();
-        assert!(
-            encoding.contains("supported_issuer_schema_ids must not contain duplicates"),
-            "{encoding}"
-        );
-    }
-
-    #[test]
-    fn repeated_supported_attachment_kinds_are_neither_signed_nor_encoded() {
-        let request_id = PairingSecret::from_bytes([9; 32]).request_id();
-        let response_pubkey = ResponseSecretKey::from_seed(&[4; 32]).public_key();
-        let signing = RegistrationRequest::new_signed(
-            &signing_key(1),
-            ADMIN,
-            response_pubkey,
-            None,
-            None,
-            Some(vec![POH_AD.to_string(), POH_AD.to_string()]),
-            &request_id,
-        );
-        assert_eq!(
-            signing.unwrap_err().to_string(),
-            "Invalid input at supported_attachment_kinds: must not contain duplicates"
-        );
-
-        let (mut request, _, _) = signed_request(ADMIN);
-        request.supported_attachment_kinds = Some(vec![POH_AD.to_string(); 2]);
-        let encoding = Value::serialized(&request).unwrap_err().to_string();
-        assert!(
-            encoding.contains("supported_attachment_kinds must not contain duplicates"),
-            "{encoding}"
-        );
-    }
-
     #[test_case(None; "absent")]
-    #[test_case(Some(Vec::new()); "empty")]
-    #[test_case(Some(vec![POH_AD.to_string(), "telemetry_seed_v1".to_string()]); "two kinds")]
-    fn supported_attachment_kinds_round_trip(kinds: Option<Vec<String>>) {
+    #[test_case(Some(BTreeSet::new()); "empty")]
+    #[test_case(Some(BTreeSet::from([POH_AD.to_string(), "telemetry_seed_v1".to_string()]));
+                "two kinds")]
+    fn supported_attachment_kinds_round_trip(kinds: Option<BTreeSet<String>>) {
         let (mut request, _, _) = signed_request(ADMIN);
         request.supported_attachment_kinds = kinds;
         let params = Value::serialized(&request).unwrap();
@@ -677,9 +606,9 @@ mod tests {
     }
 
     #[test_case(None; "absent")]
-    #[test_case(Some(Vec::new()); "empty")]
-    #[test_case(Some(vec![u64::MAX, 0]); "full range")]
-    fn supported_issuer_schema_ids_round_trip(ids: Option<Vec<u64>>) {
+    #[test_case(Some(BTreeSet::new()); "empty")]
+    #[test_case(Some(BTreeSet::from([u64::MAX, 0])); "full range")]
+    fn supported_issuer_schema_ids_round_trip(ids: Option<BTreeSet<u64>>) {
         let (mut request, _, _) = signed_request(ADMIN);
         request.supported_issuer_schema_ids = ids;
         let params = Value::serialized(&request).unwrap();
