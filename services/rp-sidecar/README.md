@@ -98,12 +98,13 @@ The sidecar refuses to start with a policy that:
 - has unknown fields
 - has an all-zero PCR0
 - accepts no Flamingo Verifier or no Engine configuration
-- has an Engine configuration without `credential_kinds` or `live_kinds`
+- has an Engine configuration without `credential_kinds` or `live_kinds`, with `kind_id` `0`, or with a kind in both `credential_kinds` and `live_kinds`
+- lists an `engine_config_hash` twice
 - requires an AAT but accepts none
 
 Keep these points in mind:
 - **Engine hashes.** Each one is `engine_config_hash(release_hash, pipeline_id, match_strictness)` for a release manifest that was verified under an active key of the manifest's `iss`. The sidecar does not read manifests. Compute the hashes with `world_id_rp::embedding_similarity::accepted_engine_configs`, or take them from the publisher of the Engine release. Remove a release's hashes when its manifest or key is revoked.
-- **Kinds.** Each `kind_id` is the Engine Provider's: take the Orb thumbnail, live capture and challenge kinds from its documentation of the release. A `kind_id` keeps its meaning across that provider's releases, so the kinds usually stay when a release changes.
+- **Kinds.** Each `kind_id` is the Engine Provider's: take the Orb thumbnail, live capture and challenge kinds from its documentation of the release. A `kind_id` keeps its meaning across that provider's releases, so the kinds usually stay when a release changes. Accept only pipelines whose input `0` has one of `live_kinds`; `accepted_engine_configs` refuses any other. With empty `challenge_kinds`, every request with a challenge is rejected.
 - **AAT requirement.** `aat.required` decides whether an AAT is required, whatever the request's own `aat` says. An RP that asks for an AAT in its requests must also set it here.
 - **Releases.** Each Flamingo Verifier or Engine release changes these values. Add a new release's values before Flamingo starts serving it, and remove the old values afterwards.
 

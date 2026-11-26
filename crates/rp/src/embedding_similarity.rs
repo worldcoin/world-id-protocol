@@ -112,6 +112,9 @@ pub struct AatPolicy {
 
 /// The `kind_id`s an RP accepts for each compared entry of the WIP-202 layout (§4.8 item 2), as
 /// the Engine Provider of an accepted release documents them.
+///
+/// Check it with [`AcceptedKinds::validate`]; an empty `challenge` rejects every request with a
+/// challenge.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AcceptedKinds {
     /// Kinds of the Credential image, e.g. Orb thumbnails.
@@ -122,7 +125,42 @@ pub struct AcceptedKinds {
     pub challenge: HashSet<u8>,
 }
 
+/// Why an [`AcceptedKinds`] is not a usable policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum KindsError {
+    /// No Credential or no live capture kind is accepted, so every proof would be rejected.
+    #[error("no credential or no live capture kind is accepted")]
+    Empty,
+    /// `0` marks an absent compared entry and is no kind.
+    #[error("kind_id 0 marks an absent entry and is no kind")]
+    ZeroKind,
+    /// A kind is accepted both for the Credential image and for the live capture, so a replayed
+    /// Credential image could pass as a live capture under the Credential's processing.
+    #[error("kind_id {0} is accepted for both the credential image and the live capture")]
+    CredentialAsLive(u8),
+}
+
 impl AcceptedKinds {
+    /// Checks that the kinds accept some proof and keep Credential and live capture kinds apart.
+    ///
+    /// # Errors
+    /// Returns the first [`KindsError`] the kinds violate.
+    pub fn validate(&self) -> Result<(), KindsError> {
+        if self.credential.is_empty() || self.live.is_empty() {
+            return Err(KindsError::Empty);
+        }
+        if [&self.credential, &self.live, &self.challenge]
+            .iter()
+            .any(|kinds| kinds.contains(&0))
+        {
+            return Err(KindsError::ZeroKind);
+        }
+        match self.credential.intersection(&self.live).min() {
+            Some(&kind_id) => Err(KindsError::CredentialAsLive(kind_id)),
+            None => Ok(()),
+        }
+    }
+
     /// Whether `compare_kinds` fits the layout: byte `0` a credential kind, byte `1` a live kind,
     /// byte `2` a challenge kind, or `0` if and only if the request has no challenge, byte `3` `0`.
     #[must_use]
@@ -137,6 +175,22 @@ impl AcceptedKinds {
             && self.live.contains(&live)
             && challenge_ok
             && unused == 0
+    }
+
+    /// The kinds `manifest` defines.
+    fn defined_in(&self, manifest: &ReleaseManifest) -> Self {
+        let defined = |kinds: &HashSet<u8>| {
+            kinds
+                .iter()
+                .copied()
+                .filter(|&kind_id| manifest.kind(kind_id).is_some())
+                .collect()
+        };
+        Self {
+            credential: defined(&self.credential),
+            live: defined(&self.live),
+            challenge: defined(&self.challenge),
+        }
     }
 }
 
@@ -153,41 +207,84 @@ pub struct EmbeddingSimilarityPolicy<A> {
     pub aat: AatPolicy,
 }
 
+/// Why [`accepted_engine_configs`] refused a policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum EngineConfigError {
+    /// The kinds are not a usable policy.
+    #[error(transparent)]
+    Kinds(#[from] KindsError),
+    /// A pipeline's input `0`, the compared live capture, has a kind the RP does not accept as a
+    /// live capture (WIP-202 §4.8 item 2).
+    #[error(
+        "pipeline {pipeline_id} of release version {version} takes kind_id {kind_id} as input 0, \
+         not a live capture kind"
+    )]
+    NotALiveCapture {
+        /// The pipeline.
+        pipeline_id: u16,
+        /// The manifest's version.
+        version: u64,
+        /// The kind of the pipeline's input `0`.
+        kind_id: u8,
+    },
+    /// A release defines none of the accepted Credential kinds.
+    #[error("release version {version} defines none of the accepted credential kinds")]
+    NoCredentialKind {
+        /// The manifest's version.
+        version: u64,
+    },
+}
+
 /// The `engine_config_hash`es of `pipelines`, given as `(pipeline_id, match_strictness)`, in
-/// every manifest at or above `min_version` that defines them, each accepting `kinds`.
+/// every manifest at or above `min_version` that defines them, each accepting the `kinds` that
+/// manifest defines.
 ///
 /// Pass only manifests verified under an active key of their `iss`, e.g.
 /// [`EngineProviderMetadata::verified_manifests`](world_id_flamingo::EngineProviderMetadata::verified_manifests),
 /// and one `min_version` per `iss` (WIP-201 §4.7 check 6).
-#[must_use]
+///
+/// # Errors
+/// The kinds are not usable ([`AcceptedKinds::validate`]), a listed pipeline's input `0` is not
+/// one of `kinds.live`, or a release defines none of `kinds.credential`.
 pub fn accepted_engine_configs(
     manifests: &[ReleaseManifest],
     min_version: u64,
     pipelines: &[(u16, u8)],
     kinds: &AcceptedKinds,
-) -> HashMap<FieldElement, AcceptedKinds> {
-    manifests
-        .iter()
-        .filter(|manifest| manifest.payload().version >= min_version)
-        .flat_map(|manifest| {
-            pipelines
-                .iter()
-                .filter(|(pipeline_id, match_strictness)| {
-                    manifest.pipeline(*pipeline_id).is_some()
-                        && manifest.has_match_strictness(*match_strictness)
-                })
-                .map(|(pipeline_id, match_strictness)| {
-                    (
-                        engine_config_hash(
-                            &manifest.release_hash(),
-                            *pipeline_id,
-                            *match_strictness,
-                        ),
-                        kinds.clone(),
-                    )
-                })
-        })
-        .collect()
+) -> Result<HashMap<FieldElement, AcceptedKinds>, EngineConfigError> {
+    kinds.validate()?;
+    let mut accepted = HashMap::new();
+    for manifest in manifests {
+        let version = manifest.payload().version;
+        if version < min_version {
+            continue;
+        }
+        let release_kinds = kinds.defined_in(manifest);
+        for &(pipeline_id, match_strictness) in pipelines {
+            let Some(pipeline) = manifest.pipeline(pipeline_id) else {
+                continue;
+            };
+            if !manifest.has_match_strictness(match_strictness) {
+                continue;
+            }
+            let kind_id = pipeline.inputs.first().map_or(0, |input| input.kind_id);
+            if !release_kinds.live.contains(&kind_id) {
+                return Err(EngineConfigError::NotALiveCapture {
+                    pipeline_id,
+                    version,
+                    kind_id,
+                });
+            }
+            if release_kinds.credential.is_empty() {
+                return Err(EngineConfigError::NoCredentialKind { version });
+            }
+            accepted.insert(
+                engine_config_hash(&manifest.release_hash(), pipeline_id, match_strictness),
+                release_kinds.clone(),
+            );
+        }
+    }
+    Ok(accepted)
 }
 
 /// Why a Proof of Embedding Similarity was rejected.
@@ -526,9 +623,15 @@ mod tests {
         }
     }
 
-    /// A manifest of `version` defining pipelines 1 and 2 at strictness levels 1 and 2. The
+    /// A manifest of `version` defining kinds 1 and 2, and pipelines 1 and 2 of one kind-2 input at
+    /// strictness levels 1 and 2. The
     /// signature is not checked by [`ReleaseManifest::from_jws`].
     fn manifest(version: u64) -> ReleaseManifest {
+        let kind = |kind_id, name: &str| Kind {
+            kind_id,
+            name: name.into(),
+            media_types: vec!["image/jpeg".into()],
+        };
         let pipeline = |pipeline_id| Pipeline {
             pipeline_id,
             inputs: vec![Input {
@@ -542,11 +645,7 @@ mod tests {
             engine_hash: [u8::try_from(version).unwrap(); 48],
             version,
             match_strictness_levels: vec![1, 2],
-            kinds: vec![Kind {
-                kind_id: 2,
-                name: "phone".into(),
-                media_types: vec!["image/jpeg".into()],
-            }],
+            kinds: vec![kind(1, "orb"), kind(2, "phone")],
             pipelines: vec![pipeline(1), pipeline(2)],
         };
         let header = r#"{"alg":"ES256","kid":"release-1","typ":"world-id-engine-manifest"}"#;
@@ -568,13 +667,89 @@ mod tests {
             2,
             &[(1, 2), (3, 2), (2, 9)],
             &kinds,
-        );
+        )
+        .unwrap();
         // Only the release at or above the minimum, and only the pipeline and level it defines.
         assert_eq!(
             accepted,
             HashMap::from([(engine_config_hash(&new.release_hash(), 1, 2), kinds)])
         );
         assert!(!accepted.contains_key(&engine_config_hash(&old.release_hash(), 1, 2)));
+    }
+
+    #[test]
+    fn engine_configs_accept_only_the_kinds_a_release_defines() {
+        let mut kinds = phone_kinds();
+        kinds.challenge.insert(3);
+        let accepted = accepted_engine_configs(&[manifest(1)], 1, &[(1, 2)], &kinds).unwrap();
+        assert_eq!(accepted.into_values().collect::<Vec<_>>(), [phone_kinds()]);
+    }
+
+    #[test]
+    fn engine_configs_reject_a_pipeline_whose_input_0_is_no_live_capture() {
+        let kinds = AcceptedKinds {
+            live: HashSet::from([3]),
+            ..phone_kinds()
+        };
+        assert_eq!(
+            accepted_engine_configs(&[manifest(1)], 1, &[(1, 2)], &kinds),
+            Err(EngineConfigError::NotALiveCapture {
+                pipeline_id: 1,
+                version: 1,
+                kind_id: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn engine_configs_reject_a_release_without_a_credential_kind() {
+        let kinds = AcceptedKinds {
+            credential: HashSet::from([3]),
+            ..phone_kinds()
+        };
+        assert_eq!(
+            accepted_engine_configs(&[manifest(1)], 1, &[(1, 2)], &kinds),
+            Err(EngineConfigError::NoCredentialKind { version: 1 })
+        );
+    }
+
+    #[test]
+    fn kinds_must_accept_a_proof_and_keep_credential_and_live_kinds_apart() {
+        assert_eq!(phone_kinds().validate(), Ok(()));
+        let with = |edit: fn(&mut AcceptedKinds)| {
+            let mut kinds = phone_kinds();
+            edit(&mut kinds);
+            kinds.validate()
+        };
+        assert_eq!(with(|k| k.credential.clear()), Err(KindsError::Empty));
+        assert_eq!(with(|k| k.live.clear()), Err(KindsError::Empty));
+        assert_eq!(with(|k| k.challenge.clear()), Ok(()));
+        assert_eq!(
+            with(|k| {
+                k.challenge.insert(0);
+            }),
+            Err(KindsError::ZeroKind)
+        );
+        assert_eq!(
+            with(|k| {
+                k.live.insert(1);
+            }),
+            Err(KindsError::CredentialAsLive(1))
+        );
+        assert_eq!(
+            accepted_engine_configs(&[manifest(1)], 1, &[(1, 2)], &AcceptedKinds::default()),
+            Err(EngineConfigError::Kinds(KindsError::Empty))
+        );
+    }
+
+    #[test]
+    fn without_challenge_kinds_requests_with_a_challenge_are_rejected() {
+        let kinds = AcceptedKinds {
+            challenge: HashSet::new(),
+            ..phone_kinds()
+        };
+        assert!(kinds.accepts(0x0000_0201, false));
+        assert!(!kinds.accepts(0x0002_0201, true));
     }
 
     /// Orb thumbnails as kind `1`, phone captures and challenges as kind `2`.

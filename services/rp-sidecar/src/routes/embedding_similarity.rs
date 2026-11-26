@@ -412,6 +412,17 @@ mod tests {
 
     const fn keep(_: &mut Fixture) {}
 
+    /// The Credential image sent as a phone capture: bytes `[2, 2, 2, 0]`.
+    fn relabel_the_credential(fixture: &mut Fixture) {
+        fixture
+            .response
+            .embedding_similarity
+            .as_mut()
+            .unwrap()
+            .proof
+            .compare_kinds = 0x0002_0202;
+    }
+
     const LIVE_CAPTURE: &[u8] = b"live capture";
 
     fn ask_for_live_capture(fixture: &mut Fixture) {
@@ -448,6 +459,7 @@ mod tests {
     #[test_case(clear_challenge, FixedRegistries::Trusting, StatusCode::BAD_REQUEST, "invalid_request" ; "a malformed stored request is invalid, not a rejected proof")]
     #[test_case(ask_for_live_capture, FixedRegistries::Trusting, StatusCode::BAD_REQUEST, "live_capture_missing" ; "a requested live capture that is absent is invalid")]
     #[test_case(disclose_unrequested_live_capture, FixedRegistries::Trusting, StatusCode::UNPROCESSABLE_ENTITY, "live_capture_disclosed_unrequested" ; "an unrequested disclosed live capture is rejected")]
+    #[test_case(relabel_the_credential, FixedRegistries::Trusting, StatusCode::UNPROCESSABLE_ENTITY, "kinds_not_accepted" ; "a relabeled entry is rejected")]
     #[test_case(keep, FixedRegistries::Failing, StatusCode::SERVICE_UNAVAILABLE, "root_check_failed" ; "a failing registry is retryable, not a rejection")]
     #[tokio::test]
     async fn verification_outcomes(
