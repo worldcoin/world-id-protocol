@@ -485,7 +485,7 @@ mod tests {
 
     const ADMIN: Option<Address> = Some(Address::repeat_byte(0x11));
     const PROVING: Option<Address> = None;
-    const ORB_PCP: &str = "oxide_orb_pcp_v1";
+    const POH_AD: &str = "poh_ad_v1";
 
     fn signing_key(seed: u8) -> EdDSAPrivateKey {
         EdDSAPrivateKey::from_bytes([seed; 32])
@@ -503,7 +503,7 @@ mod tests {
             response_pubkey,
             Some(name),
             Some(vec![1, 9303]),
-            Some(vec![ORB_PCP.to_string()]),
+            Some(vec![POH_AD.to_string()]),
             &request_id,
         )
         .unwrap();
@@ -636,7 +636,7 @@ mod tests {
             response_pubkey,
             None,
             None,
-            Some(vec![ORB_PCP.to_string(), ORB_PCP.to_string()]),
+            Some(vec![POH_AD.to_string(), POH_AD.to_string()]),
             &request_id,
         );
         assert_eq!(
@@ -645,7 +645,7 @@ mod tests {
         );
 
         let (mut request, _, _) = signed_request(ADMIN);
-        request.supported_attachment_kinds = Some(vec![ORB_PCP.to_string(); 2]);
+        request.supported_attachment_kinds = Some(vec![POH_AD.to_string(); 2]);
         let encoding = Value::serialized(&request).unwrap_err().to_string();
         assert!(
             encoding.contains("supported_attachment_kinds must not contain duplicates"),
@@ -655,7 +655,7 @@ mod tests {
 
     #[test_case(None; "absent")]
     #[test_case(Some(Vec::new()); "empty")]
-    #[test_case(Some(vec![ORB_PCP.to_string(), "telemetry_seed_v1".to_string()]); "two kinds")]
+    #[test_case(Some(vec![POH_AD.to_string(), "telemetry_seed_v1".to_string()]); "two kinds")]
     fn supported_attachment_kinds_round_trip(kinds: Option<Vec<String>>) {
         let (mut request, _, _) = signed_request(ADMIN);
         request.supported_attachment_kinds = kinds;
@@ -701,7 +701,7 @@ mod tests {
             ),
             (
                 "supported_attachment_kinds".into(),
-                Value::Array(vec![ORB_PCP.into()]),
+                Value::Array(vec![POH_AD.into()]),
             ),
             ("registration_sig".into(), Value::Bytes(signature.to_vec())),
         ]);
@@ -766,15 +766,15 @@ mod tests {
                 "must not contain CBOR tags"; "bignum schema id")]
     #[test_case("supported_attachment_kinds", Some(Value::Null),
                 "invalid type: null"; "null attachment kinds")]
-    #[test_case("supported_attachment_kinds", Some(ORB_PCP.into()),
+    #[test_case("supported_attachment_kinds", Some(POH_AD.into()),
                 "invalid type: string"; "attachment kinds as text")]
     #[test_case("supported_attachment_kinds",
-                Some(Value::Array(vec![ORB_PCP.into(), ORB_PCP.into()])),
+                Some(Value::Array(vec![POH_AD.into(), POH_AD.into()])),
                 "must not contain duplicates"; "repeated attachment kind")]
     #[test_case("supported_attachment_kinds", Some(Value::Array(vec![1.into()])),
                 "invalid type: integer"; "integer attachment kind")]
     #[test_case("supported_attachment_kinds",
-                Some(Value::Array(vec![Value::Bytes(ORB_PCP.as_bytes().to_vec())])),
+                Some(Value::Array(vec![Value::Bytes(POH_AD.as_bytes().to_vec())])),
                 "invalid type: byte"; "attachment kind as bytes")]
     #[test_case("registration_sig", None, "missing field `registration_sig`"; "missing signature")]
     #[test_case("class", Some("admin".into()), "unknown field `class`"; "unknown field")]

@@ -473,7 +473,7 @@ mod tests {
     }
 
     /// The attachment kind used by these tests.
-    const KIND: &str = "oxide_orb_pcp_v1";
+    const KIND: &str = "poh_ad_v1";
 
     /// A CBOR attachment.
     fn attachment(kind: Value, data: Value) -> Value {
