@@ -288,6 +288,9 @@ pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
     pub flamingo_verifier_key: EdDSAPublicKey,
     /// **Public input** the proof carries. The Engine configuration the token was produced under.
     pub engine_config_hash: FieldElement,
+    /// **Public input** the proof carries. The token's `compare_kinds`, which the RP checks
+    /// against its Engine policy.
+    pub compare_kinds: u32,
     /// **Public input** the proof carries. The AAT values, if the Flamingo Verifier verified an AAT.
     pub aat: Option<AatPublicValues>,
     /// **Public input** the proof carries. The PoH Credential's issuer key.

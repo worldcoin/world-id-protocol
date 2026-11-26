@@ -108,10 +108,15 @@ const AUTHENTICATOR_META: u8 = 10;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
 const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
-const DIGEST_WITH_AAT: &str = "24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f";
-const DIGEST_WITHOUT_AAT: &str = "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
+const DIGEST_WITH_AAT: &str = "1f5ebd25ce05ff6ce9c876abfcb3af9e9b4b5a405f2c91e742f14479f13d2022";
+const DIGEST_WITHOUT_AAT: &str = "18d540ab21adabe66c73f57ff0c8a5ffb8962a4293354edb1f0ee69cda7f6f23";
 /// WIP-201 Appendix A1 "Billed RP": the AAT vector with `billing_nullifier = 7`.
-const DIGEST_BILLED_7: &str = "247f7f653466f20e24fbac90c9c36055c7036d2c8d26c100907164723c7bb118";
+const DIGEST_BILLED_7: &str = "1353bd7a341e5e7e615696b015b398eb88589c3ede756c85c73e0263acf9e7e0";
+/// `compare_kinds` of the WIP-201 vectors: the Credential image is kind `1`, the live capture and
+/// the challenge kind `2`.
+const COMPARE_KINDS: u32 = 131_585;
+/// [`COMPARE_KINDS`] without a challenge.
+const COMPARE_KINDS_NO_CHALLENGE: u32 = 513;
 const CREDENTIAL_IMAGE: &[u8] = b"credential image";
 const LIVE_IMAGE: &[u8] = b"live image";
 const CHALLENGE_IMAGE: &[u8] = b"challenge image";
@@ -196,7 +201,8 @@ fn token_nonce() -> FieldElement {
     flamingo_nonce(NONCE.into(), NONCE_SALT.into())
 }
 
-/// The WIP-201 signed digest of a Flamingo Token over the fixture request, signed at `now`.
+/// The WIP-201 signed digest of a Flamingo Token over the fixture request, signed at `now`. A
+/// zero `compared[2]` means the token compared no challenge.
 fn token_digest(
     has_aat: bool,
     now: u32,
@@ -214,6 +220,11 @@ fn token_digest(
             aat_flags: aat_flags(),
         }),
         compare_sources: COMPARE_SOURCES,
+        compare_kinds: if compared[2] == FieldElement::ZERO {
+            COMPARE_KINDS_NO_CHALLENGE
+        } else {
+            COMPARE_KINDS
+        },
         engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
         billing_nullifier,
     }
@@ -317,6 +328,7 @@ struct ProverToml {
     sec_meta: String,
     authenticator_meta: String,
     engine_config_hash: String,
+    compare_kinds: String,
     disclosed_live_capture_hash: String,
     challenge_hash: String,
     signal_hash: String,
@@ -520,6 +532,12 @@ fn render() -> Rendered {
         ("SEC_META", "u8", SEC_META.to_string()),
         ("AUTHENTICATOR_META", "u8", AUTHENTICATOR_META.to_string()),
         ("ENGINE_CONFIG_HASH", "Field", engine_config_hash.clone()),
+        ("COMPARE_KINDS", "u32", COMPARE_KINDS.to_string()),
+        (
+            "COMPARE_KINDS_NO_CHALLENGE",
+            "u32",
+            COMPARE_KINDS_NO_CHALLENGE.to_string(),
+        ),
         ("CHALLENGE_HASH", "Field", dec(*compared[2])),
         ("SIGNAL_HASH", "Field", dec(*signal_hash)),
         ("MERKLE_ROOT", "Field", dec(*merkle_root)),
@@ -603,6 +621,7 @@ fn render() -> Rendered {
         sec_meta: SEC_META.to_string(),
         authenticator_meta: AUTHENTICATOR_META.to_string(),
         engine_config_hash,
+        compare_kinds: COMPARE_KINDS.to_string(),
         disclosed_live_capture_hash: "0".into(),
         challenge_hash: dec(*compared[2]),
         signal_hash: dec(*signal_hash),
@@ -918,6 +937,7 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
         now: NOW,
         flamingo_verifier_key: verifier_sk().public(),
         engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
+        compare_kinds: COMPARE_KINDS,
         aat: Some(AatPublicValues {
             trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
             platform: PLATFORM,
@@ -1009,6 +1029,7 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
                 + (u64::from(aat.authenticator_meta) << 52),
         }),
         compare_sources: COMPARE_SOURCES,
+        compare_kinds: input.compare_kinds,
         engine_config_hash: input.engine_config_hash,
         billing_nullifier: input.billing_nullifier,
     }

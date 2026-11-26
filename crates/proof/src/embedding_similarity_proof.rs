@@ -213,6 +213,7 @@ fn token_digest<const MAX_DEPTH: usize>(
                 | (u64::from(aat.authenticator_meta) << 52),
         }),
         compare_sources: COMPARE_SOURCES,
+        compare_kinds: inputs.compare_kinds,
         engine_config_hash: inputs.engine_config_hash,
         billing_nullifier: inputs.billing_nullifier,
     }
@@ -399,6 +400,7 @@ struct ProverChosen<'a> {
     disclosed_live_capture_hash: FieldElement,
     flamingo_verifier_key: &'a EdDSAPublicKey,
     engine_config_hash: FieldElement,
+    compare_kinds: u32,
     aat: Option<&'a AatPublicValues>,
     merkle_root: FieldElement,
     cred_pk: &'a EdDSAPublicKey,
@@ -413,6 +415,7 @@ impl<'a> ProverChosen<'a> {
             disclosed_live_capture_hash: disclosed_live_capture_hash(input),
             flamingo_verifier_key: &input.flamingo_verifier_key,
             engine_config_hash: input.engine_config_hash,
+            compare_kinds: input.compare_kinds,
             aat: input.aat.as_ref(),
             merkle_root: input.inclusion_proof.root,
             cred_pk: &input.cred_pk,
@@ -426,6 +429,7 @@ impl<'a> ProverChosen<'a> {
             disclosed_live_capture_hash: proof.disclosed_live_capture_hash,
             flamingo_verifier_key: &proof.flamingo_verifier_key,
             engine_config_hash: proof.engine_config_hash,
+            compare_kinds: proof.compare_kinds,
             aat: proof.aat.as_ref(),
             merkle_root: proof.merkle_root,
             cred_pk: &proof.cred_pk,
@@ -437,7 +441,7 @@ impl<'a> ProverChosen<'a> {
 fn public_witness(
     request: &EmbeddingSimilarityRequestInputs,
     chosen: &ProverChosen<'_>,
-) -> [(&'static str, InputValue); 20] {
+) -> [(&'static str, InputValue); 21] {
     let field = |value: u64| InputValue::Field(NoirElement::from(value));
     // Without an AAT, the circuit takes every AAT value as `0`.
     let zero = FieldElement::ZERO;
@@ -470,6 +474,7 @@ fn public_witness(
             "engine_config_hash",
             chosen.engine_config_hash.into_noir_value(),
         ),
+        ("compare_kinds", field(chosen.compare_kinds.into())),
         ("has_aat", field(chosen.aat.is_some().into())),
         (
             "trust_anchor_key_hash",
@@ -587,6 +592,7 @@ pub fn generate_embedding_similarity_proof_with_prover(
         input.aat.clone(),
         input.cred_pk.clone(),
     );
+    let compare_kinds = input.compare_kinds;
     let proof = provekit::prove(prover, input.into_witness()?)?;
 
     Ok(EmbeddingSimilarityProof {
@@ -595,6 +601,7 @@ pub fn generate_embedding_similarity_proof_with_prover(
         disclosed_live_capture_hash,
         flamingo_verifier_key,
         engine_config_hash,
+        compare_kinds,
         aat,
         merkle_root,
         cred_pk,
@@ -812,6 +819,7 @@ mod input_validation_tests {
     fn test_accepts_a_token_without_a_challenge() {
         let mut input = embedding_similarity_fixture();
         input.request.challenge_hash = FieldElement::ZERO;
+        input.compare_kinds = 513;
         resign(&mut input);
         check_embedding_similarity_input_validity(&input)
             .expect("a token without a challenge is valid");
@@ -1078,9 +1086,9 @@ mod tests {
             .embedding_similarity_verifier()
             .expect("embedded verifier loads");
 
-        // 20 public parameters, two of which are public keys.
-        assert_eq!(prover.r1cs.num_public_inputs, 22);
-        assert_eq!(verifier.r1cs.num_public_inputs, 22);
+        // 21 public parameters, two of which are public keys.
+        assert_eq!(prover.r1cs.num_public_inputs, 23);
+        assert_eq!(verifier.r1cs.num_public_inputs, 23);
         assert_eq!(verifier.r1cs.hash(), prover.r1cs.hash());
     }
 
@@ -1115,7 +1123,9 @@ mod tests {
         other_verifier.flamingo_verifier_key = proof.cred_pk.clone();
         let mut disclosed = proof.clone();
         disclosed.disclosed_live_capture_hash = embedding_similarity_fixture().live_capture_hash;
-        for tampered in [other_root, other_verifier, disclosed] {
+        let mut other_kinds = proof.clone();
+        other_kinds.compare_kinds = 513;
+        for tampered in [other_root, other_verifier, disclosed, other_kinds] {
             let err =
                 verify_embedding_similarity_proof(&tampered, &request, &artifacts).unwrap_err();
             assert!(matches!(err, ProofError::Verification(_)));

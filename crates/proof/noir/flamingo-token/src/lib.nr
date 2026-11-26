@@ -34,6 +34,8 @@ pub struct FlamingoTokenPublic {
     /// 32-bit.
     pub min_build_version: Field,
     pub engine_config_hash: Field,
+    /// 32-bit; the `kind_id` of each compared entry, one byte each.
+    pub compare_kinds: Field,
 }
 
 /// The token values a consuming circuit keeps private or fixes itself.
@@ -62,6 +64,7 @@ fn check_well_formed(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
     public.min_build_version.assert_max_bit_size::<32>();
     // One byte per compared entry.
     claims.compare_sources.assert_max_bit_size::<32>();
+    public.compare_kinds.assert_max_bit_size::<32>();
     // Without a verified AAT, every AAT value is zero, so the token claims nothing about one.
     if public.has_aat == 0 {
         assert(
@@ -86,7 +89,7 @@ fn aat_flags(public: FlamingoTokenPublic) -> Field {
         + 0x10000000000000 * public.authenticator_meta
 }
 
-/// The signed digest (WIP-201 §4.5): `H_16(DS_WIP_201; ...)` over the 13 claims.
+/// The signed digest (WIP-201 §4.5): `H_16(DS_WIP_201; ...)` over the 14 claims.
 pub fn digest(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) -> Field {
     check_well_formed(public, claims);
     let h = claims.compared_entry_hashes;
@@ -103,9 +106,9 @@ pub fn digest(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) -> Field
         aat_flags(public),
         public.has_aat,
         claims.compare_sources,
+        public.compare_kinds,
         public.engine_config_hash,
         claims.billing_nullifier,
-        0,
         0,
     ])[1]
 }
