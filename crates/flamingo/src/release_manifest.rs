@@ -282,7 +282,6 @@ impl ManifestPayload {
                         && seen_kinds.insert(k.kind_id)
                         && !k.name.is_empty()
                         && !k.media_types.is_empty()
-                        && k.media_types.iter().all(|t| t.contains('/'))
                 }),
             "kinds",
         )?;
@@ -623,10 +622,6 @@ mod tests {
             (Box::new(|p| p.kinds[0].kind_id = 0), "kinds"),
             (Box::new(|p| p.kinds[0].name = String::new()), "kinds"),
             (Box::new(|p| p.kinds[0].media_types.clear()), "kinds"),
-            (
-                Box::new(|p| p.kinds[0].media_types = vec!["jpeg".into()]),
-                "kinds",
-            ),
             (
                 Box::new(|p| p.match_strictness_levels.reverse()),
                 "match_strictness_levels",
