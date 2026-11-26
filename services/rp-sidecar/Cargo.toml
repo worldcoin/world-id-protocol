@@ -35,6 +35,7 @@ world-id-services-common = { workspace = true }
 [dev-dependencies]
 provekit-common = { workspace = true }
 rand = { workspace = true }
+sha2 = { workspace = true }
 test-case = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 

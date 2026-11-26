@@ -1,6 +1,6 @@
 //! WIP-202 Proof of Embedding Similarity.
 //!
-//! Proves that a WIP-201 Flamingo Verifier matched a live capture and the RP's challenge
+//! Proves that a WIP-201 Flamingo Verifier matched a live capture, and an optional challenge,
 //! to the image committed in the prover's PoH Credential, and that the World ID account
 //! holding the Credential authorized the result.
 pub(crate) mod constants;
@@ -28,6 +28,7 @@ fn main(
     // RP request
     rp_id: pub Field,
     nonce: pub Field,
+    disclosed_live_capture_hash: pub Field,
     challenge_hash: pub Field,
     signal_hash: pub Field,
     session_id: pub Field,
@@ -49,16 +50,14 @@ fn main(
     expires_at_min: pub Field,
     inputs: PrivateInputs,
 ) {
-    // 2. Challenge present: `0` marks an unused position.
-    assert(challenge_hash != 0, "challenge_hash must not be zero");
-
     // 3.2 The thumbnail digest is the Credential image the token must have compared.
     let credential_digest = hashes_json::thumbnail_digest(inputs.hashes_json);
 
     // 1.1 The token's nonce is fresh per Flamingo request and bound to the RP's `nonce`.
     let flamingo_nonce = permutation::t3([DS_WIP_202_NONCE, nonce, inputs.token.nonce_salt])[1];
 
-    // 1.2 Flamingo Token verification; fixing the entries binds the Credential image and challenge.
+    // 1.2 Flamingo Token verification; fixing the entries binds the Credential image, live capture
+    // and challenge. A zero `challenge_hash` means the token compared no challenge (constraint 2).
     let flamingo_public = FlamingoTokenPublic {
         verifier_key: flamingo_verifier_key,
         now: now as Field,
@@ -86,6 +85,13 @@ fn main(
         billing_nullifier,
     };
     let digest = flamingo_token::verify(flamingo_public, token_claims, inputs.token.sig);
+
+    // 2. The proof discloses the live capture's hash, or `0`.
+    assert(
+        disclosed_live_capture_hash * (disclosed_live_capture_hash - inputs.token.live_capture_hash)
+            == 0,
+        "disclosed live capture hash is not the token's",
+    );
 
     // 4. World ID Authentication over the authorization message, which also binds the
     // RP's signal. One `leaf_index` witness binds the World ID, the Credential and the session.

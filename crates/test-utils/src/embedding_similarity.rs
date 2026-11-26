@@ -351,7 +351,8 @@ impl EmbeddingSimilarityFixture {
             version: RequestVersion::V1,
             proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
                 action,
-                challenge_hash: image_hash(&challenge),
+                challenge_hash: Some(image_hash(&challenge)),
+                return_live_capture: false,
                 aat: None,
             }),
             created_at,
@@ -467,11 +468,13 @@ impl EmbeddingSimilarityFixture {
         }
     }
 
-    /// Verifies `response` to `request` as the RP, trusting the fixture's root and issuer key.
+    /// Verifies `response` to `request`, with the `live_capture` received next to it, as the RP,
+    /// trusting the fixture's root and issuer key.
     pub async fn verify<A: FlamingoAttestationVerifier + Sync>(
         &self,
         request: &ProofRequest,
         response: &ProofResponse,
+        live_capture: Option<&[u8]>,
         policy: &EmbeddingSimilarityPolicy<A>,
     ) -> Result<(), EmbeddingSimilarityVerificationError> {
         let merkle_root = self.merkle_root;
@@ -479,6 +482,7 @@ impl EmbeddingSimilarityFixture {
         verify_embedding_similarity(
             request,
             response,
+            live_capture,
             policy,
             |root| async move { Ok::<_, std::io::Error>(root == merkle_root) },
             |key: EdDSAPublicKey| async move { Ok::<_, std::io::Error>(key.pk == issuer_key) },

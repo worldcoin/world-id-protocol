@@ -23,7 +23,8 @@ fn action_with_prefix(prefix: OprfPrefix, n: u64) -> FieldElement {
 fn params() -> EmbeddingSimilarityParams {
     EmbeddingSimilarityParams {
         action: action_with_prefix(OprfPrefix::EmbeddingSimilarity, 7),
-        challenge_hash: field(0xc0ffee),
+        challenge_hash: Some(field(0xc0ffee)),
+        return_live_capture: false,
         aat: Some(AatRequirements { required: true }),
     }
 }
@@ -75,6 +76,7 @@ fn es_item() -> EmbeddingSimilarityResponseItem {
                 pattern: vec![],
             },
             now: 1_735_689_650,
+            disclosed_live_capture_hash: field(12),
             flamingo_verifier_key: public_key(1),
             engine_config_hash: field(10),
             aat: Some(AatPublicValues {
@@ -132,6 +134,25 @@ fn proof_type_wire_encoding_is_flat() {
 }
 
 #[test]
+fn proof_type_wire_encoding_without_a_challenge_returns_the_live_capture() {
+    let mut p = params();
+    p.challenge_hash = None;
+    p.return_live_capture = true;
+    let proof_type = ProofType::EmbeddingSimilarity(p);
+    let expected = json!({
+        "proof_type": "embedding_similarity",
+        "action": params().action,
+        "return_live_capture": true,
+        "aat": { "required": true },
+    });
+    assert_eq!(serde_json::to_value(&proof_type).unwrap(), expected);
+    assert_eq!(
+        serde_json::from_value::<ProofType>(expected).unwrap(),
+        proof_type
+    );
+}
+
+#[test]
 fn other_proof_types_do_not_serialize_embedding_similarity_params() {
     let uniqueness = serde_json::to_value(ProofType::Uniqueness { action: field(1) }).unwrap();
     assert_eq!(
@@ -145,26 +166,30 @@ fn other_proof_types_do_not_serialize_embedding_similarity_params() {
 #[test]
 fn proof_type_rejects_missing_or_foreign_params() {
     let valid = serde_json::to_value(ProofType::EmbeddingSimilarity(params())).unwrap();
-    for missing in ["action", "challenge_hash"] {
-        let mut value = valid.clone();
-        value.as_object_mut().unwrap().remove(missing);
-        let err = serde_json::from_value::<ProofType>(value).unwrap_err();
-        assert!(err.to_string().contains(missing), "{missing}: {err}");
-    }
+    let mut value = valid.clone();
+    value.as_object_mut().unwrap().remove("action");
+    let err = serde_json::from_value::<ProofType>(value).unwrap_err();
+    assert!(err.to_string().contains("action"), "action: {err}");
 
-    for (proof_type, foreign) in [
+    for (proof_type, foreign, param) in [
         (
             json!({ "proof_type": "uniqueness", "action": field(1) }),
             "challenge_hash",
+            valid["challenge_hash"].clone(),
         ),
-        (json!({ "proof_type": "session" }), "aat"),
+        (
+            json!({ "proof_type": "uniqueness", "action": field(1) }),
+            "return_live_capture",
+            json!(true),
+        ),
+        (
+            json!({ "proof_type": "session" }),
+            "aat",
+            valid["aat"].clone(),
+        ),
     ] {
         let mut value = proof_type;
-        let params = valid.as_object().unwrap();
-        value
-            .as_object_mut()
-            .unwrap()
-            .insert(foreign.into(), params[foreign].clone());
+        value.as_object_mut().unwrap().insert(foreign.into(), param);
         let err = serde_json::from_value::<ProofType>(value).unwrap_err();
         assert!(err.to_string().contains(foreign), "{foreign}: {err}");
     }
@@ -176,6 +201,15 @@ fn request_roundtrips_through_json() {
     request.validate_proof_type().unwrap();
     let json = request.to_json().unwrap();
     assert_eq!(ProofRequest::from_json(&json).unwrap(), request);
+}
+
+#[test]
+fn validate_proof_type_accepts_a_request_without_a_challenge() {
+    let mut p = params();
+    p.challenge_hash = None;
+    request(ProofType::EmbeddingSimilarity(p), SessionRef::None)
+        .validate_proof_type()
+        .unwrap();
 }
 
 #[test]
@@ -220,7 +254,7 @@ fn validate_proof_type_is_strict_for_embedding_similarity() {
         );
     }
     invalid(
-        with(&|p| p.challenge_hash = FieldElement::ZERO),
+        with(&|p| p.challenge_hash = Some(FieldElement::ZERO)),
         "challenge_hash",
     );
     invalid(
@@ -455,7 +489,7 @@ fn validate_response_checks_the_session() {
 #[test]
 fn validate_response_rejects_a_request_that_is_not_valid() {
     let mut p = params();
-    p.challenge_hash = FieldElement::ZERO;
+    p.challenge_hash = Some(FieldElement::ZERO);
     let invalid = request(ProofType::EmbeddingSimilarity(p), SessionRef::None);
     let err = invalid
         .validate_response(&response(Some(es_item())))

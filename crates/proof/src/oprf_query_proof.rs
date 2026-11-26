@@ -909,7 +909,8 @@ mod tests {
                 version: RequestVersion::V1,
                 proof_type: ProofType::EmbeddingSimilarity(EmbeddingSimilarityParams {
                     action: prefixed(OprfPrefix::EmbeddingSimilarity),
-                    challenge_hash: FieldElement::from(7u64),
+                    challenge_hash: Some(FieldElement::from(7u64)),
+                    return_live_capture: false,
                     aat: None,
                 }),
                 created_at: NOW - 60,

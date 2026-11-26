@@ -4,7 +4,7 @@ use crate::FieldElement;
 use serde::{Deserialize, Serialize};
 
 /// What an RP requires of the Authenticator Assertion Token (AAT) behind a Proof of Embedding
-/// Similarity (WIP-202 §4.4).
+/// Similarity (WIP-202 §4.3).
 ///
 /// The RP checks the AAT values the proof reveals against its own policy (WIP-202 §4.8).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

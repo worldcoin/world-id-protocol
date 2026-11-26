@@ -4,16 +4,17 @@ use crate::{
     main,
     test_fixtures::{
         AUTH_SIG, AUTH_SIG_AT_EXPIRY, AUTH_SIG_BILLED, AUTH_SIG_BILLED_OTHER_LEAF,
-        AUTH_SIG_BILLED_OTHER_RP, AUTH_SIG_NO_AAT, AUTH_SIG_NO_SIGNAL, AUTH_SIG_RP_NONCE,
-        AUTHENTICATOR_META, BILLING_ACTION, BILLING_NULLIFIER, BILLING_NULLIFIER_OTHER_LEAF,
-        BILLING_NULLIFIER_OTHER_RP, BILLING_OPRF_OUTPUT, CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK,
-        CRED_SIG, CRED_SIG_VERSION_0, DIGEST_OFFSET, ENGINE_CONFIG_HASH, EXPIRES_AT, EXPIRES_AT_MIN,
-        FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT, GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS,
-        HASHES_JSON_LEN, ISSUER_SCHEMA_ID, ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH,
-        MERKLE_ROOT, NONCE, NONCE_SALT, NOW, PLATFORM, RP_ID, SEC_LEVEL, SEC_META, SESSION_ID,
-        SESSION_ID_R, SIBLINGS, SIGNAL_HASH, SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY,
-        TOKEN_SIG_BILLED, TOKEN_SIG_BILLED_OTHER_LEAF, TOKEN_SIG_BILLED_OTHER_RP, TOKEN_SIG_NO_AAT,
-        TOKEN_SIG_RP_NONCE, TRUST_ANCHOR_KEY_HASH, USER_PK,
+        AUTH_SIG_BILLED_OTHER_RP, AUTH_SIG_NO_AAT, AUTH_SIG_NO_CHALLENGE, AUTH_SIG_NO_SIGNAL,
+        AUTH_SIG_RP_NONCE, AUTHENTICATOR_META, BILLING_ACTION, BILLING_NULLIFIER,
+        BILLING_NULLIFIER_OTHER_LEAF, BILLING_NULLIFIER_OTHER_RP, BILLING_OPRF_OUTPUT,
+        CHALLENGE_HASH, CLAIM_0, CRED_ID, CRED_PK, CRED_SIG, CRED_SIG_VERSION_0, DIGEST_OFFSET,
+        ENGINE_CONFIG_HASH, EXPIRES_AT, EXPIRES_AT_MIN, FLAMINGO_VERIFIER_KEY, GENESIS_ISSUED_AT,
+        GENESIS_ISSUED_AT_MIN, HASHES_JSON_CHUNKS, HASHES_JSON_LEN, ISSUER_SCHEMA_ID,
+        ISSUER_VERSION, LEAF_INDEX, LIVE_CAPTURE_HASH, MERKLE_ROOT, NONCE, NONCE_SALT, NOW,
+        PLATFORM, RP_ID, SEC_LEVEL, SEC_META, SESSION_ID, SESSION_ID_R, SIBLINGS, SIGNAL_HASH,
+        SUB_BLINDING_FACTOR, TOKEN_SIG, TOKEN_SIG_AT_EXPIRY, TOKEN_SIG_BILLED,
+        TOKEN_SIG_BILLED_OTHER_LEAF, TOKEN_SIG_BILLED_OTHER_RP, TOKEN_SIG_NO_AAT,
+        TOKEN_SIG_NO_CHALLENGE, TOKEN_SIG_RP_NONCE, TRUST_ANCHOR_KEY_HASH, USER_PK,
     },
     types::{FlamingoTokenInputs, HashesJsonInputs, PrivateInputs},
 };
@@ -33,6 +34,7 @@ struct Public {
     sec_meta: u8,
     authenticator_meta: u8,
     engine_config_hash: Field,
+    disclosed_live_capture_hash: Field,
     challenge_hash: Field,
     signal_hash: Field,
     genesis_issued_at_min: Field,
@@ -52,6 +54,7 @@ fn public() -> Public {
         sec_meta: SEC_META,
         authenticator_meta: AUTHENTICATOR_META,
         engine_config_hash: ENGINE_CONFIG_HASH,
+        disclosed_live_capture_hash: 0,
         challenge_hash: CHALLENGE_HASH,
         signal_hash: SIGNAL_HASH,
         genesis_issued_at_min: GENESIS_ISSUED_AT_MIN,
@@ -105,6 +108,7 @@ fn prove(p: Public, inputs: PrivateInputs) {
         p.now,
         p.rp_id,
         p.nonce,
+        p.disclosed_live_capture_hash,
         p.challenge_hash,
         p.signal_hash,
         p.session_id,
@@ -212,6 +216,20 @@ fn test_rejects_another_live_capture() {
     prove(public(), i);
 }
 
+#[test]
+fn test_accepts_a_disclosed_live_capture_hash() {
+    let mut p = public();
+    p.disclosed_live_capture_hash = LIVE_CAPTURE_HASH;
+    prove(p, inputs());
+}
+
+#[test(should_fail_with = "disclosed live capture hash is not the token's")]
+fn test_rejects_another_disclosed_live_capture_hash() {
+    let mut p = public();
+    p.disclosed_live_capture_hash = LIVE_CAPTURE_HASH + 1;
+    prove(p, inputs());
+}
+
 #[test(should_fail_with = "invalid flamingo token signature")]
 fn test_rejects_another_engine_config() {
     let mut p = public();
@@ -270,8 +288,18 @@ fn test_rejects_a_wide_sec_meta() {
     prove(p, inputs());
 }
 
-#[test(should_fail_with = "challenge_hash must not be zero")]
-fn test_rejects_a_zero_challenge() {
+#[test]
+fn test_accepts_a_token_without_a_challenge() {
+    let mut p = public();
+    p.challenge_hash = 0;
+    let mut i = inputs();
+    i.token.sig = TOKEN_SIG_NO_CHALLENGE;
+    i.account.sig = AUTH_SIG_NO_CHALLENGE;
+    prove(p, i);
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_a_zero_challenge_for_a_token_with_one() {
     let mut p = public();
     p.challenge_hash = 0;
     prove(p, inputs());

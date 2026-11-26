@@ -263,7 +263,7 @@ pub struct EmbeddingSimilarityRequestInputs {
     pub rp_id: FieldElement,
     /// The RP request's nonce: the Flamingo Token's `nonce`.
     pub nonce: FieldElement,
-    /// `R(SHA-256)` of the RP's challenge image. Must not be zero.
+    /// `R(SHA-256)` of the RP's challenge image, or `0` without a challenge.
     pub challenge_hash: FieldElement,
     /// The RP's signal, hashed as for Uniqueness Proofs.
     pub signal_hash: FieldElement,
@@ -292,6 +292,9 @@ pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
     pub aat: Option<AatPublicValues>,
     /// **Public input** the proof carries. The PoH Credential's issuer key.
     pub cred_pk: EdDSAPublicKey,
+    /// Whether the proof discloses [`Self::live_capture_hash`] (WIP-202 §4.4); the public input
+    /// the proof carries is the hash if so, and `0` otherwise.
+    pub disclose_live_capture: bool,
     /// Private input. The Flamingo Token's `compared_entry_hash_1`: `R(SHA-256)` of the live capture.
     pub live_capture_hash: FieldElement,
     /// Private input. The Flamingo Token's WIP-107 billing nullifier, or `0` for an RP that is not billed.
