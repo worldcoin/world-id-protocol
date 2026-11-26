@@ -14,7 +14,7 @@ use world_id_primitives::{
 };
 
 use super::{
-    reject_tags,
+    MAX_REQUEST_SIZE, reject_tags,
     session::{RequestId, ResponsePublicKey},
 };
 
@@ -134,7 +134,7 @@ impl fmt::Debug for RegistrationDigest {
 
 /// The `params` of a `worldid_auth_v1_register` request.
 ///
-/// Decode received params with [`RegistrationRequest::from_params`]. The `Deserialize` impl alone
+/// Decode received params with [`RegistrationRequest::decode`]. The `Deserialize` impl alone
 /// skips CBOR tags, which WIP-109 payloads must not contain.
 ///
 /// Decoding only checks encodings and bounds. The Approving Authenticator still has to compare
@@ -245,21 +245,27 @@ impl RegistrationRequest {
         Ok((request, digest))
     }
 
-    /// Decodes the `params` of a received registration request.
+    /// Decodes the `params` of a received registration request from the request's plaintext.
     ///
-    /// The Approving Authenticator decodes the request envelope as a [`Request<Value>`] first, so
-    /// that it can answer an invalid request with its `id`, and passes the `params` here once the
-    /// `id` and `method` are checked.
+    /// The Approving Authenticator decodes the plaintext as a [`Request<Value>`] first, so that
+    /// it can answer an invalid request with its `id`, and calls this once the `id` and `method`
+    /// are checked.
     ///
     /// # Errors
     ///
-    /// Returns [`MessageError::Deserialize`] if `params` contains a CBOR tag at any depth or does
-    /// not match the request schema.
-    pub fn from_params(params: &Value) -> Result<Self, MessageError> {
-        reject_tags(params)?;
-        params
-            .deserialized()
-            .map_err(|error| MessageError::Deserialize(serde::de::Error::custom(error)))
+    /// Returns a [`MessageError`] if the plaintext is not a single request of at most 4 KiB
+    /// (WIP-109 §3.5), or if its `params` are missing, contain a CBOR tag at any depth or do not
+    /// match the request schema.
+    pub fn decode(plaintext: &[u8]) -> Result<Self, MessageError> {
+        // Neither pass suffices alone: typed decoding skips tags, and a `Value` turns bignums
+        // into plain integers, which only the typed `deserialize_unsigned` rejects.
+        let raw: Request<Value> = Request::decode(plaintext, MAX_REQUEST_SIZE)?;
+        if let Some(params) = &raw.params {
+            reject_tags(params)?;
+        }
+        RegisterRequestMessage::decode(plaintext, MAX_REQUEST_SIZE)?
+            .params
+            .ok_or_else(|| MessageError::Deserialize(serde::de::Error::missing_field("params")))
     }
 
     /// Recomputes the digest of this request for the session identified by `request_id`.
@@ -288,7 +294,7 @@ impl RegistrationRequest {
 /// The registration request as sent over the bridge.
 ///
 /// The Requesting Authenticator builds and encodes it. A received request is decoded in two
-/// steps, as described on [`RegistrationRequest::from_params`].
+/// steps, as described on [`RegistrationRequest::decode`].
 pub type RegisterRequestMessage = Request<RegistrationRequest>;
 
 /// Returns `address`, unless it is the zero address, which WIP-109 §3.6.1 forbids as
@@ -481,7 +487,7 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::registration::{MAX_REQUEST_SIZE, PairingSecret, ResponseSecretKey};
+    use crate::registration::{PairingSecret, ResponseSecretKey};
 
     const ADMIN: Option<Address> = Some(Address::repeat_byte(0x11));
     const PROVING: Option<Address> = None;
@@ -508,6 +514,13 @@ mod tests {
         )
         .unwrap();
         (request, digest, request_id)
+    }
+
+    /// Decodes `params` as the Approving Authenticator receives them: from the bytes of a
+    /// request message.
+    fn decode_params(params: &Value) -> Result<RegistrationRequest, MessageError> {
+        let message = Request::new(Some("request".into()), REGISTER_METHOD, Some(params));
+        RegistrationRequest::decode(&message.encode().unwrap())
     }
 
     /// The params of an Admin Authenticator's [`signed_request`].
@@ -660,7 +673,7 @@ mod tests {
         let (mut request, _, _) = signed_request(ADMIN);
         request.supported_attachment_kinds = kinds;
         let params = Value::serialized(&request).unwrap();
-        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+        assert_eq!(decode_params(&params).unwrap(), request);
     }
 
     #[test_case(None; "absent")]
@@ -670,7 +683,7 @@ mod tests {
         let (mut request, _, _) = signed_request(ADMIN);
         request.supported_issuer_schema_ids = ids;
         let params = Value::serialized(&request).unwrap();
-        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+        assert_eq!(decode_params(&params).unwrap(), request);
     }
 
     #[test]
@@ -706,7 +719,7 @@ mod tests {
             ("registration_sig".into(), Value::Bytes(signature.to_vec())),
         ]);
         assert_eq!(Value::serialized(&request).unwrap(), params);
-        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+        assert_eq!(decode_params(&params).unwrap(), request);
     }
 
     #[test_case(ADMIN; "admin")]
@@ -719,15 +732,20 @@ mod tests {
             Some(request.clone()),
         );
         let encoded = message.encode().unwrap();
-        let received: Request<Value> = Request::decode(&encoded, MAX_REQUEST_SIZE).unwrap();
-        let params = received.params.unwrap();
-        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+        assert_eq!(RegistrationRequest::decode(&encoded).unwrap(), request);
     }
 
     #[test]
-    fn from_params_rejects_tagged_params() {
+    fn decode_rejects_a_request_without_params() {
+        let message = Request::<Value>::new(Some("request".into()), REGISTER_METHOD, None);
+        let rejection = RegistrationRequest::decode(&message.encode().unwrap()).unwrap_err();
+        assert!(rejection.to_string().contains("missing field `params`"));
+    }
+
+    #[test]
+    fn decode_rejects_tagged_params() {
         let tagged = Value::Tag(55799, Box::new(admin_params()));
-        let rejection = RegistrationRequest::from_params(&tagged).unwrap_err();
+        let rejection = decode_params(&tagged).unwrap_err();
         assert!(rejection.to_string().contains("must not contain CBOR tags"));
     }
 
@@ -763,7 +781,7 @@ mod tests {
                 "expected a CBOR unsigned integer"; "text schema id")]
     #[test_case("supported_issuer_schema_ids",
                 Some(Value::Array(vec![Value::Tag(2, Box::new(Value::Bytes(vec![1])))])),
-                "must not contain CBOR tags"; "bignum schema id")]
+                "expected a CBOR unsigned integer"; "bignum schema id")]
     #[test_case("supported_attachment_kinds", Some(Value::Null),
                 "invalid type: null"; "null attachment kinds")]
     #[test_case("supported_attachment_kinds", Some(POH_AD.into()),
@@ -778,8 +796,8 @@ mod tests {
                 "invalid type: byte"; "attachment kind as bytes")]
     #[test_case("registration_sig", None, "missing field `registration_sig`"; "missing signature")]
     #[test_case("class", Some("admin".into()), "unknown field `class`"; "unknown field")]
-    fn from_params_rejects_a_malformed_field(field: &str, value: Option<Value>, error: &str) {
-        let rejection = RegistrationRequest::from_params(&params_with(field, value))
+    fn decode_rejects_a_malformed_field(field: &str, value: Option<Value>, error: &str) {
+        let rejection = decode_params(&params_with(field, value))
             .unwrap_err()
             .to_string();
         assert!(rejection.contains(error), "{rejection}");

@@ -13,7 +13,7 @@
 //! transferred [`PairingCode`]. Messages are encoded with
 //! [`Request::encode`](world_id_primitives::authenticator_message::Request::encode) and
 //! [`Response::encode`](world_id_primitives::authenticator_message::Response::encode). A received
-//! request's params are decoded with [`RegistrationRequest::from_params`] and a received
+//! request's params are decoded with [`RegistrationRequest::decode`] and a received
 //! response with [`decode_response`], which add the WIP-109 payload rules to the WIP-105
 //! envelope.
 
