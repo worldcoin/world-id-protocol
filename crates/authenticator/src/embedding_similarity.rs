@@ -51,8 +51,10 @@ pub struct FlamingoResult {
 pub struct EmbeddingSimilarityImages {
     /// The PCP thumbnail that the Credential's `hashes.json` lists.
     pub credential_image: Vec<u8>,
-    /// The live capture, the pipeline's only input.
-    pub live_capture: Vec<u8>,
+    /// The live captures, one per input of the pipeline and in the order of its `inputs`. The
+    /// first is compared; the others are checked only, e.g. the other frame of a `LightGuard`
+    /// capture.
+    pub live_captures: Vec<LiveCapture>,
     /// The RP's challenge image, whose `R(SHA-256)` is the request's `challenge_hash`, or `None`
     /// for a request without a challenge.
     pub challenge: Option<Vec<u8>>,
@@ -66,8 +68,25 @@ impl std::fmt::Debug for EmbeddingSimilarityImages {
     }
 }
 
-/// The role WIP-202 requires of the pipeline's only input (§4.4.1).
-const LIVE_FRAME: &str = "live_frame";
+/// One live capture, the entry of one pipeline input.
+#[derive(Clone)]
+pub struct LiveCapture {
+    /// The `role` of the pipeline input it is, e.g. `live_frame`.
+    pub role: String,
+    /// The encoded image.
+    pub data: Vec<u8>,
+    /// How the pipeline reads `data`, e.g. which frame of a `LightGuard` capture it is.
+    pub meta: Vec<u8>,
+}
+
+/// Omits the image, which is biometric data.
+impl std::fmt::Debug for LiveCapture {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LiveCapture")
+            .field("role", &self.role)
+            .finish_non_exhaustive()
+    }
+}
 
 /// Most response release times a chosen pipeline may list, so a response's timing reveals at most
 /// 3 bits (WIP-201 §4.6).
@@ -86,9 +105,10 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 /// a failed capture or a billing rejection is a new request within the same RP request (WIP-201
 /// §4.6). Keep the returned salt for the [`FlamingoResult`].
 ///
-/// The pipeline is the first in `release` with a single `live_frame` input, so only the release,
-/// not the Verifier, picks it. The result carries no `aat_inputs`: an AAT signs the request's
-/// [`Request::cdh`], so the caller obtains one for this request and sets it afterwards.
+/// The pipeline is the first in `release` whose `inputs` have the roles of `images.live_captures`,
+/// in order, so only the release, not the Verifier, picks it. The result carries no
+/// `aat_inputs`: an AAT signs the request's [`Request::cdh`], so the caller obtains one for this
+/// request and sets it afterwards.
 ///
 /// # Arguments
 /// - `proof_request`: the RP's [`ProofType::EmbeddingSimilarity`] request.
@@ -183,7 +203,7 @@ fn flamingo_request_with_salt(
         .payload()
         .pipelines
         .iter()
-        .find(|pipeline| is_live_frame_pipeline(pipeline))
+        .find(|pipeline| takes_captures(pipeline, &images.live_captures))
         .ok_or(AuthenticatorError::NoFlamingoPipeline)?;
     if !release.has_match_strictness(match_strictness) {
         return Err(AuthenticatorError::MatchStrictnessNotOffered(
@@ -197,21 +217,29 @@ fn flamingo_request_with_salt(
         return Err(RequestError::OutOfBounds("expires_at").into());
     }
 
-    // Without a challenge, only the Credential image and the live capture are compared, so
-    // `compared_entry_hash_2` is `0` (WIP-202 §4.4.1).
-    let entries: Vec<Entry> = [Some(images.credential_image), Some(images.live_capture)]
-        .into_iter()
-        .chain([images.challenge])
-        .flatten()
-        .map(|data| Entry { data, meta: vec![] })
-        .collect();
-    let compare = (0..).take(entries.len()).collect();
+    // The compared entries come first, `[credential, live_captures[0], challenge]`; without a
+    // challenge `compared_entry_hash_2` is `0` (WIP-202 §4.4.1). The other live captures follow.
+    let plain = |data| Entry { data, meta: vec![] };
+    let mut live_captures = images.live_captures.into_iter().map(|capture| Entry {
+        data: capture.data,
+        meta: capture.meta,
+    });
+    let mut entries = vec![plain(images.credential_image)];
+    entries.extend(live_captures.next());
+    entries.extend(images.challenge.map(plain));
+    let compare: Vec<u8> = (0..).take(entries.len()).collect();
+    let checked_only = entries.len();
+    entries.extend(live_captures);
+    let pipeline_inputs = std::iter::once(1)
+        .chain(checked_only..entries.len())
+        .map(|index| u8::try_from(index).map_err(|_| RequestError::OutOfBounds("entries")))
+        .collect::<Result<_, _>>()?;
     let payload = Payload {
         pipeline_id: pipeline.pipeline_id,
         match_strictness,
         hints: vec![],
         entries,
-        pipeline_inputs: vec![1],
+        pipeline_inputs,
         compare,
     };
     Ok(Request::new(
@@ -224,10 +252,15 @@ fn flamingo_request_with_salt(
     )?)
 }
 
-/// Whether WIP-202 can use `pipeline`: its only input is a live frame, and its response timing
-/// stays within [`MAX_RESPONSE_SLOTS`].
-fn is_live_frame_pipeline(pipeline: &Pipeline) -> bool {
-    matches!(pipeline.inputs.as_slice(), [input] if input.role == LIVE_FRAME)
+/// Whether `pipeline` takes exactly `captures`: its inputs have their roles, in order, and its
+/// response timing stays within [`MAX_RESPONSE_SLOTS`].
+fn takes_captures(pipeline: &Pipeline, captures: &[LiveCapture]) -> bool {
+    pipeline.inputs.len() == captures.len()
+        && pipeline
+            .inputs
+            .iter()
+            .zip(captures)
+            .all(|(input, capture)| input.role == capture.role)
         && pipeline.response_slots.0.len() <= MAX_RESPONSE_SLOTS
 }
 
@@ -677,11 +710,30 @@ mod tests {
         FieldElement::from_digest(&Sha256::digest(bytes).into())
     }
 
+    fn capture(role: &str, data: &[u8], meta: &[u8]) -> LiveCapture {
+        LiveCapture {
+            role: role.into(),
+            data: data.to_vec(),
+            meta: meta.to_vec(),
+        }
+    }
+
     fn images() -> EmbeddingSimilarityImages {
         EmbeddingSimilarityImages {
             credential_image: b"credential image".to_vec(),
-            live_capture: b"live image".to_vec(),
+            live_captures: vec![capture("live_frame", b"live image", b"")],
             challenge: Some(b"challenge image".to_vec()),
+        }
+    }
+
+    /// The images of a two-frame `LightGuard` capture, whose first frame is compared.
+    fn light_guard_images() -> EmbeddingSimilarityImages {
+        EmbeddingSimilarityImages {
+            live_captures: vec![
+                capture("live_frame", b"live image", b"illuminated"),
+                capture("other_frame", b"other frame", b"unilluminated"),
+            ],
+            ..images()
         }
     }
 
@@ -774,7 +826,7 @@ mod tests {
 
     #[test]
     fn the_request_follows_the_entry_layout() {
-        // Only the second pipeline has a single live frame input.
+        // Only the second pipeline takes a single live frame.
         let release = release(vec![
             pipeline(1, &["live_frame", "live_frame"]),
             pipeline(2, &["live_frame"]),
@@ -795,6 +847,7 @@ mod tests {
                 FieldElement::ZERO,
             ]
         );
+        assert_eq!(payload.pipeline_inputs, vec![1]);
         assert!(payload.entries.iter().all(|entry| entry.meta.is_empty()));
         assert_eq!(request.billing_nullifier, FieldElement::from(11u64));
         assert!(request.aat_inputs.is_none());
@@ -874,7 +927,7 @@ mod tests {
     }
 
     #[test]
-    fn a_release_without_a_live_frame_pipeline_is_rejected() {
+    fn a_release_without_a_pipeline_for_the_captures_is_rejected() {
         let mut slow = pipeline(3, &["live_frame"]);
         slow.response_slots = ResponseSlots((1..=9).map(|i| i * 1000).collect());
         let release = release(vec![
@@ -953,5 +1006,115 @@ mod tests {
                     if attribute == "challenge"
             ));
         }
+    }
+
+    #[test]
+    fn a_multi_input_capture_selects_its_pipeline_and_compares_only_the_first_input() {
+        let release = release(vec![
+            pipeline(1, &["live_frame"]),
+            pipeline(2, &["live_frame", "other_frame"]),
+        ]);
+        for (proof_request, challenge) in [
+            (proof_request(), Some(b"challenge image".to_vec())),
+            (proof_request_without_a_challenge(), None),
+        ] {
+            let images = EmbeddingSimilarityImages {
+                challenge: challenge.clone(),
+                ..light_guard_images()
+            };
+            let request = flamingo_request_with_salt(
+                &proof_request,
+                &release,
+                1,
+                images,
+                FieldElement::ZERO,
+                FieldElement::from(NONCE_SALT),
+                NOW,
+            )
+            .unwrap();
+            let payload = request.payload().unwrap();
+            assert_eq!(payload.pipeline_id, 2);
+            assert_eq!(
+                payload.compare_sources(release.pipeline(2).unwrap()),
+                Ok(COMPARE_SOURCES)
+            );
+            let other_frame = if challenge.is_some() { 3 } else { 2 };
+            assert_eq!(payload.pipeline_inputs, vec![1, other_frame]);
+            assert_eq!(payload.compare, (0..other_frame).collect::<Vec<_>>());
+            let entry = |index: u8| &payload.entries[usize::from(index)];
+            assert_eq!(entry(1).data, b"live image");
+            assert_eq!(entry(1).meta, b"illuminated");
+            assert_eq!(entry(other_frame).data, b"other frame");
+            assert_eq!(entry(other_frame).meta, b"unilluminated");
+            assert!(entry(0).meta.is_empty());
+            assert_eq!(
+                payload.compared_entry_hashes()[2],
+                challenge.map_or(FieldElement::ZERO, |challenge| image_hash(&challenge))
+            );
+        }
+    }
+
+    #[test]
+    fn captures_without_a_pipeline_of_their_roles_are_rejected() {
+        let release = release(vec![pipeline(1, &["live_frame", "other_frame"])]);
+        let mut extra = light_guard_images();
+        extra
+            .live_captures
+            .push(capture("third_frame", b"third", b""));
+        let mut renamed = light_guard_images();
+        renamed.live_captures[1].role = "depth_frame".into();
+        for images in [images(), extra, renamed] {
+            assert!(matches!(
+                flamingo_request_with_salt(
+                    &proof_request(),
+                    &release,
+                    1,
+                    images,
+                    FieldElement::ZERO,
+                    FieldElement::from(NONCE_SALT),
+                    NOW,
+                ),
+                Err(AuthenticatorError::NoFlamingoPipeline)
+            ));
+        }
+    }
+
+    #[test]
+    fn the_first_capture_is_compared_whatever_its_role() {
+        let release = release(vec![pipeline(1, &["other_frame", "live_frame"])]);
+        let mut swapped = light_guard_images();
+        swapped.live_captures.reverse();
+        let request = flamingo_request_with_salt(
+            &proof_request(),
+            &release,
+            1,
+            swapped,
+            FieldElement::ZERO,
+            FieldElement::from(NONCE_SALT),
+            NOW,
+        )
+        .unwrap();
+        let payload = request.payload().unwrap();
+        assert_eq!(payload.pipeline_inputs, vec![1, 3]);
+        assert_eq!(payload.entries[1].data, b"other frame");
+        assert_eq!(payload.entries[3].data, b"live image");
+    }
+
+    #[test]
+    fn no_captures_match_no_pipeline() {
+        let mut empty = images();
+        empty.live_captures.clear();
+        assert!(matches!(
+            flamingo_request_with_salt(
+                &proof_request(),
+                &release(vec![pipeline(1, &["live_frame"])]),
+                1,
+                empty,
+                FieldElement::ZERO,
+                FieldElement::from(NONCE_SALT),
+                NOW,
+            ),
+            Err(AuthenticatorError::NoFlamingoPipeline)
+        ));
     }
 }
