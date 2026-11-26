@@ -179,6 +179,8 @@ const AUTHENTICATOR_META: u8 = 10;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
 const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
+/// The Credential image is kind `1`, the live capture and the challenge kind `2`.
+const COMPARE_KINDS: u32 = 131_585;
 const CREDENTIAL_IMAGE: &[u8] = b"credential image";
 const LIVE_IMAGE: &[u8] = b"live image";
 const CHALLENGE_IMAGE: &[u8] = b"challenge image";
@@ -288,6 +290,7 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
                 | (u64::from(AUTHENTICATOR_META) << 52),
         }),
         compare_sources: COMPARE_SOURCES,
+        compare_kinds: COMPARE_KINDS,
         engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
         billing_nullifier: FieldElement::ZERO,
     }
@@ -322,6 +325,7 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
         now: NOW,
         flamingo_verifier_key: verifier_key,
         engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
+        compare_kinds: COMPARE_KINDS,
         aat: Some(aat),
         cred_pk: credential.issuer.clone(),
         disclose_live_capture: false,

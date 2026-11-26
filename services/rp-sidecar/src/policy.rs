@@ -9,7 +9,8 @@ use pontifex::attestation::{self, PCR_LENGTH, PcrConfig};
 use serde::{Deserialize, Deserializer};
 use world_id_primitives::FieldElement;
 use world_id_rp::embedding_similarity::{
-    AatPolicy, AcceptedAatFlags, EmbeddingSimilarityPolicy, nitro_attestation_verifier,
+    AatPolicy, AcceptedAatFlags, AcceptedKinds, EmbeddingSimilarityPolicy,
+    nitro_attestation_verifier,
 };
 
 /// Why a policy file was not loaded.
@@ -31,6 +32,10 @@ pub enum PolicyError {
     /// The policy accepts no Engine configuration, so it would reject every proof.
     #[error("the policy accepts no Engine configuration")]
     NoEngineConfigs,
+    /// An Engine configuration accepts no Credential or no live capture kind, so it would reject
+    /// every proof under it.
+    #[error("engine_configs[{0}] accepts no credential_kinds or no live_kinds")]
+    NoKinds(usize),
     /// The AAT policy accepts no AAT although it requires one, or lists trust anchors without flag
     /// combinations or the reverse.
     #[error(
@@ -65,8 +70,19 @@ pub fn parse(json: &str) -> Result<EmbeddingSimilarityPolicy<attestation::Verifi
 #[serde(deny_unknown_fields)]
 struct PolicyFile {
     flamingo_verifiers: Vec<FlamingoVerifierPcrs>,
-    engine_config_hashes: Vec<FieldElement>,
+    engine_configs: Vec<AcceptedConfig>,
     aat: AatPolicyFile,
+}
+
+/// An Engine configuration the RP accepts (WIP-201 §4.7 check 6), with the `kind_id`s it accepts
+/// for each compared entry under it (WIP-202 §4.8 item 2).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AcceptedConfig {
+    engine_config_hash: FieldElement,
+    credential_kinds: HashSet<u8>,
+    live_kinds: HashSet<u8>,
+    challenge_kinds: HashSet<u8>,
 }
 
 /// PCR0–2 of a Flamingo Verifier enclave image the RP accepts (WIP-201 §4.7 check 1).
@@ -122,12 +138,28 @@ impl TryFrom<PolicyFile> for EmbeddingSimilarityPolicy<attestation::Verifier> {
             .enumerate()
             .map(|(index, pcrs)| pcrs.into_pcr_config(index))
             .collect::<Result<_, _>>()?;
-        if file.engine_config_hashes.is_empty() {
+        if file.engine_configs.is_empty() {
             return Err(PolicyError::NoEngineConfigs);
         }
+        let engine_configs = file
+            .engine_configs
+            .into_iter()
+            .enumerate()
+            .map(|(index, config)| {
+                if config.credential_kinds.is_empty() || config.live_kinds.is_empty() {
+                    return Err(PolicyError::NoKinds(index));
+                }
+                let kinds = AcceptedKinds {
+                    credential: config.credential_kinds,
+                    live: config.live_kinds,
+                    challenge: config.challenge_kinds,
+                };
+                Ok((config.engine_config_hash, kinds))
+            })
+            .collect::<Result<_, _>>()?;
         Ok(Self {
             attestation: nitro_attestation_verifier(pcr_configs),
-            engine_config_hashes: file.engine_config_hashes.into_iter().collect(),
+            engine_configs,
             aat: file.aat.try_into()?,
         })
     }
@@ -184,7 +216,12 @@ mod tests {
                 "pcr1": "22".repeat(PCR_LENGTH),
                 "pcr2": "33".repeat(PCR_LENGTH),
             }],
-            "engine_config_hashes": [format!("0x{}", "01".repeat(32))],
+            "engine_configs": [{
+                "engine_config_hash": format!("0x{}", "01".repeat(32)),
+                "credential_kinds": [1],
+                "live_kinds": [2],
+                "challenge_kinds": [2],
+            }],
             "aat": {
                 "required": false,
                 "trust_anchor_key_hashes": [],
@@ -204,7 +241,13 @@ mod tests {
 
         let policy = parse(&value.to_string()).unwrap();
 
-        assert_eq!(policy.engine_config_hashes.len(), 1);
+        assert_eq!(policy.engine_configs.len(), 1);
+        assert!(
+            policy
+                .engine_configs
+                .values()
+                .all(|kinds| kinds.accepts(0x0002_0201, true))
+        );
         assert!(policy.aat.required);
         assert!(policy.aat.accepted_flags.contains(&AcceptedAatFlags {
             platform: 1,
@@ -218,7 +261,8 @@ mod tests {
     #[test_case("/flamingo_verifiers/0/pcr1", json!("22".repeat(32)) => matches Err(PolicyError::Parse(_)) ; "a PCR of the wrong length")]
     #[test_case("/flamingo_verifiers/0/pcr0", json!("00".repeat(PCR_LENGTH)) => matches Err(PolicyError::DebugModePcrs(0)) ; "a debug-mode PCR0")]
     #[test_case("/flamingo_verifiers", json!([]) => matches Err(PolicyError::NoFlamingoVerifiers) ; "no Flamingo Verifier")]
-    #[test_case("/engine_config_hashes", json!([]) => matches Err(PolicyError::NoEngineConfigs) ; "no Engine configuration")]
+    #[test_case("/engine_configs", json!([]) => matches Err(PolicyError::NoEngineConfigs) ; "no Engine configuration")]
+    #[test_case("/engine_configs/0/live_kinds", json!([]) => matches Err(PolicyError::NoKinds(0)) ; "no live kind")]
     #[test_case("/aat/required", json!(true) => matches Err(PolicyError::AcceptsNoAat) ; "a required AAT that none satisfies")]
     #[test_case("/aat/trust_anchor_key_hashes", json!([format!("0x{}", "02".repeat(32))]) => matches Err(PolicyError::AcceptsNoAat) ; "trust anchors without flags")]
     fn rejects_a_policy_with(pointer: &str, value: Value) -> Result<(), PolicyError> {

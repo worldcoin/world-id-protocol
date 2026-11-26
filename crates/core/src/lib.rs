@@ -13,8 +13,7 @@ pub use world_id_authenticator::{
     AccountAuthenticators, Authenticator, AuthenticatorError, CredentialInput,
     EmbeddingSimilarityImages, FlamingoAttempt, FlamingoResult, InitializingAuthenticator,
     KindedImage, LiveCapture, OhttpClientConfig, OnchainKeyRepresentable, ProofResult,
-    flamingo_request,
-    registration,
+    flamingo_request, registration,
 };
 
 /// Re-export registry contract bindings for convenience

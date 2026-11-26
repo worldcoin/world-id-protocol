@@ -192,7 +192,7 @@ fn count(result: &'static str, code: &'static str) {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashSet,
+        collections::{HashMap, HashSet},
         num::NonZeroUsize,
         sync::Arc,
         time::{Duration, SystemTime, UNIX_EPOCH},
@@ -210,7 +210,7 @@ mod tests {
         RequestVersion, SessionRef, rp::RpId,
     };
     use world_id_proof::artifacts::embedded::EmbeddedZkArtifacts;
-    use world_id_rp::embedding_similarity::{AatPolicy, EmbeddingSimilarityPolicy};
+    use world_id_rp::embedding_similarity::{AatPolicy, AcceptedKinds, EmbeddingSimilarityPolicy};
 
     use crate::{
         config::defaults::MAX_BODY_BYTES,
@@ -273,7 +273,14 @@ mod tests {
     ) -> AppState<KeyAsAttestation, FixedRegistries> {
         let policy = EmbeddingSimilarityPolicy {
             attestation: KeyAsAttestation,
-            engine_config_hashes: HashSet::from([FieldElement::from(ENGINE_CONFIG_HASH)]),
+            engine_configs: HashMap::from([(
+                FieldElement::from(ENGINE_CONFIG_HASH),
+                AcceptedKinds {
+                    credential: HashSet::from([1]),
+                    live: HashSet::from([2]),
+                    challenge: HashSet::from([2]),
+                },
+            )]),
             aat: AatPolicy::default(),
         };
         AppState::new(
@@ -346,6 +353,7 @@ mod tests {
                     disclosed_live_capture_hash: FieldElement::ZERO,
                     flamingo_verifier_key: verifier_key.clone(),
                     engine_config_hash: FieldElement::from(ENGINE_CONFIG_HASH),
+                    compare_kinds: 0x0002_0201,
                     aat: None,
                     merkle_root: FieldElement::from(11u64),
                     cred_pk: EdDSAPrivateKey::random(&mut rng).public(),

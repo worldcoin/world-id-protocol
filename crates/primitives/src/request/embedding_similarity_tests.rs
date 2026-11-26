@@ -79,6 +79,7 @@ fn es_item() -> EmbeddingSimilarityResponseItem {
             disclosed_live_capture_hash: field(12),
             flamingo_verifier_key: public_key(1),
             engine_config_hash: field(10),
+            compare_kinds: 0x0002_0201,
             aat: Some(AatPublicValues {
                 trust_anchor_key_hash: field(9),
                 platform: 2,

@@ -273,7 +273,10 @@ impl Payload {
                 .all(|e| e.hints.len() <= MAX_ENTRY_HINTS_BYTES),
             "entries[].hints",
         )?;
-        bound(self.entries.iter().all(|e| e.kind_id != 0), "entries[].kind_id")?;
+        bound(
+            self.entries.iter().all(|e| e.kind_id != 0),
+            "entries[].kind_id",
+        )?;
         bound(
             !self.pipeline_inputs.is_empty() && distinct_in_range(&self.pipeline_inputs),
             "pipeline_inputs",
@@ -338,15 +341,23 @@ impl Payload {
         if !release.has_match_strictness(self.match_strictness) {
             return Err(RequestError::OutOfBounds("match_strictness"));
         }
-        if self.entries.iter().any(|e| release.kind(e.kind_id).is_none()) {
+        if self
+            .entries
+            .iter()
+            .any(|e| release.kind(e.kind_id).is_none())
+        {
             return Err(RequestError::OutOfBounds("entries[].kind_id"));
         }
         let inputs_fit = self.pipeline_inputs.len() == pipeline.inputs.len()
-            && self.pipeline_inputs.iter().zip(&pipeline.inputs).all(|(&i, input)| {
-                self.entries
-                    .get(usize::from(i))
-                    .is_some_and(|e| input.kind_ids.contains(&e.kind_id))
-            });
+            && self
+                .pipeline_inputs
+                .iter()
+                .zip(&pipeline.inputs)
+                .all(|(&i, input)| {
+                    self.entries
+                        .get(usize::from(i))
+                        .is_some_and(|e| input.kind_ids.contains(&e.kind_id))
+                });
         if !inputs_fit {
             return Err(RequestError::OutOfBounds("pipeline_inputs"));
         }

@@ -6,8 +6,13 @@
       "pcr2": "<96 hex characters>"
     }
   ],
-  "engine_config_hashes": [
-    "0x<64 hex characters: the engine_config_hash of an accepted release, pipeline and match strictness>"
+  "engine_configs": [
+    {
+      "engine_config_hash": "0x<64 hex characters: the engine_config_hash of an accepted release, pipeline and match strictness>",
+      "credential_kinds": [1],
+      "live_kinds": [2],
+      "challenge_kinds": [2]
+    }
   ],
   "aat": {
     "required": false,

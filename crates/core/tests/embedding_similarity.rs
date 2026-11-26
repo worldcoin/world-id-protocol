@@ -5,6 +5,7 @@
 //! unbilled and after a WIP-107 registration for a billed RP, and verify it as an RP (§4.8).
 
 use std::{
+    collections::{HashMap, HashSet},
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -17,8 +18,8 @@ use world_id_core::{
     AuthenticatorError, EdDSAPrivateKey, FlamingoResult,
     artifacts::{ZkArtifactSource, ZkArtifactSourceExt as _},
     embedding_similarity::{
-        EmbeddingSimilarityVerificationError as VerifyError, FlamingoAttestationVerifier,
-        check_embedding_similarity, verify_embedding_similarity,
+        AcceptedKinds, EmbeddingSimilarityVerificationError as VerifyError,
+        FlamingoAttestationVerifier, check_embedding_similarity, verify_embedding_similarity,
     },
     requests::{ProofRequest, ProofType},
 };
@@ -26,6 +27,23 @@ use world_id_flamingo::{FlamingoClaims, FlamingoToken, engine_config_hash};
 use world_id_primitives::{EmbeddingSimilarityParams, FieldElement};
 use world_id_proof::embedding_similarity_proof::{COMPARE_SOURCES, flamingo_nonce};
 use world_id_test_utils::embedding_similarity::{EmbeddingSimilarityFixture, image_hash};
+
+/// `compare_kinds` of the WIP-202 layout: the thumbnail is kind `1`, the live capture and the
+/// challenge kind `2`; without a challenge, byte 2 is `0`.
+const COMPARE_KINDS: u32 = 0x0002_0201;
+const COMPARE_KINDS_NO_CHALLENGE: u32 = 0x0000_0201;
+
+/// The Engine configuration the fixture's tokens carry, accepting [`COMPARE_KINDS`].
+fn engine_configs() -> HashMap<FieldElement, AcceptedKinds> {
+    HashMap::from([(
+        engine_config_hash(&[0xE7; 32], 1, 2),
+        AcceptedKinds {
+            credential: HashSet::from([1]),
+            live: HashSet::from([2]),
+            challenge: HashSet::from([2]),
+        },
+    )])
+}
 
 fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
     Arc::new(world_id_core::artifacts::embedded::EmbeddedZkArtifacts.cached())
@@ -67,6 +85,11 @@ fn flamingo_result(
         nonce: flamingo_nonce(proof_request.nonce, nonce_salt),
         aat: None,
         compare_sources: COMPARE_SOURCES,
+        compare_kinds: if challenge_hash == FieldElement::ZERO {
+            COMPARE_KINDS_NO_CHALLENGE
+        } else {
+            COMPARE_KINDS
+        },
         engine_config_hash: engine_config_hash(&[0xE7; 32], 1, 2),
         billing_nullifier,
     };
@@ -78,6 +101,7 @@ fn flamingo_result(
         signing_key_attestation: Bytes::from(verifier_sk.public().to_compressed_bytes()?.to_vec()),
         nonce_salt,
         compared_entry_hashes: claims.compared_entry_hashes,
+        compare_kinds: claims.compare_kinds,
     })
 }
 
@@ -119,21 +143,24 @@ async fn e2e_embedding_similarity_proof() -> Result<()> {
     let response = fixture.prove(&unbilled, None).await?;
 
     // The RP verifies it under WIP-202 §4.8.
-    let policy = fixture.policy(
-        StubAttestation,
-        [engine_config_hash(&[0xE7; 32], 1, 2)].into(),
-    );
+    let policy = fixture.policy(StubAttestation, engine_configs());
     fixture
         .verify(proof_request, &response, None, &policy)
         .await?;
 
     // Each policy check rejects on its own, before the proof is verified.
     let mut other_engine = policy.clone();
-    other_engine.engine_config_hashes = [FieldElement::from(1u64)].into();
+    other_engine.engine_configs =
+        HashMap::from([(FieldElement::from(1u64), AcceptedKinds::default())]);
+    let mut other_kinds = policy.clone();
+    for kinds in other_kinds.engine_configs.values_mut() {
+        kinds.challenge = HashSet::from([1]);
+    }
     let mut aat_required = policy.clone();
     aat_required.aat.required = true;
     for (policy, expected) in [
         (&other_engine, "EngineNotAccepted"),
+        (&other_kinds, "KindsNotAccepted"),
         (&aat_required, "AatRequired"),
     ] {
         let err = fixture
@@ -306,10 +333,7 @@ async fn e2e_embedding_similarity_proof_returns_the_live_capture() -> Result<()>
         .disclosed_live_capture_hash;
     assert_eq!(disclosed, image_hash(b"live capture"));
 
-    let policy = fixture.policy(
-        StubAttestation,
-        [engine_config_hash(&[0xE7; 32], 1, 2)].into(),
-    );
+    let policy = fixture.policy(StubAttestation, engine_configs());
     fixture
         .verify(&proof_request, &response, Some(b"live capture"), &policy)
         .await?;

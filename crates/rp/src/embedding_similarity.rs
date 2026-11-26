@@ -14,7 +14,7 @@
 //! checks bind it to the proof (§4.8 item 8). It MUST NOT use the image before the proof verifies.
 
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     time::{SystemTime, SystemTimeError, UNIX_EPOCH},
 };
 
@@ -110,20 +110,51 @@ pub struct AatPolicy {
     pub accepted_flags: HashSet<AcceptedAatFlags>,
 }
 
+/// The `kind_id`s an RP accepts for each compared entry of the WIP-202 layout (§4.8 item 2), as
+/// the Engine Provider of an accepted release documents them.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AcceptedKinds {
+    /// Kinds of the Credential image, e.g. Orb thumbnails.
+    pub credential: HashSet<u8>,
+    /// Kinds of the compared live capture.
+    pub live: HashSet<u8>,
+    /// Kinds of the RP's challenge.
+    pub challenge: HashSet<u8>,
+}
+
+impl AcceptedKinds {
+    /// Whether `compare_kinds` fits the layout: byte `0` a credential kind, byte `1` a live kind,
+    /// byte `2` a challenge kind, or `0` if and only if the request has no challenge, byte `3` `0`.
+    #[must_use]
+    pub fn accepts(&self, compare_kinds: u32, has_challenge: bool) -> bool {
+        let [credential, live, challenge, unused] = compare_kinds.to_le_bytes();
+        let challenge_ok = if has_challenge {
+            self.challenge.contains(&challenge)
+        } else {
+            challenge == 0
+        };
+        self.credential.contains(&credential)
+            && self.live.contains(&live)
+            && challenge_ok
+            && unused == 0
+    }
+}
+
 /// What an RP accepts in a Proof of Embedding Similarity, beyond its own request.
 #[derive(Debug, Clone)]
 pub struct EmbeddingSimilarityPolicy<A> {
     /// Checks the Flamingo Verifier's attestation, e.g. [`nitro_attestation_verifier`].
     pub attestation: A,
-    /// The Engine configurations the RP accepts (WIP-201 §4.7 check 6), e.g. from
-    /// [`accepted_engine_configs`].
-    pub engine_config_hashes: HashSet<FieldElement>,
+    /// The Engine configurations the RP accepts (WIP-201 §4.7 check 6), each with the kinds it
+    /// accepts under it, e.g. from [`accepted_engine_configs`]. Kinds are an Engine Provider's,
+    /// so they are kept per configuration.
+    pub engine_configs: HashMap<FieldElement, AcceptedKinds>,
     /// The AAT policy.
     pub aat: AatPolicy,
 }
 
 /// The `engine_config_hash`es of `pipelines`, given as `(pipeline_id, match_strictness)`, in
-/// every manifest at or above `min_version` that defines them.
+/// every manifest at or above `min_version` that defines them, each accepting `kinds`.
 ///
 /// Pass only manifests verified under an active key of their `iss`, e.g.
 /// [`EngineProviderMetadata::verified_manifests`](world_id_flamingo::EngineProviderMetadata::verified_manifests),
@@ -133,7 +164,8 @@ pub fn accepted_engine_configs(
     manifests: &[ReleaseManifest],
     min_version: u64,
     pipelines: &[(u16, u8)],
-) -> HashSet<FieldElement> {
+    kinds: &AcceptedKinds,
+) -> HashMap<FieldElement, AcceptedKinds> {
     manifests
         .iter()
         .filter(|manifest| manifest.payload().version >= min_version)
@@ -145,7 +177,14 @@ pub fn accepted_engine_configs(
                         && manifest.has_match_strictness(*match_strictness)
                 })
                 .map(|(pipeline_id, match_strictness)| {
-                    engine_config_hash(&manifest.release_hash(), *pipeline_id, *match_strictness)
+                    (
+                        engine_config_hash(
+                            &manifest.release_hash(),
+                            *pipeline_id,
+                            *match_strictness,
+                        ),
+                        kinds.clone(),
+                    )
                 })
         })
         .collect()
@@ -178,6 +217,9 @@ pub enum EmbeddingSimilarityVerificationError {
     /// The Engine configuration is not one the RP accepts.
     #[error("engine_config_hash {0} is not accepted")]
     EngineNotAccepted(FieldElement),
+    /// The Engine processed a compared entry as a kind the RP does not accept under it.
+    #[error("compare_kinds {0:#010x} is not accepted")]
+    KindsNotAccepted(u32),
     /// The proof's time is not within [`MAX_CLOCK_SKEW`] of the RP's clock.
     #[error("the proof's time {proof_now} is not within {MAX_CLOCK_SKEW}s of {now}")]
     Stale {
@@ -313,11 +355,12 @@ where
     if attested.pk != proof.flamingo_verifier_key.pk {
         return Err(Error::AttestedKeyMismatch);
     }
-    if !policy
-        .engine_config_hashes
-        .contains(&proof.engine_config_hash)
-    {
-        return Err(Error::EngineNotAccepted(proof.engine_config_hash));
+    let kinds = policy
+        .engine_configs
+        .get(&proof.engine_config_hash)
+        .ok_or(Error::EngineNotAccepted(proof.engine_config_hash))?;
+    if !kinds.accepts(proof.compare_kinds, params.challenge_hash.is_some()) {
+        return Err(Error::KindsNotAccepted(proof.compare_kinds));
     }
 
     // 3. The proof is recent.
@@ -451,7 +494,7 @@ mod tests {
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
     use world_id_flamingo::{
         ResponseSlots,
-        release_manifest::{Input, ManifestPayload, Pipeline},
+        release_manifest::{Input, Kind, ManifestPayload, Pipeline},
     };
 
     use super::*;
@@ -490,7 +533,7 @@ mod tests {
             pipeline_id,
             inputs: vec![Input {
                 role: "live_frame".into(),
-                media_types: vec!["image/jpeg".into()],
+                kind_ids: vec![2],
             }],
             response_slots: ResponseSlots(vec![500, 1587]),
         };
@@ -499,6 +542,11 @@ mod tests {
             engine_hash: [u8::try_from(version).unwrap(); 48],
             version,
             match_strictness_levels: vec![1, 2],
+            kinds: vec![Kind {
+                kind_id: 2,
+                name: "phone".into(),
+                media_types: vec!["image/jpeg".into()],
+            }],
             pipelines: vec![pipeline(1), pipeline(2)],
         };
         let header = r#"{"alg":"ES256","kid":"release-1","typ":"world-id-engine-manifest"}"#;
@@ -514,14 +562,52 @@ mod tests {
     #[test]
     fn engine_configs_come_from_accepted_releases_and_pipelines() {
         let (old, new) = (manifest(1), manifest(2));
-        let accepted =
-            accepted_engine_configs(&[old.clone(), new.clone()], 2, &[(1, 2), (3, 2), (2, 9)]);
+        let kinds = phone_kinds();
+        let accepted = accepted_engine_configs(
+            &[old.clone(), new.clone()],
+            2,
+            &[(1, 2), (3, 2), (2, 9)],
+            &kinds,
+        );
         // Only the release at or above the minimum, and only the pipeline and level it defines.
         assert_eq!(
             accepted,
-            HashSet::from([engine_config_hash(&new.release_hash(), 1, 2)])
+            HashMap::from([(engine_config_hash(&new.release_hash(), 1, 2), kinds)])
         );
-        assert!(!accepted.contains(&engine_config_hash(&old.release_hash(), 1, 2)));
+        assert!(!accepted.contains_key(&engine_config_hash(&old.release_hash(), 1, 2)));
+    }
+
+    /// Orb thumbnails as kind `1`, phone captures and challenges as kind `2`.
+    fn phone_kinds() -> AcceptedKinds {
+        AcceptedKinds {
+            credential: HashSet::from([1]),
+            live: HashSet::from([2]),
+            challenge: HashSet::from([2]),
+        }
+    }
+
+    #[test]
+    fn kinds_follow_the_entry_layout() {
+        let kinds = phone_kinds();
+        // Bytes `[1, 2, 2, 0]` with a challenge, `[1, 2, 0, 0]` without.
+        assert!(kinds.accepts(0x0002_0201, true));
+        assert!(kinds.accepts(0x0000_0201, false));
+        for (compare_kinds, has_challenge) in [
+            // A challenge processed as the Credential's kind, e.g. for a weaker threshold.
+            (0x0001_0201, true),
+            // The Credential image processed as a phone capture.
+            (0x0002_0202, true),
+            // A challenge kind without a challenge, and none with one.
+            (0x0002_0201, false),
+            (0x0000_0201, true),
+            // A fourth compared entry.
+            (0x0102_0201, true),
+        ] {
+            assert!(
+                !kinds.accepts(compare_kinds, has_challenge),
+                "{compare_kinds:#x}"
+            );
+        }
     }
 
     #[test]
