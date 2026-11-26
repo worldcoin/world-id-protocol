@@ -12808,11 +12808,14 @@ dependencies = [
  "tower",
  "tracing",
  "url",
+ "world-id-core",
+ "world-id-flamingo",
  "world-id-primitives",
  "world-id-proof",
  "world-id-registries",
  "world-id-rp",
  "world-id-services-common",
+ "world-id-test-utils",
 ]
 
 [[package]]
