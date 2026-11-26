@@ -52,8 +52,8 @@ pub struct EmbeddingSimilarityImages {
     /// The PCP thumbnail that the Credential's `hashes.json` lists.
     pub credential_image: Vec<u8>,
     /// The live captures, one per input of the pipeline and in the order of its `inputs`. The
-    /// first is compared and MUST have role `live_frame`; the others are checked only, e.g. the
-    /// other frame of a `LightGuard` capture.
+    /// first is compared; the others are checked only, e.g. the other frame of a `LightGuard`
+    /// capture.
     pub live_captures: Vec<LiveCapture>,
     /// The RP's challenge image, whose `R(SHA-256)` is the request's `challenge_hash`, or `None`
     /// for a request without a challenge.
@@ -87,9 +87,6 @@ impl std::fmt::Debug for LiveCapture {
             .finish_non_exhaustive()
     }
 }
-
-/// The role WIP-202 requires of the pipeline's first input, the compared live capture (§4.4.1).
-const LIVE_FRAME: &str = "live_frame";
 
 /// Most response release times a chosen pipeline may list, so a response's timing reveals at most
 /// 3 bits (WIP-201 §4.6).
@@ -128,8 +125,7 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 ///
 /// # Errors
 /// - [`AuthenticatorError::PrimitiveError`] if the request is not a valid Proof of Embedding
-///   Similarity request, the challenge does not match its `challenge_hash`, or the first live
-///   capture is missing or not a `live_frame`.
+///   Similarity request, or the challenge does not match its `challenge_hash`.
 /// - [`AuthenticatorError::NoFlamingoPipeline`] if `release` has no usable pipeline.
 /// - [`AuthenticatorError::MatchStrictnessNotOffered`] if `release` does not list
 ///   `match_strictness`.
@@ -200,18 +196,6 @@ fn flamingo_request_with_salt(
             attribute: "challenge".to_string(),
             reason: "must be present exactly when the request has a challenge_hash, and hash to it"
                 .to_string(),
-        }
-        .into());
-    }
-    if images
-        .live_captures
-        .first()
-        .map(|capture| capture.role.as_str())
-        != Some(LIVE_FRAME)
-    {
-        return Err(PrimitiveError::InvalidInput {
-            attribute: "live_captures".to_string(),
-            reason: format!("must start with a {LIVE_FRAME} capture"),
         }
         .into());
     }
@@ -943,7 +927,7 @@ mod tests {
     }
 
     #[test]
-    fn a_release_without_a_live_frame_pipeline_is_rejected() {
+    fn a_release_without_a_pipeline_for_the_captures_is_rejected() {
         let mut slow = pipeline(3, &["live_frame"]);
         slow.response_slots = ResponseSlots((1..=9).map(|i| i * 1000).collect());
         let release = release(vec![
@@ -1096,26 +1080,41 @@ mod tests {
     }
 
     #[test]
-    fn captures_not_led_by_a_live_frame_are_rejected() {
+    fn the_first_capture_is_compared_whatever_its_role() {
         let release = release(vec![pipeline(1, &["other_frame", "live_frame"])]);
         let mut swapped = light_guard_images();
         swapped.live_captures.reverse();
+        let request = flamingo_request_with_salt(
+            &proof_request(),
+            &release,
+            1,
+            swapped,
+            FieldElement::ZERO,
+            FieldElement::from(NONCE_SALT),
+            NOW,
+        )
+        .unwrap();
+        let payload = request.payload().unwrap();
+        assert_eq!(payload.pipeline_inputs, vec![1, 3]);
+        assert_eq!(payload.entries[1].data, b"other frame");
+        assert_eq!(payload.entries[3].data, b"live image");
+    }
+
+    #[test]
+    fn no_captures_match_no_pipeline() {
         let mut empty = images();
         empty.live_captures.clear();
-        for images in [swapped, empty] {
-            assert!(matches!(
-                flamingo_request_with_salt(
-                    &proof_request(),
-                    &release,
-                    1,
-                    images,
-                    FieldElement::ZERO,
-                    FieldElement::from(NONCE_SALT),
-                    NOW,
-                ),
-                Err(AuthenticatorError::PrimitiveError(PrimitiveError::InvalidInput { attribute, .. }))
-                    if attribute == "live_captures"
-            ));
-        }
+        assert!(matches!(
+            flamingo_request_with_salt(
+                &proof_request(),
+                &release(vec![pipeline(1, &["live_frame"])]),
+                1,
+                empty,
+                FieldElement::ZERO,
+                FieldElement::from(NONCE_SALT),
+                NOW,
+            ),
+            Err(AuthenticatorError::NoFlamingoPipeline)
+        ));
     }
 }
