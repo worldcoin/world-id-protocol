@@ -838,6 +838,23 @@ mod tests {
     }
 
     #[test]
+    fn a_full_transfer_with_many_attachments_fits_the_response_limit() {
+        let mut result = transfer_result(MAX_TRANSFER_SIZE - 16, &[1; 16]);
+        result.authenticators = (0..6)
+            .map(|pubkey_id| KnownAuthenticator {
+                pubkey_id,
+                name: "n".repeat(64),
+            })
+            .collect();
+        let response = RegisterResponseMessage::success("request".into(), result);
+
+        let encoded = response.encode().unwrap();
+
+        assert!(encoded.len() <= MAX_RESPONSE_SIZE, "{}", encoded.len());
+        assert_eq!(decode_response(&encoded).unwrap(), response);
+    }
+
+    #[test]
     fn attachments_round_trip_without_a_vault() {
         let mut result = transfer_result(0, &[3]);
         result.vault = None;
