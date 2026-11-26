@@ -109,8 +109,9 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 /// §4.6). Keep the returned salt for the [`FlamingoResult`].
 ///
 /// The pipeline is the first in `release` whose `inputs` have the roles of `images.live_captures`,
-/// in order, so only the release, not the Verifier, picks it. The result carries no `aat_inputs`: an AAT signs the request's
-/// [`Request::cdh`], so the caller obtains one for this request and sets it afterwards.
+/// in order, so only the release, not the Verifier, picks it. The result carries no
+/// `aat_inputs`: an AAT signs the request's [`Request::cdh`], so the caller obtains one for this
+/// request and sets it afterwards.
 ///
 /// # Arguments
 /// - `proof_request`: the RP's [`ProofType::EmbeddingSimilarity`] request.
