@@ -12,7 +12,8 @@ pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 pub use world_id_authenticator::{
     AccountAuthenticators, Authenticator, AuthenticatorError, CredentialInput,
     EmbeddingSimilarityImages, FlamingoAttempt, FlamingoResult, InitializingAuthenticator,
-    LiveCapture, OhttpClientConfig, OnchainKeyRepresentable, ProofResult, flamingo_request,
+    KindedImage, LiveCapture, OhttpClientConfig, OnchainKeyRepresentable, ProofResult,
+    flamingo_request,
     registration,
 };
 
