@@ -329,7 +329,7 @@ impl Payload {
     }
 
     /// Checks the payload against `release`: its pipeline and level exist, each pipeline input has
-    /// a kind its input lists, and every entry has a kind of the release (WIP-201 §4.3.3 item 1).
+    /// its input's kind, and every entry has a kind of the release (WIP-201 §4.3.3 item 1).
     /// Media types are left to the Engine, which decodes `data`.
     ///
     /// # Errors
@@ -356,7 +356,7 @@ impl Payload {
                 .all(|(&i, input)| {
                     self.entries
                         .get(usize::from(i))
-                        .is_some_and(|e| input.kind_ids.contains(&e.kind_id))
+                        .is_some_and(|e| e.kind_id == input.kind_id)
                 });
         if !inputs_fit {
             return Err(RequestError::OutOfBounds("pipeline_inputs"));

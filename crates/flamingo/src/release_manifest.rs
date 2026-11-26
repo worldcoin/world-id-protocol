@@ -88,8 +88,8 @@ pub struct Kind {
 pub struct Input {
     /// What the input is, e.g. `live_frame`; roles may repeat.
     pub role: String,
-    /// The `kind_id`s of the release the input accepts.
-    pub kind_ids: Vec<u8>,
+    /// The `kind_id` of the release the input accepts; another kind needs another pipeline.
+    pub kind_id: u8,
 }
 
 /// A pipeline's response release times, in milliseconds after a request's arrival (WIP-201
@@ -307,14 +307,13 @@ impl ManifestPayload {
 }
 
 impl Pipeline {
-    /// One to [`MAX_PIPELINE_INPUTS`] inputs, each with a role and at least one of `kind_ids`.
+    /// One to [`MAX_PIPELINE_INPUTS`] inputs, each with a role and a kind of the release.
     fn has_valid_inputs(&self, kind_ids: &HashSet<u8>) -> bool {
         (1..=MAX_PIPELINE_INPUTS).contains(&self.inputs.len())
-            && self.inputs.iter().all(|c| {
-                !c.role.is_empty()
-                    && !c.kind_ids.is_empty()
-                    && c.kind_ids.iter().all(|id| kind_ids.contains(id))
-            })
+            && self
+                .inputs
+                .iter()
+                .all(|c| !c.role.is_empty() && kind_ids.contains(&c.kind_id))
     }
 }
 
@@ -393,7 +392,7 @@ pub(crate) mod fixtures {
     pub fn payload() -> ManifestPayload {
         let live_frame = || Input {
             role: "live_frame".into(),
-            kind_ids: vec![2],
+            kind_id: 2,
         };
         let kind = |kind_id, name: &str| Kind {
             kind_id,
@@ -617,14 +616,8 @@ mod tests {
                 Box::new(|p| p.pipelines[0].inputs[0].role = String::new()),
                 "inputs",
             ),
-            (
-                Box::new(|p| p.pipelines[0].inputs[0].kind_ids.clear()),
-                "inputs",
-            ),
-            (
-                Box::new(|p| p.pipelines[0].inputs[0].kind_ids = vec![3]),
-                "inputs",
-            ),
+            (Box::new(|p| p.pipelines[0].inputs[0].kind_id = 0), "inputs"),
+            (Box::new(|p| p.pipelines[0].inputs[0].kind_id = 3), "inputs"),
             (Box::new(|p| p.kinds.clear()), "kinds"),
             (Box::new(|p| p.kinds[1].kind_id = 1), "kinds"),
             (Box::new(|p| p.kinds[0].kind_id = 0), "kinds"),

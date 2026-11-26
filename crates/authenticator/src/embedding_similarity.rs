@@ -130,7 +130,7 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 /// §4.6). Keep the returned salt for the [`FlamingoResult`].
 ///
 /// The pipeline is the first in `release` whose `inputs` have the roles of `images.live_captures`,
-/// in order, and list their kinds, so only the release, not the Verifier, picks it. The result
+/// in order, and their kinds, so only the release, not the Verifier, picks it. The result
 /// carries no `aat_inputs`: an AAT signs the request's [`Request::cdh`], so the caller obtains one
 /// for this request and sets it afterwards.
 ///
@@ -285,17 +285,15 @@ fn flamingo_request_with_salt(
     )?)
 }
 
-/// Whether `pipeline` takes exactly `captures`: its inputs have their roles, in order, and list
-/// their kinds, and its response timing stays within [`MAX_RESPONSE_SLOTS`].
+/// Whether `pipeline` takes exactly `captures`: its inputs have their roles and kinds, in order,
+/// and its response timing stays within [`MAX_RESPONSE_SLOTS`].
 fn takes_captures(pipeline: &Pipeline, captures: &[LiveCapture]) -> bool {
     pipeline.inputs.len() == captures.len()
         && pipeline
             .inputs
             .iter()
             .zip(captures)
-            .all(|(input, capture)| {
-                input.role == capture.role && input.kind_ids.contains(&capture.kind_id)
-            })
+            .all(|(input, capture)| input.role == capture.role && input.kind_id == capture.kind_id)
         && pipeline.response_slots.0.len() <= MAX_RESPONSE_SLOTS
 }
 
@@ -841,7 +839,7 @@ mod tests {
                 .iter()
                 .map(|role| Input {
                     role: (*role).into(),
-                    kind_ids: vec![PHONE],
+                    kind_id: PHONE,
                 })
                 .collect(),
             response_slots: ResponseSlots(vec![500, 1587, 5039, 16_000]),

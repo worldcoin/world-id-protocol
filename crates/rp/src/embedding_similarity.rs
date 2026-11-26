@@ -533,7 +533,7 @@ mod tests {
             pipeline_id,
             inputs: vec![Input {
                 role: "live_frame".into(),
-                kind_ids: vec![2],
+                kind_id: 2,
             }],
             response_slots: ResponseSlots(vec![500, 1587]),
         };
