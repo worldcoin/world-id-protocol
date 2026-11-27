@@ -3,7 +3,7 @@
 //! optionally a WIP-107 Billing Contract that bills the RP.
 
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashMap},
     path::PathBuf,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -26,7 +26,7 @@ use world_id_core::{
     FlamingoResult,
     artifacts::ZkArtifactSource,
     embedding_similarity::{
-        AatPolicy, EmbeddingSimilarityPolicy, EmbeddingSimilarityVerificationError,
+        AatPolicy, AcceptedKinds, EmbeddingSimilarityPolicy, EmbeddingSimilarityVerificationError,
         FlamingoAttestationVerifier, verify_embedding_similarity,
     },
     requests::{ProofRequest, ProofType, RequestItem, RequestVersion},
@@ -454,16 +454,16 @@ impl EmbeddingSimilarityFixture {
         Ok(result.proof_response)
     }
 
-    /// The RP's policy for the fixture's Credential, accepting `engine_config_hashes` and
-    /// Flamingo Verifiers that `attestation` accepts, with no AAT.
+    /// The RP's policy for the fixture's Credential, accepting `engine_configs` with their kinds
+    /// and Flamingo Verifiers that `attestation` accepts, with no AAT.
     pub fn policy<A>(
         &self,
         attestation: A,
-        engine_config_hashes: HashSet<FieldElement>,
+        engine_configs: HashMap<FieldElement, AcceptedKinds>,
     ) -> EmbeddingSimilarityPolicy<A> {
         EmbeddingSimilarityPolicy {
             attestation,
-            engine_config_hashes,
+            engine_configs,
             aat: AatPolicy::default(),
         }
     }

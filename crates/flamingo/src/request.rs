@@ -16,8 +16,8 @@ use world_id_primitives::{
 };
 
 use crate::{
-    FlamingoAatClaims, MAX_COMPARED, MAX_ENTRY_META_BYTES, MAX_HINTS_BYTES, MAX_PIPELINE_INPUTS,
-    MAX_REQUEST_LIFETIME, REQUEST_VERSION, release_manifest::Pipeline,
+    FlamingoAatClaims, MAX_COMPARED, MAX_ENTRY_HINTS_BYTES, MAX_HINTS_BYTES, MAX_PIPELINE_INPUTS,
+    MAX_REQUEST_LIFETIME, REQUEST_VERSION, ReleaseManifest, release_manifest::Pipeline,
 };
 
 /// Why a request could not be encoded, decoded or accepted.
@@ -201,8 +201,10 @@ pub struct Payload {
 pub struct Entry {
     /// An encoded image or an embedding.
     pub data: Vec<u8>,
-    /// How the Engine reads `data`.
-    pub meta: Vec<u8>,
+    /// The distribution of `data`, a nonzero `kind_id` of the release.
+    pub kind_id: u8,
+    /// Entry-level Engine hints that never weaken `match_strictness`.
+    pub hints: Vec<u8>,
 }
 
 impl Payload {
@@ -268,8 +270,12 @@ impl Payload {
         bound(
             self.entries
                 .iter()
-                .all(|e| e.meta.len() <= MAX_ENTRY_META_BYTES),
-            "entries[].meta",
+                .all(|e| e.hints.len() <= MAX_ENTRY_HINTS_BYTES),
+            "entries[].hints",
+        )?;
+        bound(
+            self.entries.iter().all(|e| e.kind_id != 0),
+            "entries[].kind_id",
         )?;
         bound(
             !self.pipeline_inputs.is_empty() && distinct_in_range(&self.pipeline_inputs),
@@ -309,6 +315,55 @@ impl Payload {
         Ok(u32::from_le_bytes(bytes))
     }
 
+    /// `compare_kinds`: byte `k` is the `kind_id` of `entries[compare[k]]`, `0` past the last one,
+    /// so RPs see which kind the Engine processed each compared entry as.
+    #[must_use]
+    pub fn compare_kinds(&self) -> u32 {
+        let mut bytes = [0u8; MAX_COMPARED];
+        for (byte, &index) in bytes.iter_mut().zip(&self.compare) {
+            if let Some(entry) = self.entries.get(usize::from(index)) {
+                *byte = entry.kind_id;
+            }
+        }
+        u32::from_le_bytes(bytes)
+    }
+
+    /// Checks the payload against `release`: its pipeline and level exist, each pipeline input has
+    /// its input's kind, and every entry has a kind of the release (WIP-201 §4.3.3 item 1).
+    /// Media types are left to the Engine, which decodes `data`.
+    ///
+    /// # Errors
+    /// Returns [`RequestError::OutOfBounds`] naming the first field that does not fit `release`.
+    pub fn check_release(&self, release: &ReleaseManifest) -> Result<(), RequestError> {
+        let pipeline = release
+            .pipeline(self.pipeline_id)
+            .ok_or(RequestError::OutOfBounds("pipeline_id"))?;
+        if !release.has_match_strictness(self.match_strictness) {
+            return Err(RequestError::OutOfBounds("match_strictness"));
+        }
+        if self
+            .entries
+            .iter()
+            .any(|e| release.kind(e.kind_id).is_none())
+        {
+            return Err(RequestError::OutOfBounds("entries[].kind_id"));
+        }
+        let inputs_fit = self.pipeline_inputs.len() == pipeline.inputs.len()
+            && self
+                .pipeline_inputs
+                .iter()
+                .zip(&pipeline.inputs)
+                .all(|(&i, input)| {
+                    self.entries
+                        .get(usize::from(i))
+                        .is_some_and(|e| e.kind_id == input.kind_id)
+                });
+        if !inputs_fit {
+            return Err(RequestError::OutOfBounds("pipeline_inputs"));
+        }
+        Ok(())
+    }
+
     /// `compared_entry_hash_k = R(SHA-256(entries[compare[k]].data))`, `0` past the last one.
     #[must_use]
     pub fn compared_entry_hashes(&self) -> [FieldElement; MAX_COMPARED] {
@@ -345,7 +400,8 @@ impl Entry {
     fn to_value(&self) -> Value {
         map(vec![
             ("data", Value::Bytes(self.data.clone())),
-            ("meta", Value::Bytes(self.meta.clone())),
+            ("hints", Value::Bytes(self.hints.clone())),
+            ("kind_id", Value::Integer(self.kind_id.into())),
         ])
     }
 
@@ -353,7 +409,8 @@ impl Entry {
         let mut fields = Fields::of(value, "payload")?;
         let entry = Self {
             data: fields.byte_string("data")?,
-            meta: fields.byte_string("meta")?,
+            hints: fields.byte_string("hints")?,
+            kind_id: fields.uint("kind_id")?,
         };
         fields.finish()?;
         Ok(entry)
@@ -483,10 +540,10 @@ mod tests {
     use world_id_primitives::EdDSAPrivateKey;
 
     // WIP-201 Appendix A1, "With an AAT".
-    const PAYLOAD: &str = "a66568696e74734067636f6d706172658300010267656e747269657383a264646174615063726564656e7469616c20696d616765646d65746140a264646174614a6c69766520696d616765646d65746140a264646174614f6368616c6c656e676520696d616765646d657461406b706970656c696e655f6964016f706970656c696e655f696e707574738101706d617463685f7374726963746e65737302";
-    const CDH: &str = "03ca8744a87789b5684fd3569cc3ac735de925464f2cd29e87bdfc2a45591d27";
+    const PAYLOAD: &str = "a66568696e74734067636f6d706172658300010267656e747269657383a364646174615063726564656e7469616c20696d6167656568696e747340676b696e645f696401a364646174614a6c69766520696d6167656568696e747340676b696e645f696402a364646174614f6368616c6c656e676520696d6167656568696e747340676b696e645f6964026b706970656c696e655f6964016f706970656c696e655f696e707574738101706d617463685f7374726963746e65737302";
+    const CDH: &str = "23ffb24b5bcf5bfddb456eee412f966ff80887dd82cdbc5ec9f995b798842f4d";
     const TAKT: &str = "84582aa2013a000100000458202d4bdf6ee60feda0975c770bb7a23dc6e4e0ed1e35ff3c2426cded4ec030d987a05885a4041a6a4e8b7008a101a4010220012158207135fa4fd93a09dce98bbf681b4bfcf50e7c0d6354e62afb0bff2a3429617865225820ed4c1f02ddb9023ee56a557e515d6a9dc66c11f220960de594334df588776724190109781d68747470733a2f2f776f726c642e6f72672f6561742f74616b742f76313a0001116f480003000007d6010258409a97b6c24c4873234fc4e72a4a239cedec22652cc9206f87a7b9735db9d54885aa069707c532d0ae86c41add78279ac40c949459193361e166c2705d3cca4c05";
-    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582003ca8744a87789b5684fd3569cc3ac735de925464f2cd29e87bdfc2a45591d273a000138805820000000000000000000000000000000000000000000000000000000000000000a58403c24fd0eb59bdcb7ca3177348f69f7ad45affbce19eb3aa85b1a51dcc3499683e84559b276e8bf5d1b6b7e28d2d45dd7ad86eb3e90c09292370f7e2c27feb09f";
+    const AAT: &str = "8443a10126a058a3a6034800000000001d6bb6041a6a4d3d8d0a5820000000000000000000000000000000000000000000000000000000000000002a190109781c68747470733a2f2f776f726c642e6f72672f6561742f6161742f76313a0001387f582023ffb24b5bcf5bfddb456eee412f966ff80887dd82cdbc5ec9f995b798842f4d3a000138805820000000000000000000000000000000000000000000000000000000000000000a5840ff3fc93c1da479c4a0d00c64874187b9503bfa0c263aac8832a7d367ac8941416176c3c19d22a3c0f0aaafd553fe6bbb72cdb035a7a1a808840474325970779b";
     const TRUST_ANCHOR_KEY_HASH: &str =
         "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
     const COMPARED: [&str; 3] = [
@@ -502,10 +559,11 @@ mod tests {
         FieldElement::from_be_bytes(&hex::decode(hex).unwrap().try_into().unwrap()).unwrap()
     }
 
-    fn entry(data: &[u8]) -> Entry {
+    fn entry(data: &[u8], kind_id: u8) -> Entry {
         Entry {
             data: data.to_vec(),
-            meta: vec![],
+            kind_id,
+            hints: vec![],
         }
     }
 
@@ -515,9 +573,9 @@ mod tests {
             match_strictness: 2,
             hints: vec![],
             entries: vec![
-                entry(b"credential image"),
-                entry(b"live image"),
-                entry(b"challenge image"),
+                entry(b"credential image", 1),
+                entry(b"live image", 2),
+                entry(b"challenge image", 2),
             ],
             pipeline_inputs: vec![1],
             compare: vec![0, 1, 2],
@@ -663,13 +721,14 @@ mod tests {
 
     #[test]
     fn rejects_payloads_out_of_bounds() {
-        let cases: [Case; 11] = [
+        let cases: [Case; 12] = [
             (|p| p.pipeline_id = 0, "pipeline_id"),
             (|p| p.hints = vec![0; MAX_HINTS_BYTES + 1], "hints"),
             (
-                |p| p.entries[0].meta = vec![0; MAX_ENTRY_META_BYTES + 1],
-                "entries[].meta",
+                |p| p.entries[0].hints = vec![0; MAX_ENTRY_HINTS_BYTES + 1],
+                "entries[].hints",
             ),
+            (|p| p.entries[0].kind_id = 0, "entries[].kind_id"),
             (|p| p.pipeline_inputs.clear(), "pipeline_inputs"),
             (|p| p.pipeline_inputs = vec![1, 1], "pipeline_inputs"),
             (|p| p.pipeline_inputs = vec![3], "pipeline_inputs"),
@@ -677,12 +736,41 @@ mod tests {
             (|p| p.compare = vec![0, 1, 2, 0, 1], "compare"),
             (|p| p.compare[2] = 0, "compare"),
             (|p| p.compare[0] = 3, "compare"),
-            (|p| p.entries.push(entry(b"unused")), "entries"),
+            (|p| p.entries.push(entry(b"unused", 2)), "entries"),
         ];
         for (change, field) in cases {
             let mut payload = payload();
             change(&mut payload);
             assert_eq!(payload.encode(), Err(RequestError::OutOfBounds(field)));
+        }
+    }
+
+    #[test]
+    fn derives_compare_kinds_from_the_compared_entries() {
+        assert_eq!(payload().compare_kinds(), 131_585);
+        let mut two = payload();
+        two.entries.pop();
+        two.compare.pop();
+        assert_eq!(two.compare_kinds(), 513);
+    }
+
+    #[test]
+    fn checks_the_payload_against_the_release() {
+        let release = crate::release_manifest::fixtures::manifest();
+        assert_eq!(payload().check_release(&release), Ok(()));
+        let cases: [Case; 4] = [
+            (|p| p.pipeline_id = 9, "pipeline_id"),
+            (|p| p.match_strictness = 9, "match_strictness"),
+            (|p| p.entries[0].kind_id = 3, "entries[].kind_id"),
+            (|p| p.entries[1].kind_id = 1, "pipeline_inputs"),
+        ];
+        for (change, field) in cases {
+            let mut payload = payload();
+            change(&mut payload);
+            assert_eq!(
+                payload.check_release(&release),
+                Err(RequestError::OutOfBounds(field))
+            );
         }
     }
 

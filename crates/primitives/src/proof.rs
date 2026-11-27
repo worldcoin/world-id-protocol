@@ -137,6 +137,8 @@ pub struct EmbeddingSimilarityProof {
     pub flamingo_verifier_key: EdDSAPublicKey,
     /// The Engine configuration that ran.
     pub engine_config_hash: FieldElement,
+    /// The token's `compare_kinds`: the `kind_id` the Engine processed each compared entry as.
+    pub compare_kinds: u32,
     /// The AAT values, if the Flamingo Verifier verified an AAT.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aat: Option<AatPublicValues>,

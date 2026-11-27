@@ -71,6 +71,7 @@ impl From<EmbeddingSimilarityVerificationError> for ApiError {
             Error::Attestation(_) => Code::AttestationNotAccepted,
             Error::AttestedKeyMismatch => Code::AttestedKeyMismatch,
             Error::EngineNotAccepted(_) => Code::EngineNotAccepted,
+            Error::KindsNotAccepted(_) => Code::KindsNotAccepted,
             Error::Stale { .. } => Code::StaleProof,
             Error::InvalidRoot(_) => Code::InvalidRoot,
             Error::UntrustedIssuerKey => Code::UntrustedIssuerKey,
@@ -155,6 +156,8 @@ pub enum Code {
     AttestedKeyMismatch,
     /// The Engine configuration is not accepted.
     EngineNotAccepted,
+    /// A compared entry's kind is not accepted under the Engine configuration.
+    KindsNotAccepted,
     /// The proof's time is not recent.
     StaleProof,
     /// The root is not a valid root of the `WorldIDRegistry`.
@@ -204,6 +207,7 @@ impl Code {
             Self::AttestationNotAccepted => "attestation_not_accepted",
             Self::AttestedKeyMismatch => "attested_key_mismatch",
             Self::EngineNotAccepted => "engine_not_accepted",
+            Self::KindsNotAccepted => "kinds_not_accepted",
             Self::StaleProof => "stale_proof",
             Self::InvalidRoot => "invalid_root",
             Self::UntrustedIssuerKey => "untrusted_issuer_key",
@@ -238,6 +242,7 @@ impl Code {
             | Self::AttestationNotAccepted
             | Self::AttestedKeyMismatch
             | Self::EngineNotAccepted
+            | Self::KindsNotAccepted
             | Self::StaleProof
             | Self::InvalidRoot
             | Self::UntrustedIssuerKey

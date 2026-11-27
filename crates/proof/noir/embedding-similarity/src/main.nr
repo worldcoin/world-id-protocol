@@ -35,6 +35,7 @@ fn main(
     // WIP-201 Flamingo Token
     flamingo_verifier_key: pub PublicKey,
     engine_config_hash: pub Field,
+    compare_kinds: pub u32,
     // Its AAT values
     has_aat: pub bool,
     trust_anchor_key_hash: pub Field,
@@ -72,6 +73,8 @@ fn main(
         // WIP-202 checks no Authenticator build version for now.
         min_build_version: 0,
         engine_config_hash,
+        // The RP checks the kinds against its Engine policy (WIP-202 §4.8 item 2).
+        compare_kinds: compare_kinds as Field,
     };
     let billing_nullifier = inputs.token.billing_nullifier;
     let token_claims = FlamingoTokenClaims {

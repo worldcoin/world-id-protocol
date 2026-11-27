@@ -51,6 +51,8 @@ pub struct ManifestPayload {
     pub version: u64,
     /// The release's strictness levels, strictly ascending; each means the same in every pipeline.
     pub match_strictness_levels: Vec<u8>,
+    /// The distributions of entries the release accepts.
+    pub kinds: Vec<Kind>,
     /// The release's pipelines.
     pub pipelines: Vec<Pipeline>,
 }
@@ -67,14 +69,27 @@ pub struct Pipeline {
     pub response_slots: ResponseSlots,
 }
 
+/// A distribution of entries the Engine processes alike, e.g. Orb or phone camera captures. The
+/// Engine Provider documents what it means; a `kind_id` keeps that meaning in later releases.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Kind {
+    /// Kind identifier, nonzero and unique within the manifest.
+    pub kind_id: u8,
+    /// Human-readable name, e.g. `orb`; it has no protocol meaning.
+    pub name: String,
+    /// Media types the Engine accepts for entries of this kind, e.g. `image/jpeg`.
+    pub media_types: Vec<String>,
+}
+
 /// One input a pipeline checks.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
     /// What the input is, e.g. `live_frame`; roles may repeat.
     pub role: String,
-    /// Media types the Engine accepts for it, e.g. `image/jpeg`.
-    pub media_types: Vec<String>,
+    /// The `kind_id` of the release the input accepts; another kind needs another pipeline.
+    pub kind_id: u8,
 }
 
 /// A pipeline's response release times, in milliseconds after a request's arrival (WIP-201
@@ -225,6 +240,12 @@ impl ReleaseManifest {
             .find(|p| p.pipeline_id == pipeline_id)
     }
 
+    /// The kind with `kind_id`, if the release defines it.
+    #[must_use]
+    pub fn kind(&self, kind_id: u8) -> Option<&Kind> {
+        self.payload.kinds.iter().find(|k| k.kind_id == kind_id)
+    }
+
     /// Whether the release lists `match_strictness`.
     #[must_use]
     pub fn has_match_strictness(&self, match_strictness: u8) -> bool {
@@ -253,6 +274,17 @@ impl ManifestPayload {
             !self.match_strictness_levels.is_empty() && ascending,
             "match_strictness_levels",
         )?;
+        let mut seen_kinds = HashSet::with_capacity(self.kinds.len());
+        invalid(
+            !self.kinds.is_empty()
+                && self.kinds.iter().all(|k| {
+                    k.kind_id != 0
+                        && seen_kinds.insert(k.kind_id)
+                        && !k.name.is_empty()
+                        && !k.media_types.is_empty()
+                }),
+            "kinds",
+        )?;
         invalid(!self.pipelines.is_empty(), "pipelines")?;
         let mut seen = HashSet::with_capacity(self.pipelines.len());
         let unique_pipelines = self.pipelines.iter().all(|p| seen.insert(p.pipeline_id));
@@ -265,21 +297,22 @@ impl ManifestPayload {
             "response_slots",
         )?;
         invalid(
-            self.pipelines.iter().all(Pipeline::has_valid_inputs),
+            self.pipelines
+                .iter()
+                .all(|p| p.has_valid_inputs(&seen_kinds)),
             "inputs",
         )
     }
 }
 
 impl Pipeline {
-    /// One to [`MAX_PIPELINE_INPUTS`] inputs, each with a role and at least one media type.
-    fn has_valid_inputs(&self) -> bool {
+    /// One to [`MAX_PIPELINE_INPUTS`] inputs, each with a role and a kind of the release.
+    fn has_valid_inputs(&self, kind_ids: &HashSet<u8>) -> bool {
         (1..=MAX_PIPELINE_INPUTS).contains(&self.inputs.len())
-            && self.inputs.iter().all(|c| {
-                !c.role.is_empty()
-                    && !c.media_types.is_empty()
-                    && c.media_types.iter().all(|t| t.contains('/'))
-            })
+            && self
+                .inputs
+                .iter()
+                .all(|c| !c.role.is_empty() && kind_ids.contains(&c.kind_id))
     }
 }
 
@@ -358,6 +391,11 @@ pub(crate) mod fixtures {
     pub fn payload() -> ManifestPayload {
         let live_frame = || Input {
             role: "live_frame".into(),
+            kind_id: 2,
+        };
+        let kind = |kind_id, name: &str| Kind {
+            kind_id,
+            name: name.into(),
             media_types: vec!["image/jpeg".into(), "image/png".into()],
         };
         ManifestPayload {
@@ -365,6 +403,7 @@ pub(crate) mod fixtures {
             engine_hash: [0x2a; 48],
             version: 1,
             match_strictness_levels: vec![1, 2],
+            kinds: vec![kind(1, "orb"), kind(2, "phone")],
             pipelines: vec![Pipeline {
                 pipeline_id: 1,
                 inputs: vec![live_frame()],
@@ -396,6 +435,10 @@ pub(crate) mod fixtures {
             &serde_json::to_vec(payload).unwrap(),
             &signing_key(),
         )
+    }
+
+    pub fn manifest() -> ReleaseManifest {
+        ReleaseManifest::from_jws(&sign(&payload())).unwrap()
     }
 }
 
@@ -572,14 +615,13 @@ mod tests {
                 Box::new(|p| p.pipelines[0].inputs[0].role = String::new()),
                 "inputs",
             ),
-            (
-                Box::new(|p| p.pipelines[0].inputs[0].media_types.clear()),
-                "inputs",
-            ),
-            (
-                Box::new(|p| p.pipelines[0].inputs[0].media_types = vec!["jpeg".into()]),
-                "inputs",
-            ),
+            (Box::new(|p| p.pipelines[0].inputs[0].kind_id = 0), "inputs"),
+            (Box::new(|p| p.pipelines[0].inputs[0].kind_id = 3), "inputs"),
+            (Box::new(|p| p.kinds.clear()), "kinds"),
+            (Box::new(|p| p.kinds[1].kind_id = 1), "kinds"),
+            (Box::new(|p| p.kinds[0].kind_id = 0), "kinds"),
+            (Box::new(|p| p.kinds[0].name = String::new()), "kinds"),
+            (Box::new(|p| p.kinds[0].media_types.clear()), "kinds"),
             (
                 Box::new(|p| p.match_strictness_levels.reverse()),
                 "match_strictness_levels",

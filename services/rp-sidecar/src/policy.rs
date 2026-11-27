@@ -3,13 +3,18 @@
 //! The policy names what the RP accepts beyond its own request (WIP-202 §4.8): the Flamingo
 //! Verifier enclaves, the Engine configurations and the AAT values. See `policy.example.json`.
 
-use std::{collections::HashSet, fs, path::Path};
+use std::{
+    collections::{HashMap, HashSet, hash_map::Entry},
+    fs,
+    path::Path,
+};
 
 use pontifex::attestation::{self, PCR_LENGTH, PcrConfig};
 use serde::{Deserialize, Deserializer};
 use world_id_primitives::FieldElement;
 use world_id_rp::embedding_similarity::{
-    AatPolicy, AcceptedAatFlags, EmbeddingSimilarityPolicy, nitro_attestation_verifier,
+    AatPolicy, AcceptedAatFlags, AcceptedKinds, EmbeddingSimilarityPolicy, KindsError,
+    nitro_attestation_verifier,
 };
 
 /// Why a policy file was not loaded.
@@ -31,6 +36,17 @@ pub enum PolicyError {
     /// The policy accepts no Engine configuration, so it would reject every proof.
     #[error("the policy accepts no Engine configuration")]
     NoEngineConfigs,
+    /// An Engine configuration's kinds are not usable, e.g. none for the live capture.
+    #[error("engine_configs[{index}]: {source}")]
+    Kinds {
+        /// The configuration's position in `engine_configs`.
+        index: usize,
+        /// What is wrong with its kinds.
+        source: KindsError,
+    },
+    /// An `engine_config_hash` is listed twice, so one entry's kinds would silently win.
+    #[error("engine_configs[{0}] repeats an earlier engine_config_hash")]
+    DuplicateEngineConfig(usize),
     /// The AAT policy accepts no AAT although it requires one, or lists trust anchors without flag
     /// combinations or the reverse.
     #[error(
@@ -65,8 +81,19 @@ pub fn parse(json: &str) -> Result<EmbeddingSimilarityPolicy<attestation::Verifi
 #[serde(deny_unknown_fields)]
 struct PolicyFile {
     flamingo_verifiers: Vec<FlamingoVerifierPcrs>,
-    engine_config_hashes: Vec<FieldElement>,
+    engine_configs: Vec<AcceptedConfig>,
     aat: AatPolicyFile,
+}
+
+/// An Engine configuration the RP accepts (WIP-201 §4.7 check 6), with the `kind_id`s it accepts
+/// for each compared entry under it (WIP-202 §4.8 item 2).
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AcceptedConfig {
+    engine_config_hash: FieldElement,
+    credential_kinds: HashSet<u8>,
+    live_kinds: HashSet<u8>,
+    challenge_kinds: HashSet<u8>,
 }
 
 /// PCR0–2 of a Flamingo Verifier enclave image the RP accepts (WIP-201 §4.7 check 1).
@@ -122,12 +149,27 @@ impl TryFrom<PolicyFile> for EmbeddingSimilarityPolicy<attestation::Verifier> {
             .enumerate()
             .map(|(index, pcrs)| pcrs.into_pcr_config(index))
             .collect::<Result<_, _>>()?;
-        if file.engine_config_hashes.is_empty() {
+        if file.engine_configs.is_empty() {
             return Err(PolicyError::NoEngineConfigs);
+        }
+        let mut engine_configs = HashMap::with_capacity(file.engine_configs.len());
+        for (index, config) in file.engine_configs.into_iter().enumerate() {
+            let kinds = AcceptedKinds {
+                credential: config.credential_kinds,
+                live: config.live_kinds,
+                challenge: config.challenge_kinds,
+            };
+            kinds
+                .validate()
+                .map_err(|source| PolicyError::Kinds { index, source })?;
+            match engine_configs.entry(config.engine_config_hash) {
+                Entry::Occupied(_) => return Err(PolicyError::DuplicateEngineConfig(index)),
+                Entry::Vacant(entry) => entry.insert(kinds),
+            };
         }
         Ok(Self {
             attestation: nitro_attestation_verifier(pcr_configs),
-            engine_config_hashes: file.engine_config_hashes.into_iter().collect(),
+            engine_configs,
             aat: file.aat.try_into()?,
         })
     }
@@ -184,7 +226,12 @@ mod tests {
                 "pcr1": "22".repeat(PCR_LENGTH),
                 "pcr2": "33".repeat(PCR_LENGTH),
             }],
-            "engine_config_hashes": [format!("0x{}", "01".repeat(32))],
+            "engine_configs": [{
+                "engine_config_hash": format!("0x{}", "01".repeat(32)),
+                "credential_kinds": [1],
+                "live_kinds": [2],
+                "challenge_kinds": [2],
+            }],
             "aat": {
                 "required": false,
                 "trust_anchor_key_hashes": [],
@@ -204,7 +251,13 @@ mod tests {
 
         let policy = parse(&value.to_string()).unwrap();
 
-        assert_eq!(policy.engine_config_hashes.len(), 1);
+        assert_eq!(policy.engine_configs.len(), 1);
+        assert!(
+            policy
+                .engine_configs
+                .values()
+                .all(|kinds| kinds.accepts(0x0002_0201, true))
+        );
         assert!(policy.aat.required);
         assert!(policy.aat.accepted_flags.contains(&AcceptedAatFlags {
             platform: 1,
@@ -214,11 +267,27 @@ mod tests {
         }));
     }
 
+    #[test]
+    fn rejects_a_repeated_engine_config_hash() {
+        let mut policy = policy();
+        let config = policy["engine_configs"][0].clone();
+        policy["engine_configs"] = json!([config.clone(), config]);
+
+        assert!(matches!(
+            parse(&policy.to_string()),
+            Err(PolicyError::DuplicateEngineConfig(1))
+        ));
+    }
+
     #[test_case("/aat/requried", json!(true) => matches Err(PolicyError::Parse(_)) ; "an unknown field")]
     #[test_case("/flamingo_verifiers/0/pcr1", json!("22".repeat(32)) => matches Err(PolicyError::Parse(_)) ; "a PCR of the wrong length")]
     #[test_case("/flamingo_verifiers/0/pcr0", json!("00".repeat(PCR_LENGTH)) => matches Err(PolicyError::DebugModePcrs(0)) ; "a debug-mode PCR0")]
     #[test_case("/flamingo_verifiers", json!([]) => matches Err(PolicyError::NoFlamingoVerifiers) ; "no Flamingo Verifier")]
-    #[test_case("/engine_config_hashes", json!([]) => matches Err(PolicyError::NoEngineConfigs) ; "no Engine configuration")]
+    #[test_case("/engine_configs", json!([]) => matches Err(PolicyError::NoEngineConfigs) ; "no Engine configuration")]
+    #[test_case("/engine_configs/0/live_kinds", json!([]) => matches Err(PolicyError::Kinds { index: 0, source: KindsError::Empty }) ; "no live kind")]
+    #[test_case("/engine_configs/0/challenge_kinds", json!([0]) => matches Err(PolicyError::Kinds { index: 0, source: KindsError::ZeroKind }) ; "kind 0")]
+    #[test_case("/engine_configs/0/live_kinds", json!([1, 2]) => matches Err(PolicyError::Kinds { index: 0, source: KindsError::CredentialAsLive(1) }) ; "a credential kind as a live kind")]
+    #[test_case("/engine_configs/0/live_kinds", json!([256]) => matches Err(PolicyError::Parse(_)) ; "a kind above 255")]
     #[test_case("/aat/required", json!(true) => matches Err(PolicyError::AcceptsNoAat) ; "a required AAT that none satisfies")]
     #[test_case("/aat/trust_anchor_key_hashes", json!([format!("0x{}", "02".repeat(32))]) => matches Err(PolicyError::AcceptsNoAat) ; "trust anchors without flags")]
     fn rejects_a_policy_with(pointer: &str, value: Value) -> Result<(), PolicyError> {

@@ -43,6 +43,8 @@ pub struct FlamingoResult {
     pub nonce_salt: FieldElement,
     /// The request's compared entry hashes, from [`FlamingoAttempt::compared_entry_hashes`].
     pub compared_entry_hashes: [FieldElement; MAX_COMPARED],
+    /// The request's compare kinds, from [`FlamingoAttempt::compare_kinds`].
+    pub compare_kinds: u32,
 }
 
 /// The images a Proof of Embedding Similarity compares, in the order of the WIP-202 entry layout
@@ -50,14 +52,33 @@ pub struct FlamingoResult {
 #[derive(Clone)]
 pub struct EmbeddingSimilarityImages {
     /// The PCP thumbnail that the Credential's `hashes.json` lists.
-    pub credential_image: Vec<u8>,
+    pub credential_image: KindedImage,
     /// The live captures, one per input of the pipeline and in the order of its `inputs`. The
     /// first is compared; the others are checked only, e.g. the other frame of a `LightGuard`
     /// capture.
     pub live_captures: Vec<LiveCapture>,
     /// The RP's challenge image, whose `R(SHA-256)` is the request's `challenge_hash`, or `None`
     /// for a request without a challenge.
-    pub challenge: Option<Vec<u8>>,
+    pub challenge: Option<KindedImage>,
+}
+
+/// An image with the `kind_id` the release documents for it, e.g. its kind for Orb thumbnails.
+/// Kinds have no machine-readable meaning, so the caller takes them from its configuration.
+#[derive(Clone)]
+pub struct KindedImage {
+    /// The encoded image.
+    pub data: Vec<u8>,
+    /// Its `kind_id` in the release.
+    pub kind_id: u8,
+}
+
+/// Omits the image, which is biometric data.
+impl std::fmt::Debug for KindedImage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KindedImage")
+            .field("kind_id", &self.kind_id)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Omits the images, which are biometric data.
@@ -75,8 +96,10 @@ pub struct LiveCapture {
     pub role: String,
     /// The encoded image.
     pub data: Vec<u8>,
-    /// How the pipeline reads `data`, e.g. which frame of a `LightGuard` capture it is.
-    pub meta: Vec<u8>,
+    /// Its `kind_id` in the release; the pipeline input MUST list it.
+    pub kind_id: u8,
+    /// Entry-level Engine hints the pipeline documents, usually empty.
+    pub hints: Vec<u8>,
 }
 
 /// Omits the image, which is biometric data.
@@ -84,6 +107,7 @@ impl std::fmt::Debug for LiveCapture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LiveCapture")
             .field("role", &self.role)
+            .field("kind_id", &self.kind_id)
             .finish_non_exhaustive()
     }
 }
@@ -106,9 +130,9 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 /// §4.6). Keep the returned salt for the [`FlamingoResult`].
 ///
 /// The pipeline is the first in `release` whose `inputs` have the roles of `images.live_captures`,
-/// in order, so only the release, not the Verifier, picks it. The result carries no
-/// `aat_inputs`: an AAT signs the request's [`Request::cdh`], so the caller obtains one for this
-/// request and sets it afterwards.
+/// in order, and their kinds, so only the release, not the Verifier, picks it. The result
+/// carries no `aat_inputs`: an AAT signs the request's [`Request::cdh`], so the caller obtains one
+/// for this request and sets it afterwards.
 ///
 /// # Arguments
 /// - `proof_request`: the RP's [`ProofType::EmbeddingSimilarity`] request.
@@ -130,7 +154,7 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 /// - [`AuthenticatorError::MatchStrictnessNotOffered`] if `release` does not list
 ///   `match_strictness`.
 /// - [`AuthenticatorError::FlamingoRequest`] if the request has expired at `now`, or an entry is
-///   out of bounds.
+///   out of bounds or has a kind the release does not define.
 pub fn flamingo_request(
     proof_request: &ProofRequest,
     release: &ReleaseManifest,
@@ -149,11 +173,12 @@ pub fn flamingo_request(
         nonce_salt,
         now,
     )?;
-    let compared_entry_hashes = request.payload()?.compared_entry_hashes();
+    let payload = request.payload()?;
     Ok(FlamingoAttempt {
+        compared_entry_hashes: payload.compared_entry_hashes(),
+        compare_kinds: payload.compare_kinds(),
         request,
         nonce_salt,
-        compared_entry_hashes,
     })
 }
 
@@ -167,6 +192,8 @@ pub struct FlamingoAttempt {
     /// `R(SHA-256)` of each compared entry, or `0` past the last, for
     /// [`FlamingoResult::compared_entry_hashes`].
     pub compared_entry_hashes: [FieldElement; MAX_COMPARED],
+    /// The `kind_id` of each compared entry, one byte each, for [`FlamingoResult::compare_kinds`].
+    pub compare_kinds: u32,
 }
 
 /// Omits the request, which carries biometric data.
@@ -190,7 +217,7 @@ fn flamingo_request_with_salt(
     let challenge_hash = images
         .challenge
         .as_ref()
-        .map(|challenge| FieldElement::from_digest(&Sha256::digest(challenge).into()));
+        .map(|challenge| FieldElement::from_digest(&Sha256::digest(&challenge.data).into()));
     if challenge_hash != params.challenge_hash {
         return Err(PrimitiveError::InvalidInput {
             attribute: "challenge".to_string(),
@@ -219,10 +246,15 @@ fn flamingo_request_with_salt(
 
     // The compared entries come first, `[credential, live_captures[0], challenge]`; without a
     // challenge `compared_entry_hash_2` is `0` (WIP-202 §4.4.1). The other live captures follow.
-    let plain = |data| Entry { data, meta: vec![] };
+    let plain = |image: KindedImage| Entry {
+        data: image.data,
+        kind_id: image.kind_id,
+        hints: vec![],
+    };
     let mut live_captures = images.live_captures.into_iter().map(|capture| Entry {
         data: capture.data,
-        meta: capture.meta,
+        kind_id: capture.kind_id,
+        hints: capture.hints,
     });
     let mut entries = vec![plain(images.credential_image)];
     entries.extend(live_captures.next());
@@ -242,6 +274,7 @@ fn flamingo_request_with_salt(
         pipeline_inputs,
         compare,
     };
+    payload.check_release(release)?;
     Ok(Request::new(
         proof_request.rp_id.into(),
         flamingo_nonce(proof_request.nonce, nonce_salt),
@@ -252,15 +285,15 @@ fn flamingo_request_with_salt(
     )?)
 }
 
-/// Whether `pipeline` takes exactly `captures`: its inputs have their roles, in order, and its
-/// response timing stays within [`MAX_RESPONSE_SLOTS`].
+/// Whether `pipeline` takes exactly `captures`: its inputs have their roles and kinds, in order,
+/// and its response timing stays within [`MAX_RESPONSE_SLOTS`].
 fn takes_captures(pipeline: &Pipeline, captures: &[LiveCapture]) -> bool {
     pipeline.inputs.len() == captures.len()
         && pipeline
             .inputs
             .iter()
             .zip(captures)
-            .all(|(input, capture)| input.role == capture.role)
+            .all(|(input, capture)| input.role == capture.role && input.kind_id == capture.kind_id)
         && pipeline.response_slots.0.len() <= MAX_RESPONSE_SLOTS
 }
 
@@ -288,6 +321,7 @@ fn check_token_answers_request(
     rp_nonce: FieldElement,
     nonce_salt: FieldElement,
     sent_entry_hashes: &[FieldElement; MAX_COMPARED],
+    sent_compare_kinds: u32,
     params: &EmbeddingSimilarityParams,
 ) -> Result<(), AuthenticatorError> {
     let mismatch = |attribute| Err(AuthenticatorError::FlamingoTokenMismatch(attribute));
@@ -305,6 +339,9 @@ fn check_token_answers_request(
     }
     if claims.compare_sources != COMPARE_SOURCES {
         return mismatch("compare_sources");
+    }
+    if claims.compare_kinds != sent_compare_kinds {
+        return mismatch("compare_kinds");
     }
     if claims.compared_entry_hashes[2] != params.challenge_hash.unwrap_or(FieldElement::ZERO) {
         return mismatch("compared_entry_hash_2");
@@ -422,6 +459,7 @@ impl Authenticator {
             proof_request.nonce,
             flamingo.nonce_salt,
             &flamingo.compared_entry_hashes,
+            flamingo.compare_kinds,
             params,
         )?;
         let aat = claims.aat.as_ref().map(aat_public_values).transpose()?;
@@ -460,6 +498,7 @@ impl Authenticator {
             now: claims.now,
             flamingo_verifier_key: flamingo.verifier_key.clone(),
             engine_config_hash: claims.engine_config_hash,
+            compare_kinds: claims.compare_kinds,
             aat,
             cred_pk: cred.issuer.clone(),
             disclose_live_capture: params.return_live_capture,
@@ -525,7 +564,7 @@ mod tests {
     use super::*;
     use alloy::primitives::{Signature, U160, U256};
     use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-    use world_id_flamingo::release_manifest::{Input, ManifestPayload, ResponseSlots};
+    use world_id_flamingo::release_manifest::{Input, Kind, ManifestPayload, ResponseSlots};
     use world_id_primitives::{
         OprfKeyId, RequestItem, RequestVersion, authenticator_assertion::AatRequirements,
         oprf::OprfPrefix, rp::RpId,
@@ -544,6 +583,7 @@ mod tests {
             nonce: flamingo_nonce(FieldElement::from(5u64), FieldElement::from(NONCE_SALT)),
             aat: None,
             compare_sources: COMPARE_SOURCES,
+            compare_kinds: 131_585,
             engine_config_hash: FieldElement::from(4u64),
             billing_nullifier: FieldElement::ZERO,
         }
@@ -637,6 +677,7 @@ mod tests {
             FieldElement::from(5u64),
             FieldElement::from(NONCE_SALT),
             &self::claims().compared_entry_hashes,
+            131_585,
             params,
         )
         .map_err(|err| match err {
@@ -666,11 +707,13 @@ mod tests {
     #[test]
     fn a_token_for_another_request_is_rejected() {
         type Tamper = fn(&mut FlamingoClaims);
-        let cases: [(&str, Tamper); 7] = [
+        let cases: [(&str, Tamper); 8] = [
             ("aud", |c| c.aud = FieldElement::from(10u64)),
             // A token over the RP's own nonce rather than the derived one.
             ("nonce", |c| c.nonce = FieldElement::from(5u64)),
             ("compare_sources", |c| c.compare_sources = 0),
+            // The Engine processed an entry as another kind than the one sent.
+            ("compare_kinds", |c| c.compare_kinds = 131_841),
             ("compared_entry_hash_0", |c| {
                 c.compared_entry_hashes[0] = FieldElement::from(8u64);
             }),
@@ -710,19 +753,31 @@ mod tests {
         FieldElement::from_digest(&Sha256::digest(bytes).into())
     }
 
-    fn capture(role: &str, data: &[u8], meta: &[u8]) -> LiveCapture {
+    /// Kind `1` is Orb thumbnails, kind `2` phone captures.
+    const ORB: u8 = 1;
+    const PHONE: u8 = 2;
+
+    fn capture(role: &str, data: &[u8], hints: &[u8]) -> LiveCapture {
         LiveCapture {
             role: role.into(),
             data: data.to_vec(),
-            meta: meta.to_vec(),
+            kind_id: PHONE,
+            hints: hints.to_vec(),
+        }
+    }
+
+    fn image(data: &[u8], kind_id: u8) -> KindedImage {
+        KindedImage {
+            data: data.to_vec(),
+            kind_id,
         }
     }
 
     fn images() -> EmbeddingSimilarityImages {
         EmbeddingSimilarityImages {
-            credential_image: b"credential image".to_vec(),
+            credential_image: image(b"credential image", ORB),
             live_captures: vec![capture("live_frame", b"live image", b"")],
-            challenge: Some(b"challenge image".to_vec()),
+            challenge: Some(image(b"challenge image", PHONE)),
         }
     }
 
@@ -784,7 +839,7 @@ mod tests {
                 .iter()
                 .map(|role| Input {
                     role: (*role).into(),
-                    media_types: vec!["image/jpeg".into()],
+                    kind_id: PHONE,
                 })
                 .collect(),
             response_slots: ResponseSlots(vec![500, 1587, 5039, 16_000]),
@@ -798,6 +853,13 @@ mod tests {
             engine_hash: [0x2a; 48],
             version: 1,
             match_strictness_levels: vec![1, 2],
+            kinds: [(ORB, "orb"), (PHONE, "phone")]
+                .map(|(kind_id, name)| Kind {
+                    kind_id,
+                    name: name.into(),
+                    media_types: vec!["image/jpeg".into()],
+                })
+                .to_vec(),
             pipelines,
         };
         let header = r#"{"alg":"ES256","kid":"release-1","typ":"world-id-engine-manifest"}"#;
@@ -848,7 +910,7 @@ mod tests {
             ]
         );
         assert_eq!(payload.pipeline_inputs, vec![1]);
-        assert!(payload.entries.iter().all(|entry| entry.meta.is_empty()));
+        assert!(payload.entries.iter().all(|entry| entry.hints.is_empty()));
         assert_eq!(request.billing_nullifier, FieldElement::from(11u64));
         assert!(request.aat_inputs.is_none());
     }
@@ -983,7 +1045,7 @@ mod tests {
     #[test]
     fn a_challenge_that_does_not_match_the_request_is_rejected() {
         let mut other = images();
-        other.challenge = Some(b"other image".to_vec());
+        other.challenge = Some(image(b"other image", PHONE));
         let mut missing = images();
         missing.challenge = None;
         let cases = [
@@ -1015,7 +1077,7 @@ mod tests {
             pipeline(2, &["live_frame", "other_frame"]),
         ]);
         for (proof_request, challenge) in [
-            (proof_request(), Some(b"challenge image".to_vec())),
+            (proof_request(), Some(image(b"challenge image", PHONE))),
             (proof_request_without_a_challenge(), None),
         ] {
             let images = EmbeddingSimilarityImages {
@@ -1043,14 +1105,18 @@ mod tests {
             assert_eq!(payload.compare, (0..other_frame).collect::<Vec<_>>());
             let entry = |index: u8| &payload.entries[usize::from(index)];
             assert_eq!(entry(1).data, b"live image");
-            assert_eq!(entry(1).meta, b"illuminated");
+            assert_eq!(entry(1).hints, b"illuminated");
             assert_eq!(entry(other_frame).data, b"other frame");
-            assert_eq!(entry(other_frame).meta, b"unilluminated");
-            assert!(entry(0).meta.is_empty());
+            assert_eq!(entry(other_frame).hints, b"unilluminated");
+            assert!(entry(0).hints.is_empty());
             assert_eq!(
                 payload.compared_entry_hashes()[2],
-                challenge.map_or(FieldElement::ZERO, |challenge| image_hash(&challenge))
+                challenge
+                    .as_ref()
+                    .map_or(FieldElement::ZERO, |challenge| image_hash(&challenge.data))
             );
+            let expected_kinds = if challenge.is_some() { 131_585 } else { 513 };
+            assert_eq!(payload.compare_kinds(), expected_kinds);
         }
     }
 
@@ -1115,6 +1181,46 @@ mod tests {
                 NOW,
             ),
             Err(AuthenticatorError::NoFlamingoPipeline)
+        ));
+    }
+
+    #[test]
+    fn a_live_kind_the_pipeline_does_not_accept_selects_no_pipeline() {
+        let release = release(vec![pipeline(1, &["live_frame"])]);
+        let mut images = images();
+        images.live_captures[0].kind_id = ORB;
+        assert!(matches!(
+            flamingo_request_with_salt(
+                &proof_request(),
+                &release,
+                1,
+                images,
+                FieldElement::ZERO,
+                FieldElement::from(NONCE_SALT),
+                NOW,
+            ),
+            Err(AuthenticatorError::NoFlamingoPipeline)
+        ));
+    }
+
+    #[test]
+    fn a_kind_the_release_does_not_define_is_rejected() {
+        let release = release(vec![pipeline(1, &["live_frame"])]);
+        let mut images = images();
+        images.credential_image.kind_id = 9;
+        assert!(matches!(
+            flamingo_request_with_salt(
+                &proof_request(),
+                &release,
+                1,
+                images,
+                FieldElement::ZERO,
+                FieldElement::from(NONCE_SALT),
+                NOW,
+            ),
+            Err(AuthenticatorError::FlamingoRequest(
+                RequestError::OutOfBounds("entries[].kind_id")
+            ))
         ));
     }
 }

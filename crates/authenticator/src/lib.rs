@@ -8,7 +8,8 @@ mod account;
 pub use account::AccountAuthenticators;
 mod embedding_similarity;
 pub use embedding_similarity::{
-    EmbeddingSimilarityImages, FlamingoAttempt, FlamingoResult, LiveCapture, flamingo_request,
+    EmbeddingSimilarityImages, FlamingoAttempt, FlamingoResult, KindedImage, LiveCapture,
+    flamingo_request,
 };
 mod init;
 mod prove;
