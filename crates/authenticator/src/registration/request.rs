@@ -1,6 +1,6 @@
 //! The `worldid_auth_v1_register` request (WIP-109 §3.3.1, §3.3.2 and §3.6.1).
 
-use std::fmt;
+use std::{collections::BTreeSet, fmt};
 
 use alloy::primitives::Address;
 use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
@@ -14,7 +14,7 @@ use world_id_primitives::{
 };
 
 use super::{
-    reject_tags,
+    MAX_REQUEST_SIZE, reject_tags,
     session::{RequestId, ResponsePublicKey},
 };
 
@@ -74,7 +74,7 @@ const DIGEST_LABEL: &[u8] = b"WORLD-ID/WIP-109/REGISTER";
 ///
 /// It lets the Approving Authenticator detect a request that was substituted on the way. It
 /// covers the [`RequestId`], the new authenticator's signing key and address, and the response
-/// key, but not the name.
+/// key, but not the name, the supported issuer schema IDs or the supported attachment kinds.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct RegistrationDigest([u8; 32]);
 
@@ -134,7 +134,7 @@ impl fmt::Debug for RegistrationDigest {
 
 /// The `params` of a `worldid_auth_v1_register` request.
 ///
-/// Decode received params with [`RegistrationRequest::from_params`]. The `Deserialize` impl alone
+/// Decode received params with [`RegistrationRequest::decode`]. The `Deserialize` impl alone
 /// skips CBOR tags, which WIP-109 payloads must not contain.
 ///
 /// Decoding only checks encodings and bounds. The Approving Authenticator still has to compare
@@ -164,6 +164,24 @@ pub struct RegistrationRequest {
         deserialize_with = "deserialize_present"
     )]
     pub name: Option<AuthenticatorName>,
+    /// The issuer schema IDs whose credentials the Requesting Authenticator can use. `None`
+    /// leaves the choice of credentials to the Approving Authenticator.
+    /// Self-reported and unauthenticated, so it is not an authorization boundary.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "issuer_schema_ids"
+    )]
+    pub supported_issuer_schema_ids: Option<BTreeSet<u64>>,
+    /// The attachment kinds the Requesting Authenticator can handle. It ignores attachments of
+    /// any other kind, and `None` asks for no attachments. Self-reported
+    /// and unauthenticated, so it is not an authorization boundary.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "attachment_kinds"
+    )]
+    pub supported_attachment_kinds: Option<BTreeSet<String>>,
     /// The signature over the [`RegistrationDigest`] by `new_authenticator_pubkey`.
     #[serde(with = "eddsa_signature")]
     pub registration_sig: EdDSASignature,
@@ -182,6 +200,8 @@ impl RegistrationRequest {
         new_authenticator_address: Option<Address>,
         response_pubkey: ResponsePublicKey,
         name: Option<AuthenticatorName>,
+        supported_issuer_schema_ids: Option<BTreeSet<u64>>,
+        supported_attachment_kinds: Option<BTreeSet<String>>,
         request_id: &RequestId,
     ) -> Result<(Self, RegistrationDigest), PrimitiveError> {
         let new_authenticator_address = new_authenticator_address
@@ -204,26 +224,34 @@ impl RegistrationRequest {
             new_authenticator_address,
             response_pubkey,
             name,
+            supported_issuer_schema_ids,
+            supported_attachment_kinds,
             registration_sig,
         };
         Ok((request, digest))
     }
 
-    /// Decodes the `params` of a received registration request.
+    /// Decodes the `params` of a received registration request from the request's plaintext.
     ///
-    /// The Approving Authenticator decodes the request envelope as a [`Request<Value>`] first, so
-    /// that it can answer an invalid request with its `id`, and passes the `params` here once the
-    /// `id` and `method` are checked.
+    /// The Approving Authenticator decodes the plaintext as a [`Request<Value>`] first, so that
+    /// it can answer an invalid request with its `id`, and calls this once the `id` and `method`
+    /// are checked.
     ///
     /// # Errors
     ///
-    /// Returns [`MessageError::Deserialize`] if `params` contains a CBOR tag at any depth or does
-    /// not match the request schema.
-    pub fn from_params(params: &Value) -> Result<Self, MessageError> {
-        reject_tags(params)?;
-        params
-            .deserialized()
-            .map_err(|error| MessageError::Deserialize(serde::de::Error::custom(error)))
+    /// Returns a [`MessageError`] if the plaintext is not a single request of at most 4 KiB
+    /// (WIP-109 §3.5), or if its `params` are missing, contain a CBOR tag at any depth or do not
+    /// match the request schema.
+    pub fn decode(plaintext: &[u8]) -> Result<Self, MessageError> {
+        // Neither pass suffices alone: typed decoding skips tags, and a `Value` turns bignums
+        // into plain integers, which only the typed `deserialize_unsigned` rejects.
+        let raw: Request<Value> = Request::decode(plaintext, MAX_REQUEST_SIZE)?;
+        if let Some(params) = &raw.params {
+            reject_tags(params)?;
+        }
+        RegisterRequestMessage::decode(plaintext, MAX_REQUEST_SIZE)?
+            .params
+            .ok_or_else(|| MessageError::Deserialize(serde::de::Error::missing_field("params")))
     }
 
     /// Recomputes the digest of this request for the session identified by `request_id`.
@@ -252,7 +280,7 @@ impl RegistrationRequest {
 /// The registration request as sent over the bridge.
 ///
 /// The Requesting Authenticator builds and encodes it. A received request is decoded in two
-/// steps, as described on [`RegistrationRequest::from_params`].
+/// steps, as described on [`RegistrationRequest::decode`].
 pub type RegisterRequestMessage = Request<RegistrationRequest>;
 
 /// Returns `address`, unless it is the zero address, which WIP-109 §3.6.1 forbids as
@@ -262,6 +290,18 @@ fn non_zero_address(address: Address) -> Result<Address, &'static str> {
         return Err("must not be the zero address");
     }
     Ok(address)
+}
+
+/// Collects the items of a decoded array into a set, which WIP-109 §3.6.1 requires to hold no
+/// duplicates.
+fn distinct<T: Ord>(items: Vec<T>) -> Result<BTreeSet<T>, &'static str> {
+    let count = items.len();
+    let set: BTreeSet<T> = items.into_iter().collect();
+    if set.len() == count {
+        Ok(set)
+    } else {
+        Err("must not contain duplicates")
+    }
 }
 
 /// The compressed public key (WIP-100 §4) as a 32-byte CBOR byte string.
@@ -339,6 +379,69 @@ mod authenticator_address {
     }
 }
 
+/// A present `supported_issuer_schema_ids` as a CBOR array of distinct unsigned integers.
+mod issuer_schema_ids {
+    use std::collections::BTreeSet;
+
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+    use world_id_primitives::serde_utils::cbor::deserialize_unsigned;
+
+    use super::distinct;
+
+    #[derive(Deserialize)]
+    #[serde(transparent)]
+    struct IssuerSchemaId(#[serde(deserialize_with = "deserialize_unsigned")] u64);
+
+    pub(super) fn serialize<S: Serializer>(
+        ids: &Option<BTreeSet<u64>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match ids {
+            Some(ids) => serializer.collect_seq(ids),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<BTreeSet<u64>>, D::Error> {
+        let ids = Vec::<IssuerSchemaId>::deserialize(deserializer)?
+            .into_iter()
+            .map(|IssuerSchemaId(id)| id)
+            .collect();
+        distinct(ids).map(Some).map_err(|reason| {
+            D::Error::custom(format_args!("supported_issuer_schema_ids {reason}"))
+        })
+    }
+}
+
+/// A present `supported_attachment_kinds` as a CBOR array of distinct text strings.
+mod attachment_kinds {
+    use std::collections::BTreeSet;
+
+    use serde::{Deserialize, Deserializer, Serializer, de::Error as _};
+
+    use super::distinct;
+
+    pub(super) fn serialize<S: Serializer>(
+        kinds: &Option<BTreeSet<String>>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        match kinds {
+            Some(kinds) => serializer.collect_seq(kinds),
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub(super) fn deserialize<'de, D: Deserializer<'de>>(
+        deserializer: D,
+    ) -> Result<Option<BTreeSet<String>>, D::Error> {
+        distinct(Vec::<String>::deserialize(deserializer)?)
+            .map(Some)
+            .map_err(|reason| D::Error::custom(format_args!("supported_attachment_kinds {reason}")))
+    }
+}
+
 /// The X-Wing encapsulation key as a 1216-byte CBOR byte string.
 mod xwing_pubkey {
     use serde::{Deserializer, Serializer, de::Error as _};
@@ -366,10 +469,11 @@ mod tests {
     use test_case::test_case;
 
     use super::*;
-    use crate::registration::{MAX_REQUEST_SIZE, PairingSecret, ResponseSecretKey};
+    use crate::registration::{PairingSecret, ResponseSecretKey};
 
     const ADMIN: Option<Address> = Some(Address::repeat_byte(0x11));
     const PROVING: Option<Address> = None;
+    const POH_AD: &str = "poh_ad_v1";
 
     fn signing_key(seed: u8) -> EdDSAPrivateKey {
         EdDSAPrivateKey::from_bytes([seed; 32])
@@ -386,10 +490,19 @@ mod tests {
             new_authenticator_address,
             response_pubkey,
             Some(name),
+            Some(BTreeSet::from([1, 9303])),
+            Some(BTreeSet::from([POH_AD.to_string()])),
             &request_id,
         )
         .unwrap();
         (request, digest, request_id)
+    }
+
+    /// Decodes `params` as the Approving Authenticator receives them: from the bytes of a
+    /// request message.
+    fn decode_params(params: &Value) -> Result<RegistrationRequest, MessageError> {
+        let message = Request::new(Some("request".into()), REGISTER_METHOD, Some(params));
+        RegistrationRequest::decode(&message.encode().unwrap())
     }
 
     /// The params of an Admin Authenticator's [`signed_request`].
@@ -439,9 +552,11 @@ mod tests {
         other_response_key.response_pubkey = ResponseSecretKey::from_seed(&[5; 32]).public_key();
         assert_ne!(other_response_key.digest(&request_id).unwrap(), digest);
 
-        let mut renamed = request;
-        renamed.name = None;
-        assert_eq!(renamed.digest(&request_id).unwrap(), digest);
+        let mut unauthenticated = request;
+        unauthenticated.name = None;
+        unauthenticated.supported_issuer_schema_ids = None;
+        unauthenticated.supported_attachment_kinds = None;
+        assert_eq!(unauthenticated.digest(&request_id).unwrap(), digest);
     }
 
     #[test]
@@ -453,6 +568,8 @@ mod tests {
             &signing_key(1),
             zero,
             response_pubkey,
+            None,
+            None,
             None,
             &request_id,
         );
@@ -477,6 +594,27 @@ mod tests {
         );
     }
 
+    #[test_case(None; "absent")]
+    #[test_case(Some(BTreeSet::new()); "empty")]
+    #[test_case(Some(BTreeSet::from([POH_AD.to_string(), "telemetry_seed_v1".to_string()]));
+                "two kinds")]
+    fn supported_attachment_kinds_round_trip(kinds: Option<BTreeSet<String>>) {
+        let (mut request, _, _) = signed_request(ADMIN);
+        request.supported_attachment_kinds = kinds;
+        let params = Value::serialized(&request).unwrap();
+        assert_eq!(decode_params(&params).unwrap(), request);
+    }
+
+    #[test_case(None; "absent")]
+    #[test_case(Some(BTreeSet::new()); "empty")]
+    #[test_case(Some(BTreeSet::from([u64::MAX, 0])); "full range")]
+    fn supported_issuer_schema_ids_round_trip(ids: Option<BTreeSet<u64>>) {
+        let (mut request, _, _) = signed_request(ADMIN);
+        request.supported_issuer_schema_ids = ids;
+        let params = Value::serialized(&request).unwrap();
+        assert_eq!(decode_params(&params).unwrap(), request);
+    }
+
     #[test]
     fn params_use_the_wip_109_field_names_and_byte_strings() {
         let (request, _, _) = signed_request(ADMIN);
@@ -499,10 +637,18 @@ mod tests {
                 Value::Bytes(request.response_pubkey.to_bytes()),
             ),
             ("name".into(), "Chrome on MacBook".into()),
+            (
+                "supported_issuer_schema_ids".into(),
+                Value::Array(vec![1.into(), 9303.into()]),
+            ),
+            (
+                "supported_attachment_kinds".into(),
+                Value::Array(vec![POH_AD.into()]),
+            ),
             ("registration_sig".into(), Value::Bytes(signature.to_vec())),
         ]);
         assert_eq!(Value::serialized(&request).unwrap(), params);
-        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+        assert_eq!(decode_params(&params).unwrap(), request);
     }
 
     #[test_case(ADMIN; "admin")]
@@ -515,15 +661,20 @@ mod tests {
             Some(request.clone()),
         );
         let encoded = message.encode().unwrap();
-        let received: Request<Value> = Request::decode(&encoded, MAX_REQUEST_SIZE).unwrap();
-        let params = received.params.unwrap();
-        assert_eq!(RegistrationRequest::from_params(&params).unwrap(), request);
+        assert_eq!(RegistrationRequest::decode(&encoded).unwrap(), request);
     }
 
     #[test]
-    fn from_params_rejects_tagged_params() {
+    fn decode_rejects_a_request_without_params() {
+        let message = Request::<Value>::new(Some("request".into()), REGISTER_METHOD, None);
+        let rejection = RegistrationRequest::decode(&message.encode().unwrap()).unwrap_err();
+        assert!(rejection.to_string().contains("missing field `params`"));
+    }
+
+    #[test]
+    fn decode_rejects_tagged_params() {
         let tagged = Value::Tag(55799, Box::new(admin_params()));
-        let rejection = RegistrationRequest::from_params(&tagged).unwrap_err();
+        let rejection = decode_params(&tagged).unwrap_err();
         assert!(rejection.to_string().contains("must not contain CBOR tags"));
     }
 
@@ -547,10 +698,35 @@ mod tests {
                 "invalid X-Wing encapsulation key"; "long response key")]
     #[test_case("registration_sig", Some(Value::Bytes(vec![1; 63])),
                 "of 64 bytes, got 63"; "short signature")]
+    #[test_case("supported_issuer_schema_ids", Some(Value::Null),
+                "invalid type: null"; "null schema ids")]
+    #[test_case("supported_issuer_schema_ids", Some(1.into()),
+                "invalid type: integer"; "schema ids as an integer")]
+    #[test_case("supported_issuer_schema_ids", Some(Value::Array(vec![1.into(), 1.into()])),
+                "must not contain duplicates"; "repeated schema id")]
+    #[test_case("supported_issuer_schema_ids", Some(Value::Array(vec![(-1).into()])),
+                "expected a CBOR unsigned integer"; "negative schema id")]
+    #[test_case("supported_issuer_schema_ids", Some(Value::Array(vec!["1".into()])),
+                "expected a CBOR unsigned integer"; "text schema id")]
+    #[test_case("supported_issuer_schema_ids",
+                Some(Value::Array(vec![Value::Tag(2, Box::new(Value::Bytes(vec![1])))])),
+                "expected a CBOR unsigned integer"; "bignum schema id")]
+    #[test_case("supported_attachment_kinds", Some(Value::Null),
+                "invalid type: null"; "null attachment kinds")]
+    #[test_case("supported_attachment_kinds", Some(POH_AD.into()),
+                "invalid type: string"; "attachment kinds as text")]
+    #[test_case("supported_attachment_kinds",
+                Some(Value::Array(vec![POH_AD.into(), POH_AD.into()])),
+                "must not contain duplicates"; "repeated attachment kind")]
+    #[test_case("supported_attachment_kinds", Some(Value::Array(vec![1.into()])),
+                "invalid type: integer"; "integer attachment kind")]
+    #[test_case("supported_attachment_kinds",
+                Some(Value::Array(vec![Value::Bytes(POH_AD.as_bytes().to_vec())])),
+                "invalid type: byte"; "attachment kind as bytes")]
     #[test_case("registration_sig", None, "missing field `registration_sig`"; "missing signature")]
     #[test_case("class", Some("admin".into()), "unknown field `class`"; "unknown field")]
-    fn from_params_rejects_a_malformed_field(field: &str, value: Option<Value>, error: &str) {
-        let rejection = RegistrationRequest::from_params(&params_with(field, value))
+    fn decode_rejects_a_malformed_field(field: &str, value: Option<Value>, error: &str) {
+        let rejection = decode_params(&params_with(field, value))
             .unwrap_err()
             .to_string();
         assert!(rejection.contains(error), "{rejection}");

@@ -13,7 +13,7 @@
 //! transferred [`PairingCode`]. Messages are encoded with
 //! [`Request::encode`](world_id_primitives::authenticator_message::Request::encode) and
 //! [`Response::encode`](world_id_primitives::authenticator_message::Response::encode). A received
-//! request's params are decoded with [`RegistrationRequest::from_params`] and a received
+//! request's params are decoded with [`RegistrationRequest::decode`] and a received
 //! response with [`decode_response`], which add the WIP-109 payload rules to the WIP-105
 //! envelope.
 
@@ -30,8 +30,8 @@ pub use request::{
     RegistrationDigest, RegistrationRequest,
 };
 pub use response::{
-    KnownAuthenticator, MAX_VAULT_SIZE, RegisterResponseMessage, RegistrationErrorData,
-    RegistrationErrorReason, RegistrationResult, Vault, decode_response,
+    Attachment, KnownAuthenticator, MAX_TRANSFER_SIZE, RegisterResponseMessage,
+    RegistrationErrorData, RegistrationErrorReason, RegistrationResult, Vault, decode_response,
 };
 pub use session::{
     EncryptedPayload, PairingCode, PairingSecret, RequestId, ResponsePublicKey, ResponseSecretKey,
@@ -41,8 +41,8 @@ pub use session::{
 /// The largest encoded request (WIP-109 §3.5).
 const MAX_REQUEST_SIZE: usize = 4 * 1024;
 
-/// The largest encoded response: a full vault plus 4 KiB for the other fields (WIP-109 §3.5).
-const MAX_RESPONSE_SIZE: usize = MAX_VAULT_SIZE + 4 * 1024;
+/// The largest encoded response: a full transfer plus 4 KiB for the other fields (WIP-109 §3.5).
+const MAX_RESPONSE_SIZE: usize = MAX_TRANSFER_SIZE + 4 * 1024;
 
 /// Rejects a registration payload that contains a CBOR tag at any depth.
 ///

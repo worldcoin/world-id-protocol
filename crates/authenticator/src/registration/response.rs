@@ -1,8 +1,8 @@
 //! The response to a `worldid_auth_v1_register` request (WIP-109 §3.6.2 and §3.6.3).
 
-use std::fmt;
+use std::{borrow::Cow, fmt};
 
-use serde::{Deserialize, Deserializer, Serialize, de::Error as _};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _, ser::Error as _};
 use world_id_primitives::{
     MAX_AUTHENTICATOR_KEYS, TREE_DEPTH,
     authenticator_message::{ErrorObject, MessageError, Response, Value},
@@ -12,33 +12,97 @@ use zeroize::Zeroizing;
 
 use super::{MAX_RESPONSE_SIZE, reject_tags};
 
-/// The largest [`Vault::data`] a registration response carries: 3.5 MiB, so that the encrypted
-/// response fits the message-bridge's 5 MiB body limit (WIP-109 §3.6.2).
-pub const MAX_VAULT_SIZE: usize = 3_670_016;
+/// The largest registration transfer: 15 MiB for [`Vault::data`] and every [`Attachment::data`]
+/// together (WIP-109 §3.6.2).
+pub const MAX_TRANSFER_SIZE: usize = 15_728_640;
 
-/// A credential vault export.
+/// The result of a successful registration: where the new authenticator was inserted, and the
+/// credentials it needs to generate proofs.
 ///
-/// The vault holds the account's credentials and the associated data from their issuers, which
-/// may include biometric data. Its bytes are zeroized on drop.
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Vault {
-    /// The format of `data`, a CBOR text string. This crate does not interpret it; the consumer
-    /// of the vault decides which formats it accepts. Untrusted text with no length limit of its
-    /// own; the message size limit bounds it.
-    pub format: String,
-    /// The vault bytes, a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes on the wire.
-    #[serde(with = "vault_data")]
-    pub data: Zeroizing<Vec<u8>>,
+/// Encoding and decoding reject a transfer of more than [`MAX_TRANSFER_SIZE`] bytes.
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
+#[serde(try_from = "ResultFields<'static>")]
+pub struct RegistrationResult {
+    /// The index of the account the authenticator was registered on, from 1 to 2^30 − 1.
+    pub leaf_index: u64,
+    /// The slot the authenticator was inserted at, below [`MAX_AUTHENTICATOR_KEYS`].
+    pub pubkey_id: u32,
+    /// Names of the account's other authenticators known to the Approving Authenticator.
+    pub authenticators: Vec<KnownAuthenticator>,
+    /// The vault with the credentials the user chose to transfer, or `None` if they chose none.
+    pub vault: Option<Vault>,
+    /// Data transferred next to the vault. This crate does not check an attachment's kind
+    /// against the request's `supported_attachment_kinds`; the authenticators do.
+    pub attachments: Vec<Attachment>,
 }
 
-impl fmt::Debug for Vault {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Vault")
-            .field("format", &self.format)
-            .field("len", &self.data.len())
-            .finish_non_exhaustive()
+impl RegistrationResult {
+    fn check_transfer(&self) -> Result<(), &'static str> {
+        let vault = self.vault.iter().map(|vault| vault.data.len());
+        let attachments = self
+            .attachments
+            .iter()
+            .map(|attachment| attachment.data.len());
+        let fits = vault
+            .chain(attachments)
+            .try_fold(0_usize, usize::checked_add)
+            .is_some_and(|size| size <= MAX_TRANSFER_SIZE);
+        if !fits {
+            return Err("vault and attachment data exceed 15 MiB");
+        }
+        Ok(())
     }
+}
+
+impl Serialize for RegistrationResult {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.check_transfer().map_err(S::Error::custom)?;
+        ResultFields {
+            leaf_index: self.leaf_index,
+            pubkey_id: self.pubkey_id,
+            authenticators: Cow::Borrowed(&self.authenticators),
+            vault: self.vault.as_ref().map(Cow::Borrowed),
+            attachments: Cow::Borrowed(&self.attachments),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl TryFrom<ResultFields<'static>> for RegistrationResult {
+    type Error = &'static str;
+
+    fn try_from(fields: ResultFields<'static>) -> Result<Self, Self::Error> {
+        let result = Self {
+            leaf_index: fields.leaf_index,
+            pubkey_id: fields.pubkey_id,
+            authenticators: fields.authenticators.into_owned(),
+            vault: fields.vault.map(Cow::into_owned),
+            attachments: fields.attachments.into_owned(),
+        };
+        result.check_transfer()?;
+        Ok(result)
+    }
+}
+
+/// The wire form of a [`RegistrationResult`] (WIP-109 §3.6.2), before the checks that span
+/// several fields.
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResultFields<'a> {
+    #[serde(with = "leaf_index")]
+    leaf_index: u64,
+    #[serde(with = "pubkey_id")]
+    pubkey_id: u32,
+    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    authenticators: Cow<'a, [KnownAuthenticator]>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_present"
+    )]
+    vault: Option<Cow<'a, Vault>>,
+    #[serde(default, skip_serializing_if = "<[_]>::is_empty")]
+    attachments: Cow<'a, [Attachment]>,
 }
 
 /// The name of one of the account's other authenticators.
@@ -53,28 +117,52 @@ pub struct KnownAuthenticator {
     pub name: String,
 }
 
-/// The result of a successful registration: where the new authenticator was inserted, and the
-/// credentials it needs to generate proofs.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// A credential vault export.
+///
+/// The vault holds the credentials the user chose to transfer. Its bytes are zeroized on drop.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct RegistrationResult {
-    /// The index of the account the authenticator was registered on, from 1 to 2^30 − 1.
-    #[serde(with = "leaf_index")]
-    pub leaf_index: u64,
-    /// The slot the authenticator was inserted at, below [`MAX_AUTHENTICATOR_KEYS`].
-    #[serde(with = "pubkey_id")]
-    pub pubkey_id: u32,
-    /// Names of the account's other authenticators known to the Approving Authenticator.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub authenticators: Vec<KnownAuthenticator>,
-    /// The account's credential vault, unless the user or Approving Authenticator policy
-    /// excluded it.
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        deserialize_with = "deserialize_present"
-    )]
-    pub vault: Option<Vault>,
+pub struct Vault {
+    /// The format of `data`, a CBOR text string. This crate does not interpret it; the consumer
+    /// of the vault decides which formats it accepts. Untrusted text with no length limit of its
+    /// own; the message size limit bounds it.
+    pub format: String,
+    /// The vault bytes, a CBOR byte string.
+    #[serde(with = "secret_bytes")]
+    pub data: Zeroizing<Vec<u8>>,
+}
+
+impl fmt::Debug for Vault {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Vault")
+            .field("format", &self.format)
+            .field("len", &self.data.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Data transferred to the new authenticator outside the vault, e.g. a Personal Custody Package.
+///
+/// WIP-109 does not define attachment kinds. The receiver treats `data` as untrusted input to
+/// the code that handles its kind. The data may be biometric; its bytes are zeroized on drop.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Attachment {
+    /// The kind of attachment, a CBOR text string, which decides how `data` is handled.
+    /// Untrusted text with no length limit of its own; the message size limit bounds it.
+    pub kind: String,
+    /// The attachment bytes, a CBOR byte string.
+    #[serde(with = "secret_bytes")]
+    pub data: Zeroizing<Vec<u8>>,
+}
+
+impl fmt::Debug for Attachment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Attachment")
+            .field("kind", &self.kind)
+            .field("len", &self.data.len())
+            .finish_non_exhaustive()
+    }
 }
 
 /// The `data` member of a registration error.
@@ -199,7 +287,7 @@ pub type RegisterResponseMessage = Response<RegistrationResult, RegistrationErro
 /// Decodes a registration response from the plaintext of
 /// [`TransportKey::decrypt_response`](super::TransportKey::decrypt_response).
 ///
-/// The plaintext must hold a single WIP-105 response of at most 3.5 MiB plus 4 KiB (WIP-109
+/// The plaintext must hold a single WIP-105 response of at most 15 MiB plus 4 KiB (WIP-109
 /// §3.5). Its `result` must be a [`RegistrationResult`] without CBOR tags at any depth. An
 /// error's `data` is read as [`RegistrationErrorData`], which rejects duplicate `detail` keys.
 /// Matching the `id`
@@ -217,7 +305,7 @@ pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, Mess
     }
     // Neither pass suffices alone: typed decoding skips tags, and a `Value` turns bignums into
     // plain integers, which only the typed `deserialize_unsigned` rejects. The `Value` copy may
-    // hold the vault, so it is wiped before the tag check can return.
+    // hold the vault and attachments, so it is wiped before the tag check can return.
     let mut raw: Response<Value, Value> = Response::decode(plaintext, MAX_RESPONSE_SIZE)?;
     if let Response::Success { result, .. } = &mut raw {
         wipe_byte_strings(result);
@@ -226,7 +314,7 @@ pub fn decode_response(plaintext: &[u8]) -> Result<RegisterResponseMessage, Mess
     Ok(response)
 }
 
-/// Wipes every byte string in `value`, which may hold a copy of the vault.
+/// Wipes every byte string in `value`, which may hold a copy of the vault and attachments.
 fn wipe_byte_strings(value: &mut Value) {
     match value {
         Value::Bytes(bytes) => zeroize::Zeroize::zeroize(bytes),
@@ -298,31 +386,20 @@ mod pubkey_id {
     }
 }
 
-/// The vault bytes as a CBOR byte string of at most [`MAX_VAULT_SIZE`] bytes (WIP-109 §3.6.2).
-mod vault_data {
-    use serde::{Deserializer, Serializer, de::Error as _, ser::Error as _};
+/// Vault or attachment bytes as a CBOR byte string, zeroized on drop.
+mod secret_bytes {
+    use serde::{Deserializer, Serializer};
     use world_id_primitives::serde_utils::cbor;
     use zeroize::Zeroizing;
 
-    use super::MAX_VAULT_SIZE;
-
-    const TOO_LARGE: &str = "vault data exceeds 3.5 MiB";
-
     pub(super) fn serialize<S: Serializer>(data: &[u8], serializer: S) -> Result<S::Ok, S::Error> {
-        if data.len() > MAX_VAULT_SIZE {
-            return Err(S::Error::custom(TOO_LARGE));
-        }
         serializer.serialize_bytes(data)
     }
 
     pub(super) fn deserialize<'de, D: Deserializer<'de>>(
         deserializer: D,
     ) -> Result<Zeroizing<Vec<u8>>, D::Error> {
-        let data = Zeroizing::new(cbor::deserialize_byte_string(deserializer)?);
-        if data.len() > MAX_VAULT_SIZE {
-            return Err(D::Error::custom(TOO_LARGE));
-        }
-        Ok(data)
+        cbor::deserialize_byte_string(deserializer).map(Zeroizing::new)
     }
 }
 
@@ -395,6 +472,60 @@ mod tests {
         result_with_vault(format, Value::Bytes(b"SQLite".to_vec()))
     }
 
+    /// The attachment kind used by these tests.
+    const KIND: &str = "poh_ad_v1";
+
+    /// A CBOR attachment.
+    fn attachment(kind: Value, data: Value) -> Value {
+        Value::Map(vec![("kind".into(), kind), ("data".into(), data)])
+    }
+
+    /// A CBOR `result` with a vault of `vault_size` bytes and one attachment per size in
+    /// `attachment_sizes`.
+    fn result_with_transfer(vault_size: usize, attachment_sizes: &[usize]) -> Value {
+        let Value::Map(mut entries) = result_with_vault_data(Value::Bytes(vec![0; vault_size]))
+        else {
+            unreachable!("the result is a map")
+        };
+        let attachments: Vec<Value> = attachment_sizes
+            .iter()
+            .map(|size| attachment(KIND.into(), Value::Bytes(vec![0; *size])))
+            .collect();
+        if !attachments.is_empty() {
+            entries.push(("attachments".into(), Value::Array(attachments)));
+        }
+        Value::Map(entries)
+    }
+
+    /// The [`RegistrationResult`] of [`result_with_transfer`].
+    fn transfer_result(vault_size: usize, attachment_sizes: &[usize]) -> RegistrationResult {
+        RegistrationResult {
+            leaf_index: 42,
+            pubkey_id: 1,
+            authenticators: Vec::new(),
+            vault: Some(Vault {
+                format: FORMAT.to_string(),
+                data: vec![0; vault_size].into(),
+            }),
+            attachments: attachment_sizes
+                .iter()
+                .map(|size| Attachment {
+                    kind: KIND.to_string(),
+                    data: vec![0; *size].into(),
+                })
+                .collect(),
+        }
+    }
+
+    /// A CBOR `result` with a vault and the single attachment `attachment`.
+    fn result_with_attachment(attachment: Value) -> Value {
+        let Value::Map(mut entries) = result_with_vault_format(FORMAT.into()) else {
+            unreachable!("the result is a map")
+        };
+        entries.push(("attachments".into(), Value::Array(vec![attachment])));
+        Value::Map(entries)
+    }
+
     /// A CBOR `result` that also names one known authenticator at `known_pubkey_id`.
     fn result_with_known(leaf_index: u64, pubkey_id: u32, known_pubkey_id: u32) -> Value {
         let Value::Map(mut entries) = result_with_indexes(leaf_index.into(), pubkey_id.into())
@@ -421,6 +552,7 @@ mod tests {
                 name: "phone".to_string(),
             }],
             vault: None,
+            attachments: Vec::new(),
         }
     }
 
@@ -437,6 +569,10 @@ mod tests {
                 format: FORMAT.to_string(),
                 data: b"SQLite".to_vec().into(),
             }),
+            attachments: vec![Attachment {
+                kind: KIND.to_string(),
+                data: b"PCP".to_vec().into(),
+            }],
         };
         let wire = Value::Map(vec![
             ("leaf_index".into(), 42.into()),
@@ -454,6 +590,10 @@ mod tests {
                     ("format".into(), FORMAT.into()),
                     ("data".into(), Value::Bytes(b"SQLite".to_vec())),
                 ]),
+            ),
+            (
+                "attachments".into(),
+                Value::Array(vec![attachment(KIND.into(), Value::Bytes(b"PCP".to_vec()))]),
             ),
         ]);
         assert_eq!(Value::serialized(&result).unwrap(), wire);
@@ -644,30 +784,85 @@ mod tests {
     #[test_case(result_with_vault_format(1.into()), "invalid type: integer"; "integer vault format")]
     #[test_case(result_with_vault_format(Value::Tag(0, Box::new(FORMAT.into()))),
                 "must not contain CBOR tags"; "tagged vault format")]
+    #[test_case(result_with("attachments", Value::Null),
+                "invalid type: null"; "null attachments")]
+    #[test_case(result_with_attachment(attachment(1.into(), Value::Bytes(vec![1]))),
+                "invalid type: integer"; "integer attachment kind")]
+    #[test_case(result_with_attachment(attachment(
+                    Value::Tag(0, Box::new(KIND.into())), Value::Bytes(vec![1]))),
+                "must not contain CBOR tags"; "tagged attachment kind")]
+    #[test_case(result_with_attachment(attachment(KIND.into(), "UENQ".into())),
+                "expected a CBOR byte string"; "text attachment data")]
+    #[test_case(result_with_attachment(Value::Map(vec![
+                    ("data".into(), Value::Bytes(vec![1])),
+                ])),
+                "missing field `kind`"; "attachment without a kind")]
+    #[test_case(result_with_attachment(Value::Map(vec![
+                    ("kind".into(), KIND.into()),
+                    ("issuer_schema_id".into(), 1.into()),
+                    ("data".into(), Value::Bytes(vec![1])),
+                ])),
+                "unknown field `issuer_schema_id`"; "attachment with an unknown member")]
     #[test_case(result_with("unknown", true.into()), "unknown field `unknown`"; "unknown field")]
     fn result_rejects_other_cbor_types_and_tags(result: Value, error: &str) {
         let rejection = decode_result(result).unwrap_err().to_string();
         assert!(rejection.contains(error), "{rejection}");
     }
 
+    #[test_case(MAX_TRANSFER_SIZE, &[]; "vault alone")]
+    #[test_case(0, &[MAX_TRANSFER_SIZE]; "attachment alone")]
+    #[test_case(MAX_TRANSFER_SIZE - 2, &[1, 1]; "vault and attachments")]
+    fn a_transfer_of_15_mib_round_trips(vault_size: usize, attachment_sizes: &[usize]) {
+        let result = transfer_result(vault_size, attachment_sizes);
+        let wire = result_with_transfer(vault_size, attachment_sizes);
+        assert_eq!(Value::serialized(&result).unwrap(), wire);
+        assert_eq!(decode_result(wire).unwrap(), result);
+    }
+
+    #[test_case(MAX_TRANSFER_SIZE + 1, &[]; "vault alone")]
+    #[test_case(0, &[MAX_TRANSFER_SIZE + 1]; "attachment alone")]
+    #[test_case(MAX_TRANSFER_SIZE - 1, &[1, 1]; "vault and attachments")]
+    fn a_transfer_over_15_mib_is_neither_decoded_nor_encoded(
+        vault_size: usize,
+        attachment_sizes: &[usize],
+    ) {
+        let error = "vault and attachment data exceed 15 MiB";
+        let decoding = decode_result(result_with_transfer(vault_size, attachment_sizes))
+            .unwrap_err()
+            .to_string();
+        assert!(decoding.contains(error), "{decoding}");
+        let encoding = Value::serialized(&transfer_result(vault_size, attachment_sizes))
+            .unwrap_err()
+            .to_string();
+        assert!(encoding.contains(error), "{encoding}");
+    }
+
     #[test]
-    fn vault_data_is_limited_to_3_5_mib() {
-        let result = |size| RegistrationResult {
-            leaf_index: 42,
-            pubkey_id: 1,
-            authenticators: Vec::new(),
-            vault: Some(Vault {
-                format: FORMAT.to_string(),
-                data: vec![0; size].into(),
-            }),
-        };
-        let wire = |size| result_with_vault_data(Value::Bytes(vec![0; size]));
-        assert_eq!(
-            decode_result(wire(MAX_VAULT_SIZE)).unwrap(),
-            result(MAX_VAULT_SIZE)
+    fn a_full_transfer_with_many_attachments_fits_the_response_limit() {
+        let mut result = transfer_result(MAX_TRANSFER_SIZE - 16, &[1; 16]);
+        result.authenticators = (0..6)
+            .map(|pubkey_id| KnownAuthenticator {
+                pubkey_id,
+                name: "n".repeat(64),
+            })
+            .collect();
+        let response = RegisterResponseMessage::success("request".into(), result);
+
+        let encoded = response.encode().unwrap();
+
+        assert!(encoded.len() <= MAX_RESPONSE_SIZE, "{}", encoded.len());
+        assert_eq!(decode_response(&encoded).unwrap(), response);
+    }
+
+    #[test]
+    fn attachments_round_trip_without_a_vault() {
+        let mut result = transfer_result(0, &[3]);
+        result.vault = None;
+        let wire = result_with(
+            "attachments",
+            Value::Array(vec![attachment(KIND.into(), Value::Bytes(vec![0; 3]))]),
         );
-        assert!(decode_result(wire(MAX_VAULT_SIZE + 1)).is_err());
-        assert!(Value::serialized(&result(MAX_VAULT_SIZE)).is_ok());
-        assert!(Value::serialized(&result(MAX_VAULT_SIZE + 1)).is_err());
+        assert_eq!(Value::serialized(&result).unwrap(), wire);
+        assert_eq!(decode_result(wire).unwrap(), result);
     }
 }

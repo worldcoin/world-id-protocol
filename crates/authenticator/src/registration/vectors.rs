@@ -93,6 +93,8 @@ fn registration_request_matches_vectors() {
             vector.new_authenticator_address,
             response_pubkey.clone(),
             None,
+            None,
+            None,
             &request_id,
         )
         .unwrap();

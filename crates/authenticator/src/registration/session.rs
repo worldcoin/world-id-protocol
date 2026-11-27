@@ -236,7 +236,7 @@ impl TransportKey {
     ///
     /// # Errors
     ///
-    /// - [`TransportError::TooLarge`] if `plaintext` exceeds 3.5 MiB plus 4 KiB.
+    /// - [`TransportError::TooLarge`] if `plaintext` exceeds 15 MiB plus 4 KiB.
     /// - [`TransportError::Rng`] if the operating system CSPRNG is unavailable.
     /// - [`TransportError::Encrypt`] if either layer fails.
     pub fn encrypt_response(
