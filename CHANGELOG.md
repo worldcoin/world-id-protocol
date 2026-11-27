@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.26.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.25.0...world-id-primitives-v0.26.0) - 2026-11-27
+
+### Added
+
+- [**breaking**] support WIP-202 requests without a challenge or with a returned live capture ([#1267](https://github.com/worldcoin/world-id-protocol/pull/1267))
+- [**breaking**] add optional WIP-202 live capture disclosure and challenge ([#1265](https://github.com/worldcoin/world-id-protocol/pull/1265))
+- [**breaking**] support multi-input pipelines in the authenticator ([#1275](https://github.com/worldcoin/world-id-protocol/pull/1275))
+
+### Other
+
+- specify WIP-202 proof generation and reorder its sections ([#1269](https://github.com/worldcoin/world-id-protocol/pull/1269))
+
 ## [0.25.0](https://github.com/worldcoin/world-id-protocol/compare/world-id-primitives-v0.24.0...world-id-primitives-v0.25.0) - 2026-11-23
 
 ### Added
