@@ -5,11 +5,14 @@
 //! - Nullifier/Uniqueness Proof (`π2`) - proves uniqueness without revealing identity
 //! - Ownership Proof (WIP-103) - proves control of a World ID account, on Noir/ProveKit
 //! - Proof of Embedding Similarity (WIP-202) - proves a WIP-201 Flamingo Token, on Noir/ProveKit
+//! - Secret-share prototypes (unaudited) - the `s`-dependent OPRF query and nullifier, and the
+//!   XMSS-authorized share fetch, on Noir/ProveKit
 
 use mobench_sdk::{benchmark, profile_phase};
 
 mod embedding_similarity_bench;
 mod fixtures;
+mod secret_share_fixtures;
 
 use ark_babyjubjub::Fq;
 use ark_ec::CurveGroup;
@@ -31,7 +34,7 @@ use world_id_primitives::{
     AuthenticatorPublicKeySet, FieldElement, TREE_DEPTH, authenticator::oprf_query_digest,
 };
 use world_id_proof::{
-    NoirCircuitInput as _,
+    NoirCircuitInput,
     artifacts::{
         ZkArtifactSource as _,
         embedded::{EmbeddedZkArtifacts, zkeys},
@@ -39,6 +42,7 @@ use world_id_proof::{
     circuit_inputs::{NullifierProofCircuitInput, QueryProofCircuitInput},
     embedding_similarity_proof::check_embedding_similarity_input_validity,
     ownership_proof::check_ownership_input_validity,
+    secret_share_proof::{self, embedded::Circuit},
 };
 
 use fixtures::{
@@ -473,6 +477,52 @@ pub fn bench_embedding_similarity_proof_generation() {
         prover
             .prove_with_witness(witness)
             .expect("WIP-202 WHIR proving")
+    });
+
+    std::hint::black_box(proof);
+}
+
+/// Benchmark: `s`-dependent OPRF query proof (`oprf-query-v2`, π1 prototype).
+#[benchmark]
+pub fn bench_oprf_query_v2_proof_generation() {
+    let (input, _, _) = secret_share_fixtures::oprf_query_v2_fixture();
+    prove_secret_share_circuit(Circuit::OprfQueryV2, input);
+}
+
+/// Benchmark: OPRF evaluation and nullifier over the `s`-dependent query (`oprf-nullifier-v2`,
+/// the OPRF core of π2).
+#[benchmark]
+pub fn bench_oprf_nullifier_v2_proof_generation() {
+    let input = secret_share_fixtures::oprf_nullifier_v2_fixture();
+    prove_secret_share_circuit(Circuit::OprfNullifierV2, input);
+}
+
+/// Benchmark: XMSS-authorized share fetch (`share-fetch-xmss`).
+#[benchmark]
+pub fn bench_share_fetch_xmss_proof_generation() {
+    let input = secret_share_fixtures::share_fetch_xmss_fixture();
+    prove_secret_share_circuit(Circuit::ShareFetchXmss, input);
+}
+
+/// Proves a secret-share circuit in the `prover_load` / `witness` / `prove` phases.
+fn prove_secret_share_circuit(circuit: Circuit, input: impl NoirCircuitInput) {
+    let mut prover = profile_phase("prover_load", || {
+        secret_share_proof::embedded::prover(circuit).expect("embedded secret-share prover")
+    });
+
+    let witness = profile_phase("witness", || {
+        let input_map = input
+            .into_witness()
+            .expect("secret-share circuit input maps");
+        prover
+            .generate_witness(input_map)
+            .expect("secret-share witness generation")
+    });
+
+    let proof = profile_phase("prove", || {
+        prover
+            .prove_with_witness(witness)
+            .expect("secret-share WHIR proving")
     });
 
     std::hint::black_box(proof);

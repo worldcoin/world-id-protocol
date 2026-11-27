@@ -35,7 +35,9 @@ fn main() -> eyre::Result<()> {
         feature = "embed-ownership-prover",
         feature = "embed-ownership-verifier",
         feature = "embed-embedding-similarity-prover",
-        feature = "embed-embedding-similarity-verifier"
+        feature = "embed-embedding-similarity-verifier",
+        feature = "embed-secret-share-prover",
+        feature = "embed-secret-share-verifier"
     ))]
     if noir_artifacts::should_embed() {
         noir_artifacts::setup(&out_dir)?;
@@ -232,7 +234,9 @@ fn ark_compress_zkeys(out_dir: &Path) -> eyre::Result<()> {
     feature = "embed-ownership-prover",
     feature = "embed-ownership-verifier",
     feature = "embed-embedding-similarity-prover",
-    feature = "embed-embedding-similarity-verifier"
+    feature = "embed-embedding-similarity-verifier",
+    feature = "embed-secret-share-prover",
+    feature = "embed-secret-share-verifier"
 ))]
 mod noir_artifacts {
     use std::process::Command;
@@ -256,7 +260,7 @@ mod noir_artifacts {
     }
 
     pub(super) fn should_embed() -> bool {
-        wants("OWNERSHIP") || wants("EMBEDDING_SIMILARITY")
+        wants("OWNERSHIP") || wants("EMBEDDING_SIMILARITY") || wants("SECRET_SHARE")
     }
 
     /// Checks that `nargo` is on PATH and is exactly [`REQUIRED_NARGO_VERSION`].
@@ -318,6 +322,21 @@ mod noir_artifacts {
                 &["world-id-components", "flamingo-token"],
                 out_dir,
             )?;
+        }
+        if wants("SECRET_SHARE") {
+            for (package, target) in [
+                ("oprf-query-v2", "oprf_query_v2"),
+                ("oprf-nullifier-v2", "oprf_nullifier_v2"),
+                ("share-fetch-xmss", "share_fetch_xmss"),
+            ] {
+                compile(
+                    &manifest_dir,
+                    package,
+                    target,
+                    &["world-id-components"],
+                    out_dir,
+                )?;
+            }
         }
         Ok(())
     }
