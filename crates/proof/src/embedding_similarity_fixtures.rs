@@ -742,7 +742,9 @@ fn circuit_constants_match_the_noir_constants() {
         "pub global THUMBNAIL_KEY: [u8; {}] = {thumbnail_key:?}.as_bytes();",
         THUMBNAIL_KEY.len()
     )));
-    assert!(constants.contains(&format!(
+    // `nargo fmt` may wrap the value onto its own line.
+    let unwrapped = constants.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(unwrapped.contains(&format!(
         "pub global PIPELINE_TYPE: Field = 0x{};",
         hex::encode(pipeline_type(PIPELINE_TYPE).to_be_bytes())
     )));
