@@ -1,0 +1,806 @@
+<!DOCTYPE HTML>
+<html lang="en" class="light sidebar-visible" dir="ltr">
+    <head>
+        <!-- Book generated using mdBook -->
+        <meta charset="UTF-8">
+        <title>WIP-201: Flamingo Verifier - World ID Protocol</title>
+
+
+        <!-- Custom HTML head -->
+
+        <meta name="description" content="">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="theme-color" content="#ffffff">
+
+        <link rel="icon" href="../favicon-de23e50b.svg">
+        <link rel="shortcut icon" href="../favicon-8114d1fc.png">
+        <link rel="stylesheet" href="../css/variables-8adf115d.css">
+        <link rel="stylesheet" href="../css/general-2459343d.css">
+        <link rel="stylesheet" href="../css/chrome-ae938929.css">
+        <link rel="stylesheet" href="../css/print-9e4910d8.css" media="print">
+
+        <!-- Fonts -->
+        <link rel="stylesheet" href="../fonts/fonts-9644e21d.css">
+
+        <!-- Highlight.js Stylesheets -->
+        <link rel="stylesheet" id="mdbook-highlight-css" href="../highlight-493f70e1.css">
+        <link rel="stylesheet" id="mdbook-tomorrow-night-css" href="../tomorrow-night-4c0ae647.css">
+        <link rel="stylesheet" id="mdbook-ayu-highlight-css" href="../ayu-highlight-3fdfc3ac.css">
+
+        <!-- Custom theme stylesheets -->
+
+
+        <!-- Provide site root and default themes to javascript -->
+        <script>
+            const path_to_root = "../";
+            const default_light_theme = "light";
+            const default_dark_theme = "navy";
+            window.path_to_searchindex_js = "../searchindex-1cdaefae.js";
+        </script>
+        <!-- Start loading toc.js asap -->
+        <script src="../toc-8a3cf9ca.js"></script>
+    </head>
+    <body>
+    <div id="mdbook-help-container">
+        <div id="mdbook-help-popup">
+            <h2 class="mdbook-help-title">Keyboard shortcuts</h2>
+            <div>
+                <p>Press <kbd>←</kbd> or <kbd>→</kbd> to navigate between chapters</p>
+                <p>Press <kbd>S</kbd> or <kbd>/</kbd> to search in the book</p>
+                <p>Press <kbd>?</kbd> to show this help</p>
+                <p>Press <kbd>Esc</kbd> to hide this help</p>
+            </div>
+        </div>
+    </div>
+    <div id="mdbook-body-container">
+        <!-- Work around some values being stored in localStorage wrapped in quotes -->
+        <script>
+            try {
+                let theme = localStorage.getItem('mdbook-theme');
+                let sidebar = localStorage.getItem('mdbook-sidebar');
+
+                if (theme.startsWith('"') && theme.endsWith('"')) {
+                    localStorage.setItem('mdbook-theme', theme.slice(1, theme.length - 1));
+                }
+
+                if (sidebar.startsWith('"') && sidebar.endsWith('"')) {
+                    localStorage.setItem('mdbook-sidebar', sidebar.slice(1, sidebar.length - 1));
+                }
+            } catch (e) { }
+        </script>
+
+        <!-- Set the theme before any content is loaded, prevents flash -->
+        <script>
+            const default_theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? default_dark_theme : default_light_theme;
+            let theme;
+            try { theme = localStorage.getItem('mdbook-theme'); } catch(e) { }
+            if (theme === null || theme === undefined) { theme = default_theme; }
+            const html = document.documentElement;
+            html.classList.remove('light')
+            html.classList.add(theme);
+            html.classList.add("js");
+        </script>
+
+        <input type="checkbox" id="mdbook-sidebar-toggle-anchor" class="hidden">
+
+        <!-- Hide / unhide sidebar before it is displayed -->
+        <script>
+            let sidebar = null;
+            const sidebar_toggle = document.getElementById("mdbook-sidebar-toggle-anchor");
+            if (document.body.clientWidth >= 1080) {
+                try { sidebar = localStorage.getItem('mdbook-sidebar'); } catch(e) { }
+                sidebar = sidebar || 'visible';
+            } else {
+                sidebar = 'hidden';
+                sidebar_toggle.checked = false;
+            }
+            if (sidebar === 'visible') {
+                sidebar_toggle.checked = true;
+            } else {
+                html.classList.remove('sidebar-visible');
+            }
+        </script>
+
+        <nav id="mdbook-sidebar" class="sidebar" aria-label="Table of contents">
+            <!-- populated by js -->
+            <mdbook-sidebar-scrollbox class="sidebar-scrollbox"></mdbook-sidebar-scrollbox>
+            <noscript>
+                <iframe class="sidebar-iframe-outer" src="../toc.html"></iframe>
+            </noscript>
+            <div id="mdbook-sidebar-resize-handle" class="sidebar-resize-handle">
+                <div class="sidebar-resize-indicator"></div>
+            </div>
+        </nav>
+
+        <div id="mdbook-page-wrapper" class="page-wrapper">
+
+            <div class="page">
+                <div id="mdbook-menu-bar-hover-placeholder"></div>
+                <div id="mdbook-menu-bar" class="menu-bar sticky">
+                    <div class="left-buttons">
+                        <label id="mdbook-sidebar-toggle" class="icon-button" for="mdbook-sidebar-toggle-anchor" title="Toggle Table of Contents" aria-label="Toggle Table of Contents" aria-controls="mdbook-sidebar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M0 96C0 78.3 14.3 64 32 64H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32C14.3 128 0 113.7 0 96zM0 256c0-17.7 14.3-32 32-32H416c17.7 0 32 14.3 32 32s-14.3 32-32 32H32c-17.7 0-32-14.3-32-32zM448 416c0 17.7-14.3 32-32 32H32c-17.7 0-32-14.3-32-32s14.3-32 32-32H416c17.7 0 32 14.3 32 32z"/></svg></span>
+                        </label>
+                        <button id="mdbook-theme-toggle" class="icon-button" type="button" title="Change theme" aria-label="Change theme" aria-haspopup="true" aria-expanded="false" aria-controls="mdbook-theme-list">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M371.3 367.1c27.3-3.9 51.9-19.4 67.2-42.9L600.2 74.1c12.6-19.5 9.4-45.3-7.6-61.2S549.7-4.4 531.1 9.6L294.4 187.2c-24 18-38.2 46.1-38.4 76.1L371.3 367.1zm-19.6 25.4l-116-104.4C175.9 290.3 128 339.6 128 400c0 3.9 .2 7.8 .6 11.6c1.8 17.5-10.2 36.4-27.8 36.4H96c-17.7 0-32 14.3-32 32s14.3 32 32 32H240c61.9 0 112-50.1 112-112c0-2.5-.1-5-.2-7.5z"/></svg></span>
+                        </button>
+                        <ul id="mdbook-theme-list" class="theme-popup" aria-label="Themes" role="menu">
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-default_theme">Auto</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-light">Light</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-rust">Rust</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-coal">Coal</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-navy">Navy</button></li>
+                            <li role="none"><button role="menuitem" class="theme" id="mdbook-theme-ayu">Ayu</button></li>
+                        </ul>
+                        <button id="mdbook-search-toggle" class="icon-button" type="button" title="Search (`/`)" aria-label="Toggle Searchbar" aria-expanded="false" aria-keyshortcuts="/ s" aria-controls="mdbook-searchbar">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M416 208c0 45.9-14.9 88.3-40 122.7L502.6 457.4c12.5 12.5 12.5 32.8 0 45.3s-32.8 12.5-45.3 0L330.7 376c-34.4 25.2-76.8 40-122.7 40C93.1 416 0 322.9 0 208S93.1 0 208 0S416 93.1 416 208zM208 352c79.5 0 144-64.5 144-144s-64.5-144-144-144S64 128.5 64 208s64.5 144 144 144z"/></svg></span>
+                        </button>
+                    </div>
+
+                    <h1 class="menu-title">World ID Protocol</h1>
+
+                    <div class="right-buttons">
+                        <a href="../print.html" title="Print this book" aria-label="Print this book">
+                            <span class=fa-svg id="print-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M128 0C92.7 0 64 28.7 64 64v96h64V64H354.7L384 93.3V160h64V93.3c0-17-6.7-33.3-18.7-45.3L400 18.7C388 6.7 371.7 0 354.7 0H128zM384 352v32 64H128V384 368 352H384zm64 32h32c17.7 0 32-14.3 32-32V256c0-35.3-28.7-64-64-64H64c-35.3 0-64 28.7-64 64v96c0 17.7 14.3 32 32 32H64v64c0 35.3 28.7 64 64 64H384c35.3 0 64-28.7 64-64V384zm-16-88c-13.3 0-24-10.7-24-24s10.7-24 24-24s24 10.7 24 24s-10.7 24-24 24z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol" title="Git repository" aria-label="Git repository">
+                            <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 496 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M165.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6zm-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3zm44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9zM244.8 8C106.1 8 0 113.3 0 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C428.2 457.8 496 362.9 496 252 496 113.3 383.5 8 244.8 8zM97.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1zm-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7zm32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1zm-11.4-14.7c-1.6 1-1.6 3.6 0 5.9 1.6 2.3 4.3 3.3 5.6 2.3 1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2z"/></svg></span>
+                        </a>
+                        <a href="https://github.com/worldcoin/world-id-protocol/edit/main/docs/WIPs/wip-201.md" title="Suggest an edit" aria-label="Suggest an edit" rel="edit">
+                            <span class=fa-svg id="git-edit-button"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M421.7 220.3l-11.3 11.3-22.6 22.6-205 205c-6.6 6.6-14.8 11.5-23.8 14.1L30.8 511c-8.4 2.5-17.5 .2-23.7-6.1S-1.5 489.7 1 481.2L38.7 353.1c2.6-9 7.5-17.2 14.1-23.8l205-205 22.6-22.6 11.3-11.3 33.9 33.9 62.1 62.1 33.9 33.9zM96 353.9l-9.3 9.3c-.9 .9-1.6 2.1-2 3.4l-25.3 86 86-25.3c1.3-.4 2.5-1.1 3.4-2l9.3-9.3H112c-8.8 0-16-7.2-16-16V353.9zM453.3 19.3l39.4 39.4c25 25 25 65.5 0 90.5l-14.5 14.5-22.6 22.6-11.3 11.3-33.9-33.9-62.1-62.1L314.3 67.7l11.3-11.3 22.6-22.6 14.5-14.5c25-25 65.5-25 90.5 0z"/></svg></span>
+                        </a>
+
+                    </div>
+                </div>
+
+                <div id="mdbook-search-wrapper" class="hidden">
+                    <form id="mdbook-searchbar-outer" class="searchbar-outer">
+                        <div class="search-wrapper">
+                            <input type="search" id="mdbook-searchbar" name="searchbar" placeholder="Search this book ..." aria-controls="mdbook-searchresults-outer" aria-describedby="searchresults-header">
+                            <div class="spinner-wrapper">
+                                <span class=fa-svg id="fa-spin"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M304 48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zm0 416c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM48 304c26.5 0 48-21.5 48-48s-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48zm464-48c0-26.5-21.5-48-48-48s-48 21.5-48 48s21.5 48 48 48s48-21.5 48-48zM142.9 437c18.7-18.7 18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zm0-294.2c18.7-18.7 18.7-49.1 0-67.9S93.7 56.2 75 75s-18.7 49.1 0 67.9s49.1 18.7 67.9 0zM369.1 437c18.7 18.7 49.1 18.7 67.9 0s18.7-49.1 0-67.9s-49.1-18.7-67.9 0s-18.7 49.1 0 67.9z"/></svg></span>
+                            </div>
+                        </div>
+                    </form>
+                    <div id="mdbook-searchresults-outer" class="searchresults-outer hidden">
+                        <div id="mdbook-searchresults-header" class="searchresults-header"></div>
+                        <ul id="mdbook-searchresults">
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Apply ARIA attributes after the sidebar and the sidebar toggle button are added to the DOM -->
+                <script>
+                    document.getElementById('mdbook-sidebar-toggle').setAttribute('aria-expanded', sidebar === 'visible');
+                    document.getElementById('mdbook-sidebar').setAttribute('aria-hidden', sidebar !== 'visible');
+                    Array.from(document.querySelectorAll('#mdbook-sidebar a')).forEach(function(link) {
+                        link.setAttribute('tabIndex', sidebar === 'visible' ? 0 : -1);
+                    });
+                </script>
+
+                <div id="mdbook-content" class="content">
+                    <main>
+                        <blockquote class="blockquote-tag blockquote-tag-note">
+<p class="blockquote-tag-title"><svg viewbox="0 0 16 16" width="18" height="18"><path d="M0 8a8 8 0 1 1 16 0A8 8 0 0 1 0 8Zm8-6.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM6.5 7.75A.75.75 0 0 1 7.25 7h1a.75.75 0 0 1 .75.75v2.75h.25a.75.75 0 0 1 0 1.5h-2a.75.75 0 0 1 0-1.5h.25v-2h-.25a.75.75 0 0 1-.75-.75ZM8 6a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>Note</p>
+<p>This spec outlines a draft functionality for beta testing. Changes are expected.</p>
+</blockquote>
+<h2 id="1-abstract"><a class="header" href="#1-abstract">1. Abstract</a></h2>
+<p>This spec defines the <strong>Flamingo Verifier</strong> (<strong>Verifier</strong>), a trusted execution environment (TEE) service. It runs one sandboxed biometric Engine release, provided by an Engine Provider. An Engine is a program of biometric models, e.g. presentation attack detection and face matching, that takes a request’s entries and returns pass or fail; its code and weights can stay private. A release has one or more pipelines, each identified by its <code>pipeline_id</code>, and its release manifest describes them all. Consuming protocols define a pipeline type, an EIP-712-inspired string that names the input roles and their counts, and what a pass of such a pipeline means. The Verifier checks every request against the type. Each input has a role from the type, and its entry is opaque bytes that only the Engine parses. A type can let a role take a variable number of inputs, e.g. frames for a custom liveness check. If the Engine passes, the Verifier signs a <strong>Flamingo Token</strong> over the type’s hash, the Engine configuration, and the SHA-256 hash of each entry whose role the type marks with #. Consuming protocols use these hashes to bind entries to other data, e.g. that the reference image the Engine compared is the one committed in a Credential. The Authenticator can also provide a <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-106.md">WIP-106</a> Trust Anchor Key Token (TAKT) and Authenticator Assertion Token (AAT) committing to the engine request, which are verified by the Verifier. If the RP is billed, the Authenticator also provides a <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107</a> billing nullifier, which is verified against the on-chain billing state. The public <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-106.md">WIP-106</a> values and the billing nullifier are then also included in the Flamingo Token. Consuming protocols such as <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-202.md">WIP-202</a> use the token to prove the result to a Relying Party (RP), optionally without revealing any entry.</p>
+<h2 id="2-motivation"><a class="header" href="#2-motivation">2. Motivation</a></h2>
+<p>Many Proof-of-Human applications, like deepfake prevention or human presence verification, need biometric checks on images, e.g. presentation attack detection (PAD), liveness or face matching. They also need to bind the result to other data, e.g. that the face on a stream matches the thumbnail in a user’s Credential.</p>
+<p>Running these models on the user’s device is private but not trustworthy: a jailbroken device can report checks it never ran. Fraud detection also relies on obscurity, so its models and weights cannot be published.</p>
+<p>This WIP runs the models in an attested TEE instead. The TEE’s attestation shows users that the Operator cannot access biometric data, and its signature shows RPs that the checks ran. The Verifier image is open source and reproducibly built, so anyone can check that its measurement matches the source and that no raw media or embeddings leave the TEE. The closed Engine runs inside a kernel-enforced sandbox with no network or storage access. The Verifier attests which Engine release it runs, and the RP accepts only the Engine configurations it allowlists, from releases the Engine Provider signed.</p>
+<p>What a pipeline checks differs per use case, so this WIP does not define it. A consuming protocol defines a pipeline type, and the token binds which type ran. The token holds only hashes of entries, so a consuming protocol can prove the result to the RP without revealing any entry, e.g. with a zero-knowledge proof as in <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-202.md">WIP-202</a>.</p>
+<h2 id="3-overview"><a class="header" href="#3-overview">3. Overview</a></h2>
+<p>This section is non-normative. Before any verification:</p>
+<pre class="mermaid">%%{init: {"flowchart": {"nodeSpacing": 15, "rankSpacing": 25}, "themeVariables": {"fontSize": "12px"}}}%%
+flowchart LR
+  VR[Verifier release] --&gt;|PCRs| AP[Authenticator Provider]
+  AP --&gt;|PCRs| A[Authenticator]
+  VR --&gt;|PCRs| RP[RP allowlist]
+  EP[Engine Provider] --&gt;|release keys| RP
+  EP --&gt;|release| H[Host]
+  BC[Billing Contract] --&gt;|billing state| H
+  H --&gt;|loads| V[Verifier]
+</pre>
+
+<ul>
+<li>The Verifier image is released, and its measurements (PCRs) are published.</li>
+<li>The Engine Provider publishes a signed Engine release and its release keys. </li>
+<li>The Authenticator Provider ships the Verifier PCRs it trusts (for privacy) in its Authenticator release.</li>
+<li>RPs allowlist the Engine configurations and Verifier PCRs they accept.</li>
+<li>An Operator deploys a Verifier, which loads one Engine release into its sandbox and attests to it.</li>
+<li>The Host keeps supplying the Verifier with <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107</a> billing state.</li>
+</ul>
+<p>One verification then runs as follows:</p>
+<pre class="mermaid">%%{init: {"sequence": {"actorMargin": 30, "messageMargin": 20, "boxMargin": 5}, "themeVariables": {"fontSize": "12px"}}}%%
+sequenceDiagram
+  participant A as Authenticator
+  participant V as Verifier
+  participant E as Engine
+  participant RP
+  V-&gt;&gt;A: 1. attestation, manifest
+  A-&gt;&gt;V: 2. sealed request
+  V-&gt;&gt;E: 3. checked request
+  E-&gt;&gt;V: 4. Pass / error
+  V-&gt;&gt;A: 5. Flamingo Token
+  A-&gt;&gt;RP: 6. token or proof
+  Note over RP: 7. verifies
+</pre>
+
+<ol>
+<li>The Verifier attests its measurement and its loaded release and sends that release’s manifest. The Authenticator checks both and picks a pipeline of the type its consuming protocol requires, and a strictness. It may cache this and reuse the attested channel.</li>
+<li>The Authenticator seals a request to the Verifier: the pipeline, the strictness and one entry per pipeline input, in input order.</li>
+<li>The Verifier checks the request against the pipeline and passes it to the sandboxed Engine.</li>
+<li>The Engine runs the pipeline and returns <code>Pass</code> or <code>error</code>.</li>
+<li>On <code>Pass</code>, the Verifier signs a Flamingo Token over the pipeline’s type, the hashes of the entries the type commits to, and the other claims.</li>
+<li>The Authenticator passes the token, or a proof over it such as <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-202.md">WIP-202</a>, to the RP.</li>
+<li>The RP verifies it, as its consuming protocol defines.</li>
+</ol>
+<h2 id="4-specification"><a class="header" href="#4-specification">4. Specification</a></h2>
+<h3 id="41-terminology"><a class="header" href="#41-terminology">4.1 Terminology</a></h3>
+<p>The key words “MUST”, “MUST NOT”, “REQUIRED”, “SHALL”, “SHALL NOT”, “SHOULD”, “SHOULD NOT”, “RECOMMENDED”, “MAY”, and “OPTIONAL” in this document are to be interpreted as described in <a href="https://www.ietf.org/rfc/rfc2119.txt">RFC 2119</a>.</p>
+<ol>
+<li>The <strong>Verifier</strong> is the TEE service this spec defines.</li>
+<li>The <strong>Engine</strong> is the sandboxed component of the Verifier that runs pipelines. This spec defines its interface, not its models or thresholds.</li>
+<li>The <strong>Engine Provider</strong> builds the Engine and signs its release manifests. It is identified by <code>iss</code>, an <code>https</code> URL without query or fragment (<a href="https://www.rfc-editor.org/rfc/rfc8414#section-2">RFC 8414 §2</a>). It MAY be the same organization as an Authenticator Provider.</li>
+<li>The <strong>Authenticator Provider</strong> is as defined in <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-106.md">WIP-106</a>.</li>
+<li>The <strong>Host</strong> is the machine that runs the Verifier’s enclave and relays all its traffic, on AWS Nitro the parent EC2 instance. The <strong>Operator</strong> runs the Host.</li>
+<li>A <strong>pipeline</strong> is an Engine-defined computation over its <strong>inputs</strong> that passes or fails, e.g. presentation attack detection on a live capture and a face match with a Credential image.</li>
+<li>A <strong>type</strong> names what a pipeline’s inputs are and what its pass means. A consuming protocol defines it.</li>
+<li>A <strong>role</strong> is what one input is to the type, e.g. <code>live</code>. A <strong>label</strong> is what it is to the Engine, e.g. <code>unlit_frame</code>.</li>
+<li>The <strong>strictness</strong> is a pipeline parameter the request picks, e.g. how strictly faces must match. Its meaning comes from the type.</li>
+<li>A <strong>consuming protocol</strong> defines one or more types and how a Flamingo Token is requested and used, e.g. a proof type such as <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-202.md">WIP-202</a>.</li>
+<li>The field <code>F</code>, the hash functions <code>H_t</code> and <code>H_var</code>, the signature scheme (<code>BabyJubJub-EdDSA-Poseidon2</code>) and the <code>PublicKey</code> representation MUST follow <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100</a>. <code>R(d)</code> reads a 256-bit digest <code>d</code> as a big-endian integer modulo <code>q</code>.</li>
+<li>Field types in tables of CBOR structures (the Engine and Verifier requests, the response and the Flamingo Token) are CBOR types (<a href="https://datatracker.ietf.org/doc/html/rfc8949">RFC 8949</a>). Those of JSON structures (the release manifest and the Engine Provider metadata) are JSON types. A Field element is a 32-byte byte string, the canonical big-endian encoding.</li>
+</ol>
+<h3 id="42-constants"><a class="header" href="#42-constants">4.2 Constants</a></h3>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Constant</th><th>Value</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>MAX_COMMITTED</code></td><td><code>4</code></td><td>Maximum committed roles of a type, fixed by the Flamingo Token claims.</td></tr>
+<tr><td><code>MAX_TYPE_BYTES</code></td><td><code>255</code></td><td>Maximum length of a type string.</td></tr>
+<tr><td><code>DS_WIP_201</code></td><td><code>32666492934021899305490112043451072005703914075407694</code> (<code>b"WORLD-ID/WIP-201/TOKEN"</code>)</td><td>Domain separator for the Flamingo Token digest.</td></tr>
+<tr><td><code>DS_WIP_201_ENGINE</code></td><td><code>8362622191109606222205468683123474433460185506268139077</code> (<code>b"WORLD-ID/WIP-201/ENGINE"</code>)</td><td>Domain separator for <code>engine_config_hash</code>.</td></tr>
+<tr><td><code>TYPE_DOMAIN</code></td><td><code>WORLD-ID/WIP-201/TYPE``\0</code></td><td>Domain of <code>pipeline_type</code>, as bytes including the trailing <code>0x00</code>.</td></tr>
+<tr><td><code>MAX_ATTESTATION_AGE</code></td><td><code>10800</code></td><td>Maximum age of an attestation document at verification, in seconds.</td></tr>
+<tr><td><code>MAX_REQUEST_LIFETIME</code></td><td><code>600</code></td><td>Maximum time from the Verifier’s time to a request’s <code>expires_at</code>, in seconds.</td></tr>
+<tr><td><code>MAX_DEBUG_REPORT</code></td><td><code>65536</code></td><td>Maximum <code>debug_report</code> size, in bytes.</td></tr>
+<tr><td><code>CHANNEL_DOMAIN</code></td><td><code>WORLD-ID/WIP-201/CHANNEL</code></td><td>Domain of the request channel.</td></tr>
+<tr><td><code>CHANNEL_KEY_DOMAIN</code></td><td><code>WORLD-ID/WIP-201/CHANNEL-KEY\0</code></td><td>Domain of the channel key commitment, as bytes including the trailing <code>0x00</code>.</td></tr>
+<tr><td><code>EAT_PROFILE</code></td><td><code>https://world.org/eat/flamingo/v1</code></td><td>The <code>eat_profile</code> claim of a Flamingo Token.</td></tr>
+</tbody>
+</table>
+</div>
+<h3 id="43-consuming-protocols"><a class="header" href="#43-consuming-protocols">4.3 Consuming protocols</a></h3>
+<p>A consuming protocol, e.g. <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-202.md">WIP-202</a>, builds on Flamingo Tokens. It defines the types that pipelines implement, what their results mean, and how an RP asks for a token or a proof over it. This spec defines the Verifier request and the checks every token must pass.</p>
+<h4 id="431-types"><a class="header" href="#431-types">4.3.1 Types</a></h4>
+<p>A type string names a pipeline shape. Grammar, in ABNF (<a href="https://www.rfc-editor.org/rfc/rfc5234">RFC 5234</a>):</p>
+<pre><code>type   = name "&lt;" levels "&gt;" "(" member *("," member) ")"
+name   = segment *("/" segment)
+segment = 1*(%x41-5A / DIGIT / "-")
+levels = "0" / %x31-39 *2DIGIT
+member = role ["#"] ["?" / "*" / "+"]
+role   = %x61-7A *(%x61-7A / DIGIT / "_")
+</code></pre>
+<ol>
+<li><strong>Form.</strong> A type string is ASCII, at most <code>MAX_TYPE_BYTES</code> long, with no whitespace. Its roles MUST be distinct.</li>
+<li><strong>Name.</strong> A type’s <code>name</code> MUST be unique among consuming protocols and SHOULD follow the <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md#331-domain-separators">WIP-100 label convention</a> with a version, <code>WORLD-ID/WIP-&lt;number&gt;/FLAMINGO-TYPE/V&lt;version&gt;</code>, e.g. <code>WORLD-ID/WIP-202/FLAMINGO-TYPE/V1</code>.</li>
+<li><strong>Cardinality.</strong> A member without a suffix takes exactly one input. <code>?</code> takes exactly one input whose entry a request MAY leave absent. <code>*</code> takes any number of inputs and <code>+</code> at least one; the pipeline fixes the number.</li>
+<li><strong>Commitment.</strong> <code>#</code> marks a committed role: the Flamingo Token (<a href="#46-flamingo-token">4.6</a>) carries the hash of its entry. Only a member without <code>*</code> or <code>+</code> MAY carry <code>#</code>, and a type has at most <code>MAX_COMMITTED</code> of them. The committed roles, in type order, are committed roles <code>0</code> to <code>3</code>.</li>
+<li><strong>Hash.</strong> <code>pipeline_type = R(SHA-256(TYPE_DOMAIN || type string))</code>, over the string’s bytes.</li>
+</ol>
+<p><strong>Example.</strong> <code>EXAMPLE&lt;2&gt;(reference#,``live#,evidence*``)</code> has three roles:</p>
+<ul>
+<li><code>reference#</code> and <code>live#</code>: exactly one input each, committed in <code>entry_hash_0</code> and <code>entry_hash_1</code>.</li>
+<li><code>evidence*</code>: any number of inputs, fixed by the pipeline, with no hash in the token.</li>
+<li><code>&lt;2&gt;</code>: strictness levels <code>1</code> and <code>2</code>.</li>
+</ul>
+<p><code>entry_hash_2</code> and <code>entry_hash_3</code> are <code>0</code>. A pipeline of this type runs liveness and fraud checks on <code>live</code> and <code>evidence</code>, then matches <code>live</code> against <code>reference</code> at <code>strictness</code>. <a href="#appendix-a2-examples">Appendix A2</a> uses this type in a full release.</p>
+<h4 id="432-strictness"><a class="header" href="#432-strictness">4.3.2 Strictness</a></h4>
+<ol>
+<li><strong>Values.</strong> A strictness is a <code>uint</code> below <code>2^8</code>. A type’s <code>&lt;n&gt;</code> fixes its strictness levels, with <code>n</code> at most 255. With <code>n = 0</code> the type has none, and every request uses strictness <code>0</code>. Otherwise its levels are <code>1</code> to <code>n</code>.</li>
+<li><strong>Order.</strong> A higher level is at least as strict as a lower one. Generally, a higher strictness lowers the false acceptance rate and raises the false rejection rate, i.e. it favors security over UX.</li>
+<li><strong>Meaning.</strong> The consuming protocol defines what each level means, e.g. how strictly faces must match or how strict a liveness check is, and how a request’s level is chosen (<a href="#433-what-a-consuming-protocol-defines">4.3.3</a>). </li>
+<li><strong>Use.</strong> A request picks one level its pipeline lists, and the Flamingo Token’s <code>strictness</code> claim says which level ran (<a href="#46-flamingo-token">4.6</a>).</li>
+</ol>
+<h4 id="433-what-a-consuming-protocol-defines"><a class="header" href="#433-what-a-consuming-protocol-defines">4.3.3 What a consuming protocol defines</a></h4>
+<p>A consuming protocol MUST:</p>
+<ol>
+<li><strong>Types.</strong> Fix each of its type strings byte for byte, and say what each role is and what a <code>Pass</code> of a pipeline of that type means. A published type string MUST keep its meaning: a protocol that changes what a role, a Pass or a strictness level means MUST define a new type string, e.g. by incrementing its version (<a href="#431-types">4.3.1</a>).</li>
+<li><strong>Strictness levels.</strong> Say what each strictness level of its types means, e.g. how strictly faces must match.</li>
+<li><strong>Selection.</strong> Say how the strictness level is chosen, e.g. by the RP in its request.</li>
+<li><strong>Nonce.</strong> Say how <code>nonce</code> is bound to the RP’s request.</li>
+<li><strong>Delivery.</strong> Say how the RP obtains the Flamingo Token or a proof over it.</li>
+<li><strong>Bindings.</strong> Say what each committed role’s <code>entry_hash_k</code> is bound to, e.g. a Credential claim or the RP’s challenge.</li>
+<li><strong>Billing.</strong> Bind a nonzero <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107</a> <code>billing_nullifier</code> to the World ID the token is used for and to the RP <code>aud</code>, as <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md#47-billing-verification">WIP-107 §4.7</a> requires.</li>
+<li><strong>Disclosure.</strong> Say which token values and entries the RP learns.</li>
+<li><strong>Checks.</strong> Say, for each check of Consuming Flamingo Tokens, whether the RP or the protocol’s proof enforces it (<a href="#48-consuming-flamingo-tokens">4.8</a>).</li>
+</ol>
+<h3 id="44-engine"><a class="header" href="#44-engine">4.4 Engine</a></h3>
+<p>An Engine is developed and released by an Engine Provider. It is stateless: each request names a pipeline of its release, a strictness, and one entry per pipeline input. It returns only whether the pipeline passed. Each pipeline implements a type a consuming protocol defines (<a href="#43-consuming-protocols">4.3</a>). Each release is described by a signed manifest that lists its pipelines with their types, strictness levels, inputs and response slots.</p>
+<h4 id="441-request-and-response"><a class="header" href="#441-request-and-response">4.4.1 Request and response</a></h4>
+<p>The Verifier passes the Engine request below to the Engine unchanged and passes nothing else. On the sandbox channel this WIP does not specify its encoding; in the Verifier request it is the <code>payload</code> map.</p>
+<p><strong>Engine request fields:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Bounds</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>pipeline_id</code></td><td><code>uint</code></td><td><code>1..2^16</code></td><td>A pipeline of the loaded release, chosen by the Authenticator.</td></tr>
+<tr><td><code>strictness</code></td><td><code>uint</code></td><td><code>&lt; 2^8</code></td><td>A strictness level of that pipeline, chosen by the Authenticator.</td></tr>
+<tr><td><code>entries</code></td><td>array</td><td>exactly the pipeline’s <code>inputs</code> count</td><td><code>entries[i]</code> is the pipeline’s <code>inputs[i]</code>: bytes holding an encoded image or embedding, or <code>null</code> for an absent entry.</td></tr>
+</tbody>
+</table>
+</div>
+<p><a href="#appendix-a2-examples">Appendix A2</a> has an example Engine request.</p>
+<p><strong>Engine response variants:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Variant</th><th>Contents</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Pass</code></td><td>The pipeline passed. Optional <code>debug_report</code>.</td></tr>
+<tr><td><code>error</code></td><td>A <code>uint16</code> error code from the release’s <code>errors</code> (<a href="#443-release-and-release-manifest">4.4.3</a>). Optional <code>debug_report</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>debug_report</code> is defined in <a href="#446-debug-report">4.4.6</a>.</p>
+<h4 id="442-request-processing"><a class="header" href="#442-request-processing">4.4.2 Request Processing</a></h4>
+<p>For each Engine request, in a reset instance, the Engine:</p>
+<ol>
+<li><strong>Validates</strong> the request against its release: <code>pipeline_id</code> names one of its pipelines, <code>strictness</code> is one of that pipeline’s strictness levels, <code>entries</code> fits the pipeline’s <code>inputs</code> as the Engine request (<a href="#441-request-and-response">4.4.1</a>) and the release (<a href="#443-release-and-release-manifest">4.4.3</a>) define. Otherwise it MUST return <code>error</code>.</li>
+<li><strong>Runs</strong> the pipeline on the entries at <code>strictness</code>, as the pipeline’s type requires.</li>
+<li><strong>Responds</strong>: it MUST return <code>Pass</code> only if the pipeline passed, and <code>error</code> otherwise.</li>
+</ol>
+<h4 id="443-release-and-release-manifest"><a class="header" href="#443-release-and-release-manifest">4.4.3 Release and release manifest</a></h4>
+<p>A <strong>release</strong> is one version of an Engine: its bundle, i.e. code, model weights and configuration, and the release manifest that describes it. The manifest’s hash, <code>release_hash</code>, identifies the release. A Verifier runs one release. <a href="#appendix-a2-examples">Appendix A2</a> has an example manifest.</p>
+<p>A release manifest is a JWS (<a href="https://www.rfc-editor.org/rfc/rfc7515">RFC 7515</a>) in compact serialization, signed with <code>ES256</code> by the Engine Provider’s release key. Its protected header MUST contain <code>alg</code> = <code>ES256</code>, <code>kid</code> and <code>typ</code> = <code>world-id-engine-manifest</code>. Its payload is a JSON object:</p>
+<p><strong>Manifest payload fields:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>iss</code></td><td>string</td><td>The Engine Provider.</td></tr>
+<tr><td><code>engine_hash</code></td><td>string</td><td><code>SHA-384</code> of the Engine bundle, 96 lowercase hex digits.</td></tr>
+<tr><td><code>version</code></td><td>integer</td><td>See <a href="#444-release-versioning">Release Versioning</a>.</td></tr>
+<tr><td><code>pipelines</code></td><td>array</td><td>Non-empty; see below. <code>pipeline_id</code> values MUST be nonzero and unique within a manifest.</td></tr>
+<tr><td><code>errors</code></td><td>object</td><td>Map from each Engine error code, as 4 lowercase hex digits from <code>0001</code> to <code>fffe</code>, to a human-readable message the Authenticator MAY display. The Engine MUST return only listed codes. <code>0000</code> and <code>ffff</code> are reserved for the Verifier (<a href="#451-request-and-response">4.5.1</a>).</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Pipeline fields:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>pipeline_id</code></td><td>integer</td><td>The pipeline identifier, <code>&lt; 2^16</code>.</td></tr>
+<tr><td><code>type</code></td><td>string</td><td>The pipeline’s type string.</td></tr>
+<tr><td><code>strictness_levels</code></td><td>array of integers</td><td>Non-empty, strictly ascending, each <code>&lt; 2^8</code>.</td></tr>
+<tr><td><code>inputs</code></td><td>array</td><td>1 to 255 items; see below.</td></tr>
+<tr><td><code>response_slots</code></td><td>array of integers</td><td>Non-empty, strictly ascending, positive release times in milliseconds. See <a href="#454-response-timing-and-replay">4.5.4</a>.</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Input fields:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>role</code></td><td>string</td><td>A role of the pipeline’s type.</td></tr>
+<tr><td><code>label</code></td><td>string</td><td>Non-empty. What the input is to the Engine, e.g. <code>unlit_frame</code>. It has no protocol meaning; the Engine Provider documents it.</td></tr>
+<tr><td><code>media_types</code></td><td>array of strings</td><td>Accepted media types, e.g. <code>image/jpeg</code>. Non-empty.</td></tr>
+</tbody>
+</table>
+</div>
+<ol>
+<li><strong>Conformance.</strong> A pipeline’s <code>type</code> MUST be a valid type string, every input’s <code>role</code> MUST be a member of it, and each member’s inputs MUST number as its cardinality says. Its <code>strictness_levels</code> MUST be levels of its type (<a href="#432-strictness">4.3.2</a>). Two inputs of a pipeline MUST NOT have the same <code>role</code> and <code>label</code>, so every input is named without its position.</li>
+<li><strong>Strictness.</strong> For each strictness level a pipeline lists, the Engine Provider MUST document how the pipeline meets the meaning its type’s consuming protocol defines (<a href="#432-strictness">4.3.2</a>). Internal thresholds MAY vary, e.g. per input quality.</li>
+<li><strong>Release hash.</strong> <code>release_hash</code> is the <code>SHA-256</code> of the manifest’s JWS Payload (<a href="https://www.rfc-editor.org/rfc/rfc7515#section-2">RFC 7515 §2</a>). Re-signing a release keeps its <code>release_hash</code>.</li>
+<li><strong>Signatures.</strong> RPs MUST verify a release manifest under an active release key of its <code>iss</code> before relying on it. The Verifier and Authenticators do not verify it.</li>
+</ol>
+<h4 id="444-release-versioning"><a class="header" href="#444-release-versioning">4.4.4 Release Versioning</a></h4>
+<ol>
+<li><code>version</code> MUST be greater than the <code>version</code> of every earlier release of the same <code>iss</code>. Every change to the payload is a new release.</li>
+<li>A later release MUST NOT change a pipeline’s <code>type</code> or <code>inputs</code>; such a change uses a new <code>pipeline_id</code>. A later release MAY drop a pipeline, but MUST NOT reuse its <code>pipeline_id</code>.</li>
+</ol>
+<h4 id="445-engine-provider-metadata"><a class="header" href="#445-engine-provider-metadata">4.4.5 Engine Provider Metadata</a></h4>
+<p>The Engine Provider MUST expose a JSON file over HTTPS at <code>&lt;iss&gt;/.well-known/world-id-engine.json</code>:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>version</code></td><td>integer</td><td>MUST be <code>1</code>.</td></tr>
+<tr><td><code>release_keys</code></td><td>array</td><td>Each entry: <code>jwk</code> (a P-256 JWK with <code>kid</code>) and <code>status</code> (<code>active</code>, <code>retired</code> or <code>revoked</code>).</td></tr>
+<tr><td><code>manifests</code></td><td>array</td><td>The release manifests the Engine Provider offers, each a compact JWS. Removing one withdraws its release.</td></tr>
+</tbody>
+</table>
+</div>
+<p>A reader MUST NOT follow redirects to another origin, and MUST ignore manifests whose <code>iss</code> is not the one it fetched the file for. The Verifier never fetches the metadata. RPs compute the <code>engine_config_hash</code> values they accept from it, and SHOULD refresh it at least every 24 hours.</p>
+<h4 id="446-debug-report"><a class="header" href="#446-debug-report">4.4.6 Debug Report</a></h4>
+<p>An Engine response MAY carry a <code>debug_report</code>.</p>
+<ol>
+<li><strong>Content.</strong> Opaque bytes the Engine Provider defines, e.g. which check failed, to help debug failures. It is not part of the Flamingo Token and has no protocol meaning. Engine Providers SHOULD keep it to what debugging needs, since it helps anyone probing the Engine (<a href="#7-security">7</a>).</li>
+<li><strong>Size.</strong> The Verifier MUST NOT emit a <code>debug_report</code> larger than <code>MAX_DEBUG_REPORT</code>.</li>
+<li><strong>Delivery.</strong> The Verifier MUST return it only in the sealed, padded response to the Authenticator (<a href="#451-request-and-response">4.5.1</a>), and MUST NOT expose it to the Engine Provider, the Operator or the Host.</li>
+<li><strong>Forwarding.</strong> The Authenticator MAY forward it only to the Engine Provider, and only with the user’s explicit consent. It MUST offer the user a way to inspect it, but MAY forward it without an inspection.</li>
+</ol>
+<h3 id="45-verifier"><a class="header" href="#45-verifier">4.5 Verifier</a></h3>
+<p>A Verifier is any implementation of this section built as an open-source, reproducibly built AWS Nitro enclave image. Each image has its own measurements (PCRs), and Authenticator Providers and RPs choose which implementations they trust by allowlisting them. A Verifier is run by an Operator on a Host. It runs one Engine release and serves requests from Authenticators. It checks each request against the pipeline it names, verifies the Authenticator Assertion, checks billing, passes the Engine request to the sandboxed Engine unchanged, and on a <code>Pass</code> signs a Flamingo Token. It releases each response only at fixed time slots.</p>
+<h4 id="451-request-and-response"><a class="header" href="#451-request-and-response">4.5.1 Request and Response</a></h4>
+<p>The request is a deterministic CBOR map (<a href="https://datatracker.ietf.org/doc/html/rfc8949#section-4.2.1">RFC 8949 §4.2.1</a>) with the fields below. The Authenticator encrypts the entire encoded map to the Verifier. <code>payload</code> is a byte string holding the deterministic CBOR encoding of the Engine request, so the Verifier checks the Authenticator Assertion against exactly the bytes it received and passes them on unchanged.</p>
+<p><strong>Verifier request fields:</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Field</th><th>Type</th><th>Description</th></tr>
+</thead>
+<tbody>
+<tr><td><code>version</code></td><td><code>uint</code></td><td>MUST be <code>1</code>.</td></tr>
+<tr><td><code>payload</code></td><td>bytes</td><td>The encoded Engine request.</td></tr>
+<tr><td><code>aud</code></td><td>Field element</td><td>The <code>rpId</code> of the request; MUST be less than <code>2^64</code>.</td></tr>
+<tr><td><code>nonce</code></td><td>Field element</td><td>Nonzero, fresh for each request and bound to the RP’s request as the consuming protocol defines, so a retry is a new request.</td></tr>
+<tr><td><code>expires_at</code></td><td><code>uint</code></td><td>Unix seconds after which the Verifier rejects the request. MUST NOT be more than <code>MAX_REQUEST_LIFETIME</code> ahead of the Verifier’s time.</td></tr>
+<tr><td><code>billing_nullifier</code></td><td>Field element</td><td>The <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107</a> <code>billingNullifier</code> of the Authenticator’s registration for <code>aud</code> in an active billing period, or <code>0</code> if it holds none.</td></tr>
+<tr><td><code>aat_inputs</code></td><td>map, optional</td><td>Inputs for verifying a TAKT and an AAT; see below.</td></tr>
+</tbody>
+</table>
+</div>
+<p><code>billing_nullifier</code> stays outside <code>payload</code>, so it never reaches the Engine and the AAT’s <code>cdh</code> does not cover it. The Verifier uses it only as <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107 §4.7</a> requires, and signs the value that section determines.</p>
+<p><code>aat_inputs</code> is OPTIONAL. If present, it is a map with the fields marked <code>aat_inputs.</code> below, and the Verifier obtains every input of <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-106.md">WIP-106 §3.8</a> as follows:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th><a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-106.md">WIP-106 §3.8</a> input</th><th>Type</th><th>Source</th></tr>
+</thead>
+<tbody>
+<tr><td><code>trust_anchor_key</code></td><td><code>PublicKey</code></td><td><code>aat_inputs.trust_anchor_key</code></td></tr>
+<tr><td><code>takt</code></td><td>bytes</td><td><code>aat_inputs.takt</code></td></tr>
+<tr><td><code>aat</code></td><td>bytes</td><td><code>aat_inputs.aat</code></td></tr>
+<tr><td><code>now</code></td><td>uint32</td><td>The Verifier’s time, in Unix seconds.</td></tr>
+<tr><td><code>min_build_version</code></td><td>uint32</td><td><code>aat_inputs.min_build_version</code>, set as the consuming protocol defines.</td></tr>
+<tr><td><code>aud</code>, <code>nonce</code></td><td>uint64, Field element</td><td>The request’s <code>aud</code> and <code>nonce</code>.</td></tr>
+<tr><td><code>cdh</code></td><td>Field element</td><td><code>R(SHA-256(payload))</code>.</td></tr>
+<tr><td><code>platform</code>, <code>sec_level</code>, <code>sec_meta</code></td><td>uint8</td><td>Unpacked from the TAKT’s <code>sec_flags</code>.</td></tr>
+<tr><td><code>authenticator_meta</code></td><td>uint8</td><td>The AAT’s <code>authenticator_meta</code>.</td></tr>
+</tbody>
+</table>
+</div>
+<p>The response is a deterministic CBOR map with exactly the fields of one variant:</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Variant</th><th>Fields</th></tr>
+</thead>
+<tbody>
+<tr><td><code>Success</code>, when the Engine returned <code>Pass</code></td><td><code>token</code> (the Flamingo Token), <code>signing_key_attestation</code> (the latest attestation of the token signing key), <code>debug_report</code> (optional)</td></tr>
+<tr><td><code>VerifierError</code>, when the Verifier refused the request before the Engine call</td><td><code>error</code> (a Verifier code, see Error codes below)</td></tr>
+<tr><td><code>EngineError</code>, when the Engine ran and did not pass</td><td><code>error</code> (an Engine code, see Error codes below), <code>debug_report</code> (optional)</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Error codes.</strong> Each <code>error</code> is a <code>uint16</code>. A <code>VerifierError</code> response carries a Verifier code below. A <code>EngineError</code> response carries the Engine’s code from its release’s <code>errors</code> (<a href="#443-release-and-release-manifest">4.4.3</a>), or one of the two reserved <code>EngineError</code> codes below.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Code</th><th>Response</th><th>Name</th><th>Meaning</th></tr>
+</thead>
+<tbody>
+<tr><td><code>0x0001</code></td><td><code>VerifierError</code></td><td><code>malformed_request</code></td><td>The request does not meet the request formats or does not fit the loaded release.</td></tr>
+<tr><td><code>0x0002</code></td><td><code>VerifierError</code></td><td><code>expired</code></td><td>The request’s <code>expires_at</code> has passed.</td></tr>
+<tr><td><code>0x0003</code></td><td><code>VerifierError</code></td><td><code>replay</code></td><td>The request was seen before.</td></tr>
+<tr><td><code>0x0004</code></td><td><code>VerifierError</code></td><td><code>billing_nullifier_required</code></td><td>As <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md#47-billing-verification">WIP-107 §4.7</a> defines.</td></tr>
+<tr><td><code>0x0005</code></td><td><code>VerifierError</code></td><td><code>billing_unregistered</code></td><td>As <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md#47-billing-verification">WIP-107 §4.7</a> defines.</td></tr>
+<tr><td><code>0x0000</code></td><td><code>EngineError</code></td><td><code>engine_timeout</code></td><td>The Engine did not finish by the last response slot.</td></tr>
+<tr><td><code>0xFFFF</code></td><td><code>EngineError</code></td><td><code>unlisted_error</code></td><td>The Engine returned a code its release does not list.</td></tr>
+</tbody>
+</table>
+</div>
+<ol>
+<li>The response MUST be encrypted to the requester and padded to the length of the largest possible response, i.e. one with a <code>MAX_DEBUG_REPORT</code>-byte report, hiding the outcome and the report size.</li>
+<li>The Verifier MUST handle <code>debug_report</code> as <a href="#446-debug-report">4.4.6</a> requires.</li>
+<li>The Verifier MUST emit a Flamingo Token only when the Engine returns <code>Pass</code>.</li>
+</ol>
+<h4 id="452-attestation-and-channel"><a class="header" href="#452-attestation-and-channel">4.5.2 Attestation and Channel</a></h4>
+<ol>
+<li><strong>Keys.</strong> At boot, the Verifier MUST generate a channel key and a Flamingo Token signing key inside the enclave, from its hardware RNG, and MUST NOT export or persist either. It SHOULD replace its channel key frequently and accept the previous key for <code>MAX_REQUEST_LIFETIME</code> afterwards.</li>
+<li><strong>Documents.</strong> The Verifier MUST attest each key in its own Nitro attestation document, a <code>COSE_Sign1</code> chaining to the AWS Nitro Root G1. The channel attestation has <code>public_key = SHA-256(CHANNEL_KEY_DOMAIN || channel_key)</code> and <code>user_data</code> = the loaded <code>release_hash</code>; the <code>signing_key_attestation</code> has <code>public_key</code> = the token signing key. A document’s <code>timestamp</code> is its creation time, in milliseconds since the Unix epoch.</li>
+<li><strong>Release manifest.</strong> The Verifier MUST send the release manifest (<a href="#443-release-and-release-manifest">4.4.3</a>) of the Engine release it loaded, as received, with the channel attestation.</li>
+<li><strong>Response.</strong> The Verifier MUST seal the padded response to <code>response_key</code>.</li>
+<li><strong>Refresh.</strong> The Verifier MUST re-attest both keys at least every <code>MAX_ATTESTATION_AGE</code>.</li>
+<li><strong>Time.</strong> The Verifier MUST sync its clock to the <code>timestamp</code> of each new attestation, advance it on its monotonic clock in between, and MUST NOT move it backward. It MUST NOT use any other time source.</li>
+</ol>
+<p><strong>Channel Encoding.</strong> Both directions use the public-key encryption of <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §3.9</a>. <code>info</code> is <code>CHANNEL_DOMAIN || 0x00</code> for a request and <code>CHANNEL_DOMAIN || 0x01</code> for a response. The first 1216 bytes of a request’s plaintext are <code>response_key</code>, a fresh X-Wing encapsulation key; the rest is the request. The Verifier MUST reject a request shorter than 1216 bytes or with an invalid <code>response_key</code>.</p>
+<h4 id="453-request-processing"><a class="header" href="#453-request-processing">4.5.3 Request Processing</a></h4>
+<p>The Host MAY drop requests above a size limit it chooses. For each sealed request it relays, the Verifier, in order:</p>
+<ol>
+<li><strong>Checks.</strong> After decrypting, it MUST reject a request that does not meet the Verifier request and Engine request formats, or whose <code>pipeline_id</code>, <code>strictness</code> or <code>entries</code> do not fit the loaded release as <a href="#442-request-processing">Request Processing item 1</a> of the Engine says, apart from media types.</li>
+<li><strong>Expiry and replay.</strong> It MUST reject an expired or replayed request.</li>
+<li><strong>Authenticator Assertion.</strong> If <code>aat_inputs</code> is present, every check of <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-106.md">WIP-106 §3.8</a> MUST hold. The TAKT, the AAT, the <code>assertion_key</code> and <code>build_version</code> MUST NOT leave the Verifier.</li>
+<li><strong>Billing.</strong> Before the Engine call, it MUST check <code>billing_nullifier</code> as <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107 §4.7</a> requires. It MUST NOT check billing again afterward.</li>
+<li><strong>Engine call.</strong> It MUST pass the Engine request to the sandboxed Engine unchanged, and nothing else.</li>
+<li><strong>Response.</strong> On <code>Pass</code>, it signs a Flamingo Token. It returns a <code>Success</code> or <code>EngineError</code> response, released at a response slot.</li>
+</ol>
+<h4 id="454-response-timing-and-replay"><a class="header" href="#454-response-timing-and-replay">4.5.4 Response Timing and Replay</a></h4>
+<ol>
+<li><strong>Release.</strong> The Verifier MUST hold each response until the first of the pipeline’s <code>response_slots</code> at or after the Engine’s finish, measured on its monotonic clock from the request’s arrival, whatever the outcome. If the Engine has not finished by the last slot, the request fails and the Verifier MUST reset the Engine instance. Rejections before the Engine call MAY be released immediately.</li>
+<li><strong>Choosing slots.</strong> Engine Providers SHOULD put the first slot at or above the pipeline’s fastest complete run and the last above its 99.9th-percentile run time.</li>
+<li><strong>Expiry.</strong> The Verifier MUST reject a request whose <code>expires_at</code> has passed or is more than <code>MAX_REQUEST_LIFETIME</code> ahead of its time.</li>
+<li><strong>Replay.</strong> The Verifier MUST reject a request whose (<code>aud</code>, <code>nonce</code>) it has already processed or is processing. It MUST keep each pair until the request’s <code>expires_at</code> has passed and MAY drop it after. While the set is full, it MUST reject every request.</li>
+</ol>
+<h4 id="455-sandboxed-engine"><a class="header" href="#455-sandboxed-engine">4.5.5 Sandboxed Engine</a></h4>
+<ol>
+<li><strong>Loading.</strong> At start-up, the Verifier receives exactly one Engine bundle and its release manifest from the Host. It MUST check that the bundle hashes to the manifest’s <code>engine_hash</code> and that the manifest is well-formed, including <a href="#443-release-and-release-manifest">Conformance</a>, without verifying its signature, and MUST NOT fetch anything else.</li>
+<li><strong>Sandbox.</strong> The Verifier MUST run the Engine with no network access, no writable persistent storage, no process creation, no access to the Verifier’s keys, nothing outside its bundle, and only one bounded request-response channel.</li>
+<li><strong>Per request.</strong> Before each request, the Verifier MUST reset the Engine to a state no earlier request has influenced, without relying on the Engine’s cooperation. It MUST bound the Engine’s memory, and MUST return an <code>error</code> if the Engine exceeds it, crashes, or returns anything other than an Engine response.</li>
+</ol>
+<h4 id="456-build-and-measurement"><a class="header" href="#456-build-and-measurement">4.5.6 Build and Measurement</a></h4>
+<ol>
+<li><strong>Publication.</strong> For each published Verifier measurement, an immutable reference to its source and its build instructions MUST be publicly available.</li>
+<li><strong>Build.</strong> Building that source with the documented toolchain MUST produce a bit-identical Enclave Image File (EIF).</li>
+<li><strong>Measurement.</strong> PCR0, PCR1 and PCR2 of that EIF are the Verifier’s measurement.</li>
+<li><strong>Configuration.</strong> Everything that affects the Verifier’s behavior MUST be in the EIF. The Host supplies only the Engine bundle, its manifest, <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107</a> billing state updates and requests.</li>
+</ol>
+<h3 id="46-flamingo-token"><a class="header" href="#46-flamingo-token">4.6 Flamingo Token</a></h3>
+<p>On a <code>Pass</code>, the Verifier builds a Flamingo Token from the request, the verified AAT, if any, and the loaded release.</p>
+<p><strong>Envelope.</strong> A Flamingo Token is a CWT (<a href="https://datatracker.ietf.org/doc/html/rfc8392">RFC 8392</a>) in an untagged <code>COSE_Sign1</code>, encoded as deterministic CBOR. The protected header MUST contain <code>alg</code> (label <code>1</code>) = <code>-65537</code> (Private Use, <code>BabyJubJub-EdDSA-Poseidon2</code>) and <code>kid</code> (label <code>4</code>) = the compressed signing public key. The signature MUST be a <code>BabyJubJub-EdDSA-Poseidon2</code> signature per <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100</a> over the signed digest below.</p>
+<p><strong>Claims.</strong> The payload MUST contain exactly these claims, in the bytewise order of their encoded keys.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Claim</th><th>Key</th><th>Value</th></tr>
+</thead>
+<tbody>
+<tr><td><code>eat_profile</code></td><td><code>265</code></td><td><code>EAT_PROFILE</code>.</td></tr>
+<tr><td><code>entry_hash_k</code>, <code>k = 0..3</code></td><td><code>-90000 - k</code></td><td><code>R(SHA-256(data))</code> of the entry of committed role <code>k</code>, or <code>0</code> if that entry is absent or the type has no committed role <code>k</code>.</td></tr>
+<tr><td><code>aud</code></td><td><code>-90004</code></td><td><code>aud</code> from the request.</td></tr>
+<tr><td><code>nonce</code></td><td><code>-90005</code></td><td><code>nonce</code> from the request.</td></tr>
+<tr><td><code>trust_anchor_key_hash</code></td><td><code>-90006</code></td><td><a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-106.md">WIP-106</a> hash of the <code>trust_anchor_key</code> that signed the verified TAKT, or <code>0</code> without an AAT.</td></tr>
+<tr><td><code>aat_flags</code></td><td><code>-90007</code></td><td>Public TAKT and AAT values, packed as below; <code>0</code> without an AAT.</td></tr>
+<tr><td><code>has_aat</code></td><td><code>-90008</code></td><td><code>1</code> if the Verifier verified an AAT, otherwise <code>0</code>.</td></tr>
+<tr><td><code>now</code></td><td><code>-90009</code></td><td>The Verifier’s time when it signed the token, in Unix seconds.</td></tr>
+<tr><td><code>engine_config_hash</code></td><td><code>-90010</code></td><td><code>H_4(DS_WIP_201_ENGINE; R(release_hash), pipeline_id, strictness)</code> per <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §3.3.2</a>, with <code>k = 3</code>.</td></tr>
+<tr><td><code>pipeline_type</code></td><td><code>-90011</code></td><td>The <code>pipeline_type</code> of the pipeline that ran.</td></tr>
+<tr><td><code>strictness</code></td><td><code>-90013</code></td><td>The strictness the pipeline ran at.</td></tr>
+<tr><td><code>billing_nullifier</code></td><td><code>-90012</code></td><td>The <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107</a> <code>billingNullifier</code> the Verifier checked for a billed RP, or <code>0</code> for an RP that is not billed.</td></tr>
+</tbody>
+</table>
+</div>
+<p><a href="#appendix-a2-examples">Appendix A2</a> shows which entries fill <code>entry_hash_0..3</code> for an example request.</p>
+<ol>
+<li><code>aat_flags</code>, <code>has_aat</code> and <code>now</code> are CBOR uints. All other claims except <code>eat_profile</code> are 32-byte byte strings, the canonical big-endian encoding of a field element.</li>
+<li><code>eat_profile</code> is not in the signed digest and MUST be treated as an untrusted hint.</li>
+<li>The entry of committed role <code>k</code> is <code>entries[i]</code> for the one input <code>i</code> whose <code>role</code> is that role.</li>
+<li>The Verifier MUST set <code>billing_nullifier</code> as <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107 §4.7</a> requires, whatever value the request carries.</li>
+</ol>
+<p><strong><code>aat_flags</code> bits.</strong></p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Bits</th><th>Value</th><th>From</th></tr>
+</thead>
+<tbody>
+<tr><td>0–7</td><td><code>platform</code></td><td>TAKT <code>sec_flags</code></td></tr>
+<tr><td>8–15</td><td><code>sec_level</code></td><td>TAKT <code>sec_flags</code></td></tr>
+<tr><td>16–47</td><td><code>min_build_version</code></td><td><code>aat_inputs</code>, in place of the TAKT’s <code>build_version</code></td></tr>
+<tr><td>48–51</td><td><code>sec_meta</code></td><td>TAKT <code>sec_flags</code></td></tr>
+<tr><td>52–56</td><td><code>authenticator_meta</code></td><td>AAT</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Signed digest.</strong> The signed message is <strong>not</strong> the COSE <code>Sig_structure</code>. It MUST be</p>
+<pre><code>H_16(DS_WIP_201; now,
+     entry_hash_0, entry_hash_1, entry_hash_2, entry_hash_3,
+     aud, nonce, trust_anchor_key_hash, aat_flags, has_aat,
+     pipeline_type, strictness, engine_config_hash, billing_nullifier)
+</code></pre>
+<p>per <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §3.3.2</a>, with <code>k = 14</code>.</p>
+<h3 id="47-authenticator"><a class="header" href="#47-authenticator">4.7 Authenticator</a></h3>
+<p>The Authenticator MUST accept only PCR0–2 values its Authenticator Provider ships with it, e.g. in the app release or as signed configuration. Before sending biometrics, it completes these steps in order, and MUST NOT send biometrics if one fails:</p>
+<ol>
+<li><strong>Attestation.</strong> It MUST check that the channel attestation is a valid <code>COSE_Sign1</code> whose chain leads to the AWS Nitro Root G1 and is valid now; does not have all-zero PCRs and has PCR0–2 it accepts; has <code>public_key = SHA-256(CHANNEL_KEY_DOMAIN || channel_key)</code> for the key it encrypts to; has <code>user_data</code> equal to the <code>release_hash</code> of the manifest the Verifier sent; and is at most <code>MAX_ATTESTATION_AGE</code> old. It MAY reuse a checked attestation while these hold.</li>
+<li><strong>Configuration.</strong> It MUST choose a pipeline of the loaded release whose <code>type</code> is one its consuming protocol requires and whose inputs it can produce, as their labels describe, and a <code>strictness</code> the consuming protocol requires and the pipeline lists. Among qualifying pipelines, it follows the consuming protocol or, where it sets none, the Authenticator Provider’s policy. It fills <code>entries</code> in input order and leaves an entry absent only where the consuming protocol allows it. If no pipeline qualifies, it MAY use another Verifier instance.</li>
+<li><strong>Response timing.</strong> It MUST NOT use a pipeline whose <code>response_slots</code> list more release times than its configured maximum. The maximum SHOULD be at most 8, so a response’s timing reveals at most 3 bits.</li>
+<li><strong>Seal.</strong> It MUST seal <code>response_key || request</code> to <code>channel_key</code>, send it, and open the response with <code>response_key</code>.</li>
+<li><strong>Retries.</strong> To retry, it MUST send a new request with a fresh <code>nonce</code> and <code>response_key</code>, and a new AAT. Authenticator Providers SHOULD rate-limit attempts.</li>
+</ol>
+<h3 id="48-consuming-flamingo-tokens"><a class="header" href="#48-consuming-flamingo-tokens">4.8 Consuming Flamingo Tokens</a></h3>
+<p>A consuming protocol defines its types and how an RP requests and uses Flamingo Tokens. An RP MUST NOT accept a Flamingo Token, directly or through the protocol’s proof, unless every check below holds. A proof that hides the token MUST enforce checks 2, 3, 7 and 8; for the others it reveals the values they need or takes the RP’s accepted sets as public inputs.</p>
+<ol>
+<li><strong>Attestation.</strong> The <code>signing_key_attestation</code> chains to the AWS Nitro Root G1, with every certificate valid at its <code>timestamp</code>; does not have all-zero PCRs and has PCR0–2 the RP accepts; attests <code>verifier_key</code> (<code>kid</code> is only a hint); and is at most <code>MAX_ATTESTATION_AGE</code> old.</li>
+<li><strong>Signature.</strong> <code>sig</code> verifies under <code>verifier_key</code> per <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-100.md">WIP-100 §3.5.1</a> over the signed digest computed from the values, with <code>aat_flags = platform + 2^8 * sec_level + 2^16 * min_build_version + 2^48 * sec_meta + 2^52 * authenticator_meta</code>.</li>
+<li><strong>Well-formed values.</strong> <code>has_aat</code> is <code>0</code> or <code>1</code>. The <code>aat_flags</code> sub-fields are range-checked to their widths, with the <code>user_presence</code> bits of <code>authenticator_meta</code> below <code>5</code>. With <code>has_aat = 0</code>, <code>trust_anchor_key_hash</code> and the <code>aat_flags</code> sub-fields are <code>0</code>.</li>
+<li><strong>Request.</strong> <code>aud</code> is the RP’s own; <code>nonce</code> is bound, as the consuming protocol defines, to a request the RP issued that has not expired and has not been used before; and <code>now</code> is recent by the RP’s clock. The RP MUST accept at most one proof per request.</li>
+<li><strong>Authenticator Assertion.</strong> With <code>has_aat = 0</code>, the RP accepts tokens without an AAT. Otherwise <code>min_build_version</code>, <code>trust_anchor_key_hash</code> and the <code>aat_flags</code> sub-fields pass <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-106.md">WIP-106 §4</a>.</li>
+<li><strong>Engine.</strong> <code>engine_config_hash</code> is the hash of a release, <code>pipeline_id</code> and <code>strictness</code> the RP accepts, from an active manifest it verified under an active key of its <code>iss</code>, at or above the RP’s minimum <code>version</code> per <code>iss</code>.</li>
+<li><strong>Type.</strong> <code>pipeline_type</code> is the hash of a type string the consuming protocol defines, and each <code>entry_hash_k</code> its statement depends on is bound to the protocol’s own inputs, e.g. a Credential claim or the RP’s challenge.</li>
+<li><strong>Strictness.</strong> <code>strictness</code> is a level the consuming protocol accepts for this request, e.g. the level the RP requested.</li>
+<li><strong>Billing.</strong> <code>billing_nullifier</code> is <code>0</code>, or the consuming protocol binds it to the World ID the token is used for, as <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-202.md">WIP-202</a> constraint 7 does.</li>
+</ol>
+<h2 id="5-trust-assumptions"><a class="header" href="#5-trust-assumptions">5. Trust Assumptions</a></h2>
+<p>The protocol assumes the isolation, measurement and attestation of AWS Nitro Enclaves are sound. If they fail, neither privacy nor integrity holds. Every party below is trusted only for the listed parts.</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Party</th><th>Trusted for</th><th>Not trusted for</th></tr>
+</thead>
+<tbody>
+<tr><td>AWS (Nitro Enclaves)</td><td>Isolation, measurement and attestation of the enclave.</td><td>Nothing: if this fails, neither privacy nor integrity holds.</td></tr>
+<tr><td>Engine Provider</td><td>Engine correctness: each pipeline does what its type requires, keeps doing so across releases, and meets each strictness level it lists.</td><td>Privacy: the sandbox keeps the Engine from exporting data.</td></tr>
+<tr><td>Authenticator Provider</td><td>Verifying the Authenticator’s integrity, as stated in the TAKT, and the Verifier measurements its Authenticators accept.</td><td>—</td></tr>
+<tr><td>Authenticator</td><td>The source and freshness of the entries it sends, e.g. that a capture is live.</td><td>—</td></tr>
+<tr><td>Host and Operator</td><td>Availability, and the <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-107.md">WIP-107</a> billing state they supply.</td><td>Privacy, and every other token claim: they see only ciphertext, and the Verifier rejects replayed requests.</td></tr>
+</tbody>
+</table>
+</div>
+<p><strong>Out of scope.</strong> Collusion between an RP and the user’s Authenticator, which can then produce any proof the RP accepts, and between an RP, an Engine Provider and the Operator, which can only gather more timing information through requests the user consents to one by one. Collusion between an Engine Provider and the Operator alone is in scope: the sandbox and response slots bound what they learn per request.</p>
+<h2 id="6-rationale"><a class="header" href="#6-rationale">6. Rationale</a></h2>
+<ol>
+<li><strong>Typed pipelines.</strong> What a pass means differs per use case, so the consuming protocol defines it and WIP-201 only fixes the shape. The release fixes each input’s role and processing, so a requester cannot relabel an entry.</li>
+<li><strong>The type in the token.</strong> The consuming protocol checks <code>pipeline_type</code> against a constant, so a pipeline of another shape fails even if an RP’s allowlist names it by mistake, e.g. after a reused <code>pipeline_id</code> or a hand-copied hash.</li>
+<li><strong>Explicit commitment.</strong> <code>#</code> makes the type string say what the token hashes. A single role without <code>#</code>, e.g. a depth map, stays possible.</li>
+<li><strong>Roles and labels.</strong> A role is the protocol’s, so several Engines can serve one type; a label is the Engine’s, so it can tell inputs apart.</li>
+<li><strong>Strictness levels in the type.</strong> Scores depend on the model and the pair and are biometric signals, so a request names a level whose meaning the consuming protocol defines. Putting <code>n</code> in the type lets the Verifier reject a release with levels the protocol does not define at load, as it does for roles. Levels <code>1</code> to <code>n</code> need no list.</li>
+<li><strong>The strictness in the token.</strong> The protocol can check the level that ran against the one it expects, e.g. the RP’s request, instead of relying on the RP’s <code>engine_config_hash</code> allowlist alone.</li>
+<li><strong>Only the RP checks manifest signatures.</strong> Who signed a release only matters for trusting its results, which the RP decides, so the Verifier image holds no Engine Provider keys.</li>
+<li><strong><code>SHA-384</code> for the bundle.</strong> It matches how Nitro measures images; every other hash is <code>SHA-256</code>.</li>
+<li><strong>Minimum versions.</strong> RPs accept a minimum <code>version</code> per <code>iss</code>, so new releases reach them without changes; a breaking change takes a new <code>pipeline_id</code>.</li>
+<li><strong>The AAT in the Verifier, and optional.</strong> The Verifier keeps <a href="https://github.com/worldcoin/world-id-protocol/blob/main/docs/WIPs/wip-106.md">WIP-106</a>’s private inputs and signs the public values; RPs decide whether they accept tokens without an AAT.</li>
+<li><strong>Hashes over raw bytes.</strong> The RP and the Credential can compute the same <code>SHA-256</code>; embeddings only the Engine can compute.</li>
+<li><strong>Signature over claim values.</strong> A circuit verifies the token without parsing CBOR.</li>
+<li><strong>Verifier time.</strong> The Verifier checks the AAT at its own time and signs it, so an expired TAKT or AAT cannot pass.</li>
+<li><strong>Engine configuration hash.</strong> One hash over the manifest’s JWS Payload, pipeline and strictness gives RPs exact control and keeps the values private.</li>
+<li>**Numeric engine **<strong>error codes.</strong> A <code>uint16</code> keeps responses one size, gives Authenticators a stable code to act on, and keeps free text out of the response. The release’s <code>errors</code> map gives each code a message and shows reviewers every error an Engine can return.</li>
+<li><strong>Debug reports only to the Authenticator.</strong> A report may describe the user’s biometrics, so only the user’s device receives it, and it reaches the Engine Provider only with the user’s consent.</li>
+<li><strong>AWS Nitro.</strong> Nitro Enclaves have no persistent storage or external network, measure the whole image with reproducible PCRs, and sign attestations with a public root, which is what Authenticators and RPs need to check the Verifier.</li>
+<li><strong>Two attestations.</strong> The channel key and the signing key are attested separately, so the channel key can be replaced frequently while the signing key, which RPs check tokens against, stays for the whole boot.</li>
+<li><strong>Post-quantum channel.</strong> Biometrics don’t expire, so a recorded request must stay confidential even if it is decrypted years later. The channel therefore uses the X-Wing hybrid KEM.</li>
+<li><strong>The Verifier fetches nothing.</strong> The Host supplies the bundle, the manifest and billing state, and the Verifier checks them. No network dependency enters the measured image, and its behavior follows from the measurement alone.</li>
+<li><strong>Fixed-length responses.</strong> Every response is padded to the largest possible size, so the Host learns neither the outcome nor the report size from the ciphertext.</li>
+<li><strong>Response slots.</strong> Random delays average out over repeated requests, and one fixed time makes every request wait for the worst case. A few slots per pipeline bound what timing reveals per request (<a href="#7-security">7</a>) while keeping fast pipelines fast.</li>
+</ol>
+<h2 id="7-security"><a class="header" href="#7-security">7. Security</a></h2>
+<ol>
+<li><strong>Channel confidentiality.</strong> Requests and responses stay confidential while ML-KEM-768 or X25519 holds. It does not cover a compromised enclave.</li>
+<li><strong>Missing AATs.</strong> Without an AAT anyone can submit arbitrary media, and the verdict becomes an oracle for tuning attacks; RPs that accept <code>has_aat = 0</code> accept that risk.</li>
+<li><strong>Pipelines that do not meet their type.</strong> The type fixes the shape, not what the Engine does. Only the Engine Provider and the release audit stand behind it, so RPs accept releases per <code>iss</code> and per pipeline.</li>
+<li><strong>Unreviewed Engines.</strong> A Host may load any Engine; its tokens carry an <code>engine_config_hash</code> no RP accepts, and the sandbox keeps it from exporting data. A leaked release key works until it is <code>revoked</code> and RPs refresh.</li>
+<li><strong>Closed Engine.</strong> The sandbox removes the Engine’s channels out, and the per-request reset keeps one request’s data from the next.</li>
+<li><strong>Token privacy.</strong> A committed Credential hash and a nonzero <code>billing_nullifier</code> link a user to an RP request, so consuming protocols MUST keep tokens private, e.g. as private proof inputs.</li>
+<li><strong>Verifier keys.</strong> The signing key never leaves the TEE; RPs stop accepting a compromised measurement, and <code>MAX_ATTESTATION_AGE</code> bounds its attestation.</li>
+<li><strong>Timing.</strong> Slots limit each request to at most log2(n) bits for n slots, replay rejection keeps that bound per request, and any Engine failure becomes an <code>error</code> at a slot. Per-pipeline slots may reveal the pipeline.</li>
+<li><strong>Stale measurements.</strong> An Authenticator accepts a compromised measurement until its provider removes it; signed, expiring configuration shortens that window.</li>
+<li><strong>Engine as an oracle.</strong> Anyone can seal a request, so a modified Authenticator can query the Engine without bound. Operators SHOULD rate-limit at the Host, and Engine Providers SHOULD keep <code>debug_report</code> small.</li>
+</ol>
+<h2 id="8-future-considerations"><a class="header" href="#8-future-considerations">8. Future Considerations</a></h2>
+<ol>
+<li><strong>Other TEEs</strong>, through attestation profiles for each provider’s document, root and measurement.</li>
+<li><strong>Several Engines per Verifier.</strong> The Authenticator would choose among them, and RPs accept per <code>engine_config_hash</code> as today.</li>
+<li><strong>Published measurements.</strong> A standard format for publishing Verifier PCRs with a status.</li>
+<li><strong>Bounded Engine queries.</strong> A per-key attempt limit, keyed by the RP’s signed request or the AAT’s assertion key.</li>
+<li><strong>Committed multi-valued roles.</strong> <code>#</code> on a <code>*</code> or <code>+</code> member, with an <code>H_var</code> commitment over that role’s entry hashes.</li>
+<li><strong>Nested types.</strong> Grouping roles, e.g. a live capture and its evidence, as an EIP-712-style struct, once a second protocol needs it.</li>
+</ol>
+<h2 id="9-alternatives-considered"><a class="header" href="#9-alternatives-considered">9. Alternatives Considered</a></h2>
+<ol>
+<li><strong>Running the models in a ZK circuit.</strong> Rejected: proving these models is still infeasible for most devices, and the prover would need the secret weights.</li>
+<li><strong>MPC.</strong> Rejected: orders of magnitude slower, and it adds a non-collusion assumption.</li>
+</ol>
+<h2 id="appendix-a1-test-vectors"><a class="header" href="#appendix-a1-test-vectors">Appendix A1. Test Vectors</a></h2>
+<p>To be regenerated for the 14-claim digest, the new domain separator and <code>pipeline_type</code>.</p>
+<h2 id="appendix-a2-examples"><a class="header" href="#appendix-a2-examples">Appendix A2. Examples</a></h2>
+<p>This appendix is non-normative. It uses the example type <code>EXAMPLE&lt;2&gt;(reference#,live#,evidence*)</code> of <a href="#431-types">4.3.1</a>.</p>
+<p><strong>Release manifest payload:</strong></p>
+<pre><code class="language-json">{
+  "iss": "https://engines.example.com",
+  "engine_hash": "2a2a…2a",
+  "version": 7,
+  "pipelines": [
+    {
+      "pipeline_id": 1,
+      "type": "EXAMPLE&lt;2&gt;(reference#,live#,evidence*)",
+      "strictness_levels": [1, 2],
+      "inputs": [
+        { "role": "reference", "label": "stored_image", "media_types": ["image/png"] },
+        { "role": "live", "label": "front_frame", "media_types": ["image/jpeg"] }
+      ],
+      "response_slots": [500, 1587, 5039, 16000]
+    },
+    {
+      "pipeline_id": 2,
+      "type": "EXAMPLE&lt;2&gt;(reference#,live#,evidence*)",
+      "strictness_levels": [2],
+      "inputs": [
+        { "role": "reference", "label": "stored_image", "media_types": ["image/png"] },
+        { "role": "live", "label": "lit_frame", "media_types": ["image/jpeg"] },
+        { "role": "evidence", "label": "unlit_frame", "media_types": ["image/jpeg"] }
+      ],
+      "response_slots": [500, 1587, 5039, 16000]
+    }
+  ]
+}
+</code></pre>
+<p>Pipeline 1 takes a single frame and has no <code>evidence</code> input, which <code>*</code> allows. Pipeline 2 takes a lit and an unlit frame: the lit frame is <code>live</code>, the unlit one <code>evidence</code>.</p>
+<p><strong>Engine request</strong> for pipeline 2, in CBOR diagnostic notation:</p>
+<pre><code>{
+  "entries": [h'…reference…', h'…lit frame…', h'…unlit frame…'],
+  "strictness": 2,
+  "pipeline_id": 2
+}
+</code></pre>
+<p><strong>Token entries.</strong> The committed roles are <code>reference</code> and <code>live</code>, so <code>entry_hash_0</code> is the reference’s hash, <code>entry_hash_1</code> the lit frame’s, and <code>entry_hash_2</code> and <code>entry_hash_3</code> are <code>0</code>. The unlit frame gets no hash.</p>
+
+                    </main>
+
+                    <nav class="nav-wrapper" aria-label="Page navigation">
+                        <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="../WIPs/wip-113.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
+
+                            <a rel="next prefetch" href="../WIPs/wip-202.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            </a>
+
+                        <div style="clear: both"></div>
+                    </nav>
+                </div>
+            </div>
+
+            <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="../WIPs/wip-113.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
+
+                    <a rel="next prefetch" href="../WIPs/wip-202.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    </a>
+            </nav>
+
+        </div>
+
+        <template id=fa-eye><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 576 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M288 32c-80.8 0-145.5 36.8-192.6 80.6C48.6 156 17.3 208 2.5 243.7c-3.3 7.9-3.3 16.7 0 24.6C17.3 304 48.6 356 95.4 399.4C142.5 443.2 207.2 480 288 480s145.5-36.8 192.6-80.6c46.8-43.5 78.1-95.4 93-131.1c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C433.5 68.8 368.8 32 288 32zM432 256c0 79.5-64.5 144-144 144s-144-64.5-144-144s64.5-144 144-144s144 64.5 144 144zM288 192c0 35.3-28.7 64-64 64c-11.5 0-22.3-3-31.6-8.4c-.2 2.8-.4 5.5-.4 8.4c0 53 43 96 96 96s96-43 96-96s-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6z"/></svg></span></template>
+        <template id=fa-eye-slash><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M38.8 5.1C28.4-3.1 13.3-1.2 5.1 9.2S-1.2 34.7 9.2 42.9l592 464c10.4 8.2 25.5 6.3 33.7-4.1s6.3-25.5-4.1-33.7L525.6 386.7c39.6-40.6 66.4-86.1 79.9-118.4c3.3-7.9 3.3-16.7 0-24.6c-14.9-35.7-46.2-87.7-93-131.1C465.5 68.8 400.8 32 320 32c-68.2 0-125 26.3-169.3 60.8L38.8 5.1zM223.1 149.5C248.6 126.2 282.7 112 320 112c79.5 0 144 64.5 144 144c0 24.9-6.3 48.3-17.4 68.7L408 294.5c5.2-11.8 8-24.8 8-38.5c0-53-43-96-96-96c-2.8 0-5.6 .1-8.4 .4c5.3 9.3 8.4 20.1 8.4 31.6c0 10.2-2.4 19.8-6.6 28.3l-90.3-70.8zm223.1 298L373 389.9c-16.4 6.5-34.3 10.1-53 10.1c-79.5 0-144-64.5-144-144c0-6.9 .5-13.6 1.4-20.2L83.1 161.5C60.3 191.2 44 220.8 34.5 243.7c-3.3 7.9-3.3 16.7 0 24.6c14.9 35.7 46.2 87.7 93 131.1C174.5 443.2 239.2 480 320 480c47.8 0 89.9-12.9 126.2-32.5z"/></svg></span></template>
+        <template id=fa-copy><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M502.6 70.63l-61.25-61.25C435.4 3.371 427.2 0 418.7 0H255.1c-35.35 0-64 28.66-64 64l.0195 256C192 355.4 220.7 384 256 384h192c35.2 0 64-28.8 64-64V93.25C512 84.77 508.6 76.63 502.6 70.63zM464 320c0 8.836-7.164 16-16 16H255.1c-8.838 0-16-7.164-16-16L239.1 64.13c0-8.836 7.164-16 16-16h128L384 96c0 17.67 14.33 32 32 32h47.1V320zM272 448c0 8.836-7.164 16-16 16H63.1c-8.838 0-16-7.164-16-16L47.98 192.1c0-8.836 7.164-16 16-16H160V128H63.99c-35.35 0-64 28.65-64 64l.0098 256C.002 483.3 28.66 512 64 512h192c35.2 0 64-28.8 64-64v-32h-47.1L272 448z"/></svg></span></template>
+        <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
+        <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
+
+
+
+        <script>
+            window.playground_copyable = true;
+        </script>
+
+
+        <script src="../elasticlunr-ef4e11c1.min.js"></script>
+        <script src="../mark-09e88c2c.min.js"></script>
+        <script src="../searcher-c2a407aa.js"></script>
+
+        <script src="../clipboard-1626706a.min.js"></script>
+        <script src="../highlight-abc7f01d.js"></script>
+        <script src="../book-a0b12cfe.js"></script>
+
+        <!-- Custom JS scripts -->
+        <script src="../docs/mermaid-eefea253.min.js"></script>
+        <script src="../docs/mermaid-init-ccf746f1.js"></script>
+        <script src="../docs/mathjax/config-bab89348.js"></script>
+        <script src="../docs/mathjax/tex-svg-23c036de.js"></script>
+
+
+
+    </div>
+    </body>
+</html>
