@@ -497,7 +497,7 @@ fn test_rejects_a_thumbnail_digest_without_its_closing_quote() {
 #[test(should_fail_with = "H_var input exceeds its bound")]
 fn test_rejects_a_hashes_json_above_the_length_window() {
     let mut json = inputs().hashes_json;
-    json.len = 5121;
+    json.len = MAX_HASHES_JSON_BYTES + 1;
     let _ = claims_hash_v1(json);
 }
 
