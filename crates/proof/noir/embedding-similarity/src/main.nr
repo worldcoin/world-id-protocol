@@ -9,7 +9,7 @@ pub(crate) mod types;
 mod test_fixtures;
 mod tests;
 
-use constants::{CLAIM_INDEX, COMPARE_SOURCES, DS_WIP_202_AUTH, DS_WIP_202_NONCE};
+use constants::{CLAIM_INDEX, DS_WIP_202_AUTH, DS_WIP_202_NONCE, PIPELINE_TYPE};
 use flamingo_token::{FlamingoTokenClaims, FlamingoTokenPublic};
 use poseidon2::bn254::permutation;
 use types::PrivateInputs;
@@ -56,8 +56,8 @@ fn main(
     // 1.1 The token's nonce is fresh per Flamingo request and bound to the RP's `nonce`.
     let flamingo_nonce = permutation::t3([DS_WIP_202_NONCE, nonce, inputs.token.nonce_salt])[1];
 
-    // 1.2 Flamingo Token verification; fixing the entries binds the Credential image, live capture
-    // and challenge. A zero `challenge_hash` means the token compared no challenge (constraint 2).
+    // 1.2 Flamingo Token verification; fixing the type and the entries binds the Credential image,
+    // live capture and challenge. A zero `challenge_hash` means the token compared no challenge.
     let flamingo_public = FlamingoTokenPublic {
         verifier_key: flamingo_verifier_key,
         now: now as Field,
@@ -75,13 +75,9 @@ fn main(
     };
     let billing_nullifier = inputs.token.billing_nullifier;
     let token_claims = FlamingoTokenClaims {
-        compared_entry_hashes: [
-            credential_digest,
-            inputs.token.live_capture_hash,
-            challenge_hash,
-            0,
-        ],
-        compare_sources: COMPARE_SOURCES as Field,
+        entry_hashes: [credential_digest, inputs.token.live_capture_hash, challenge_hash, 0],
+        pipeline_type: PIPELINE_TYPE,
+        strictness: inputs.token.strictness as Field,
         billing_nullifier,
     };
     let digest = flamingo_token::verify(flamingo_public, token_claims, inputs.token.sig);

@@ -9,7 +9,7 @@ use sha2::{Digest as _, Sha256};
 
 /// The JWS `typ` of a release manifest.
 pub const MANIFEST_TYP: &str = "world-id-engine-manifest";
-/// Most inputs a pipeline may have, so `i + 1` fits a byte of `compare_sources`.
+/// Most inputs a pipeline may have, so every index fits a byte.
 pub const MAX_PIPELINE_INPUTS: usize = 255;
 const _: () = assert!(MAX_PIPELINE_INPUTS <= u8::MAX as usize);
 

@@ -11,7 +11,7 @@ use ark_ff::{PrimeField as _, UniformRand};
 use eddsa_babyjubjub::EdDSAPrivateKey;
 use rand::{CryptoRng, Rng};
 use sha2::{Digest as _, Sha256};
-use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims};
+use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims, pipeline_type};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, Credential, FieldElement, TREE_DEPTH,
     authenticator_assertion::AatPublicValues,
@@ -24,7 +24,7 @@ use world_id_proof::{
         EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs,
         OwnershipProofCircuitInput,
     },
-    embedding_similarity_proof::{COMPARE_SOURCES, flamingo_nonce},
+    embedding_similarity_proof::{PIPELINE_TYPE, flamingo_nonce},
 };
 
 /// RP fixture data for benchmarks
@@ -176,6 +176,8 @@ const SEC_LEVEL: u8 = 1;
 const SEC_META: u8 = 3;
 /// `user_presence` 2 with provider bits `0b01`.
 const AUTHENTICATOR_META: u8 = 10;
+/// The strictness the token's pipeline ran at.
+const STRICTNESS: u8 = 2;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
 const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
@@ -271,7 +273,7 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
     let challenge_hash = sha256_field(CHALLENGE_IMAGE);
     let digest = FlamingoClaims {
         now: NOW,
-        compared_entry_hashes: [
+        entry_hashes: [
             sha256_field(CREDENTIAL_IMAGE),
             live_capture_hash,
             challenge_hash,
@@ -287,8 +289,9 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
                 | (u64::from(SEC_META) << 48)
                 | (u64::from(AUTHENTICATOR_META) << 52),
         }),
-        compare_sources: COMPARE_SOURCES,
         engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
+        pipeline_type: pipeline_type(PIPELINE_TYPE),
+        strictness: STRICTNESS,
         billing_nullifier: FieldElement::ZERO,
     }
     .digest();
@@ -326,6 +329,7 @@ pub fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<TREE_DE
         cred_pk: credential.issuer.clone(),
         disclose_live_capture: false,
         live_capture_hash,
+        strictness: STRICTNESS,
         billing_nullifier: FieldElement::ZERO,
         nonce_salt: FieldElement::from(NONCE_SALT),
         token_signature: verifier_sk.sign(*digest),

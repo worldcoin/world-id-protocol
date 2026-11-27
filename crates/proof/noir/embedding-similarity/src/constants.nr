@@ -3,8 +3,11 @@
 // Domain separators are the ASCII bytes of the quoted tag read as a big-endian
 // integer (all tags are shorter than 31 bytes, so no reduction occurs).
 
-/// `compare_sources` WIP-202 fixes: compared entry 1 is pipeline input 0, the others are references.
-pub global COMPARE_SOURCES: u32 = 256;
+/// The WIP-201 `pipeline_type` WIP-202 requires: the hash of
+/// `WORLD-ID/WIP-202/FLAMINGO-TYPE/V1<2>(credential#,live#,challenge#?,evidence*)`.
+// TODO: Provisional until WIP-202 defines its WIP-201 pipeline type.
+pub global PIPELINE_TYPE: Field =
+    0x1bcce848d4c59cac80d4003b578342578791d1f5e7f862c08bf97455730ba87a;
 
 /// Credential claim holding the PCP `hashes.json` commitment.
 pub global CLAIM_INDEX: u32 = 0;

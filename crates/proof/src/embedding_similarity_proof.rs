@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, io::Read};
 
 use ark_ff::PrimeField as _;
 use provekit_common::{InputMap, InputValue, NoirElement};
-use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims};
+use world_id_flamingo::{FlamingoAatClaims, FlamingoClaims, pipeline_type};
 use world_id_primitives::{
     Credential, CredentialVersion, EdDSAPublicKey, FieldElement, ProofRequest, ProofType,
     SessionRef, TREE_DEPTH,
@@ -43,8 +43,10 @@ pub(crate) const CHUNK_SLOTS: usize = MAX_HASHES_JSON_BYTES.div_ceil(CHUNK_BYTES
 pub(crate) const THUMBNAIL_KEY: &[u8] = b"\"thumbnail.png\":\"";
 /// Hex digits of a SHA-256 digest.
 pub(crate) const DIGEST_HEX_LEN: usize = 64;
-/// The `compare_sources` WIP-202 fixes: compared entry 1 is pipeline input 0 (§4.4.1).
-pub const COMPARE_SOURCES: u32 = 256;
+/// The WIP-201 pipeline type WIP-202 requires (`PIPELINE_TYPE` in the circuit holds its hash).
+// TODO: Provisional until WIP-202 defines its WIP-201 pipeline type.
+pub const PIPELINE_TYPE: &str =
+    "WORLD-ID/WIP-202/FLAMINGO-TYPE/V1<2>(credential#,live#,challenge#?,evidence*)";
 /// Credential claim holding the `hashes.json` commitment.
 pub(crate) const CLAIM_INDEX: usize = 0;
 
@@ -196,7 +198,7 @@ fn token_digest<const MAX_DEPTH: usize>(
     let (_, credential_digest) = thumbnail_digest(&inputs.hashes_json)?;
     Ok(FlamingoClaims {
         now: inputs.now,
-        compared_entry_hashes: [
+        entry_hashes: [
             credential_digest,
             inputs.live_capture_hash,
             request.challenge_hash,
@@ -212,8 +214,9 @@ fn token_digest<const MAX_DEPTH: usize>(
                 | (u64::from(aat.sec_meta) << 48)
                 | (u64::from(aat.authenticator_meta) << 52),
         }),
-        compare_sources: COMPARE_SOURCES,
         engine_config_hash: inputs.engine_config_hash,
+        pipeline_type: pipeline_type(PIPELINE_TYPE),
+        strictness: inputs.strictness,
         billing_nullifier: inputs.billing_nullifier,
     }
     .digest())
@@ -501,6 +504,10 @@ impl NoirCircuitInput for EmbeddingSimilarityCircuitInput<TREE_DEPTH> {
         token.insert(
             "live_capture_hash".into(),
             self.live_capture_hash.into_noir_value(),
+        );
+        token.insert(
+            "strictness".into(),
+            InputValue::Field(NoirElement::from(u64::from(self.strictness))),
         );
         token.insert(
             "billing_nullifier".into(),

@@ -11,15 +11,13 @@ use world_id_primitives::{
     poseidon,
 };
 
-use crate::DS_SIGN;
+use crate::{DS_TOKEN, MAX_COMMITTED};
 
 /// The `eat_profile` claim of every Flamingo Token.
 pub const EAT_PROFILE: &str = "https://world.org/eat/flamingo/v1";
-/// Compared entries a token carries.
-pub const MAX_COMPARED: usize = 4;
 
-/// `compared_entry_hash_k` is `CLAIM_COMPARED_ENTRY_HASH - k`.
-const CLAIM_COMPARED_ENTRY_HASH: i64 = -90_000;
+/// `entry_hash_k` is `CLAIM_ENTRY_HASH - k`.
+const CLAIM_ENTRY_HASH: i64 = -90_000;
 const CLAIM_AUD: i64 = -90_004;
 const CLAIM_NONCE: i64 = -90_005;
 const CLAIM_TRUST_ANCHOR_KEY_HASH: i64 = -90_006;
@@ -27,8 +25,9 @@ const CLAIM_AAT_FLAGS: i64 = -90_007;
 const CLAIM_HAS_AAT: i64 = -90_008;
 const CLAIM_NOW: i64 = -90_009;
 const CLAIM_ENGINE_CONFIG_HASH: i64 = -90_010;
-const CLAIM_COMPARE_SOURCES: i64 = -90_011;
+const CLAIM_PIPELINE_TYPE: i64 = -90_011;
 const CLAIM_BILLING_NULLIFIER: i64 = -90_012;
+const CLAIM_STRICTNESS: i64 = -90_013;
 
 /// Why a Flamingo Token could not be built or verified.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -83,7 +82,7 @@ impl FlamingoAatClaims {
     };
 
     /// Unpacks [`Self::aat_flags`]. Truncation keeps each sub-field; consumers that need range
-    /// checks apply WIP-201 §4.7 check 3.
+    /// checks apply WIP-201 §4.8 check 3.
     #[must_use]
     pub const fn flags(&self) -> AatFlags {
         let flags = self.aat_flags;
@@ -103,50 +102,50 @@ impl FlamingoAatClaims {
 pub struct FlamingoClaims {
     /// The Verifier's time, in Unix seconds; its trusted clock dates every token.
     pub now: u32,
-    /// `R(SHA-256(data))` per compared entry, `0` past the last one.
-    pub compared_entry_hashes: [FieldElement; MAX_COMPARED],
+    /// `R(SHA-256(data))` of the entry of committed role `k`, or `0` if that entry is absent or
+    /// the type has no committed role `k`.
+    pub entry_hashes: [FieldElement; MAX_COMMITTED],
     /// The request's `aud`.
     pub aud: FieldElement,
     /// The request's `nonce`.
     pub nonce: FieldElement,
     /// `None` encodes `has_aat = 0` with every AAT claim zero.
     pub aat: Option<FlamingoAatClaims>,
-    /// See [`Payload::compare_sources`](crate::Payload::compare_sources).
-    pub compare_sources: u32,
     /// See [`engine_config_hash`](crate::engine_config_hash).
     pub engine_config_hash: FieldElement,
+    /// See [`pipeline_type`](crate::pipeline_type).
+    pub pipeline_type: FieldElement,
+    /// The strictness the pipeline ran at.
+    pub strictness: u8,
     /// The WIP-107 `billingNullifier` the Verifier checked, or `0` for an RP that is not billed.
     pub billing_nullifier: FieldElement,
 }
 
 impl FlamingoClaims {
-    /// The signed digest, `H_16(DS_SIGN; now, compared_entry_hash_0..3, aud, nonce,
-    /// trust_anchor_key_hash, aat_flags, has_aat, compare_sources, engine_config_hash,
+    /// The signed digest, `H_16(DS_TOKEN; now, entry_hash_0..3, aud, nonce,
+    /// trust_anchor_key_hash, aat_flags, has_aat, pipeline_type, strictness, engine_config_hash,
     /// billing_nullifier)`.
     #[must_use]
     pub fn digest(&self) -> FieldElement {
         let aat = self.aat.unwrap_or(FlamingoAatClaims::ZERO);
-        let [c0, c1, c2, c3] = self.compared_entry_hashes;
-        // The last two rate slots of the `t=16` state stay zero.
-        let zero = FieldElement::ZERO;
+        let [e0, e1, e2, e3] = self.entry_hashes;
         poseidon::hash(
-            DS_SIGN,
+            DS_TOKEN,
             [
                 u64::from(self.now).into(),
-                c0,
-                c1,
-                c2,
-                c3,
+                e0,
+                e1,
+                e2,
+                e3,
                 self.aud,
                 self.nonce,
                 aat.trust_anchor_key_hash,
                 aat.aat_flags.into(),
                 u64::from(self.aat.is_some()).into(),
-                u64::from(self.compare_sources).into(),
+                self.pipeline_type,
+                u64::from(self.strictness).into(),
                 self.engine_config_hash,
                 self.billing_nullifier,
-                zero,
-                zero,
             ],
         )
     }
@@ -159,8 +158,8 @@ impl FlamingoClaims {
         let mut entries = vec![(CLAIM_EAT_PROFILE.into(), Value::Text(EAT_PROFILE.into()))];
         entries.extend(
             (0i64..)
-                .zip(self.compared_entry_hashes)
-                .map(|(k, hash)| field(CLAIM_COMPARED_ENTRY_HASH - k, hash)),
+                .zip(self.entry_hashes)
+                .map(|(k, hash)| field(CLAIM_ENTRY_HASH - k, hash)),
         );
         entries.extend([
             field(CLAIM_AUD, self.aud),
@@ -170,8 +169,9 @@ impl FlamingoClaims {
             uint(CLAIM_HAS_AAT, u64::from(self.aat.is_some())),
             uint(CLAIM_NOW, u64::from(self.now)),
             field(CLAIM_ENGINE_CONFIG_HASH, self.engine_config_hash),
-            uint(CLAIM_COMPARE_SOURCES, u64::from(self.compare_sources)),
+            field(CLAIM_PIPELINE_TYPE, self.pipeline_type),
             field(CLAIM_BILLING_NULLIFIER, self.billing_nullifier),
+            field(CLAIM_STRICTNESS, u64::from(self.strictness).into()),
         ]);
         cbor::encode(&cbor::map(entries))
     }
@@ -180,9 +180,9 @@ impl FlamingoClaims {
     fn from_value(value: Value) -> Result<Self, TokenError> {
         let mut claims = Fields::of(value, "Flamingo Token claims")?;
         claims.text(CLAIM_EAT_PROFILE, EAT_PROFILE)?;
-        let mut compared_entry_hashes = [FieldElement::ZERO; MAX_COMPARED];
-        for (k, hash) in (0i64..).zip(&mut compared_entry_hashes) {
-            *hash = claims.field_element(CLAIM_COMPARED_ENTRY_HASH - k)?;
+        let mut entry_hashes = [FieldElement::ZERO; MAX_COMMITTED];
+        for (k, hash) in (0i64..).zip(&mut entry_hashes) {
+            *hash = claims.field_element(CLAIM_ENTRY_HASH - k)?;
         }
         let aud = claims.field_element(CLAIM_AUD)?;
         let nonce = claims.field_element(CLAIM_NONCE)?;
@@ -191,9 +191,15 @@ impl FlamingoClaims {
         let has_aat: u8 = claims.uint(CLAIM_HAS_AAT)?;
         let now = claims.uint(CLAIM_NOW)?;
         let engine_config_hash = claims.field_element(CLAIM_ENGINE_CONFIG_HASH)?;
-        let compare_sources = claims.uint(CLAIM_COMPARE_SOURCES)?;
+        let pipeline_type = claims.field_element(CLAIM_PIPELINE_TYPE)?;
         let billing_nullifier = claims.field_element(CLAIM_BILLING_NULLIFIER)?;
+        let strictness = claims.field_element(CLAIM_STRICTNESS)?;
         claims.finish()?;
+        // The claim is a field element, but only values below `2^8` are strictness levels.
+        let strictness = u64::try_from(strictness)
+            .ok()
+            .and_then(|s| u8::try_from(s).ok())
+            .ok_or(TokenError::Malformed)?;
 
         let aat = FlamingoAatClaims {
             trust_anchor_key_hash,
@@ -206,12 +212,13 @@ impl FlamingoClaims {
         };
         Ok(Self {
             now,
-            compared_entry_hashes,
+            entry_hashes,
             aud,
             nonce,
             aat,
-            compare_sources,
             engine_config_hash,
+            pipeline_type,
+            strictness,
             billing_nullifier,
         })
     }
@@ -348,24 +355,25 @@ impl From<CborError> for TokenError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DS_ENGINE, engine_config_hash};
+    use crate::{DS_ENGINE, engine_config_hash, pipeline_type};
     use coset::{CborSerializable as _, CoseSign1, CoseSign1Builder};
     use sha2::{Digest, Sha256};
 
     // WIP-201 Appendix A1.
+    const PIPELINE_TYPE: &str = "1ed281544d1f50f69387ef3f3d6d24f0001f0a42f8740b5f5e86a70e4b2198a8";
     const ENGINE_CONFIG_HASH: &str =
         "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
     const TRUST_ANCHOR_KEY_HASH: &str =
         "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
     const DIGEST_WITH_AAT: &str =
-        "24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f";
+        "020fdf466e0a1e0f0fde36ce03a9459bbcbc4355a2c8e479d2a06ddd584621df";
     const DIGEST_WITHOUT_AAT: &str =
-        "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
-    const DIGEST_BILLED: &str = "247f7f653466f20e24fbac90c9c36055c7036d2c8d26c100907164723c7bb118";
+        "1e8e707bff80c78a20f7c176a7eb9dd846d8988db3a8028bf5411bdb028644df";
+    const DIGEST_BILLED: &str = "298c48deeedeac4f445952140118e2859c549f94faadb4d42569d2e29ad003e4";
     const KID: &str = "f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12";
-    const CWT_WITH_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a05901acae190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582014b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d83a00015f961b00a30000000001023a00015f97013a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a1901003a00015f9b58200000000000000000000000000000000000000000000000000000000000000000584060c450c9c5a170c975d8871958997c0cbbaf8295218cd97ea4745b18ed5587a24dc37ee1ef39bcf8783a56e1097b9b4cad7904a426b6e69ab05595d8fd835d04";
-    const CWT_WITHOUT_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a05901a4ae190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582000000000000000000000000000000000000000000000000000000000000000003a00015f96003a00015f97003a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a1901003a00015f9b58200000000000000000000000000000000000000000000000000000000000000000584034ba37c01cf069bc44799804624a3167b200adb62b90349526decc1ec1966296935b04a880fe4cc5e1f0a6b481075395837af053456ca3baba9575bec055b100";
-    const CWT_BILLED: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a05901acae190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582021e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c4153a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f9158202abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d3a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582014b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d83a00015f961b00a30000000001023a00015f97013a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a1901003a00015f9b58200000000000000000000000000000000000000000000000000000000000000007584040b3fbfc863edd8d56a30459aab04ce582e8bd41ebc7dae538dbd311ba6326234ceaff9d5d9dabfb04c7d8413e9df587215b91a2b4d2c3648e2b79513a79b402";
+    const CWT_WITH_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a05901f2af190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582024fd129204ff263484224657d234fd2eb3438b02900efdc8d1afb07a81064b033a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f91582000000000000000000000000000000000000000000000000000000000000000003a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582014b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d83a00015f961b00a30000000001023a00015f97013a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a58201ed281544d1f50f69387ef3f3d6d24f0001f0a42f8740b5f5e86a70e4b2198a83a00015f9b582000000000000000000000000000000000000000000000000000000000000000003a00015f9c58200000000000000000000000000000000000000000000000000000000000000002584019e33cd78b08f3cf9a2e7932a194632b465c4fe6461fd423a3357891c8cf1088eac3475f814a3b738bae13fedccd93b5a6809031841dad369a681bd924ae7d04";
+    const CWT_WITHOUT_AAT: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a05901eaaf190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582024fd129204ff263484224657d234fd2eb3438b02900efdc8d1afb07a81064b033a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f91582000000000000000000000000000000000000000000000000000000000000000003a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582000000000000000000000000000000000000000000000000000000000000000003a00015f96003a00015f97003a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a58201ed281544d1f50f69387ef3f3d6d24f0001f0a42f8740b5f5e86a70e4b2198a83a00015f9b582000000000000000000000000000000000000000000000000000000000000000003a00015f9c582000000000000000000000000000000000000000000000000000000000000000025840c3f210966b42616e61c7a0fe1c63f3193c11831b5166f2919deed3dd136d622d1d2a5d0122b720e728ac714894cdc31eebd1a49c9a0e98e9ce77080efa218704";
+    const CWT_BILLED: &str = "84582aa2013a00010000045820f2d46cc6aa89d38add66256beb34e089ebd1e33951c5085b3c228ed5dd8f1c12a05901f2af190109782168747470733a2f2f776f726c642e6f72672f6561742f666c616d696e676f2f76313a00015f8f582024fd129204ff263484224657d234fd2eb3438b02900efdc8d1afb07a81064b033a00015f905820010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b3a00015f91582000000000000000000000000000000000000000000000000000000000000000003a00015f92582000000000000000000000000000000000000000000000000000000000000000003a00015f93582000000000000000000000000000000000000000000000000000000000001d6bb63a00015f945820000000000000000000000000000000000000000000000000000000000000002a3a00015f95582014b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d83a00015f961b00a30000000001023a00015f97013a00015f981a6a4d39f03a00015f9958202f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d3a00015f9a58201ed281544d1f50f69387ef3f3d6d24f0001f0a42f8740b5f5e86a70e4b2198a83a00015f9b582000000000000000000000000000000000000000000000000000000000000000073a00015f9c582000000000000000000000000000000000000000000000000000000000000000025840e18c0b815ae60b4df6bafadbfcdba5c0f8a17cbc30729e567592af554bb0d4023e5c0107e1c89a4dd3c41fe8230dd2b719128c5465eff88ba98cd9a6e5605c03";
 
     fn hex_field(hex: &str) -> FieldElement {
         FieldElement::from_be_bytes(&hex::decode(hex).unwrap().try_into().unwrap()).unwrap()
@@ -379,20 +387,24 @@ mod tests {
         EdDSAPrivateKey::from_bytes([0x15; 32])
     }
 
+    /// The example type of WIP-201 §4.3.1.
+    const TYPE: &str = "EXAMPLE<2>(reference#,live#,evidence*)";
+
     fn claims(aat: Option<FlamingoAatClaims>) -> FlamingoClaims {
         FlamingoClaims {
             now: 1_783_446_000,
-            compared_entry_hashes: [
-                sha256_field(b"credential image"),
+            entry_hashes: [
+                sha256_field(b"reference image"),
                 sha256_field(b"live image"),
-                sha256_field(b"challenge image"),
+                FieldElement::ZERO,
                 FieldElement::ZERO,
             ],
             aud: 1_928_118u64.into(),
             nonce: 42u64.into(),
             aat,
-            compare_sources: 256,
             engine_config_hash: hex_field(ENGINE_CONFIG_HASH),
+            pipeline_type: pipeline_type(TYPE),
+            strictness: 2,
             billing_nullifier: FieldElement::ZERO,
         }
     }
@@ -444,8 +456,8 @@ mod tests {
     #[test]
     fn domain_separators_match_the_spec() {
         assert_eq!(
-            (*DS_SIGN.as_field_element()).to_string(),
-            "127603488023523044162070750169730750022280897185614"
+            (*DS_TOKEN.as_field_element()).to_string(),
+            "32666492934021899305490112043451072005703914075407694"
         );
         assert_eq!(
             (*DS_ENGINE.as_field_element()).to_string(),
@@ -459,6 +471,32 @@ mod tests {
             engine_config_hash(&[0x2a; 32], 1, 2),
             hex_field(ENGINE_CONFIG_HASH)
         );
+    }
+
+    #[test]
+    fn vectors_match_the_spec() {
+        let spec = include_str!("../../../docs/WIPs/wip-201.md");
+        let digests = [DIGEST_WITH_AAT, DIGEST_WITHOUT_AAT, DIGEST_BILLED];
+        let cwts = [CWT_WITH_AAT, CWT_WITHOUT_AAT, CWT_BILLED];
+        let vectors = [
+            format!("pipeline_type      = 0x{PIPELINE_TYPE}"),
+            format!("engine_config_hash = 0x{ENGINE_CONFIG_HASH}"),
+            format!("kid    = {KID}"),
+        ]
+        .into_iter()
+        .chain(digests.map(|digest| format!("digest = 0x{digest}")))
+        .chain(cwts.map(|cwt| format!("cwt = {cwt}")));
+        for vector in vectors {
+            assert!(
+                spec.contains(&vector),
+                "WIP-201 Appendix A1 lacks `{vector}`"
+            );
+        }
+    }
+
+    #[test]
+    fn pipeline_type_matches_the_vector() {
+        assert_eq!(pipeline_type(TYPE), hex_field(PIPELINE_TYPE));
     }
 
     #[test]
@@ -499,7 +537,11 @@ mod tests {
             FlamingoClaims { aud: one, ..base },
             FlamingoClaims { nonce: one, ..base },
             FlamingoClaims {
-                compare_sources: 1,
+                pipeline_type: one,
+                ..base
+            },
+            FlamingoClaims {
+                strictness: 1,
                 ..base
             },
             FlamingoClaims {
@@ -512,9 +554,9 @@ mod tests {
                 ..base
             },
         ];
-        for k in 0..MAX_COMPARED {
+        for k in 0..MAX_COMMITTED {
             let mut claims = base;
-            claims.compared_entry_hashes[k] = one;
+            claims.entry_hashes[k] = one;
             changed.push(claims);
         }
         for aat in [
@@ -574,8 +616,10 @@ mod tests {
         stray_aat[8].1 = Value::Integer(1.into());
         let mut non_canonical = payload(&with_aat());
         non_canonical[5].1 = Value::Bytes(vec![0xff; 32]);
-        let mut wide_sources = payload(&with_aat());
-        wide_sources[12].1 = Value::Integer((1u64 << 32).into());
+        let mut wide_strictness = payload(&with_aat());
+        wide_strictness[14].1 = cbor::field_element(256u64.into());
+        let mut uint_strictness = payload(&with_aat());
+        uint_strictness[14].1 = Value::Integer(2.into());
 
         for payload in [
             extra,
@@ -585,7 +629,8 @@ mod tests {
             has_aat,
             stray_aat,
             non_canonical,
-            wide_sources,
+            wide_strictness,
+            uint_strictness,
         ] {
             assert_eq!(
                 FlamingoToken::from_cwt(&resign(payload)),

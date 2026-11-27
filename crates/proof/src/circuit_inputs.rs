@@ -295,8 +295,10 @@ pub struct EmbeddingSimilarityCircuitInput<const MAX_DEPTH: usize> {
     /// Whether the proof discloses [`Self::live_capture_hash`] (WIP-202 §4.4); the public input
     /// the proof carries is the hash if so, and `0` otherwise.
     pub disclose_live_capture: bool,
-    /// Private input. The Flamingo Token's `compared_entry_hash_1`: `R(SHA-256)` of the live capture.
+    /// Private input. The Flamingo Token's `entry_hash_1`: `R(SHA-256)` of the live capture.
     pub live_capture_hash: FieldElement,
+    /// Private input. The Flamingo Token's `strictness`.
+    pub strictness: u8,
     /// Private input. The Flamingo Token's WIP-107 billing nullifier, or `0` for an RP that is not billed.
     pub billing_nullifier: FieldElement,
     /// Private input. The salt the Flamingo request's `nonce` was derived with (WIP-202 §4.6 constraint 1.1).
