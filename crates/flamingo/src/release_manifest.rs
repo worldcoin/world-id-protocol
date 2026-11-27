@@ -750,6 +750,22 @@ mod tests {
         assert!(ReleaseManifest::from_jws(&sign(&payload)).is_ok());
     }
 
+    /// A type with `<0>` has the single level `0`, which its pipelines list as `[0]`.
+    #[test]
+    fn a_type_without_levels_lists_only_zero() {
+        let mut payload = payload();
+        payload.pipelines[0].type_string = "LIVENESS<0>(reference#,live#)".into();
+        payload.pipelines[0].strictness_levels = vec![0];
+        assert!(ReleaseManifest::from_jws(&sign(&payload)).is_ok());
+        for levels in [vec![1], vec![0, 1]] {
+            payload.pipelines[0].strictness_levels = levels;
+            assert_eq!(
+                ReleaseManifest::from_jws(&sign(&payload)),
+                Err(ManifestError::Invalid("strictness_levels"))
+            );
+        }
+    }
+
     fn assert_rejected(cases: Vec<(Change, &'static str)>) {
         for (change, field) in cases {
             let mut payload = payload();
