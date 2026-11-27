@@ -59,7 +59,7 @@ pub struct FlamingoAatClaims {
     pub aat_flags: u64,
 }
 
-/// The sub-fields of [`FlamingoAatClaims::aat_flags`] (WIP-201 §4.5).
+/// The sub-fields of [`FlamingoAatClaims::aat_flags`] (WIP-201 §4.6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AatFlags {
     /// Bits 0–7.
@@ -224,7 +224,7 @@ impl FlamingoClaims {
     }
 }
 
-/// A signed Flamingo Token (WIP-201 §4.5). Decoded and canonical; verify it before trusting the
+/// A signed Flamingo Token (WIP-201 §4.6). Decoded and canonical; verify it before trusting the
 /// claims.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FlamingoToken {

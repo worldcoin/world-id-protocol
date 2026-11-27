@@ -26,8 +26,10 @@ use world_id_primitives::{
     ValidationError, authenticator_assertion::AatPublicValues,
 };
 use world_id_proof::{
-    ProofError, artifacts::ZkArtifactSource, circuit_inputs::EmbeddingSimilarityRequestInputs,
-    embedding_similarity_proof::verify_embedding_similarity_proof,
+    ProofError,
+    artifacts::ZkArtifactSource,
+    circuit_inputs::EmbeddingSimilarityRequestInputs,
+    embedding_similarity_proof::{PIPELINE_TYPE, verify_embedding_similarity_proof},
 };
 
 /// How far the proof's `now` may be from the RP's clock, in seconds (WIP-202 §4.8 item 3).
@@ -122,8 +124,9 @@ pub struct EmbeddingSimilarityPolicy<A> {
     pub aat: AatPolicy,
 }
 
-/// The `engine_config_hash`es of `pipelines`, given as `(pipeline_id, match_strictness)`, in
-/// every manifest at or above `min_version` that defines them.
+/// The `engine_config_hash`es of `pipelines`, given as `(pipeline_id, strictness)`, in every
+/// manifest at or above `min_version` that defines them as WIP-202 pipelines listing that
+/// strictness.
 ///
 /// Pass only manifests verified under an active key of their `iss`, e.g.
 /// [`EngineProviderMetadata::verified_manifests`](world_id_flamingo::EngineProviderMetadata::verified_manifests),
@@ -140,12 +143,14 @@ pub fn accepted_engine_configs(
         .flat_map(|manifest| {
             pipelines
                 .iter()
-                .filter(|(pipeline_id, match_strictness)| {
-                    manifest.pipeline(*pipeline_id).is_some()
-                        && manifest.has_match_strictness(*match_strictness)
+                .filter(|(pipeline_id, strictness)| {
+                    manifest.pipeline(*pipeline_id).is_some_and(|pipeline| {
+                        pipeline.type_string == PIPELINE_TYPE
+                            && pipeline.has_strictness(*strictness)
+                    })
                 })
-                .map(|(pipeline_id, match_strictness)| {
-                    engine_config_hash(&manifest.release_hash(), *pipeline_id, *match_strictness)
+                .map(|(pipeline_id, strictness)| {
+                    engine_config_hash(&manifest.release_hash(), *pipeline_id, *strictness)
                 })
         })
         .collect()
@@ -483,23 +488,36 @@ mod tests {
         }
     }
 
-    /// A manifest of `version` defining pipelines 1 and 2 at strictness levels 1 and 2. The
-    /// signature is not checked by [`ReleaseManifest::from_jws`].
+    /// A manifest of `version` defining WIP-202 pipelines 1 and 2 at strictness levels 1 and 2,
+    /// and pipeline 3 of another type. The signature is not checked by
+    /// [`ReleaseManifest::from_jws`].
     fn manifest(version: u64) -> ReleaseManifest {
-        let pipeline = |pipeline_id| Pipeline {
+        let input = |role: &str, label: &str| Input {
+            role: role.into(),
+            label: label.into(),
+            media_types: vec!["image/jpeg".into()],
+        };
+        let pipeline = |pipeline_id, type_string: &str| Pipeline {
             pipeline_id,
-            inputs: vec![Input {
-                role: "live_frame".into(),
-                media_types: vec!["image/jpeg".into()],
-            }],
+            type_string: type_string.into(),
+            strictness_levels: vec![1, 2],
+            inputs: vec![
+                input("credential", "orb_thumbnail"),
+                input("live", "front_frame"),
+                input("challenge", "stream_frame"),
+            ],
             response_slots: ResponseSlots(vec![500, 1587]),
         };
         let payload = ManifestPayload {
             iss: "https://engines.example.com".into(),
             engine_hash: [u8::try_from(version).unwrap(); 48],
             version,
-            match_strictness_levels: vec![1, 2],
-            pipelines: vec![pipeline(1), pipeline(2)],
+            pipelines: vec![
+                pipeline(1, PIPELINE_TYPE),
+                pipeline(2, PIPELINE_TYPE),
+                pipeline(3, "OTHER<2>(credential#,live#,challenge#?,evidence*)"),
+            ],
+            errors: std::collections::BTreeMap::new(),
         };
         let header = r#"{"alg":"ES256","kid":"release-1","typ":"world-id-engine-manifest"}"#;
         let jws = format!(
@@ -514,9 +532,12 @@ mod tests {
     #[test]
     fn engine_configs_come_from_accepted_releases_and_pipelines() {
         let (old, new) = (manifest(1), manifest(2));
-        let accepted =
-            accepted_engine_configs(&[old.clone(), new.clone()], 2, &[(1, 2), (3, 2), (2, 9)]);
-        // Only the release at or above the minimum, and only the pipeline and level it defines.
+        let accepted = accepted_engine_configs(
+            &[old.clone(), new.clone()],
+            2,
+            &[(1, 2), (3, 2), (4, 2), (2, 9)],
+        );
+        // Only the release at or above the minimum, and only a WIP-202 pipeline at a level it lists.
         assert_eq!(
             accepted,
             HashSet::from([engine_config_hash(&new.release_hash(), 1, 2)])

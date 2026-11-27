@@ -7,8 +7,8 @@ use rand::rngs::OsRng;
 use secrecy::ExposeSecret as _;
 use sha2::{Digest as _, Sha256};
 use world_id_flamingo::{
-    Entry, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_COMMITTED, MAX_REQUEST_LIFETIME,
-    Payload, ReleaseManifest, Request, RequestError, release_manifest::Pipeline,
+    FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_COMMITTED, MAX_REQUEST_LIFETIME, Payload,
+    ReleaseManifest, Request, RequestError, release_manifest::Pipeline,
 };
 use world_id_primitives::{
     Credential, EmbeddingSimilarityParams, EmbeddingSimilarityResponseItem, FieldElement,
@@ -30,7 +30,7 @@ use crate::{
 };
 
 /// What the Flamingo Verifier returned for a Proof of Embedding Similarity request (WIP-201
-/// §4.4.1), after the Authenticator checked its attestation (WIP-201 §4.6).
+/// §4.5.1), after the Authenticator checked its attestation (WIP-201 §4.7).
 #[derive(Debug, Clone)]
 pub struct FlamingoResult {
     /// The Flamingo Token the Verifier signed.
@@ -53,9 +53,9 @@ pub struct FlamingoResult {
 pub struct EmbeddingSimilarityImages {
     /// The PCP thumbnail that the Credential's `hashes.json` lists.
     pub credential_image: Vec<u8>,
-    /// The live captures, one per input of the pipeline and in the order of its `inputs`. The
-    /// first is compared; the others are checked only, e.g. the other frame of a `LightGuard`
-    /// capture.
+    /// The live captures, one per `live` or `evidence` input of the pipeline, in the order of
+    /// its `inputs`. The `live` one is committed and matched; `evidence` ones are only checked,
+    /// e.g. the unlit frame of a `LightGuard` capture.
     pub live_captures: Vec<LiveCapture>,
     /// The RP's challenge image, whose `R(SHA-256)` is the request's `challenge_hash`, or `None`
     /// for a request without a challenge.
@@ -73,12 +73,12 @@ impl std::fmt::Debug for EmbeddingSimilarityImages {
 /// One live capture, the entry of one pipeline input.
 #[derive(Clone)]
 pub struct LiveCapture {
-    /// The `role` of the pipeline input it is, e.g. `live_frame`.
+    /// The WIP-202 role of the pipeline input it is: [`LIVE`] or [`EVIDENCE`].
     pub role: String,
+    /// The pipeline input's Engine `label`, e.g. `unlit_frame`.
+    pub label: String,
     /// The encoded image.
     pub data: Vec<u8>,
-    /// How the pipeline reads `data`, e.g. which frame of a `LightGuard` capture it is.
-    pub meta: Vec<u8>,
 }
 
 /// Omits the image, which is biometric data.
@@ -86,12 +86,22 @@ impl std::fmt::Debug for LiveCapture {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LiveCapture")
             .field("role", &self.role)
+            .field("label", &self.label)
             .finish_non_exhaustive()
     }
 }
 
+/// The role of the PCP thumbnail in [`PIPELINE_TYPE`].
+const CREDENTIAL: &str = "credential";
+/// The role of the RP's challenge image in [`PIPELINE_TYPE`].
+const CHALLENGE: &str = "challenge";
+/// The role of the matched live capture in [`PIPELINE_TYPE`].
+pub const LIVE: &str = "live";
+/// The role of a live capture the pipeline only checks, in [`PIPELINE_TYPE`].
+pub const EVIDENCE: &str = "evidence";
+
 /// Most response release times a chosen pipeline may list, so a response's timing reveals at most
-/// 3 bits (WIP-201 §4.6).
+/// 3 bits (WIP-201 §4.7).
 const MAX_RESPONSE_SLOTS: usize = 8;
 
 /// How long after the device's `now` a request may expire. The Verifier rejects one expiring more
@@ -99,25 +109,26 @@ const MAX_RESPONSE_SLOTS: usize = 8;
 /// runs ahead of it.
 const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 
-/// Builds a Flamingo request (WIP-201 §4.4.1) for a Proof of Embedding Similarity request, under
-/// the WIP-202 entry layout (§4.4.1), with a `nonce` derived from a fresh salt.
+/// Builds a Flamingo request (WIP-201 §4.5.1) for a Proof of Embedding Similarity request, with a
+/// `nonce` derived from a fresh salt.
 ///
 /// Each call samples a new `nonce_salt` with a CSPRNG and sets the request's `nonce` to
 /// [`flamingo_nonce`]`(proof_request.nonce, nonce_salt)` (WIP-202 constraint 1.1), so a retry after
 /// a failed capture or a billing rejection is a new request within the same RP request (WIP-201
-/// §4.6). Keep the returned salt for the [`FlamingoResult`].
+/// §4.7). Keep the returned salt for the [`FlamingoResult`].
 ///
-/// The pipeline is the first in `release` whose `inputs` have the roles of `images.live_captures`,
-/// in order, so only the release, not the Verifier, picks it. The result carries no
+/// The pipeline is the first in `release` of [`PIPELINE_TYPE`] that lists `strictness` and whose
+/// `live` and `evidence` inputs have the roles and labels of `images.live_captures`, in order, so
+/// only the release, not the Verifier, picks it. The result carries no
 /// `aat_inputs`: an AAT signs the request's [`Request::cdh`], so the caller obtains one for this
 /// request and sets it afterwards.
 ///
 /// # Arguments
 /// - `proof_request`: the RP's [`ProofType::EmbeddingSimilarity`] request.
-/// - `release`: the release manifest the Verifier's attestation binds (WIP-201 §4.6). The
+/// - `release`: the release manifest the Verifier's attestation binds (WIP-201 §4.7). The
 ///   attestation binds the manifest but does not vouch for it, so it MUST also verify under a
-///   release key of an Engine Provider the caller trusts (§4.3.4).
-/// - `match_strictness`: the Authenticator Provider's level; WIP-202 requests set none.
+///   release key of an Engine Provider the caller trusts (§4.4.3).
+/// - `strictness`: the Authenticator Provider's level; WIP-202 requests set none.
 /// - `images`: the entries to compare; the challenge must be present exactly when the request
 ///   has a `challenge_hash`, and hash to it.
 /// - `billing_nullifier`: the WIP-107 `billingNullifier` registered for the RP, or `0`.
@@ -128,15 +139,14 @@ const REQUEST_LIFETIME: u64 = MAX_REQUEST_LIFETIME / 2;
 /// # Errors
 /// - [`AuthenticatorError::PrimitiveError`] if the request is not a valid Proof of Embedding
 ///   Similarity request, or the challenge does not match its `challenge_hash`.
-/// - [`AuthenticatorError::NoFlamingoPipeline`] if `release` has no usable pipeline.
-/// - [`AuthenticatorError::MatchStrictnessNotOffered`] if `release` does not list
-///   `match_strictness`.
+/// - [`AuthenticatorError::NoFlamingoPipeline`] if `release` has no pipeline for the captures.
+/// - [`AuthenticatorError::StrictnessNotOffered`] if none of those lists `strictness`.
 /// - [`AuthenticatorError::FlamingoRequest`] if the request has expired at `now`, or an entry is
 ///   out of bounds.
 pub fn flamingo_request(
     proof_request: &ProofRequest,
     release: &ReleaseManifest,
-    match_strictness: u8,
+    strictness: u8,
     images: EmbeddingSimilarityImages,
     billing_nullifier: FieldElement,
     now: u64,
@@ -145,7 +155,7 @@ pub fn flamingo_request(
     let request = flamingo_request_with_salt(
         proof_request,
         release,
-        match_strictness,
+        strictness,
         images,
         billing_nullifier,
         nonce_salt,
@@ -153,8 +163,8 @@ pub fn flamingo_request(
     )?;
     let payload = request.payload()?;
     Ok(FlamingoAttempt {
-        entry_hashes: payload.entry_hashes(),
-        strictness: payload.match_strictness,
+        entry_hashes: payload.fit(release)?.entry_hashes,
+        strictness: payload.strictness,
         request,
         nonce_salt,
     })
@@ -185,7 +195,7 @@ impl std::fmt::Debug for FlamingoAttempt {
 fn flamingo_request_with_salt(
     proof_request: &ProofRequest,
     release: &ReleaseManifest,
-    match_strictness: u8,
+    strictness: u8,
     images: EmbeddingSimilarityImages,
     billing_nullifier: FieldElement,
     nonce_salt: FieldElement,
@@ -204,17 +214,7 @@ fn flamingo_request_with_salt(
         }
         .into());
     }
-    let pipeline = release
-        .payload()
-        .pipelines
-        .iter()
-        .find(|pipeline| takes_captures(pipeline, &images.live_captures))
-        .ok_or(AuthenticatorError::NoFlamingoPipeline)?;
-    if !release.has_match_strictness(match_strictness) {
-        return Err(AuthenticatorError::MatchStrictnessNotOffered(
-            match_strictness,
-        ));
-    }
+    let pipeline = pipeline_for(release, &images.live_captures, strictness)?;
     let expires_at = proof_request
         .expires_at
         .min(now.saturating_add(REQUEST_LIFETIME));
@@ -222,30 +222,24 @@ fn flamingo_request_with_salt(
         return Err(RequestError::OutOfBounds("expires_at").into());
     }
 
-    // The compared entries come first, `[credential, live_captures[0], challenge]`; without a
-    // challenge `entry_hash_2` is `0` (WIP-202 §4.4.1). The other live captures follow.
-    let plain = |data| Entry { data, meta: vec![] };
-    let mut live_captures = images.live_captures.into_iter().map(|capture| Entry {
-        data: capture.data,
-        meta: capture.meta,
-    });
-    let mut entries = vec![plain(images.credential_image)];
-    entries.extend(live_captures.next());
-    entries.extend(images.challenge.map(plain));
-    let compare: Vec<u8> = (0..).take(entries.len()).collect();
-    let checked_only = entries.len();
-    entries.extend(live_captures);
-    let pipeline_inputs = std::iter::once(1)
-        .chain(checked_only..entries.len())
-        .map(|index| u8::try_from(index).map_err(|_| RequestError::OutOfBounds("entries")))
-        .collect::<Result<_, _>>()?;
+    // One entry per input, in input order; `pipeline_for` matched the captures to the inputs
+    // that are neither the credential nor the challenge.
+    let mut credential = Some(images.credential_image);
+    let mut challenge = images.challenge;
+    let mut live_captures = images.live_captures.into_iter().map(|capture| capture.data);
+    let entries = pipeline
+        .inputs
+        .iter()
+        .map(|input| match input.role.as_str() {
+            CREDENTIAL => credential.take(),
+            CHALLENGE => challenge.take(),
+            _ => live_captures.next(),
+        })
+        .collect();
     let payload = Payload {
         pipeline_id: pipeline.pipeline_id,
-        match_strictness,
-        hints: vec![],
+        strictness,
         entries,
-        pipeline_inputs,
-        compare,
     };
     Ok(Request::new(
         proof_request.rp_id.into(),
@@ -257,16 +251,42 @@ fn flamingo_request_with_salt(
     )?)
 }
 
-/// Whether `pipeline` takes exactly `captures`: its inputs have their roles, in order, and its
-/// response timing stays within [`MAX_RESPONSE_SLOTS`].
+/// The first pipeline of [`PIPELINE_TYPE`] that takes exactly `captures` and lists `strictness`.
+fn pipeline_for<'a>(
+    release: &'a ReleaseManifest,
+    captures: &[LiveCapture],
+    strictness: u8,
+) -> Result<&'a Pipeline, AuthenticatorError> {
+    let mut candidates = release
+        .payload()
+        .pipelines
+        .iter()
+        .filter(|pipeline| takes_captures(pipeline, captures))
+        .peekable();
+    if candidates.peek().is_none() {
+        return Err(AuthenticatorError::NoFlamingoPipeline);
+    }
+    candidates
+        .find(|pipeline| pipeline.has_strictness(strictness))
+        .ok_or(AuthenticatorError::StrictnessNotOffered(strictness))
+}
+
+/// Whether `pipeline` is of [`PIPELINE_TYPE`], its inputs other than the credential and the
+/// challenge have the roles and labels of `captures`, in order, and its response timing stays
+/// within [`MAX_RESPONSE_SLOTS`].
 fn takes_captures(pipeline: &Pipeline, captures: &[LiveCapture]) -> bool {
-    pipeline.inputs.len() == captures.len()
-        && pipeline
-            .inputs
-            .iter()
-            .zip(captures)
-            .all(|(input, capture)| input.role == capture.role)
+    let mut live_inputs = pipeline
+        .inputs
+        .iter()
+        .filter(|input| input.role != CREDENTIAL && input.role != CHALLENGE);
+    pipeline.type_string == PIPELINE_TYPE
         && pipeline.response_slots.0.len() <= MAX_RESPONSE_SLOTS
+        && captures.iter().all(|capture| {
+            live_inputs
+                .next()
+                .is_some_and(|input| input.role == capture.role && input.label == capture.label)
+        })
+        && live_inputs.next().is_none()
 }
 
 /// The parameters of a valid Proof of Embedding Similarity request.
@@ -284,8 +304,8 @@ fn embedding_similarity_params(
     Ok(params)
 }
 
-/// Rejects a token that does not answer the Flamingo request sent for `proof_request` under the
-/// WIP-202 entry layout (§4.4.1), so a mismatch surfaces before proving rather than as an invalid
+/// Rejects a token that does not answer the Flamingo request sent for `proof_request`, so a
+/// mismatch surfaces before proving rather than as an invalid
 /// token signature or, for a delivered live capture, at the RP (WIP-202 §4.4 step 5).
 fn check_token_answers_request(
     claims: &FlamingoClaims,
@@ -724,28 +744,29 @@ mod tests {
         FieldElement::from_digest(&Sha256::digest(bytes).into())
     }
 
-    fn capture(role: &str, data: &[u8], meta: &[u8]) -> LiveCapture {
+    fn capture(role: &str, label: &str, data: &[u8]) -> LiveCapture {
         LiveCapture {
             role: role.into(),
+            label: label.into(),
             data: data.to_vec(),
-            meta: meta.to_vec(),
         }
     }
 
     fn images() -> EmbeddingSimilarityImages {
         EmbeddingSimilarityImages {
             credential_image: b"credential image".to_vec(),
-            live_captures: vec![capture("live_frame", b"live image", b"")],
+            live_captures: vec![capture(LIVE, "front_frame", b"live image")],
             challenge: Some(b"challenge image".to_vec()),
         }
     }
 
-    /// The images of a two-frame `LightGuard` capture, whose first frame is compared.
+    /// The images of a two-frame `LightGuard` capture: the lit frame is matched, the unlit one
+    /// only checked.
     fn light_guard_images() -> EmbeddingSimilarityImages {
         EmbeddingSimilarityImages {
             live_captures: vec![
-                capture("live_frame", b"live image", b"illuminated"),
-                capture("other_frame", b"other frame", b"unilluminated"),
+                capture(LIVE, "lit_frame", b"live image"),
+                capture(EVIDENCE, "unlit_frame", b"unlit frame"),
             ],
             ..images()
         }
@@ -791,18 +812,38 @@ mod tests {
         request
     }
 
-    fn pipeline(pipeline_id: u16, roles: &[&str]) -> Pipeline {
+    fn input(role: &str, label: &str) -> Input {
+        Input {
+            role: role.into(),
+            label: label.into(),
+            media_types: vec!["image/jpeg".into()],
+        }
+    }
+
+    /// A WIP-202 pipeline with the credential first, then `captures` as `(role, label)`, then the
+    /// challenge.
+    fn pipeline(pipeline_id: u16, captures: &[(&str, &str)]) -> Pipeline {
+        let mut inputs = vec![input(CREDENTIAL, "orb_thumbnail")];
+        inputs.extend(captures.iter().map(|(role, label)| input(role, label)));
+        inputs.push(input(CHALLENGE, "stream_frame"));
         Pipeline {
             pipeline_id,
-            inputs: roles
-                .iter()
-                .map(|role| Input {
-                    role: (*role).into(),
-                    media_types: vec!["image/jpeg".into()],
-                })
-                .collect(),
+            type_string: PIPELINE_TYPE.into(),
+            strictness_levels: vec![1, 2],
+            inputs,
             response_slots: ResponseSlots(vec![500, 1587, 5039, 16_000]),
         }
+    }
+
+    fn front_frame(pipeline_id: u16) -> Pipeline {
+        pipeline(pipeline_id, &[(LIVE, "front_frame")])
+    }
+
+    fn light_guard(pipeline_id: u16) -> Pipeline {
+        pipeline(
+            pipeline_id,
+            &[(LIVE, "lit_frame"), (EVIDENCE, "unlit_frame")],
+        )
     }
 
     /// A manifest with `pipelines`. Authenticators do not verify its signature, so it has none.
@@ -811,8 +852,8 @@ mod tests {
             iss: "https://engines.example.com".into(),
             engine_hash: [0x2a; 48],
             version: 1,
-            match_strictness_levels: vec![1, 2],
             pipelines,
+            errors: std::collections::BTreeMap::new(),
         };
         let header = r#"{"alg":"ES256","kid":"release-1","typ":"world-id-engine-manifest"}"#;
         let jws = format!(
@@ -823,33 +864,53 @@ mod tests {
         ReleaseManifest::from_jws(&jws).unwrap()
     }
 
-    fn build(
+    fn build_with(
+        proof_request: &ProofRequest,
         release: &ReleaseManifest,
-        match_strictness: u8,
+        strictness: u8,
+        images: EmbeddingSimilarityImages,
     ) -> Result<Request, AuthenticatorError> {
         flamingo_request_with_salt(
-            &proof_request(),
+            proof_request,
             release,
-            match_strictness,
-            images(),
+            strictness,
+            images,
             FieldElement::from(11u64),
             FieldElement::from(NONCE_SALT),
             NOW,
         )
     }
 
+    fn build(release: &ReleaseManifest, strictness: u8) -> Result<Request, AuthenticatorError> {
+        build_with(&proof_request(), release, strictness, images())
+    }
+
+    fn entry_hashes(request: &Request, release: &ReleaseManifest) -> [FieldElement; MAX_COMMITTED] {
+        request
+            .payload()
+            .unwrap()
+            .fit(release)
+            .unwrap()
+            .entry_hashes
+    }
+
     #[test]
-    fn the_request_follows_the_entry_layout() {
-        // Only the second pipeline takes a single live frame.
-        let release = release(vec![
-            pipeline(1, &["live_frame", "live_frame"]),
-            pipeline(2, &["live_frame"]),
-        ]);
+    fn the_request_fills_entries_in_input_order() {
+        // Only the second pipeline takes a single front frame.
+        let release = release(vec![light_guard(1), front_frame(2)]);
         let request = build(&release, 2).unwrap();
         let payload = request.payload().unwrap();
-        assert_eq!((payload.pipeline_id, payload.match_strictness), (2, 2));
+        assert_eq!((payload.pipeline_id, payload.strictness), (2, 2));
         assert_eq!(
-            payload.entry_hashes(),
+            payload.entries,
+            [
+                Some(b"credential image".to_vec()),
+                Some(b"live image".to_vec()),
+                Some(b"challenge image".to_vec()),
+            ]
+        );
+        assert_eq!(
+            entry_hashes(&request, &release),
             [
                 image_hash(b"credential image"),
                 image_hash(b"live image"),
@@ -857,15 +918,13 @@ mod tests {
                 FieldElement::ZERO,
             ]
         );
-        assert_eq!(payload.pipeline_inputs, vec![1]);
-        assert!(payload.entries.iter().all(|entry| entry.meta.is_empty()));
         assert_eq!(request.billing_nullifier, FieldElement::from(11u64));
         assert!(request.aat_inputs.is_none());
     }
 
     #[test]
     fn aud_nonce_and_expiry_come_from_the_proof_request() {
-        let request = build(&release(vec![pipeline(1, &["live_frame"])]), 1).unwrap();
+        let request = build(&release(vec![front_frame(1)]), 1).unwrap();
         assert_eq!(request.aud, FieldElement::from(1_928_118u64));
         assert_eq!(
             request.nonce,
@@ -877,7 +936,7 @@ mod tests {
 
     #[test]
     fn each_attempt_derives_its_nonce_from_a_fresh_salt() {
-        let release = release(vec![pipeline(1, &["live_frame"])]);
+        let release = release(vec![front_frame(1)]);
         let attempt = || {
             flamingo_request(
                 &proof_request(),
@@ -896,24 +955,20 @@ mod tests {
                 attempt.request.nonce,
                 flamingo_nonce(FieldElement::from(42u64), attempt.nonce_salt)
             );
+            assert_eq!(attempt.strictness, 1);
+            assert_eq!(
+                attempt.entry_hashes,
+                entry_hashes(&attempt.request, &release)
+            );
         }
     }
 
     #[test]
     fn the_expiry_leaves_room_for_a_device_clock_ahead_of_the_verifier() {
-        let release = release(vec![pipeline(1, &["live_frame"])]);
+        let release = release(vec![front_frame(1)]);
         let mut proof_request = proof_request();
         proof_request.expires_at = NOW + 3600;
-        let request = flamingo_request_with_salt(
-            &proof_request,
-            &release,
-            1,
-            images(),
-            FieldElement::ZERO,
-            FieldElement::from(NONCE_SALT),
-            NOW,
-        )
-        .unwrap();
+        let request = build_with(&proof_request, &release, 1, images()).unwrap();
         assert_eq!(request.expires_at, NOW + REQUEST_LIFETIME);
         let verifier_behind = NOW - (MAX_REQUEST_LIFETIME - REQUEST_LIFETIME);
         assert_eq!(request.check_expiry(verifier_behind), Ok(()));
@@ -921,15 +976,7 @@ mod tests {
 
         proof_request.expires_at = NOW;
         assert!(matches!(
-            flamingo_request_with_salt(
-                &proof_request,
-                &release,
-                1,
-                images(),
-                FieldElement::ZERO,
-                FieldElement::from(NONCE_SALT),
-                NOW
-            ),
+            build_with(&proof_request, &release, 1, images()),
             Err(AuthenticatorError::FlamingoRequest(
                 RequestError::OutOfBounds("expires_at")
             ))
@@ -938,13 +985,11 @@ mod tests {
 
     #[test]
     fn a_release_without_a_pipeline_for_the_captures_is_rejected() {
-        let mut slow = pipeline(3, &["live_frame"]);
+        let mut slow = front_frame(1);
         slow.response_slots = ResponseSlots((1..=9).map(|i| i * 1000).collect());
-        let release = release(vec![
-            pipeline(1, &["document"]),
-            pipeline(2, &["live_frame", "live_frame"]),
-            slow,
-        ]);
+        let mut other_type = front_frame(2);
+        other_type.type_string = "OTHER<2>(credential#,live#,challenge#?,evidence*)".into();
+        let release = release(vec![slow, other_type, light_guard(3)]);
         assert!(matches!(
             build(&release, 1),
             Err(AuthenticatorError::NoFlamingoPipeline)
@@ -952,31 +997,34 @@ mod tests {
     }
 
     #[test]
-    fn an_unlisted_match_strictness_is_rejected() {
+    fn the_first_pipeline_listing_the_strictness_is_chosen() {
+        let mut strict_only = front_frame(1);
+        strict_only.strictness_levels = vec![2];
+        let release = release(vec![strict_only, front_frame(2)]);
+        assert_eq!(
+            build(&release, 1).unwrap().payload().unwrap().pipeline_id,
+            2
+        );
+        assert_eq!(
+            build(&release, 2).unwrap().payload().unwrap().pipeline_id,
+            1
+        );
         assert!(matches!(
-            build(&release(vec![pipeline(1, &["live_frame"])]), 3),
-            Err(AuthenticatorError::MatchStrictnessNotOffered(3))
+            build(&release, 3),
+            Err(AuthenticatorError::StrictnessNotOffered(3))
         ));
     }
 
     #[test]
-    fn a_request_without_a_challenge_compares_two_entries() {
-        let release = release(vec![pipeline(1, &["live_frame"])]);
+    fn a_request_without_a_challenge_leaves_its_entry_absent() {
+        let release = release(vec![front_frame(1)]);
         let mut images = images();
         images.challenge = None;
-        let request = flamingo_request_with_salt(
-            &proof_request_without_a_challenge(),
-            &release,
-            1,
-            images,
-            FieldElement::ZERO,
-            FieldElement::from(NONCE_SALT),
-            NOW,
-        )
-        .unwrap();
-        let payload = request.payload().unwrap();
+        let request =
+            build_with(&proof_request_without_a_challenge(), &release, 1, images).unwrap();
+        assert_eq!(request.payload().unwrap().entries[2], None);
         assert_eq!(
-            payload.entry_hashes(),
+            entry_hashes(&request, &release),
             [
                 image_hash(b"credential image"),
                 image_hash(b"live image"),
@@ -999,15 +1047,7 @@ mod tests {
         ];
         for (proof_request, images) in cases {
             assert!(matches!(
-                flamingo_request_with_salt(
-                    &proof_request,
-                    &release(vec![pipeline(1, &["live_frame"])]),
-                    1,
-                    images,
-                    FieldElement::ZERO,
-                    FieldElement::from(NONCE_SALT),
-                    NOW,
-                ),
+                build_with(&proof_request, &release(vec![front_frame(1)]), 1, images),
                 Err(AuthenticatorError::PrimitiveError(PrimitiveError::InvalidInput { attribute, .. }))
                     if attribute == "challenge"
             ));
@@ -1015,11 +1055,8 @@ mod tests {
     }
 
     #[test]
-    fn a_multi_input_capture_selects_its_pipeline_and_compares_only_the_first_input() {
-        let release = release(vec![
-            pipeline(1, &["live_frame"]),
-            pipeline(2, &["live_frame", "other_frame"]),
-        ]);
+    fn a_light_guard_capture_selects_its_pipeline_and_commits_only_the_lit_frame() {
+        let release = release(vec![front_frame(1), light_guard(2)]);
         for (proof_request, challenge) in [
             (proof_request(), Some(b"challenge image".to_vec())),
             (proof_request_without_a_challenge(), None),
@@ -1028,95 +1065,71 @@ mod tests {
                 challenge: challenge.clone(),
                 ..light_guard_images()
             };
-            let request = flamingo_request_with_salt(
-                &proof_request,
-                &release,
-                1,
-                images,
-                FieldElement::ZERO,
-                FieldElement::from(NONCE_SALT),
-                NOW,
-            )
-            .unwrap();
+            let request = build_with(&proof_request, &release, 1, images).unwrap();
             let payload = request.payload().unwrap();
             assert_eq!(payload.pipeline_id, 2);
-            let other_frame = if challenge.is_some() { 3 } else { 2 };
-            assert_eq!(payload.pipeline_inputs, vec![1, other_frame]);
-            assert_eq!(payload.compare, (0..other_frame).collect::<Vec<_>>());
-            let entry = |index: u8| &payload.entries[usize::from(index)];
-            assert_eq!(entry(1).data, b"live image");
-            assert_eq!(entry(1).meta, b"illuminated");
-            assert_eq!(entry(other_frame).data, b"other frame");
-            assert_eq!(entry(other_frame).meta, b"unilluminated");
-            assert!(entry(0).meta.is_empty());
             assert_eq!(
-                payload.entry_hashes()[2],
-                challenge.map_or(FieldElement::ZERO, |challenge| image_hash(&challenge))
+                payload.entries,
+                [
+                    Some(b"credential image".to_vec()),
+                    Some(b"live image".to_vec()),
+                    Some(b"unlit frame".to_vec()),
+                    challenge.clone(),
+                ]
+            );
+            assert_eq!(
+                entry_hashes(&request, &release),
+                [
+                    image_hash(b"credential image"),
+                    image_hash(b"live image"),
+                    challenge.map_or(FieldElement::ZERO, |challenge| image_hash(&challenge)),
+                    FieldElement::ZERO,
+                ]
             );
         }
     }
 
     #[test]
-    fn captures_without_a_pipeline_of_their_roles_are_rejected() {
-        let release = release(vec![pipeline(1, &["live_frame", "other_frame"])]);
+    fn the_live_role_is_committed_wherever_its_input_is() {
+        let release = release(vec![pipeline(
+            1,
+            &[(EVIDENCE, "unlit_frame"), (LIVE, "lit_frame")],
+        )]);
+        let mut evidence_first = light_guard_images();
+        evidence_first.live_captures.reverse();
+        let request = build_with(&proof_request(), &release, 1, evidence_first).unwrap();
+        let payload = request.payload().unwrap();
+        assert_eq!(payload.entries[1].as_deref(), Some(&b"unlit frame"[..]));
+        assert_eq!(
+            entry_hashes(&request, &release)[1],
+            image_hash(b"live image")
+        );
+
+        // The captures must come in the pipeline's input order.
+        assert!(matches!(
+            build_with(&proof_request(), &release, 1, light_guard_images()),
+            Err(AuthenticatorError::NoFlamingoPipeline)
+        ));
+    }
+
+    #[test]
+    fn captures_without_a_pipeline_of_their_roles_and_labels_are_rejected() {
+        let release = release(vec![light_guard(1)]);
         let mut extra = light_guard_images();
         extra
             .live_captures
-            .push(capture("third_frame", b"third", b""));
-        let mut renamed = light_guard_images();
-        renamed.live_captures[1].role = "depth_frame".into();
-        for images in [images(), extra, renamed] {
+            .push(capture(EVIDENCE, "depth_map", b"depth"));
+        let mut relabeled = light_guard_images();
+        relabeled.live_captures[1].label = "depth_map".into();
+        let mut recast = light_guard_images();
+        recast.live_captures[1].role = LIVE.into();
+        let mut empty = images();
+        empty.live_captures.clear();
+        for images in [images(), extra, relabeled, recast, empty] {
             assert!(matches!(
-                flamingo_request_with_salt(
-                    &proof_request(),
-                    &release,
-                    1,
-                    images,
-                    FieldElement::ZERO,
-                    FieldElement::from(NONCE_SALT),
-                    NOW,
-                ),
+                build_with(&proof_request(), &release, 1, images),
                 Err(AuthenticatorError::NoFlamingoPipeline)
             ));
         }
-    }
-
-    #[test]
-    fn the_first_capture_is_compared_whatever_its_role() {
-        let release = release(vec![pipeline(1, &["other_frame", "live_frame"])]);
-        let mut swapped = light_guard_images();
-        swapped.live_captures.reverse();
-        let request = flamingo_request_with_salt(
-            &proof_request(),
-            &release,
-            1,
-            swapped,
-            FieldElement::ZERO,
-            FieldElement::from(NONCE_SALT),
-            NOW,
-        )
-        .unwrap();
-        let payload = request.payload().unwrap();
-        assert_eq!(payload.pipeline_inputs, vec![1, 3]);
-        assert_eq!(payload.entries[1].data, b"other frame");
-        assert_eq!(payload.entries[3].data, b"live image");
-    }
-
-    #[test]
-    fn no_captures_match_no_pipeline() {
-        let mut empty = images();
-        empty.live_captures.clear();
-        assert!(matches!(
-            flamingo_request_with_salt(
-                &proof_request(),
-                &release(vec![pipeline(1, &["live_frame"])]),
-                1,
-                empty,
-                FieldElement::ZERO,
-                FieldElement::from(NONCE_SALT),
-                NOW,
-            ),
-            Err(AuthenticatorError::NoFlamingoPipeline)
-        ));
     }
 }
