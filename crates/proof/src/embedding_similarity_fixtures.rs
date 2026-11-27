@@ -25,7 +25,7 @@ use taceo_oprf::{
     core::oprf::{BlindedOprfResponse, BlindingFactor, client},
     types::OprfKeyId,
 };
-use world_id_flamingo::{DS_SIGN, FlamingoAatClaims, FlamingoClaims};
+use world_id_flamingo::{DS_TOKEN, FlamingoAatClaims, FlamingoClaims, pipeline_type};
 use world_id_primitives::{
     AuthenticatorPublicKeySet, Credential, EmbeddingSimilarityParams, FieldElement, OprfPrefix,
     POH_ISSUER_SCHEMA_ID, ProofRequest, ProofType, RequestItem, RequestVersion, SessionId,
@@ -42,8 +42,8 @@ use crate::{
     NoirCircuitInput as _,
     circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs},
     embedding_similarity_proof::{
-        CHUNK_BYTES, CHUNK_SLOTS, CLAIM_INDEX, COMPARE_SOURCES, DIGEST_HEX_LEN,
-        MAX_HASHES_JSON_BYTES, MIN_HASHES_JSON_BYTES, THUMBNAIL_KEY, flamingo_nonce,
+        CHUNK_BYTES, CHUNK_SLOTS, CLAIM_INDEX, DIGEST_HEX_LEN, MAX_HASHES_JSON_BYTES,
+        MIN_HASHES_JSON_BYTES, PIPELINE_TYPE, THUMBNAIL_KEY, flamingo_nonce,
     },
     fixtures::toml_types::{PublicKey, Signature},
 };
@@ -108,10 +108,8 @@ const AUTHENTICATOR_META: u8 = 10;
 const ENGINE_CONFIG_HASH: &str = "2f0bcb30b9051ec78ed6ac1bb206c612546c6ad9872ad0463e55984e2c78ad1d";
 const TRUST_ANCHOR_KEY_HASH: &str =
     "14b904063236db16ecda3a3fa9aaa42b3f605706baa2fdb25afeab8df8f252d8";
-const DIGEST_WITH_AAT: &str = "24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f";
-const DIGEST_WITHOUT_AAT: &str = "045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06";
-/// WIP-201 Appendix A1 "Billed RP": the AAT vector with `billing_nullifier = 7`.
-const DIGEST_BILLED_7: &str = "247f7f653466f20e24fbac90c9c36055c7036d2c8d26c100907164723c7bb118";
+/// The strictness the fixture token's pipeline ran at.
+const STRICTNESS: u8 = 2;
 const CREDENTIAL_IMAGE: &[u8] = b"credential image";
 const LIVE_IMAGE: &[u8] = b"live image";
 const CHALLENGE_IMAGE: &[u8] = b"challenge image";
@@ -206,15 +204,16 @@ fn token_digest(
 ) -> FieldElement {
     FlamingoClaims {
         now,
-        compared_entry_hashes: compared,
+        entry_hashes: compared,
         aud: FieldElement::from(RP_ID),
         nonce,
         aat: has_aat.then(|| FlamingoAatClaims {
             trust_anchor_key_hash: from_hex(TRUST_ANCHOR_KEY_HASH),
             aat_flags: aat_flags(),
         }),
-        compare_sources: COMPARE_SOURCES,
         engine_config_hash: from_hex(ENGINE_CONFIG_HASH),
+        pipeline_type: pipeline_type(PIPELINE_TYPE),
+        strictness: STRICTNESS,
         billing_nullifier,
     }
     .digest()
@@ -345,6 +344,7 @@ struct PrivateInputs {
 #[derive(Serialize)]
 struct TokenInputs {
     live_capture_hash: String,
+    strictness: String,
     billing_nullifier: String,
     nonce_salt: String,
     sig: Signature,
@@ -531,6 +531,7 @@ fn render() -> Rendered {
         ("SESSION_ID", "Field", dec(*session_id)),
         // Flamingo Token witness
         ("LIVE_CAPTURE_HASH", "Field", dec(*compared[1])),
+        ("STRICTNESS", "u8", STRICTNESS.to_string()),
         ("NONCE_SALT", "Field", NONCE_SALT.to_string()),
         ("TOKEN_SIG", "Signature", noir_sig(&token)),
         // Account witness
@@ -620,6 +621,7 @@ fn render() -> Rendered {
             billing_oprf_output: vec!["0".into(), "0".into()],
             token: TokenInputs {
                 live_capture_hash: dec(*compared[1]),
+                strictness: STRICTNESS.to_string(),
                 billing_nullifier: "0".into(),
                 nonce_salt: NONCE_SALT.to_string(),
                 sig: (&token).into(),
@@ -732,7 +734,6 @@ fn circuit_constants_match_the_noir_constants() {
     };
     assert_eq!(global("MIN_HASHES_JSON_BYTES"), MIN_HASHES_JSON_BYTES);
     assert_eq!(global("MAX_HASHES_JSON_BYTES"), MAX_HASHES_JSON_BYTES);
-    assert_eq!(global("COMPARE_SOURCES"), COMPARE_SOURCES as usize);
     assert_eq!(global("CLAIM_INDEX"), CLAIM_INDEX);
     assert_eq!(global("DIGEST_HEX_LEN"), DIGEST_HEX_LEN);
     // A Noir string literal escapes quotes like Rust's `Debug` of a `str`.
@@ -741,27 +742,12 @@ fn circuit_constants_match_the_noir_constants() {
         "pub global THUMBNAIL_KEY: [u8; {}] = {thumbnail_key:?}.as_bytes();",
         THUMBNAIL_KEY.len()
     )));
+    assert!(constants.contains(&format!(
+        "pub global PIPELINE_TYPE: Field = 0x{};",
+        hex::encode(pipeline_type(PIPELINE_TYPE).to_be_bytes())
+    )));
     let var_hash = include_str!("../noir/world-id-components/src/var_hash.nr");
     assert!(var_hash.contains(&format!("pub global CHUNK_BYTES: u32 = {CHUNK_BYTES};")));
-}
-
-/// Over the RP's nonce, the fixture's token digests are the WIP-201 Appendix A1 test vectors.
-#[test]
-fn token_digests_match_the_wip_201_vectors() {
-    let (zero, nonce) = (FieldElement::ZERO, FieldElement::from(NONCE));
-    assert_eq!(
-        token_digest(true, NOW, compared(), nonce, zero),
-        from_hex(DIGEST_WITH_AAT)
-    );
-    assert_eq!(
-        token_digest(false, NOW, compared(), nonce, zero),
-        from_hex(DIGEST_WITHOUT_AAT)
-    );
-    assert_eq!(
-        token_digest(true, NOW, compared(), nonce, FieldElement::from(7_u64)),
-        from_hex(DIGEST_BILLED_7)
-    );
-    assert_eq!(aat_flags(), 0x00a3_0000_0000_0102);
 }
 
 /// Pins the domain separators to the integers hardcoded in the Noir package.
@@ -769,8 +755,8 @@ fn token_digests_match_the_wip_201_vectors() {
 fn domain_separators_match_the_noir_constants() {
     let as_int = |tag: &[u8]| dec(ark_babyjubjub::Fq::from_be_bytes_mod_order(tag));
     assert_eq!(
-        dec(*DS_SIGN.as_field_element()),
-        "127603488023523044162070750169730750022280897185614"
+        dec(*DS_TOKEN.as_field_element()),
+        "32666492934021899305490112043451072005703914075407694"
     );
     assert_eq!(
         as_int(b"World ID Query"),
@@ -928,6 +914,7 @@ pub(crate) fn embedding_similarity_fixture() -> EmbeddingSimilarityCircuitInput<
         cred_pk: credential.issuer.clone(),
         disclose_live_capture: false,
         live_capture_hash: compared[1],
+        strictness: STRICTNESS,
         billing_nullifier: FieldElement::ZERO,
         nonce_salt: NONCE_SALT.into(),
         token_signature: credential.signature.clone().unwrap(),
@@ -993,7 +980,7 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
     let request = &input.request;
     let digest = FlamingoClaims {
         now: input.now,
-        compared_entry_hashes: [
+        entry_hashes: [
             thumbnail,
             input.live_capture_hash,
             request.challenge_hash,
@@ -1008,8 +995,9 @@ pub(crate) fn resign(input: &mut EmbeddingSimilarityCircuitInput<TREE_DEPTH>) {
                 + (u64::from(aat.sec_meta) << 48)
                 + (u64::from(aat.authenticator_meta) << 52),
         }),
-        compare_sources: COMPARE_SOURCES,
         engine_config_hash: input.engine_config_hash,
+        pipeline_type: pipeline_type(PIPELINE_TYPE),
+        strictness: input.strictness,
         billing_nullifier: input.billing_nullifier,
     }
     .digest();

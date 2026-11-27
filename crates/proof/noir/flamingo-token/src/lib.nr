@@ -1,16 +1,17 @@
 //! WIP-201 Flamingo Token verification for circuits that keep the token private
-//! (WIP-201 §4.7 Consuming Flamingo Tokens, checks 2 and 3). The consuming circuit binds
-//! the claims its statement depends on, including check 8 for a nonzero `billing_nullifier`.
+//! (WIP-201 §4.8 Consuming Flamingo Tokens, checks 2 and 3). The consuming circuit binds
+//! the claims its statement depends on: checks 7 (type) and 8 (strictness), and check 9 for a
+//! nonzero `billing_nullifier`.
 use poseidon2::bn254::permutation;
 use world_id_components::types::{PublicKey, Signature};
 
 mod tests;
 
-/// Compared entries in a Flamingo Token.
-pub global MAX_COMPARED: u32 = 4;
+/// Committed roles of a type, one per `entry_hash_k` claim.
+pub global MAX_COMMITTED: u32 = 4;
 
-/// Flamingo Token digest (`DS_WIP_201`): b"WORLD-ID/WIP-201/SIGN".
-pub global DS_WIP_201: Field = 127603488023523044162070750169730750022280897185614;
+/// Flamingo Token digest (`DS_WIP_201`): b"WORLD-ID/WIP-201/TOKEN".
+pub global DS_WIP_201: Field = 32666492934021899305490112043451072005703914075407694;
 
 /// The token values a consuming circuit takes as public inputs. The library range-checks every
 /// value to its claim width itself, so callers may pass any field element.
@@ -38,15 +39,17 @@ pub struct FlamingoTokenPublic {
 
 /// The token values a consuming circuit keeps private or fixes itself.
 pub struct FlamingoTokenClaims {
-    /// `compared_entry_hash_k`, `0` past the last compared entry.
-    pub compared_entry_hashes: [Field; MAX_COMPARED],
-    /// 32-bit.
-    pub compare_sources: Field,
+    /// `entry_hash_k`, the hash of committed role `k`'s entry, or `0`.
+    pub entry_hashes: [Field; MAX_COMMITTED],
+    /// The hash of the pipeline's type string.
+    pub pipeline_type: Field,
+    /// 8-bit.
+    pub strictness: Field,
     /// The WIP-107 billing nullifier, or `0` for an RP that is not billed.
     pub billing_nullifier: Field,
 }
 
-/// Check 3 (Well-formed values) of WIP-201 §4.7. Range-checks every integer claim here,
+/// Check 3 (Well-formed values) of WIP-201 §4.8. Range-checks every integer claim here,
 /// not through the caller's types.
 fn check_well_formed(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
     // The Verifier's time is a 32-bit Unix timestamp.
@@ -60,8 +63,8 @@ fn check_well_formed(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) {
     // WIP-106 reserves `user_presence` (bits 0-2 of `authenticator_meta`) values 5 to 7.
     assert(((public.authenticator_meta as u8) & 7) < 5, "user_presence values 5 to 7 are reserved");
     public.min_build_version.assert_max_bit_size::<32>();
-    // One byte per compared entry.
-    claims.compare_sources.assert_max_bit_size::<32>();
+    // A strictness level is below `2^8`.
+    claims.strictness.assert_max_bit_size::<8>();
     // Without a verified AAT, every AAT value is zero, so the token claims nothing about one.
     if public.has_aat == 0 {
         assert(
@@ -86,10 +89,10 @@ fn aat_flags(public: FlamingoTokenPublic) -> Field {
         + 0x10000000000000 * public.authenticator_meta
 }
 
-/// The signed digest (WIP-201 §4.5): `H_16(DS_WIP_201; ...)` over the 13 claims.
+/// The signed digest (WIP-201 §4.6): `H_16(DS_WIP_201; ...)` over the 14 claims.
 pub fn digest(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) -> Field {
     check_well_formed(public, claims);
-    let h = claims.compared_entry_hashes;
+    let h = claims.entry_hashes;
     permutation::t16([
         DS_WIP_201,
         public.now,
@@ -102,10 +105,10 @@ pub fn digest(public: FlamingoTokenPublic, claims: FlamingoTokenClaims) -> Field
         public.trust_anchor_key_hash,
         aat_flags(public),
         public.has_aat,
-        claims.compare_sources,
+        claims.pipeline_type,
+        claims.strictness,
         public.engine_config_hash,
         claims.billing_nullifier,
-        0,
         0,
     ])[1]
 }

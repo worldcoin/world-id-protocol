@@ -7,7 +7,7 @@ use rand::rngs::OsRng;
 use secrecy::ExposeSecret as _;
 use sha2::{Digest as _, Sha256};
 use world_id_flamingo::{
-    Entry, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_COMPARED, MAX_REQUEST_LIFETIME,
+    Entry, FlamingoAatClaims, FlamingoClaims, FlamingoToken, MAX_COMMITTED, MAX_REQUEST_LIFETIME,
     Payload, ReleaseManifest, Request, RequestError, release_manifest::Pipeline,
 };
 use world_id_primitives::{
@@ -19,7 +19,7 @@ use world_id_proof::{
     ProofError,
     circuit_inputs::{EmbeddingSimilarityCircuitInput, EmbeddingSimilarityRequestInputs},
     embedding_similarity_proof::{
-        COMPARE_SOURCES, authorization_message, flamingo_nonce, generate_embedding_similarity_proof,
+        PIPELINE_TYPE, authorization_message, flamingo_nonce, generate_embedding_similarity_proof,
     },
 };
 
@@ -37,12 +37,14 @@ pub struct FlamingoResult {
     pub token: FlamingoToken,
     /// The Verifier's signing key, as `signing_key_attestation` attests it.
     pub verifier_key: EdDSAPublicKey,
-    /// The attestation of `verifier_key`, forwarded to the RP (WIP-201 §4.7 check 1).
+    /// The attestation of `verifier_key`, forwarded to the RP (WIP-201 §4.8 check 1).
     pub signing_key_attestation: Bytes,
     /// The salt the request's `nonce` was derived with, from [`FlamingoAttempt::nonce_salt`].
     pub nonce_salt: FieldElement,
-    /// The request's compared entry hashes, from [`FlamingoAttempt::compared_entry_hashes`].
-    pub compared_entry_hashes: [FieldElement; MAX_COMPARED],
+    /// The request's committed entry hashes, from [`FlamingoAttempt::entry_hashes`].
+    pub entry_hashes: [FieldElement; MAX_COMMITTED],
+    /// The request's strictness, from [`FlamingoAttempt::strictness`].
+    pub strictness: u8,
 }
 
 /// The images a Proof of Embedding Similarity compares, in the order of the WIP-202 entry layout
@@ -149,11 +151,12 @@ pub fn flamingo_request(
         nonce_salt,
         now,
     )?;
-    let compared_entry_hashes = request.payload()?.compared_entry_hashes();
+    let payload = request.payload()?;
     Ok(FlamingoAttempt {
+        entry_hashes: payload.entry_hashes(),
+        strictness: payload.match_strictness,
         request,
         nonce_salt,
-        compared_entry_hashes,
     })
 }
 
@@ -164,9 +167,11 @@ pub struct FlamingoAttempt {
     pub request: Request,
     /// The salt of the request's `nonce`, for [`FlamingoResult::nonce_salt`].
     pub nonce_salt: FieldElement,
-    /// `R(SHA-256)` of each compared entry, or `0` past the last, for
-    /// [`FlamingoResult::compared_entry_hashes`].
-    pub compared_entry_hashes: [FieldElement; MAX_COMPARED],
+    /// `R(SHA-256)` of each committed entry, or `0` past the last, for
+    /// [`FlamingoResult::entry_hashes`].
+    pub entry_hashes: [FieldElement; MAX_COMMITTED],
+    /// The request's strictness, for [`FlamingoResult::strictness`].
+    pub strictness: u8,
 }
 
 /// Omits the request, which carries biometric data.
@@ -218,7 +223,7 @@ fn flamingo_request_with_salt(
     }
 
     // The compared entries come first, `[credential, live_captures[0], challenge]`; without a
-    // challenge `compared_entry_hash_2` is `0` (WIP-202 §4.4.1). The other live captures follow.
+    // challenge `entry_hash_2` is `0` (WIP-202 §4.4.1). The other live captures follow.
     let plain = |data| Entry { data, meta: vec![] };
     let mut live_captures = images.live_captures.into_iter().map(|capture| Entry {
         data: capture.data,
@@ -287,7 +292,8 @@ fn check_token_answers_request(
     rp_id: FieldElement,
     rp_nonce: FieldElement,
     nonce_salt: FieldElement,
-    sent_entry_hashes: &[FieldElement; MAX_COMPARED],
+    sent_entry_hashes: &[FieldElement; MAX_COMMITTED],
+    sent_strictness: u8,
     params: &EmbeddingSimilarityParams,
 ) -> Result<(), AuthenticatorError> {
     let mismatch = |attribute| Err(AuthenticatorError::FlamingoTokenMismatch(attribute));
@@ -297,20 +303,24 @@ fn check_token_answers_request(
     if claims.nonce != flamingo_nonce(rp_nonce, nonce_salt) {
         return mismatch("nonce");
     }
-    if claims.compared_entry_hashes[0] != sent_entry_hashes[0] {
-        return mismatch("compared_entry_hash_0");
+    if claims.entry_hashes[0] != sent_entry_hashes[0] {
+        return mismatch("entry_hash_0");
     }
-    if claims.compared_entry_hashes[1] != sent_entry_hashes[1] {
-        return mismatch("compared_entry_hash_1");
+    if claims.entry_hashes[1] != sent_entry_hashes[1] {
+        return mismatch("entry_hash_1");
     }
-    if claims.compare_sources != COMPARE_SOURCES {
-        return mismatch("compare_sources");
+    if claims.pipeline_type != world_id_flamingo::pipeline_type(PIPELINE_TYPE) {
+        return mismatch("pipeline_type");
     }
-    if claims.compared_entry_hashes[2] != params.challenge_hash.unwrap_or(FieldElement::ZERO) {
-        return mismatch("compared_entry_hash_2");
+    // The proof keeps `strictness` private, so the RP sees it only through `engine_config_hash`.
+    if claims.strictness != sent_strictness {
+        return mismatch("strictness");
     }
-    if claims.compared_entry_hashes[3] != FieldElement::ZERO {
-        return mismatch("compared_entry_hash_3");
+    if claims.entry_hashes[2] != params.challenge_hash.unwrap_or(FieldElement::ZERO) {
+        return mismatch("entry_hash_2");
+    }
+    if claims.entry_hashes[3] != FieldElement::ZERO {
+        return mismatch("entry_hash_3");
     }
     if claims.aat.is_none() && params.aat.as_ref().is_some_and(|aat| aat.required) {
         return mismatch("aat");
@@ -421,7 +431,8 @@ impl Authenticator {
             proof_request.rp_id.into(),
             proof_request.nonce,
             flamingo.nonce_salt,
-            &flamingo.compared_entry_hashes,
+            &flamingo.entry_hashes,
+            flamingo.strictness,
             params,
         )?;
         let aat = claims.aat.as_ref().map(aat_public_values).transpose()?;
@@ -463,7 +474,8 @@ impl Authenticator {
             aat,
             cred_pk: cred.issuer.clone(),
             disclose_live_capture: params.return_live_capture,
-            live_capture_hash: claims.compared_entry_hashes[1],
+            live_capture_hash: claims.entry_hashes[1],
+            strictness: claims.strictness,
             billing_nullifier: claims.billing_nullifier,
             nonce_salt: flamingo.nonce_salt,
             token_signature: flamingo.token.signature()?,
@@ -534,7 +546,7 @@ mod tests {
     fn claims() -> FlamingoClaims {
         FlamingoClaims {
             now: 1_700_000_000,
-            compared_entry_hashes: [
+            entry_hashes: [
                 FieldElement::from(1u64),
                 FieldElement::from(2u64),
                 FieldElement::from(3u64),
@@ -543,8 +555,9 @@ mod tests {
             aud: FieldElement::from(9u64),
             nonce: flamingo_nonce(FieldElement::from(5u64), FieldElement::from(NONCE_SALT)),
             aat: None,
-            compare_sources: COMPARE_SOURCES,
             engine_config_hash: FieldElement::from(4u64),
+            pipeline_type: world_id_flamingo::pipeline_type(PIPELINE_TYPE),
+            strictness: 2,
             billing_nullifier: FieldElement::ZERO,
         }
     }
@@ -636,7 +649,8 @@ mod tests {
             FieldElement::from(9u64),
             FieldElement::from(5u64),
             FieldElement::from(NONCE_SALT),
-            &self::claims().compared_entry_hashes,
+            &self::claims().entry_hashes,
+            2,
             params,
         )
         .map_err(|err| match err {
@@ -654,34 +668,34 @@ mod tests {
     fn a_request_without_a_challenge_takes_a_token_without_one() {
         let mut no_challenge = params(None);
         no_challenge.challenge_hash = None;
-        assert_eq!(
-            check(&claims(), &no_challenge),
-            Err("compared_entry_hash_2")
-        );
+        assert_eq!(check(&claims(), &no_challenge), Err("entry_hash_2"));
         let mut claims = claims();
-        claims.compared_entry_hashes[2] = FieldElement::ZERO;
+        claims.entry_hashes[2] = FieldElement::ZERO;
         assert_eq!(check(&claims, &no_challenge), Ok(()));
     }
 
     #[test]
     fn a_token_for_another_request_is_rejected() {
         type Tamper = fn(&mut FlamingoClaims);
-        let cases: [(&str, Tamper); 7] = [
+        let cases: [(&str, Tamper); 8] = [
             ("aud", |c| c.aud = FieldElement::from(10u64)),
             // A token over the RP's own nonce rather than the derived one.
             ("nonce", |c| c.nonce = FieldElement::from(5u64)),
-            ("compare_sources", |c| c.compare_sources = 0),
-            ("compared_entry_hash_0", |c| {
-                c.compared_entry_hashes[0] = FieldElement::from(8u64);
+            ("pipeline_type", |c| {
+                c.pipeline_type = FieldElement::from(8u64);
             }),
-            ("compared_entry_hash_1", |c| {
-                c.compared_entry_hashes[1] = FieldElement::from(8u64);
+            ("strictness", |c| c.strictness = 1),
+            ("entry_hash_0", |c| {
+                c.entry_hashes[0] = FieldElement::from(8u64);
             }),
-            ("compared_entry_hash_2", |c| {
-                c.compared_entry_hashes[2] = FieldElement::from(8u64);
+            ("entry_hash_1", |c| {
+                c.entry_hashes[1] = FieldElement::from(8u64);
             }),
-            ("compared_entry_hash_3", |c| {
-                c.compared_entry_hashes[3] = FieldElement::from(8u64);
+            ("entry_hash_2", |c| {
+                c.entry_hashes[2] = FieldElement::from(8u64);
+            }),
+            ("entry_hash_3", |c| {
+                c.entry_hashes[3] = FieldElement::from(8u64);
             }),
         ];
         for (attribute, tamper) in cases {
@@ -835,11 +849,7 @@ mod tests {
         let payload = request.payload().unwrap();
         assert_eq!((payload.pipeline_id, payload.match_strictness), (2, 2));
         assert_eq!(
-            payload.compare_sources(release.pipeline(2).unwrap()),
-            Ok(COMPARE_SOURCES)
-        );
-        assert_eq!(
-            payload.compared_entry_hashes(),
+            payload.entry_hashes(),
             [
                 image_hash(b"credential image"),
                 image_hash(b"live image"),
@@ -966,11 +976,7 @@ mod tests {
         .unwrap();
         let payload = request.payload().unwrap();
         assert_eq!(
-            payload.compare_sources(release.pipeline(1).unwrap()),
-            Ok(COMPARE_SOURCES)
-        );
-        assert_eq!(
-            payload.compared_entry_hashes(),
+            payload.entry_hashes(),
             [
                 image_hash(b"credential image"),
                 image_hash(b"live image"),
@@ -1034,10 +1040,6 @@ mod tests {
             .unwrap();
             let payload = request.payload().unwrap();
             assert_eq!(payload.pipeline_id, 2);
-            assert_eq!(
-                payload.compare_sources(release.pipeline(2).unwrap()),
-                Ok(COMPARE_SOURCES)
-            );
             let other_frame = if challenge.is_some() { 3 } else { 2 };
             assert_eq!(payload.pipeline_inputs, vec![1, other_frame]);
             assert_eq!(payload.compare, (0..other_frame).collect::<Vec<_>>());
@@ -1048,7 +1050,7 @@ mod tests {
             assert_eq!(entry(other_frame).meta, b"unilluminated");
             assert!(entry(0).meta.is_empty());
             assert_eq!(
-                payload.compared_entry_hashes()[2],
+                payload.entry_hashes()[2],
                 challenge.map_or(FieldElement::ZERO, |challenge| image_hash(&challenge))
             );
         }

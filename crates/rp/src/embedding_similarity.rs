@@ -7,7 +7,7 @@
 //! [`EmbeddingSimilarityProofCheck::verify_proof`] on a blocking thread.
 //!
 //! The RP remains responsible for the request itself: it MUST be the RP's own, and its `nonce`
-//! one the RP issued and has not seen used before (WIP-201 §4.7 check 4). The challenge image
+//! one the RP issued and has not seen used before (WIP-201 §4.8 check 4). The challenge image
 //! behind `challenge_hash` MUST be one the RP checked against the party it interacts with.
 //!
 //! An RP that set `return_live_capture` passes the live capture it received next to the proof; the
@@ -33,7 +33,7 @@ use world_id_proof::{
 /// How far the proof's `now` may be from the RP's clock, in seconds (WIP-202 §4.8 item 3).
 pub const MAX_CLOCK_SKEW: u64 = 300;
 
-/// Checks a Flamingo Verifier's `signing_key_attestation` (WIP-201 §4.7 check 1).
+/// Checks a Flamingo Verifier's `signing_key_attestation` (WIP-201 §4.8 check 1).
 pub trait FlamingoAttestationVerifier {
     /// Verifies `attestation` and returns the signing key it attests.
     ///
@@ -115,7 +115,7 @@ pub struct AatPolicy {
 pub struct EmbeddingSimilarityPolicy<A> {
     /// Checks the Flamingo Verifier's attestation, e.g. [`nitro_attestation_verifier`].
     pub attestation: A,
-    /// The Engine configurations the RP accepts (WIP-201 §4.7 check 6), e.g. from
+    /// The Engine configurations the RP accepts (WIP-201 §4.8 check 6), e.g. from
     /// [`accepted_engine_configs`].
     pub engine_config_hashes: HashSet<FieldElement>,
     /// The AAT policy.
@@ -127,7 +127,7 @@ pub struct EmbeddingSimilarityPolicy<A> {
 ///
 /// Pass only manifests verified under an active key of their `iss`, e.g.
 /// [`EngineProviderMetadata::verified_manifests`](world_id_flamingo::EngineProviderMetadata::verified_manifests),
-/// and one `min_version` per `iss` (WIP-201 §4.7 check 6).
+/// and one `min_version` per `iss` (WIP-201 §4.8 check 6).
 #[must_use]
 pub fn accepted_engine_configs(
     manifests: &[ReleaseManifest],

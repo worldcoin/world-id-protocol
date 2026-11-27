@@ -7,10 +7,10 @@ global VERIFIER_KEY: PublicKey = PublicKey {
     y: 8192095922678382794800511095399932292627837066826129560890929861066610234610,
 };
 global SIG_WITH_AAT: Signature = Signature {
-    s: 1974479143804279392582966793003637700370117014073707568489823009312216105805,
+    s: 2031309174716827707623010221389519885313978162025361233377794419472221062122,
     r: [
-        16613254563570858836313967071310512340260378742803372667136760646645052547804,
-        15617754246088094067902926374354607839798802083713556585896183891600075703392,
+        20912884977208786685384409272660943129890804061870675888546036845202683370996,
+        3648206410505437953514755587274540817326819979994828116042746664770909037337,
     ],
 };
 
@@ -44,13 +44,15 @@ fn public_without_aat() -> FlamingoTokenPublic {
 
 fn claims() -> FlamingoTokenClaims {
     FlamingoTokenClaims {
-        compared_entry_hashes: [
-            0x21e9fe96ff18807a727830c56281c96af824005400bcb8ef0f463b34cb20c415,
+        entry_hashes: [
+            0x24fd129204ff263484224657d234fd2eb3438b02900efdc8d1afb07a81064b03,
             0x010cff8544f0007179c076ddb49de551bd5743797bfe05cb3b26f55c696f507b,
-            0x2abb4a81875eb0e308f0fbfb8c0a0f57e77243e095b145ae7973e0b2771e044d,
+            0,
             0,
         ],
-        compare_sources: 256,
+        // `pipeline_type` of `EXAMPLE<2>(reference#,live#,evidence*)`.
+        pipeline_type: 0x1ed281544d1f50f69387ef3f3d6d24f0001f0a42f8740b5f5e86a70e4b2198a8,
+        strictness: 2,
         billing_nullifier: 0,
     }
 }
@@ -59,17 +61,17 @@ fn claims() -> FlamingoTokenClaims {
 fn test_digests_match_the_wip_201_vectors() {
     assert_eq(
         digest(public(), claims()),
-        0x24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f,
+        0x020fdf466e0a1e0f0fde36ce03a9459bbcbc4355a2c8e479d2a06ddd584621df,
     );
     assert_eq(
         digest(public_without_aat(), claims()),
-        0x045442bd20ef9bbcf96e1d5534508467891d17532204659aa56e80c8a5ff0b06,
+        0x1e8e707bff80c78a20f7c176a7eb9dd846d8988db3a8028bf5411bdb028644df,
     );
     let mut billed = claims();
     billed.billing_nullifier = 7;
     assert_eq(
         digest(public(), billed),
-        0x247f7f653466f20e24fbac90c9c36055c7036d2c8d26c100907164723c7bb118,
+        0x298c48deeedeac4f445952140118e2859c549f94faadb4d42569d2e29ad003e4,
     );
 }
 
@@ -77,7 +79,7 @@ fn test_digests_match_the_wip_201_vectors() {
 fn test_verifies_the_vector_token() {
     assert_eq(
         verify(public(), claims(), SIG_WITH_AAT),
-        0x24a02c43c27878dc6623224138ec390efe9044be4271c8a2f82bb5a78910bc4f,
+        0x020fdf466e0a1e0f0fde36ce03a9459bbcbc4355a2c8e479d2a06ddd584621df,
     );
 }
 
@@ -89,9 +91,16 @@ fn test_rejects_another_billing_nullifier() {
 }
 
 #[test(should_fail_with = "invalid flamingo token signature")]
-fn test_rejects_another_compare_sources() {
+fn test_rejects_another_pipeline_type() {
     let mut c = claims();
-    c.compare_sources = 1;
+    c.pipeline_type = 1;
+    let _ = verify(public(), c, SIG_WITH_AAT);
+}
+
+#[test(should_fail_with = "invalid flamingo token signature")]
+fn test_rejects_another_strictness() {
+    let mut c = claims();
+    c.strictness = 1;
     let _ = verify(public(), c, SIG_WITH_AAT);
 }
 
@@ -147,8 +156,8 @@ fn test_rejects_a_platform_beyond_8_bits() {
 }
 
 #[test(should_fail_with = "call to assert_max_bit_size")]
-fn test_rejects_a_compare_sources_beyond_32_bits() {
+fn test_rejects_a_strictness_beyond_8_bits() {
     let mut c = claims();
-    c.compare_sources += 0x100000000;
+    c.strictness += 0x100;
     let _ = verify(public(), c, SIG_WITH_AAT);
 }

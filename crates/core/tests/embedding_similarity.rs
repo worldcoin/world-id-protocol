@@ -22,9 +22,9 @@ use world_id_core::{
     },
     requests::{ProofRequest, ProofType},
 };
-use world_id_flamingo::{FlamingoClaims, FlamingoToken, engine_config_hash};
+use world_id_flamingo::{FlamingoClaims, FlamingoToken, engine_config_hash, pipeline_type};
 use world_id_primitives::{EmbeddingSimilarityParams, FieldElement};
-use world_id_proof::embedding_similarity_proof::{COMPARE_SOURCES, flamingo_nonce};
+use world_id_proof::embedding_similarity_proof::{PIPELINE_TYPE, flamingo_nonce};
 use world_id_test_utils::embedding_similarity::{EmbeddingSimilarityFixture, image_hash};
 
 fn zk_artifact_source() -> Arc<dyn ZkArtifactSource> {
@@ -57,7 +57,7 @@ fn flamingo_result(
     let nonce_salt = FieldElement::random(&mut rand::thread_rng());
     let claims = FlamingoClaims {
         now: u32::try_from(now_secs())?,
-        compared_entry_hashes: [
+        entry_hashes: [
             image_hash(thumbnail),
             image_hash(b"live capture"),
             challenge_hash,
@@ -66,8 +66,9 @@ fn flamingo_result(
         aud: proof_request.rp_id.into(),
         nonce: flamingo_nonce(proof_request.nonce, nonce_salt),
         aat: None,
-        compare_sources: COMPARE_SOURCES,
         engine_config_hash: engine_config_hash(&[0xE7; 32], 1, 2),
+        pipeline_type: pipeline_type(PIPELINE_TYPE),
+        strictness: 2,
         billing_nullifier,
     };
     // Through the CWT encoding, as the token reaches the Authenticator.
@@ -77,7 +78,8 @@ fn flamingo_result(
         verifier_key: verifier_sk.public(),
         signing_key_attestation: Bytes::from(verifier_sk.public().to_compressed_bytes()?.to_vec()),
         nonce_salt,
-        compared_entry_hashes: claims.compared_entry_hashes,
+        entry_hashes: claims.entry_hashes,
+        strictness: claims.strictness,
     })
 }
 
