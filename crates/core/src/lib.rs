@@ -10,8 +10,8 @@ pub use eddsa_babyjubjub::{EdDSAPrivateKey, EdDSAPublicKey, EdDSASignature};
 
 #[cfg(feature = "authenticator")]
 pub use world_id_authenticator::{
-    AccountAuthenticators, Authenticator, AuthenticatorError, CredentialInput,
-    EmbeddingSimilarityImages, FlamingoAttempt, FlamingoResult, InitializingAuthenticator,
+    AccountAuthenticators, Authenticator, AuthenticatorError, CredentialInput, EVIDENCE,
+    EmbeddingSimilarityImages, FlamingoAttempt, FlamingoResult, InitializingAuthenticator, LIVE,
     LiveCapture, OhttpClientConfig, OnchainKeyRepresentable, ProofResult, flamingo_request,
     registration,
 };

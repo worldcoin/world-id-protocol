@@ -101,7 +101,7 @@ The sidecar refuses to start with a policy that:
 - requires an AAT but accepts none
 
 Keep these points in mind:
-- **Engine hashes.** Each one is `engine_config_hash(release_hash, pipeline_id, match_strictness)` for a release manifest that was verified under an active key of the manifest's `iss`. The sidecar does not read manifests. Compute the hashes with `world_id_rp::embedding_similarity::accepted_engine_configs`, or take them from the publisher of the Engine release. Remove a release's hashes when its manifest or key is revoked.
+- **Engine hashes.** Each one is `engine_config_hash(release_hash, pipeline_id, strictness)` for a WIP-202 pipeline of a release manifest that was verified under an active key of the manifest's `iss`. The sidecar does not read manifests. Compute the hashes with `world_id_rp::embedding_similarity::accepted_engine_configs`, or take them from the publisher of the Engine release. Remove a release's hashes when its manifest or key is revoked.
 - **AAT requirement.** `aat.required` decides whether an AAT is required, whatever the request's own `aat` says. An RP that asks for an AAT in its requests must also set it here.
 - **Releases.** Each Flamingo Verifier or Engine release changes these values. Add a new release's values before Flamingo starts serving it, and remove the old values afterwards.
 

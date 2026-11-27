@@ -1,11 +1,13 @@
-//! Engine release manifests (WIP-201 §4.3.4).
+//! Engine release manifests (WIP-201 §4.4.3).
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier as _};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
+
+use crate::pipeline_type::{PipelineType, TypeError};
 
 /// The JWS `typ` of a release manifest.
 pub const MANIFEST_TYP: &str = "world-id-engine-manifest";
@@ -19,7 +21,7 @@ pub enum ManifestError {
     /// Not a compact JWS with the required header, or not the specified JSON.
     #[error("malformed {0}")]
     Malformed(&'static str),
-    /// A field breaks a rule of WIP-201 §4.3.4.
+    /// A field breaks a rule of WIP-201 §4.4.3.
     #[error("invalid {0}")]
     Invalid(&'static str),
     /// The signature does not verify under the given key.
@@ -49,36 +51,43 @@ pub struct ManifestPayload {
     pub engine_hash: [u8; 48],
     /// Greater than the `version` of every earlier release of the same `iss`.
     pub version: u64,
-    /// The release's strictness levels, strictly ascending; each means the same in every pipeline.
-    pub match_strictness_levels: Vec<u8>,
     /// The release's pipelines.
     pub pipelines: Vec<Pipeline>,
+    /// Each Engine error code, as 4 lowercase hex digits from `0001` to `fffe`, and its message.
+    pub errors: BTreeMap<String, String>,
 }
 
-/// One pipeline of a release: a set of pass/fail checks on its inputs.
+/// One pipeline of a release: an Engine computation over its inputs that passes or fails.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Pipeline {
     /// Pipeline identifier, nonzero and unique within the manifest.
     pub pipeline_id: u16,
-    /// The inputs the pipeline checks; item `i` describes the entry `pipeline_inputs[i]`.
+    /// The pipeline's type string (WIP-201 §4.3.1).
+    #[serde(rename = "type")]
+    pub type_string: String,
+    /// The strictness levels a request may pick, strictly ascending; each a level of the type.
+    pub strictness_levels: Vec<u8>,
+    /// The pipeline's inputs; item `i` describes the request's `entries[i]`.
     pub inputs: Vec<Input>,
     /// When the Verifier may release responses.
     pub response_slots: ResponseSlots,
 }
 
-/// One input a pipeline checks.
+/// One input of a pipeline.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Input {
-    /// What the input is, e.g. `live_frame`; roles may repeat.
+    /// A role of the pipeline's type, e.g. `live`.
     pub role: String,
+    /// What the input is to the Engine, e.g. `unlit_frame`; it has no protocol meaning.
+    pub label: String,
     /// Media types the Engine accepts for it, e.g. `image/jpeg`.
     pub media_types: Vec<String>,
 }
 
 /// A pipeline's response release times, in milliseconds after a request's arrival (WIP-201
-/// §4.4.4). A request still running at the last slot fails.
+/// §4.5.4). A request still running at the last slot fails.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ResponseSlots(pub Vec<u64>);
@@ -131,7 +140,7 @@ impl ReleaseManifest {
     ///
     /// # Errors
     /// Fails for a header other than `ES256`/`world-id-engine-manifest` with a `kid`, a payload
-    /// that is not the specified JSON, or a rule of WIP-201 §4.3.4 it breaks.
+    /// that is not the specified JSON, or a rule of WIP-201 §4.4.3 it breaks.
     pub fn from_jws(jws: &str) -> Result<Self, ManifestError> {
         let malformed = || ManifestError::Malformed("release manifest");
         let mut parts = jws.split('.');
@@ -224,18 +233,10 @@ impl ReleaseManifest {
             .iter()
             .find(|p| p.pipeline_id == pipeline_id)
     }
-
-    /// Whether the release lists `match_strictness`.
-    #[must_use]
-    pub fn has_match_strictness(&self, match_strictness: u8) -> bool {
-        self.payload
-            .match_strictness_levels
-            .contains(&match_strictness)
-    }
 }
 
 impl ManifestPayload {
-    /// Checks the rules of WIP-201 §4.3.4 that do not need the bundle.
+    /// Checks the rules of WIP-201 §4.4.3 that do not need the bundle, including Conformance.
     ///
     /// # Errors
     /// Returns [`ManifestError::Invalid`] naming the first violated field.
@@ -248,11 +249,7 @@ impl ManifestPayload {
             }
         };
         invalid(is_issuer(&self.iss), "iss")?;
-        let ascending = self.match_strictness_levels.windows(2).all(|w| w[0] < w[1]);
-        invalid(
-            !self.match_strictness_levels.is_empty() && ascending,
-            "match_strictness_levels",
-        )?;
+        invalid(self.errors.keys().all(|code| is_error_code(code)), "errors")?;
         invalid(!self.pipelines.is_empty(), "pipelines")?;
         let mut seen = HashSet::with_capacity(self.pipelines.len());
         let unique_pipelines = self.pipelines.iter().all(|p| seen.insert(p.pipeline_id));
@@ -267,20 +264,86 @@ impl ManifestPayload {
         invalid(
             self.pipelines.iter().all(Pipeline::has_valid_inputs),
             "inputs",
-        )
+        )?;
+        for pipeline in &self.pipelines {
+            let pipeline_type = pipeline
+                .parsed_type()
+                .map_err(|_| ManifestError::Invalid("type"))?;
+            invalid(pipeline.conforms_to(&pipeline_type), "inputs")?;
+            invalid(
+                pipeline.has_valid_strictness_levels(&pipeline_type),
+                "strictness_levels",
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Whether the release lists Engine error `code`.
+    #[must_use]
+    pub fn lists_error(&self, code: u16) -> bool {
+        self.errors.contains_key(&format!("{code:04x}"))
     }
 }
 
 impl Pipeline {
-    /// One to [`MAX_PIPELINE_INPUTS`] inputs, each with a role and at least one media type.
+    /// The parsed [`Self::type_string`]. A manifest that loaded has a valid one.
+    ///
+    /// # Errors
+    /// Fails if the type string is invalid, which [`ManifestPayload::validate`] rules out.
+    pub fn parsed_type(&self) -> Result<PipelineType, TypeError> {
+        PipelineType::parse(&self.type_string)
+    }
+
+    /// Whether the pipeline lists `strictness`.
+    #[must_use]
+    pub fn has_strictness(&self, strictness: u8) -> bool {
+        self.strictness_levels.contains(&strictness)
+    }
+
+    /// One to [`MAX_PIPELINE_INPUTS`] inputs, each with a label and at least one media type.
     fn has_valid_inputs(&self) -> bool {
         (1..=MAX_PIPELINE_INPUTS).contains(&self.inputs.len())
             && self.inputs.iter().all(|c| {
-                !c.role.is_empty()
+                !c.label.is_empty()
                     && !c.media_types.is_empty()
                     && c.media_types.iter().all(|t| t.contains('/'))
             })
     }
+
+    /// Conformance: every input's role is a member of the type, each member has as many inputs
+    /// as its cardinality allows, and no two inputs share a role and label.
+    fn conforms_to(&self, pipeline_type: &PipelineType) -> bool {
+        let mut named = HashSet::with_capacity(self.inputs.len());
+        let roles_known = self.inputs.iter().all(|input| {
+            pipeline_type.member(&input.role).is_some()
+                && named.insert((input.role.as_str(), input.label.as_str()))
+        });
+        roles_known
+            && pipeline_type.members().iter().all(|member| {
+                let count = self.inputs.iter().filter(|i| i.role == member.role).count();
+                member.cardinality.allows(count)
+            })
+    }
+
+    /// Non-empty, strictly ascending, and each a level of the type.
+    fn has_valid_strictness_levels(&self, pipeline_type: &PipelineType) -> bool {
+        !self.strictness_levels.is_empty()
+            && self.strictness_levels.windows(2).all(|w| w[0] < w[1])
+            && self
+                .strictness_levels
+                .iter()
+                .all(|&level| pipeline_type.has_level(level))
+    }
+}
+
+/// 4 lowercase hex digits from `0001` to `fffe`; `0000` and `ffff` are the Verifier's.
+fn is_error_code(code: &str) -> bool {
+    code.len() == 4
+        && code
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        && code != "0000"
+        && code != "ffff"
 }
 
 /// Whether `iss` is an `https` URL with a host and no query or fragment (RFC 8414 §2).
@@ -355,21 +418,34 @@ pub(crate) mod fixtures {
 
     pub const ISS: &str = "https://engines.example.com";
 
-    pub fn payload() -> ManifestPayload {
-        let live_frame = || Input {
-            role: "live_frame".into(),
+    /// The example type of WIP-201 §4.3.1.
+    pub const TYPE: &str = "EXAMPLE<2>(reference#,live#,evidence*)";
+
+    pub fn input(role: &str, label: &str) -> Input {
+        Input {
+            role: role.into(),
+            label: label.into(),
             media_types: vec!["image/jpeg".into(), "image/png".into()],
-        };
+        }
+    }
+
+    /// Pipeline 1 of WIP-201 Appendix A2: a reference and a single frame.
+    pub fn payload() -> ManifestPayload {
         ManifestPayload {
             iss: ISS.into(),
             engine_hash: [0x2a; 48],
             version: 1,
-            match_strictness_levels: vec![1, 2],
             pipelines: vec![Pipeline {
                 pipeline_id: 1,
-                inputs: vec![live_frame()],
+                type_string: TYPE.into(),
+                strictness_levels: vec![1, 2],
+                inputs: vec![
+                    input("reference", "stored_image"),
+                    input("live", "front_frame"),
+                ],
                 response_slots: ResponseSlots(vec![500, 1587, 5039, 16_000]),
             }],
+            errors: BTreeMap::from([("0001".into(), "No face found".into())]),
         }
     }
 
@@ -431,8 +507,11 @@ mod tests {
         assert_eq!(manifest.payload(), &payload());
         assert_eq!(manifest.payload().engine_hash, [0x2a; 48]);
         assert!(manifest.verify(&jwk(&signing_key(), KID)).is_ok());
-        assert!(manifest.pipeline(1).is_some() && manifest.pipeline(2).is_none());
-        assert!(manifest.has_match_strictness(2) && !manifest.has_match_strictness(3));
+        let pipeline = manifest.pipeline(1).unwrap();
+        assert!(manifest.pipeline(2).is_none());
+        assert!(pipeline.has_strictness(2) && !pipeline.has_strictness(3));
+        assert_eq!(pipeline.parsed_type().unwrap().name(), "EXAMPLE");
+        assert!(manifest.payload().lists_error(1) && !manifest.payload().lists_error(2));
     }
 
     #[test]
@@ -569,7 +648,7 @@ mod tests {
                 "inputs",
             ),
             (
-                Box::new(|p| p.pipelines[0].inputs[0].role = String::new()),
+                Box::new(|p| p.pipelines[0].inputs[0].label = String::new()),
                 "inputs",
             ),
             (
@@ -581,18 +660,97 @@ mod tests {
                 "inputs",
             ),
             (
-                Box::new(|p| p.match_strictness_levels.reverse()),
-                "match_strictness_levels",
+                Box::new(|p| p.pipelines[0].strictness_levels.reverse()),
+                "strictness_levels",
             ),
             (
-                Box::new(|p| p.match_strictness_levels[1] = 1),
-                "match_strictness_levels",
+                Box::new(|p| p.pipelines[0].strictness_levels[1] = 1),
+                "strictness_levels",
             ),
             (
-                Box::new(|p| p.match_strictness_levels.clear()),
-                "match_strictness_levels",
+                Box::new(|p| p.pipelines[0].strictness_levels.clear()),
+                "strictness_levels",
             ),
         ];
+        assert_rejected(cases);
+    }
+
+    #[test]
+    fn rejects_pipelines_that_do_not_conform_to_their_type() {
+        let cases: Vec<(Change, &str)> = vec![
+            // Not a level of `EXAMPLE<2>`.
+            (
+                Box::new(|p| p.pipelines[0].strictness_levels = vec![0]),
+                "strictness_levels",
+            ),
+            (
+                Box::new(|p| p.pipelines[0].strictness_levels = vec![1, 3]),
+                "strictness_levels",
+            ),
+            (
+                Box::new(|p| p.pipelines[0].type_string = "EXAMPLE(reference#)".into()),
+                "type",
+            ),
+            // A role the type lacks, a missing single role, two inputs for a single role.
+            (
+                Box::new(|p| p.pipelines[0].inputs[1].role = "other".into()),
+                "inputs",
+            ),
+            (Box::new(|p| p.pipelines[0].inputs.truncate(1)), "inputs"),
+            (
+                Box::new(|p| p.pipelines[0].inputs.push(input("live", "back_frame"))),
+                "inputs",
+            ),
+            // Two evidence inputs may not share a label.
+            (
+                Box::new(|p| {
+                    p.pipelines[0].inputs.push(input("evidence", "frame"));
+                    p.pipelines[0].inputs.push(input("evidence", "frame"));
+                }),
+                "inputs",
+            ),
+            (
+                Box::new(|p| {
+                    p.errors.insert("0000".into(), "reserved".into());
+                }),
+                "errors",
+            ),
+            (
+                Box::new(|p| {
+                    p.errors.insert("ffff".into(), "reserved".into());
+                }),
+                "errors",
+            ),
+            (
+                Box::new(|p| {
+                    p.errors.insert("00A1".into(), "uppercase".into());
+                }),
+                "errors",
+            ),
+            (
+                Box::new(|p| {
+                    p.errors.insert("1".into(), "short".into());
+                }),
+                "errors",
+            ),
+        ];
+        assert_rejected(cases);
+    }
+
+    /// A pipeline with an `evidence` input, as pipeline 2 of WIP-201 Appendix A2, conforms.
+    #[test]
+    fn accepts_evidence_inputs() {
+        let mut payload = payload();
+        payload.pipelines[0]
+            .inputs
+            .push(input("evidence", "unlit_frame"));
+        payload.pipelines[0]
+            .inputs
+            .push(input("evidence", "depth_map"));
+        assert!(ReleaseManifest::from_jws(&sign(&payload)).is_ok());
+    }
+
+    fn assert_rejected(cases: Vec<(Change, &'static str)>) {
         for (change, field) in cases {
             let mut payload = payload();
             change(&mut payload);

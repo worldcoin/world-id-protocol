@@ -1,4 +1,4 @@
-//! Engine Provider metadata (WIP-201 §4.3.6).
+//! Engine Provider metadata (WIP-201 §4.4.5).
 
 use serde::{Deserialize, Serialize};
 

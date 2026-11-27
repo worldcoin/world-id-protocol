@@ -188,14 +188,16 @@ pub enum AuthenticatorError {
     #[error("session binding requires a cached `session_id_r_seed`")]
     SessionSeedRequired,
 
-    /// The attested Flamingo release has no pipeline WIP-202 can use: one whose inputs have the
-    /// live captures' roles, in order, and at most 8 response slots (WIP-202 §4.4.1).
+    /// The attested Flamingo release has no pipeline WIP-202 can use: one of the WIP-202 type
+    /// whose live and evidence inputs have the live captures' roles and labels, in order, and
+    /// with at most 8 response slots.
     #[error("the Flamingo release has no pipeline for the live captures")]
     NoFlamingoPipeline,
 
-    /// The attested Flamingo release does not list the requested `match_strictness`.
-    #[error("the Flamingo release does not offer match strictness {0}")]
-    MatchStrictnessNotOffered(u8),
+    /// No pipeline of the attested Flamingo release that takes the live captures lists the
+    /// requested strictness.
+    #[error("the Flamingo release does not offer strictness {0}")]
+    StrictnessNotOffered(u8),
 
     /// The Flamingo request is out of the bounds of WIP-201 §4.4.1, e.g. already expired.
     #[error(transparent)]

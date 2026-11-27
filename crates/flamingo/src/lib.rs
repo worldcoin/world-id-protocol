@@ -4,23 +4,23 @@ use sha2::{Digest as _, Sha256};
 use world_id_primitives::{DomainSeparator, FieldElement, poseidon};
 
 pub mod engine_provider;
+pub mod error_code;
+pub mod pipeline_type;
 pub mod release_manifest;
 pub mod request;
 mod token;
 
 pub use engine_provider::{EngineProviderMetadata, ReleaseStatus};
+pub use error_code::{ENGINE_TIMEOUT, UNLISTED_ERROR, VerifierErrorCode};
+pub use pipeline_type::{MAX_TYPE_BYTES, PipelineType, TypeError};
 pub use release_manifest::{MAX_PIPELINE_INPUTS, ManifestError, ReleaseManifest, ResponseSlots};
-pub use request::{AatInputs, Entry, Payload, Request, RequestError};
+pub use request::{AatInputs, Payload, PayloadCommitments, Request, RequestError};
 pub use token::{
     AatFlags, EAT_PROFILE, FlamingoAatClaims, FlamingoClaims, FlamingoToken, TokenError,
 };
 
 /// Version of the request map.
 pub const REQUEST_VERSION: u64 = 1;
-/// Maximum size of the request-level `hints`, in bytes.
-pub const MAX_HINTS_BYTES: usize = 1024;
-/// Maximum size of one entry's `meta`, in bytes.
-pub const MAX_ENTRY_META_BYTES: usize = 256;
 /// Maximum age of an attestation document at verification, in seconds.
 pub const MAX_ATTESTATION_AGE: u64 = 10_800;
 /// Maximum time from the Verifier's time to a request's `expires_at`, in seconds.
