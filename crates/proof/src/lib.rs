@@ -36,11 +36,18 @@ pub use oprf_query_proof::{
 };
 
 pub mod nullifier_proof;
+pub mod nullifier_proof_verification;
+pub use nullifier_proof_verification::{
+    NullifierProofKind, NullifierProofVerificationError, NullifierPublicInputs,
+    verify_nullifier_proof,
+};
+mod nullifier_verifying_key;
 pub use nullifier_proof::{
     CircomGroth16Material, CircomGroth16MaterialBuilder, NULLIFIER_GRAPH_FINGERPRINT,
     NULLIFIER_ZKEY_FINGERPRINT, ZkeyError, generate_nullifier_proof,
     load_nullifier_material_from_paths, load_nullifier_material_from_reader,
 };
+pub use nullifier_verifying_key::nullifier_verifying_key;
 
 /// Moved to [`world_id_primitives::authenticator_assertion`]; re-exported for existing imports.
 pub use world_id_primitives::authenticator_assertion;
